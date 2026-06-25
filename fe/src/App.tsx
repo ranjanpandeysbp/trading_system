@@ -1,0 +1,85 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AppLayout } from './components/layout/AppLayout'
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import Dashboard from './pages/Dashboard'
+import Scanner from './pages/Scanner'
+import Backtester from './pages/Backtester'
+import Strategies from './pages/Strategies'
+import MarketPulse from './pages/MarketPulse'
+import TechnicalAnalysis from './pages/TechnicalAnalysis'
+import TradingHubs from './pages/TradingHubs'
+import PaperTrading from './pages/PaperTrading'
+import ManageSettings from './pages/ManageSettings'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
+import { useAuth } from './context/AuthContext'
+import { Loading } from './components/ui/Feedback'
+
+function PublicOnly({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loading message="Loading..." />
+      </div>
+    )
+  }
+  if (isAuthenticated) return <Navigate to="/" replace />
+  return children
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnly>
+            <Register />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicOnly>
+            <ForgotPassword />
+          </PublicOnly>
+        }
+      />
+      <Route path="/reset-password" element={<ResetPassword />} />
+
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/strategies" element={<Strategies />} />
+                <Route path="/strategies/:id" element={<Strategies />} />
+                <Route path="/market-pulse" element={<MarketPulse />} />
+                <Route path="/technical-analysis" element={<TechnicalAnalysis />} />
+                <Route path="/trading-hubs" element={<TradingHubs />} />
+                <Route path="/scanner" element={<Scanner />} />
+                <Route path="/backtester" element={<Backtester />} />
+                <Route path="/paper" element={<PaperTrading />} />
+                <Route path="/settings" element={<ManageSettings />} />
+              </Routes>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
+}

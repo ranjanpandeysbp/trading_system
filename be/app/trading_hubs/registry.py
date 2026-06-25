@@ -1,0 +1,256 @@
+"""Registry of Swing / Intraday / Scalping / Smart Money hub sections."""
+
+from __future__ import annotations
+
+import dataclasses
+import inspect
+from typing import Any
+
+from app.trading_hubs import (
+    intraday_alpha_945_engine,
+    intraday_fib945_engine,
+    intraday_vwap_fade_engine,
+    scalp_rectangle_engine,
+    smc_cisd_engine,
+    smc_golden_bullet_engine,
+    smc_mtf_day_plan_engine,
+    smc_weekly_sweep_cisd_engine,
+    swing_trading_st_engine,
+    swing_trading_st_ha_ema_engine,
+    swing_trading_st_kiss_engine,
+    swing_trading_st_mtf_mss_engine,
+    swing_trading_st_supertrend_engine,
+)
+from app.trading_hubs.swing_trading_st_engine import STRATEGY_CONTINUATION, STRATEGY_MEAN_REVERSION
+
+HubSection = dict[str, Any]
+
+
+def _section(
+    *,
+    id: str,
+    hub: str,
+    label: str,
+    description: str,
+    module: Any,
+    config_cls: type,
+    config_options: dict[str, Any] | None = None,
+) -> HubSection:
+    return {
+        "id": id,
+        "hub": hub,
+        "label": label,
+        "description": description,
+        "module": module,
+        "config_cls": config_cls,
+        "config_options": config_options or {},
+    }
+
+
+HUB_SECTIONS: list[HubSection] = [
+    _section(
+        id="swing_trading_st",
+        hub="swing",
+        label="Capitulation & Continuation Breakout",
+        description="Daily swing — mean reversion capitulation or continuation breakout.",
+        module=swing_trading_st_engine,
+        config_cls=swing_trading_st_engine.STConfig,
+        config_options={
+            "strategy": {
+                "type": "select",
+                "label": "Strategy",
+                "choices": [
+                    {"value": STRATEGY_MEAN_REVERSION, "label": "Mean Reversion (Capitulation)"},
+                    {"value": STRATEGY_CONTINUATION, "label": "Continuation Breakout"},
+                ],
+                "default": STRATEGY_CONTINUATION,
+            },
+        },
+    ),
+    _section(
+        id="swing_trading_st_mtf_mss",
+        hub="swing",
+        label="Weekly Fakeout + 15m MSS",
+        description="Weekly levels, daily fakeout screen, 15m market structure shift.",
+        module=swing_trading_st_mtf_mss_engine,
+        config_cls=swing_trading_st_mtf_mss_engine.MTFMSSConfig,
+    ),
+    _section(
+        id="swing_trading_st_supertrend",
+        hub="swing",
+        label="SuperTrend + SMA 10 Swing & Pyramiding",
+        description="SuperTrend with SMA trail — swing or pyramid mode.",
+        module=swing_trading_st_supertrend_engine,
+        config_cls=swing_trading_st_supertrend_engine.STSuperTrendConfig,
+        config_options={
+            "mode": {
+                "type": "select",
+                "label": "Mode",
+                "choices": [
+                    {"value": swing_trading_st_supertrend_engine.MODE_SWING, "label": "Swing"},
+                    {"value": swing_trading_st_supertrend_engine.MODE_PYRAMID, "label": "Pyramid"},
+                ],
+                "default": swing_trading_st_supertrend_engine.MODE_SWING,
+            },
+        },
+    ),
+    _section(
+        id="swing_trading_st_kiss",
+        hub="swing",
+        label="KISS Swing Systematic",
+        description="Weekly HA filter with 1h/4h KISS systematic entries.",
+        module=swing_trading_st_kiss_engine,
+        config_cls=swing_trading_st_kiss_engine.KISSConfig,
+    ),
+    _section(
+        id="swing_trading_st_ha_ema",
+        hub="swing",
+        label="Daily HA Bias + 34 EMA Intraday",
+        description="Daily Heikin-Ashi bias with 5m/15m 34 EMA execution.",
+        module=swing_trading_st_ha_ema_engine,
+        config_cls=swing_trading_st_ha_ema_engine.HAEmaConfig,
+    ),
+    _section(
+        id="intraday_alpha_945",
+        hub="intraday",
+        label="9:45 AM Alpha Scanner",
+        description="Opening 30m range breakout after 9:45 IST with relative strength filters.",
+        module=intraday_alpha_945_engine,
+        config_cls=intraday_alpha_945_engine.Alpha945Config,
+    ),
+    _section(
+        id="intraday_fib_945",
+        hub="intraday",
+        label="9:45 Fib 50% Bias + 10 EMA",
+        description="Post-9:45 Fibonacci 50% bias with 10 EMA alignment.",
+        module=intraday_fib945_engine,
+        config_cls=intraday_fib945_engine.Fib945Config,
+    ),
+    _section(
+        id="intraday_vwap_fade",
+        hub="intraday",
+        label="VWAP Fade Value Area",
+        description="Fade extensions from VWAP value area with time stop.",
+        module=intraday_vwap_fade_engine,
+        config_cls=intraday_vwap_fade_engine.VwapFadeConfig,
+    ),
+    _section(
+        id="scalp_rectangle",
+        hub="scalping",
+        label="1m Rectangle Sniper Entry",
+        description="1-minute rectangle consolidation breakout sniper entries.",
+        module=scalp_rectangle_engine,
+        config_cls=scalp_rectangle_engine.RectangleConfig,
+    ),
+    _section(
+        id="smc_cisd",
+        hub="smart_money",
+        label="CISD Entry Rule",
+        description="Liquidity sweep → CISD break → institutional entry.",
+        module=smc_cisd_engine,
+        config_cls=smc_cisd_engine.CISDConfig,
+    ),
+    _section(
+        id="smc_weekly_sweep_cisd",
+        hub="smart_money",
+        label="Weekly Liquidity Sweep & CISD",
+        description="Previous week high/low sweep with lower-TF CISD confirmation.",
+        module=smc_weekly_sweep_cisd_engine,
+        config_cls=smc_weekly_sweep_cisd_engine.WeeklySweepCISDConfig,
+    ),
+    _section(
+        id="smc_mtf_day_plan",
+        hub="smart_money",
+        label="MTF Day Plan OB · FVG · CHoCH",
+        description="HTF trend + OB/FVG zones with LTF CHoCH day plan.",
+        module=smc_mtf_day_plan_engine,
+        config_cls=smc_mtf_day_plan_engine.DayPlanConfig,
+    ),
+    _section(
+        id="smc_golden_bullet",
+        hub="smart_money",
+        label="Golden Bullet (Liquidity + Kill Zone)",
+        description="Liquidity sweep in NY kill zones with HTF bias.",
+        module=smc_golden_bullet_engine,
+        config_cls=smc_golden_bullet_engine.GoldenBulletConfig,
+    ),
+]
+
+HUB_META = {
+    "swing": {
+        "id": "swing",
+        "label": "Swing Trading",
+        "description": "Multi-day & intraday ST systems — capitulation, MSS, SuperTrend, KISS, HA+EMA.",
+    },
+    "intraday": {
+        "id": "intraday",
+        "label": "Intraday",
+        "description": "Session-timed scanners and opening-range breakout systems for NSE.",
+    },
+    "scalping": {
+        "id": "scalping",
+        "label": "Scalping",
+        "description": "High-frequency 1m setups — rectangle sniper entries and quick R:R scalps.",
+    },
+    "smart_money": {
+        "id": "smart_money",
+        "label": "Smart Money",
+        "description": "SMC liquidity, sweep, and institutional delivery models — multi-TF for India.",
+    },
+}
+
+_SECTION_BY_ID = {s["id"]: s for s in HUB_SECTIONS}
+
+
+def get_section(section_id: str) -> HubSection | None:
+    return _SECTION_BY_ID.get(section_id)
+
+
+def build_config(config_cls: type, overrides: dict[str, Any] | None) -> Any:
+    if not overrides:
+        return config_cls()
+    fields = {f.name for f in dataclasses.fields(config_cls)}
+    return config_cls(**{k: v for k, v in overrides.items() if k in fields})
+
+
+def list_hubs_payload() -> dict:
+    hubs = []
+    for hub_id, meta in HUB_META.items():
+        sections = [
+            {
+                "id": s["id"],
+                "label": s["label"],
+                "description": s["description"],
+                "config_options": s["config_options"],
+            }
+            for s in HUB_SECTIONS
+            if s["hub"] == hub_id
+        ]
+        hubs.append({**meta, "sections": sections})
+    return {"hubs": hubs}
+
+
+def run_section_scan(
+    section_id: str,
+    tickers: list[str],
+    *,
+    market: str,
+    groww_token: str,
+    exchange: str,
+    config: dict[str, Any] | None = None,
+    run_bt: bool = False,
+) -> dict[str, Any]:
+    section = get_section(section_id)
+    if not section:
+        return {"error": f"Unknown section: {section_id}"}
+    mod = section["module"]
+    cfg = build_config(section["config_cls"], config)
+    kwargs: dict[str, Any] = {
+        "cfg": cfg,
+        "groww_token": groww_token,
+        "exchange": exchange,
+    }
+    if "run_bt" in inspect.signature(mod.scan_universe).parameters:
+        kwargs["run_bt"] = run_bt
+    payload = mod.scan_universe(tickers, market, **kwargs)
+    return payload or {"error": "Scan returned no data", "results": []}
