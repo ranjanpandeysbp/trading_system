@@ -1,0 +1,212 @@
+"""Trading Hubs and Technical Analysis strategies for the backtester."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.trading_hubs.registry import HUB_META, HUB_SECTIONS
+
+ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "th_swing": "Swing Trading Hub engines — multi-day ST systems migrated from truebacktesting.",
+    "th_intraday": "Intraday Trading Hub engines — session-timed NSE scanners and opening-range setups.",
+    "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
+    "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
+    "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
+}
+
+_HUB_CATEGORY_MAP = {
+    "swing": "th_swing",
+    "intraday": "th_intraday",
+    "scalping": "th_scalping",
+    "smart_money": "th_smart_money",
+}
+
+# Default timeframes per hub section (from engine configs).
+_HUB_TIMEFRAMES: dict[str, list[str]] = {
+    "swing_trading_st": ["1d"],
+    "swing_trading_st_mtf_mss": ["15m"],
+    "swing_trading_st_supertrend": ["1d", "1wk"],
+    "swing_trading_st_kiss": ["1h", "4h"],
+    "swing_trading_st_ha_ema": ["5m", "15m"],
+    "intraday_alpha_945": ["5m", "15m"],
+    "intraday_fib_945": ["5m", "1m"],
+    "intraday_vwap_fade": ["5m", "1m"],
+    "scalp_rectangle": ["1m"],
+    "smc_cisd": ["15m", "5m"],
+    "smc_weekly_sweep_cisd": ["15m"],
+    "smc_mtf_day_plan": ["15m", "5m"],
+    "smc_golden_bullet": ["15m"],
+}
+
+_HUB_MIN_BARS: dict[str, int] = {
+    "swing_trading_st": 80,
+    "swing_trading_st_mtf_mss": 100,
+    "swing_trading_st_supertrend": 30,
+    "swing_trading_st_kiss": 80,
+    "swing_trading_st_ha_ema": 100,
+    "intraday_alpha_945": 50,
+    "intraday_fib_945": 80,
+    "intraday_vwap_fade": 80,
+    "scalp_rectangle": 80,
+    "smc_cisd": 60,
+    "smc_weekly_sweep_cisd": 80,
+    "smc_mtf_day_plan": 60,
+    "smc_golden_bullet": 80,
+}
+
+TA_STRATEGIES: list[dict[str, Any]] = [
+    {
+        "id": "ta_sentiment_screener",
+        "name": "Trend & Sentiment Screener",
+        "label": "Trend & Sentiment Screener",
+        "description": "Composite multi-indicator sentiment score with ATR-based BUY/SELL signals.",
+        "timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "min_bars": 80,
+        "runner": "rolling_sentiment",
+    },
+    {
+        "id": "ta_mtf_scanner",
+        "name": "MTF Scanner",
+        "label": "MTF Scanner",
+        "description": "Multi-timeframe confluence — bullish/bearish composite score crossovers.",
+        "timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "min_bars": 60,
+        "runner": "rolling_mtf",
+    },
+    {
+        "id": "ta_ticker_investigation",
+        "name": "Ticker Investigation (Composite)",
+        "label": "Ticker Investigation",
+        "description": "Rolling composite sentiment proxy aligned with investigation scoring on historical bars.",
+        "timeframes": ["1d", "4h", "1h"],
+        "min_bars": 80,
+        "runner": "rolling_sentiment",
+    },
+]
+
+ENGINE_STRATEGY_META: dict[str, dict[str, Any]] = {}
+ENGINE_RUNNER_KIND: dict[str, str] = {}
+
+for section in HUB_SECTIONS:
+    sid = section["id"]
+    hub = section["hub"]
+    cat_id = _HUB_CATEGORY_MAP[hub]
+    hub_label = HUB_META[hub]["label"]
+    tfs = _HUB_TIMEFRAMES.get(sid, ["1d"])
+    min_bars = _HUB_MIN_BARS.get(sid, 60)
+
+    if sid == "swing_trading_st":
+        runner = "analyze_bt"
+    elif sid in {
+        "swing_trading_st_supertrend",
+        "swing_trading_st_kiss",
+        "swing_trading_st_ha_ema",
+    }:
+        runner = "analyze_bt"
+    elif sid in {
+        "intraday_vwap_fade",
+        "intraday_fib_945",
+        "scalp_rectangle",
+        "smc_cisd",
+        "smc_weekly_sweep_cisd",
+        "smc_golden_bullet",
+    }:
+        runner = "signal_df"
+    else:
+        runner = "rolling_sentiment"
+
+    ENGINE_RUNNER_KIND[sid] = runner
+    ENGINE_STRATEGY_META[sid] = {
+        "id": sid,
+        "name": section["label"],
+        "category": cat_id,
+        "category_label": f"Trading Hubs — {hub_label}",
+        "timeframes": tfs,
+        "summary": section["description"],
+        "description": section["description"],
+        "indicators": [],
+        "entry_rules": [],
+        "exit_rules": [],
+        "needs_benchmark": False,
+        "min_bars": min_bars,
+        "engine": True,
+        "hub": hub,
+    }
+
+for ta in TA_STRATEGIES:
+    ENGINE_RUNNER_KIND[ta["id"]] = ta["runner"]
+    ENGINE_STRATEGY_META[ta["id"]] = {
+        "id": ta["id"],
+        "name": ta["name"],
+        "category": "technical_analysis",
+        "category_label": "Technical Analysis",
+        "timeframes": ta["timeframes"],
+        "summary": ta["description"],
+        "description": ta["description"],
+        "indicators": [],
+        "entry_rules": [],
+        "exit_rules": [],
+        "needs_benchmark": False,
+        "min_bars": ta["min_bars"],
+        "engine": True,
+    }
+
+ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
+    "th_swing": {
+        "label": "Trading Hubs — Swing Trading",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["th_swing"],
+        "timeframes": ["1d", "1wk", "4h", "1h", "15m", "5m"],
+        "strategy_ids": [s["id"] for s in HUB_SECTIONS if s["hub"] == "swing"],
+    },
+    "th_intraday": {
+        "label": "Trading Hubs — Intraday",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["th_intraday"],
+        "timeframes": ["5m", "15m", "1m"],
+        "strategy_ids": [s["id"] for s in HUB_SECTIONS if s["hub"] == "intraday"],
+    },
+    "th_scalping": {
+        "label": "Trading Hubs — Scalping",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["th_scalping"],
+        "timeframes": ["1m"],
+        "strategy_ids": [s["id"] for s in HUB_SECTIONS if s["hub"] == "scalping"],
+    },
+    "th_smart_money": {
+        "label": "Trading Hubs — Smart Money",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["th_smart_money"],
+        "timeframes": ["15m", "5m"],
+        "strategy_ids": [s["id"] for s in HUB_SECTIONS if s["hub"] == "smart_money"],
+    },
+    "technical_analysis": {
+        "label": "Technical Analysis",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["technical_analysis"],
+        "timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "strategy_ids": [t["id"] for t in TA_STRATEGIES],
+    },
+}
+
+
+def is_engine_strategy(name: str) -> bool:
+    return name in ENGINE_STRATEGY_META
+
+
+def engine_min_bars(name: str) -> int:
+    return int(ENGINE_STRATEGY_META.get(name, {}).get("min_bars", 60))
+
+
+def engine_runner_kind(name: str) -> str:
+    return ENGINE_RUNNER_KIND.get(name, "rolling_sentiment")
+
+
+def list_engine_categories() -> list[dict[str, Any]]:
+    categories = []
+    for cat_id, info in ENGINE_STRATEGY_CATEGORIES.items():
+        strategies = [ENGINE_STRATEGY_META[sid] for sid in info["strategy_ids"] if sid in ENGINE_STRATEGY_META]
+        categories.append({
+            "id": cat_id,
+            "label": info["label"],
+            "description": info["description"],
+            "timeframes": info["timeframes"],
+            "strategy_count": len(strategies),
+            "strategies": strategies,
+        })
+    return categories

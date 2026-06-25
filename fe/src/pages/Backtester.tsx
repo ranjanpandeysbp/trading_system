@@ -33,6 +33,21 @@ const PERIODS_BY_TIMEFRAME: Record<string, { value: string; label: string }[]> =
     { value: '60d', label: '60 days' },
     { value: '90d', label: '90 days' },
   ],
+  '30m': [
+    { value: '30d', label: '30 days' },
+    { value: '60d', label: '60 days' },
+    { value: '90d', label: '90 days' },
+  ],
+  '1h': [
+    { value: '60d', label: '60 days' },
+    { value: '90d', label: '90 days' },
+    { value: '180d', label: '180 days' },
+  ],
+  '4h': [
+    { value: '90d', label: '90 days' },
+    { value: '180d', label: '180 days' },
+    { value: '1y', label: '1 year' },
+  ],
   '1d': [
     { value: '1y', label: '1 year' },
     { value: '2y', label: '2 years' },
@@ -50,6 +65,9 @@ const DEFAULT_PERIOD: Record<string, string> = {
   '3m': '30d',
   '5m': '60d',
   '15m': '60d',
+  '30m': '60d',
+  '1h': '90d',
+  '4h': '180d',
   '1d': '2y',
   '1wk': '5y',
 }
@@ -164,7 +182,11 @@ export default function Backtester() {
               {result.period} · {result.bars_evaluated} bars · {result.signal_count} signals
               {result.benchmark_ticker ? ` · benchmark ${result.benchmark_ticker}` : ''}
             </p>
-            {result.summary && <Alert type="error">{result.summary}</Alert>}
+            {result.summary && (
+              <Alert type={result.stats.num_trades > 0 ? 'success' : 'error'}>
+                {result.summary}
+              </Alert>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <StatCard label="Trades" value={result.stats.num_trades} />
               <StatCard label="Win Rate" value={`${result.stats.win_rate_pct ?? '—'}%`} />

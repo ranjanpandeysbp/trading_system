@@ -9,6 +9,8 @@ from app.models.db_models import User
 from app.models.schemas import (
     BacktestRequest,
     BacktestResponse,
+    EtfTaRecommendRequest,
+    EtfTaScanRequest,
     ForgotPasswordRequest,
     MarketPulseCommodityRequest,
     MarketPulseHeatmapRequest,
@@ -27,6 +29,7 @@ from app.models.schemas import (
     SettingsUpdate,
     StrategyInfo,
     StrategyCategoryInfo,
+    TokenResponse,
     TradingHubScanRequest,
     UserLogin,
     UserOut,
@@ -36,6 +39,8 @@ from app.services.auth_service import AuthService
 from app.services.backtest_service import BacktestService
 from app.services.market_pulse_service import MarketPulseService
 from app.services.paper_trading_service import PaperTradingService
+from app.services.scanner_service import ScannerService
+from app.services.etf_ta_service import EtfTaService
 from app.services.trading_hub_service import TradingHubService
 from app.services.settings_service import SettingsService
 from app.strategies.registry import STRATEGY_META, list_categories
@@ -453,3 +458,32 @@ async def trading_hubs_scan(
         config=payload.config,
         run_bt=payload.run_backtest,
     )
+
+
+@router.get("/etf-ta/universe")
+async def etf_ta_universe(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db))
+    return service.universe()
+
+
+@router.post("/etf-ta/stf-shop/scan")
+async def etf_ta_stf_scan(
+    payload: EtfTaScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db))
+    return await service.scan(payload.symbols, payload.exchange)
+
+
+@router.post("/etf-ta/stf-shop/recommend")
+async def etf_ta_stf_recommend(
+    payload: EtfTaRecommendRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db))
+    return await service.recommend(payload.model_dump())

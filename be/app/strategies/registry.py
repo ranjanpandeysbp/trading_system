@@ -2,6 +2,12 @@ from collections.abc import Callable
 from typing import Any
 
 from app.strategies.catalog import CATEGORY_DESCRIPTIONS, STRATEGY_DETAILS
+from app.strategies.engine_strategies import (
+    ENGINE_STRATEGY_META,
+    engine_min_bars,
+    is_engine_strategy,
+    list_engine_categories,
+)
 from app.strategies.strategies_intraday import INTRADAY_STRATEGIES
 from app.strategies.strategies_scalping import SCALPING_STRATEGIES
 from app.strategies.strategies_swing import SWING_STRATEGIES
@@ -46,6 +52,8 @@ def needs_benchmark(name: str) -> bool:
 
 
 def min_bars_for_strategy(name: str) -> int:
+    if is_engine_strategy(name):
+        return engine_min_bars(name)
     return STRATEGY_MIN_BARS.get(name, 30)
 
 
@@ -73,6 +81,8 @@ for category, info in STRATEGY_CATEGORIES.items():
 
 
 def get_strategy(name: str) -> Callable[..., Any]:
+    if is_engine_strategy(name):
+        raise KeyError(f"Strategy {name} is an engine strategy — use EngineBacktestService")
     if name not in ALL_STRATEGIES:
         raise KeyError(f"Unknown strategy: {name}")
     return ALL_STRATEGIES[name]
@@ -111,4 +121,9 @@ def list_categories() -> list[dict[str, Any]]:
             "strategy_count": len(strategies),
             "strategies": strategies,
         })
+    categories.extend(list_engine_categories())
     return categories
+
+
+def all_strategy_meta() -> dict[str, dict[str, Any]]:
+    return {**STRATEGY_META, **ENGINE_STRATEGY_META}
