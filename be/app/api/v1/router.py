@@ -27,6 +27,7 @@ from app.models.schemas import (
     SettingsUpdate,
     StrategyInfo,
     StrategyCategoryInfo,
+    TokenResponse,
     TradingHubScanRequest,
     UserLogin,
     UserOut,
@@ -36,6 +37,7 @@ from app.services.auth_service import AuthService
 from app.services.backtest_service import BacktestService
 from app.services.market_pulse_service import MarketPulseService
 from app.services.paper_trading_service import PaperTradingService
+from app.services.scanner_service import ScannerService
 from app.services.trading_hub_service import TradingHubService
 from app.services.settings_service import SettingsService
 from app.strategies.registry import STRATEGY_META, list_categories
