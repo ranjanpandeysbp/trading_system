@@ -7,6 +7,7 @@ import Backtester from './pages/Backtester'
 import Strategies from './pages/Strategies'
 import MarketPulse from './pages/MarketPulse'
 import TechnicalAnalysis from './pages/TechnicalAnalysis'
+import EtfTaIn from './pages/EtfTaIn'
 import TradingHubs from './pages/TradingHubs'
 import PaperTrading from './pages/PaperTrading'
 import ManageSettings from './pages/ManageSettings'
@@ -71,6 +72,7 @@ export default function App() {
                 <Route path="/market-pulse" element={<MarketPulse />} />
                 <Route path="/technical-analysis" element={<TechnicalAnalysis />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
+                <Route path="/etf-ta-in" element={<EtfTaIn />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/backtester" element={<Backtester />} />
                 <Route path="/paper" element={<PaperTrading />} />

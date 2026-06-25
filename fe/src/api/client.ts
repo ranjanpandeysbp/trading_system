@@ -262,3 +262,15 @@ export const runTradingHubScan = (payload: {
   config?: Record<string, unknown>
   run_backtest?: boolean
 }) => api.post('/trading-hubs/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchEtfTaUniverse = () =>
+  api.get<{ presets: Record<string, string[]>; default_symbols: string[]; shop_39: string[]; master_backup: string[] }>(
+    '/etf-ta/universe',
+    { timeout: MP_TIMEOUT },
+  ).then((r) => r.data)
+
+export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string }) =>
+  api.post('/etf-ta/stf-shop/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const recommendEtfTaStf = (payload: Record<string, unknown>) =>
+  api.post('/etf-ta/stf-shop/recommend', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

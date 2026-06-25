@@ -191,6 +191,28 @@ class TradingHubScanRequest(BaseModel):
     run_backtest: bool = False
 
 
+class EtfTaScanRequest(BaseModel):
+    symbols: list[str] | None = None
+    exchange: str = "NSE"
+
+
+class EtfTaRecommendRequest(BaseModel):
+    symbols: list[str] | None = None
+    exchange: str = "NSE"
+    deposited_capital: float = 500_000.0
+    growth_amount: float = 0.0
+    dividend_withdrawn: float = 0.0
+    portfolio: list[dict[str, Any]] = Field(default_factory=list)
+    sip_locked: list[str] = Field(default_factory=list)
+    sell_mode: Literal["combined", "percentage", "absolute"] = "combined"
+    profit_target_pct: float = 6.0
+    profit_target_inr: float = 700.0
+    min_profit_inr: float = 500.0
+    slots_divisor: int = Field(default=60, ge=30, le=90)
+    shop_start_date: str | None = None
+    prefer_sip: bool = True
+
+
 class MarketPulseCommodityRequest(BaseModel):
     timeframes: list[str] | None = None
 

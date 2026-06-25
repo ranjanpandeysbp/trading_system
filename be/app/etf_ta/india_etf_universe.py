@@ -1,0 +1,118 @@
+"""
+india_etf_universe.py
+---------------------
+India NSE ETF universes for ETF Shop 4.0 (STF Shop tab).
+
+3.0 rule: primary shop uses **39 ETFs on 39 distinct underlying assets** — no overlap
+(e.g. not two Nifty 50 or two Bank Nifty funds in the active shop list).
+Master list (~120+) is for manual substitution when a ticker has data issues.
+"""
+
+from __future__ import annotations
+
+# Underlying asset tag → one chosen liquid NSE symbol (no duplicate exposure in Shop 3.0)
+ETF_SHOP_39_UNDERLYING: dict[str, str] = {
+    "NIFTY_50": "NIFTYBEES",
+    "NIFTY_NEXT_50": "JUNIORBEES",
+    "NIFTY_BANK": "BANKBEES",
+    "NIFTY_IT": "ITBEES",
+    "NIFTY_PSU_BANK": "PSUBNKBEES",
+    "NIFTY_MIDCAP_150": "MIDCAPETF",
+    "NIFTY_SMLCAP_250": "HDFCSML250",
+    "NIFTY_500": "ICICI500",
+    "NIFTY_100": "UTINIFTETF",
+    "SENSEX": "UTISXN50",
+    "GOLD": "GOLDBEES",
+    "SILVER": "SILVERBEES",
+    "MOMENTUM_100": "MOM100",
+    "MOMENTUM_50": "MOM50",
+    "MSCI_INDIA": "MON100",
+    "DIVIDEND_OPPORTUNITIES": "DIVOPPBEES",
+    "CONSUMPTION": "CONSUMBEES",
+    "PHARMA": "PHARMABEES",
+    "AUTO": "AUTOBEES",
+    "INFRA": "INFRABEES",
+    "CPSE": "CPSEETF",
+    "DEFENCE": "MODEFENCE",
+    "FMCG": "FMCGIETF",
+    "NV20": "NV20BEES",
+    "BHARAT_22": "BHARAT22",
+    "BSE_SENSEX_22": "ICICIB22",
+    "TOP_50_EQUAL": "MASPTOP50",
+    "MIDCAP_150_HDFC": "HDFCMID150",
+    "NETF_MID150": "NETFMID150",
+    "GROWW_POWER": "GROWWPOWER",
+    "GROWW_DEFENCE": "GROWWDEFNC",
+    "GROWW_EV": "GROWWEV",
+    "GROWW_LOW_VOL": "GROWWLOVOL",
+    "QUALITY_30": "NETFQ30",
+    "LIQUID": "LIQUIDBEES",
+    "HEALTHCARE": "HEALTHY",
+    "METAL": "METALBEES",
+    "REALTY": "REALTYBEES",
+    "ENERGY": "ENERGYBEES",
+}
+
+ETF_SHOP_39_PRIMARY: list[str] = list(ETF_SHOP_39_UNDERLYING.values())
+
+# Reverse lookup: symbol → underlying label
+ETF_UNDERLYING_LABEL: dict[str, str] = {v: k for k, v in ETF_SHOP_39_UNDERLYING.items()}
+
+# Master backup list (~120+) — substitute when Google Finance / data pull fails
+MASTER_INDIA_ETFS: list[str] = sorted(set(ETF_SHOP_39_PRIMARY + [
+    "SETFNIF50", "SETFNIFBK", "SETFNN50", "SETF10GILT", "SETFGOLD", "SETFSN50",
+    "KOTAKBKETF", "KOTAKPSUBK", "KOTAKIT", "KOTAKGOLD", "KOTAKNV20",
+    "HDFCNIF100", "HDFCNIFTY", "HDFCSENSEX", "HDFCMOMENT", "HDFCQUAL", "HDFCGROW",
+    "HDFCPVTBAN", "HDFCPHARM", "HDFCLOWVOL", "HDFCNEXT50", "HDFCGOLD",
+    "ICICITECH", "ICICIGOLD", "ICICIMCAP", "ICICISENSX", "ICICINV20", "ICICIALPLV",
+    "ICICIBANKN", "ICICIFMCG", "ICICIAUTO", "ICICIPHARM", "ICICIM150",
+    "UTIBANKETF", "UTINEXT50", "UTISENSETF", "UTINIFTETF", "UTISXN50",
+    "NIPPONETF", "NIFTYETF", "NV20BEES", "PSUBNKBEES",
+    "AXISGOLD", "AXISNIFTY", "AXISTECETF", "AXISBPSETF", "AXISCETF", "AXISHCETF",
+    "MIRAEETF", "MAFANG", "MAESG", "MAM150ETF", "MAFSETF",
+    "SBISENSEX", "SBIETFQLTY", "SBIETFIT", "SBIETFPB", "SBIETFCON",
+    "BSLNIFTY", "BSLBANKETF", "BSLGOLDETF", "BSLNIFMID150",
+    "EDELWEISSMF", "ESG", "MAKEINDIA", "EQUAL50", "ALPHAETF",
+    "MIDCETF", "SMALLCAP", "TNIDETF", "SHARIABEES",
+    "GOLDSHARE", "SILVERETF", "GOLDBEES", "SILVERBEES",
+    "LIQUIDETF", "LIQUIDBEES", "LIQUID1", "LIQUIDCETF",
+    "GROWWNET", "GROWWRAIL", "GROWWLIQID", "GROWWSLVR",
+    "MOGOLD", "MOM100", "MOM50", "MOMENTUM",
+    "TOP100CASE", "TOP10ADD", "MIDSELIQ", "MIDQ50ADD",
+    "BANKETFADD", "ITETFADD", "AUTOBEES", "CONSUMBEES",
+    "INFRABEES", "PHARMABEES", "FMCGIETF", "MODEFENCE",
+    "GROWWPOWER", "GROWWDEFNC", "GROWWEV", "GROWWLOVOL",
+    "NETFMID150", "NETFCONSUM", "NETFIT", "NETFNIF100",
+    "MASPTOP50", "MAHKTECH", "MAFCTETF",
+]))
+
+ETF_PRESETS: dict[str, list[str]] = {
+    "ETF Shop 4.0 — 39 distinct (recommended)": ETF_SHOP_39_PRIMARY,
+    "ETF Shop 3.0 — 39 distinct (legacy label)": ETF_SHOP_39_PRIMARY,
+    "Master backup (~120+)": MASTER_INDIA_ETFS,
+    "Index BEES": [
+        "NIFTYBEES", "JUNIORBEES", "BANKBEES", "ITBEES", "PSUBNKBEES", "MIDCAPETF",
+    ],
+    "Thematic / Sector": [
+        "DIVOPPBEES", "CONSUMBEES", "PHARMABEES", "AUTOBEES", "INFRABEES",
+        "FMCGIETF", "MODEFENCE", "GROWWPOWER", "GROWWDEFNC", "GROWWEV",
+        "METALBEES", "REALTYBEES", "ENERGYBEES", "HEALTHY",
+    ],
+    "Commodity": ["GOLDBEES", "SILVERBEES", "HDFCGOLD", "GOLDSHARE"],
+    "Smart Beta / Factor": [
+        "MOM100", "MOM50", "MON100", "NV20BEES", "NETFMID150", "MASPTOP50", "NETFQ30",
+    ],
+}
+
+GROWW_INDIA_MARKET = "Groww (India Stocks)"
+
+# Legacy alias
+LIQUID_INDIA_ETFS = ETF_SHOP_39_PRIMARY
+
+
+def default_etf_universe() -> list[str]:
+    return list(ETF_SHOP_39_PRIMARY)
+
+
+def underlying_for_symbol(symbol: str) -> str:
+    return ETF_UNDERLYING_LABEL.get(symbol.upper().strip(), "—")
