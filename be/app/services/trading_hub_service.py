@@ -7,7 +7,6 @@ from typing import Any
 
 from app.market_pulse.groww_auth import set_groww_token
 from app.market_pulse.serialize import json_safe
-from app.market_pulse.ticker_utils import GROWW_MARKET
 from app.services.settings_service import SettingsService
 from app.trading_hubs.registry import list_hubs_payload, run_section_scan
 
@@ -35,6 +34,7 @@ class TradingHubService:
     ) -> dict:
         token = await self._groww_token()
         exchange = await self._exchange()
+        market = await self.settings.get_default_market()
 
         def _run():
             set_groww_token(token)
@@ -42,7 +42,7 @@ class TradingHubService:
                 return run_section_scan(
                     section_id,
                     tickers[:20],
-                    market=GROWW_MARKET,
+                    market=market,
                     groww_token=token,
                     exchange=exchange,
                     config=config,

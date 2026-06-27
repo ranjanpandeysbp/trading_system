@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from typing import Any
@@ -9,14 +10,23 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.market_pulse.engine import run_true_backtest
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+from app.market_pulse.groww_auth import set_groww_token
+from app.market_pulse.indicators import calculate_dynamic_indicators
 from app.market_pulse.mtf_scanner_engine import MIN_BARS as MTF_MIN_BARS, analyze_timeframe, normalize_ohlcv
 from app.market_pulse.sentiment_screener_engine import analyze_ticker_sentiment
 from app.market_pulse.ticker_utils import GROWW_MARKET
 from app.models.schemas import BacktestRequest
 from app.services.settings_service import SettingsService
+from app.services.ta_screener_service import (
+    _DEFAULT_TF,
+    evaluate_screener_on_df,
+    is_actionable_result,
+)
 from app.strategies.backtest import backtest_signals
 from app.strategies.engine_strategies import ENGINE_STRATEGY_META, engine_runner_kind
+from app.strategies.preset_strategies import is_preset_strategy, preset_for_id
 from app.trading_hubs.registry import build_config, get_section
 
 _PERIOD_DAYS = {
@@ -65,6 +75,40 @@ def _period_to_limit(period: str, timeframe: str) -> int:
     if timeframe == "1wk":
         return max(52, int(days / 7) + 10)
     return max(100, int(days * bars_per_day) + 50)
+
+
+def _stats_from_true_backtest(bt: dict[str, Any]) -> dict[str, Any]:
+    metrics = bt.get("metrics") or {}
+    trades_df = bt.get("trades")
+    trade_rows: list[dict[str, float]] = []
+    if trades_df is not None and not trades_df.empty:
+        for _, row in trades_df.iterrows():
+            trade_rows.append({"pnl_pct": round(float(row["pnl_pct"]), 3)})
+    n = int(metrics.get("n_trades") or len(trade_rows))
+    total = float(metrics.get("total_return_pct") or 0)
+    return {
+        "num_trades": n,
+        "win_rate_pct": metrics.get("win_rate_pct"),
+        "total_return_pct": round(total, 2),
+        "avg_return_per_trade_pct": round(total / n, 3) if n else None,
+        "max_drawdown_pct": float(metrics.get("max_drawdown_pct") or 0),
+        "trades": trade_rows,
+    }
+
+
+def _recent_from_rule_df(df_result: pd.DataFrame, limit: int = 10) -> list[dict[str, Any]]:
+    if df_result is None or df_result.empty or "buy_signal" not in df_result.columns:
+        return []
+    hits = df_result[df_result["buy_signal"] == True]  # noqa: E712
+    rows: list[dict[str, Any]] = []
+    for idx, row in hits.tail(limit).iterrows():
+        rows.append({
+            "timestamp": str(idx),
+            "close": round(float(row["close"]), 2),
+            "signal": 1,
+            "action": "BUY",
+        })
+    return rows
 
 
 def _stats_from_engine_backtest(bt: dict[str, Any]) -> dict[str, Any]:
@@ -214,6 +258,19 @@ class EngineBacktestService:
         limit = _period_to_limit(period, request.timeframe)
         kind = engine_runner_kind(request.strategy)
 
+        if is_preset_strategy(request.strategy):
+            return await self._run_preset_backtest(
+                request, groww_token, exchange, costs_pct, period, limit,
+            )
+        if kind == "ta_native_bt":
+            return await self._run_ta_native_backtest(
+                request, groww_token, exchange, costs_pct, period, limit,
+            )
+        if kind == "rolling_ta_screener":
+            return await self._run_rolling_ta_screener_backtest(
+                request, groww_token, exchange, costs_pct, period, limit,
+            )
+
         if kind == "analyze_bt":
             return await self._run_analyze_backtest(
                 request, market, groww_token, exchange, costs_pct, period, limit,
@@ -225,6 +282,229 @@ class EngineBacktestService:
         return await self._run_rolling_backtest(
             request, market, groww_token, exchange, costs_pct, period, limit, kind,
         )
+
+    async def _run_preset_backtest(
+        self,
+        request: BacktestRequest,
+        groww_token: str,
+        exchange: str,
+        costs_pct: float,
+        period: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        preset = preset_for_id(request.strategy)
+        if not preset:
+            raise ValueError(f"Unknown preset strategy: {request.strategy}")
+
+        def _run():
+            from app.strategies.preset_strategies import PRESET_ID_TO_MARKET
+
+            mkt = PRESET_ID_TO_MARKET.get(request.strategy, GROWW_MARKET)
+            set_groww_token(groww_token)
+            tf = request.timeframe or preset.get("recommended_timeframe", "1d")
+            df = fetch_data_for_gap_scan(
+                request.ticker, tf, mkt, groww_token, exchange, limit=limit,
+            )
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < 30:
+                raise ValueError(f"Insufficient data for {request.ticker} ({tf})")
+
+            df = calculate_dynamic_indicators(df, preset["indicators"])
+            sl = float(preset.get("recommended_sl") or 0)
+            tp = float(preset.get("recommended_tp") or 0)
+            bt = run_true_backtest(
+                df,
+                preset["entry_rules"],
+                preset.get("exit_rules") or [],
+                initial_capital=100_000.0,
+                commission=float(costs_pct),
+                sl_pct=sl,
+                tp_pct=tp,
+            )
+            return bt, tf, len(df)
+
+        bt, tf, bars = await asyncio.to_thread(_run)
+        stats = _stats_from_true_backtest(bt)
+        df_result = bt.get("df")
+        signal_count = 0
+        if df_result is not None and not df_result.empty and "buy_signal" in df_result.columns:
+            signal_count = int(df_result["buy_signal"].sum())
+        recent = _recent_from_rule_df(df_result) if df_result is not None else []
+
+        summary = None
+        if stats["num_trades"] == 0:
+            summary = f"No completed trades ({period}, {bars} bars). Try a longer period."
+
+        return {
+            "ticker": request.ticker,
+            "strategy": request.strategy,
+            "timeframe": tf,
+            "period": period,
+            "bars_evaluated": bars,
+            "signal_count": signal_count,
+            "benchmark_ticker": None,
+            "summary": summary,
+            "stats": stats,
+            "recent_signals": recent,
+        }
+
+    async def _run_ta_native_backtest(
+        self,
+        request: BacktestRequest,
+        groww_token: str,
+        exchange: str,
+        costs_pct: float,
+        period: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        market = await self.settings.get_default_market()
+        tf = request.timeframe or _DEFAULT_TF.get(request.strategy, "1d")
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(
+                request.ticker, tf, market, groww_token, exchange, limit=limit,
+            )
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {request.ticker}")
+            result = evaluate_screener_on_df(
+                request.strategy, request.ticker, df,
+                market=market, timeframe=tf, groww_token=groww_token, exchange=exchange,
+            )
+            if result.get("error"):
+                raise ValueError(result["error"])
+            return result, df, tf
+
+        result, df, tf = await asyncio.to_thread(_run)
+
+        if request.strategy == "zireman_confluence":
+            trades_df = result.get("trades")
+            if trades_df is None or (hasattr(trades_df, "empty") and trades_df.empty):
+                stats = {
+                    "num_trades": 0, "win_rate_pct": None, "total_return_pct": 0.0,
+                    "avg_return_per_trade_pct": None, "max_drawdown_pct": 0.0, "trades": [],
+                }
+            else:
+                if not isinstance(trades_df, pd.DataFrame):
+                    trades_df = pd.DataFrame(trades_df)
+                pnl_col = "pnl_pct" if "pnl_pct" in trades_df.columns else "return_pct"
+                trade_rows = [
+                    {"pnl_pct": round(float(r[pnl_col]), 3)}
+                    for _, r in trades_df.iterrows()
+                    if pnl_col in trades_df.columns
+                ]
+                wins = trades_df[trades_df[pnl_col] > 0] if pnl_col in trades_df.columns else trades_df.iloc[0:0]
+                n = len(trade_rows)
+                total = sum(t["pnl_pct"] for t in trade_rows)
+                stats = {
+                    "num_trades": n,
+                    "win_rate_pct": round(len(wins) / n * 100, 2) if n else None,
+                    "total_return_pct": round(total, 2),
+                    "avg_return_per_trade_pct": round(total / n, 3) if n else None,
+                    "max_drawdown_pct": 0.0,
+                    "trades": trade_rows,
+                }
+            signal_count = int(result.get("signal_count") or stats["num_trades"])
+        else:
+            bt = result.get("backtest") or {}
+            stats = _stats_from_engine_backtest({
+                "total_trades": bt.get("trades", 0),
+                "pnl_pct": bt.get("total_pnl_pct", bt.get("pnl_pct", 0)),
+                "win_rate_pct": bt.get("win_rate", bt.get("win_rate_pct")),
+            })
+            signal_count = int(bt.get("trades") or stats["num_trades"])
+
+        recent = []
+        for item in (result.get("recent_trades") or [])[-10:]:
+            recent.append({
+                "timestamp": str(item.get("entry_time", item.get("time", ""))),
+                "close": float(item.get("entry", item.get("close", 0)) or 0),
+                "signal": 1,
+                "action": "BUY",
+            })
+
+        return {
+            "ticker": request.ticker,
+            "strategy": request.strategy,
+            "timeframe": tf,
+            "period": period,
+            "bars_evaluated": len(df),
+            "signal_count": signal_count,
+            "benchmark_ticker": None,
+            "summary": None if stats["num_trades"] else "No trades in engine backtest for this period.",
+            "stats": stats,
+            "recent_signals": recent,
+        }
+
+    async def _run_rolling_ta_screener_backtest(
+        self,
+        request: BacktestRequest,
+        groww_token: str,
+        exchange: str,
+        costs_pct: float,
+        period: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        market = await self.settings.get_default_market()
+        meta = ENGINE_STRATEGY_META.get(request.strategy, {})
+        tf = request.timeframe or meta.get("default_tf") or _DEFAULT_TF.get(request.strategy, "15m")
+        min_bars = int(meta.get("min_bars", 80))
+        warmup = max(min_bars, 60)
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(
+                request.ticker, tf, market, groww_token, exchange, limit=limit,
+            )
+            df = normalize_ohlcv(df)
+            if len(df) < warmup + 10:
+                raise ValueError(f"Not enough bars (need ≥{warmup + 10}). Try a longer period.")
+
+            signals = pd.Series(0, index=df.index, dtype=int)
+            step = 5 if len(df) > 300 else 3
+            for i in range(warmup, len(df), step):
+                window = df.iloc[: i + 1]
+                row = evaluate_screener_on_df(
+                    request.strategy, request.ticker, window,
+                    market=market, timeframe=tf,
+                    groww_token=groww_token, exchange=exchange,
+                )
+                if is_actionable_result(row):
+                    verdict = str(row.get("verdict", row.get("signal", ""))).upper()
+                    if "SELL" in verdict or "SHORT" in verdict or row.get("direction") == "SHORT":
+                        signals.iloc[i] = -1
+                    else:
+                        signals.iloc[i] = 1
+
+            frame = df.copy()
+            frame["signal"] = signals.values
+            stats = backtest_signals(frame, costs_pct=costs_pct)
+            return frame, stats
+
+        frame, stats = await asyncio.to_thread(_run)
+        signal_count = int((frame["signal"] != 0).sum())
+        recent_signals = _recent_signals_from_df(frame)
+        note = "Rolling TA screener replay (bar-by-bar engine evaluation)."
+
+        summary = note
+        if signal_count == 0:
+            summary += " No actionable signals in selected period."
+        elif stats["num_trades"] == 0:
+            summary += " Signals found but no completed trades."
+
+        return {
+            "ticker": request.ticker,
+            "strategy": request.strategy,
+            "timeframe": tf,
+            "period": period,
+            "bars_evaluated": len(frame),
+            "signal_count": signal_count,
+            "benchmark_ticker": None,
+            "summary": summary,
+            "stats": stats,
+            "recent_signals": recent_signals,
+        }
 
     async def _run_analyze_backtest(
         self,

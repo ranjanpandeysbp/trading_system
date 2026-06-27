@@ -1,18 +1,28 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Radar, Zap } from 'lucide-react'
-import { apiErrorMessage, executeSignal, fetchStrategyCategories, runScan, type ScanSignal } from '../api/client'
+import {
+  apiErrorMessage,
+  executeSignal,
+  fetchScannerCategories,
+  runScan,
+  type ScanSignal,
+} from '../api/client'
+import {
+  AssetClassTickerPicker,
+  type AssetClass,
+  type TickerPickerValue,
+} from '../components/command-center/AssetClassTickerPicker'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Chip } from '../components/ui/Chip'
-import { FormField, Textarea } from '../components/ui/Form'
+import { FormField, Select } from '../components/ui/Form'
 import { Alert, ConfidenceBar, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td } from '../components/ui/Table'
 
-const DEFAULT_TICKERS = 'RELIANCE, TCS, INFY, HDFCBANK, ^NSEI'
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1d']
 
 type SortKey = 'ticker' | 'strategy' | 'timeframe' | 'action' | 'price' | 'day_high' | 'day_low' | 'sl_pct' | 'tp_pct' | 'confidence_pct'
@@ -20,8 +30,10 @@ type SortKey = 'ticker' | 'strategy' | 'timeframe' | 'action' | 'price' | 'day_h
 const TF_ORDER: Record<string, number> = { '1m': 1, '3m': 2, '5m': 3, '15m': 4, '1d': 5 }
 const ACTION_ORDER = { BUY: 0, SELL: 1, HOLD: 2 }
 
-function formatPrice(value?: number | null) {
-  return value != null && value > 0 ? `₹${value.toFixed(2)}` : '—'
+function formatPrice(value?: number | null, assetClass: AssetClass = 'india') {
+  if (value == null || value <= 0) return '—'
+  const sym = assetClass === 'us' || assetClass === 'commodity' ? '$' : assetClass === 'crypto' ? '' : '₹'
+  return `${sym}${value.toFixed(2)}`
 }
 
 function signalKey(s: ScanSignal) {
@@ -56,7 +68,8 @@ function compareSignals(a: ScanSignal, b: ScanSignal, key: SortKey): number {
 export default function Scanner() {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
-  const [tickers, setTickers] = useState(DEFAULT_TICKERS)
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(() => {
     const fromUrl = searchParams.get('strategy')
     return fromUrl ? [fromUrl] : []
@@ -83,18 +96,44 @@ export default function Scanner() {
     })
   }, [signals, sortKey, sortDir])
 
-  const { data: categories } = useQuery({ queryKey: ['strategy-categories'], queryFn: fetchStrategyCategories })
-  const strategies = categories?.flatMap((c) => c.strategies)
+  const {
+    data: categories,
+    isLoading: categoriesLoading,
+    isError: categoriesError,
+    error: categoriesFetchError,
+  } = useQuery({ queryKey: ['scanner-categories'], queryFn: fetchScannerCategories })
+
+  const strategies = categories?.flatMap((c) => c.strategies) ?? []
+
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
     const fromUrl = searchParams.get('strategy')
-    if (fromUrl) setSelectedStrategies([fromUrl])
-  }, [searchParams])
+    if (fromUrl) {
+      setSelectedStrategies([fromUrl])
+      return
+    }
+    if (strategies.length && !initialized) {
+      setSelectedStrategies(strategies.map((s) => s.id))
+      setInitialized(true)
+    }
+  }, [searchParams, strategies, initialized])
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => {
+    setPicker(v)
+  }, [])
+
+  const handleAssetClassChange = (next: AssetClass) => {
+    setAssetClass(next)
+    setPicker({ tickers: [], durations: [] })
+    setSignals([])
+    setError('')
+  }
 
   const scanMutation = useMutation({
     mutationFn: runScan,
     onSuccess: (data) => { setSignals(data.signals); setError('') },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: unknown) => setError(apiErrorMessage(e)),
   })
 
   const tradeMutation = useMutation({
@@ -111,7 +150,7 @@ export default function Scanner() {
   }
 
   const handleScan = () => {
-    const tickerList = tickers.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)
+    const tickerList = picker.tickers
     if (!tickerList.length || !selectedStrategies.length || !selectedTimeframes.length) {
       setError('Select at least one ticker, strategy, and timeframe')
       return
@@ -135,9 +174,23 @@ export default function Scanner() {
             <h3 className="font-semibold text-white">Scan Configuration</h3>
           </div>
 
-          <FormField label="Tickers (comma-separated, .NS auto-added)">
-            <Textarea value={tickers} onChange={(e) => setTickers(e.target.value)} />
+          <FormField label="Asset class">
+            <Select
+              value={assetClass}
+              onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}
+            >
+              <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+              <option value="us">🇺🇸 US stocks (Yahoo)</option>
+              <option value="crypto">₿ Crypto (CoinDCX)</option>
+              <option value="commodity">🛢️ Commodity futures</option>
+            </Select>
           </FormField>
+
+          <AssetClassTickerPicker
+            key={assetClass}
+            assetClass={assetClass}
+            onChange={handlePickerChange}
+          />
 
           <FormField label="Timeframes">
             <div className="flex flex-wrap gap-2">
@@ -154,35 +207,43 @@ export default function Scanner() {
           </FormField>
 
           <FormField label={`Strategies (${selectedStrategies.length} selected)`}>
-            <div className="max-h-56 space-y-3 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/20 p-3">
-              {categories?.map((cat) => (
-                <div key={cat.id}>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    {cat.label} · {cat.timeframes.join(', ')}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {cat.strategies.map((s) => (
-                      <Chip
-                        key={s.id}
-                        selected={selectedStrategies.includes(s.id)}
-                        onClick={() => toggle(selectedStrategies, s.id, setSelectedStrategies)}
-                        title={s.summary}
-                      >
-                        {s.name}
-                      </Chip>
-                    ))}
-                  </div>
+            {categoriesLoading && <Loading message="Loading strategies…" />}
+            {categoriesError && (
+              <Alert type="error">{apiErrorMessage(categoriesFetchError)}</Alert>
+            )}
+            {!categoriesLoading && !categoriesError && (
+              <>
+                <div className="max-h-56 space-y-3 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/20 p-3">
+                  {categories?.map((cat) => (
+                    <div key={cat.id}>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        {cat.label} · {cat.timeframes.join(', ')}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {cat.strategies.map((s) => (
+                          <Chip
+                            key={s.id}
+                            selected={selectedStrategies.includes(s.id)}
+                            onClick={() => toggle(selectedStrategies, s.id, setSelectedStrategies)}
+                            title={s.summary}
+                          >
+                            {s.name}
+                          </Chip>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setSelectedStrategies(strategies?.map((s) => s.id) ?? [])}>
-                Select All
-              </Button>
-              <Button variant="ghost" size="sm" className="flex-1 sm:flex-none" onClick={() => setSelectedStrategies([])}>
-                Clear
-              </Button>
-            </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setSelectedStrategies(strategies.map((s) => s.id))}>
+                    Select All
+                  </Button>
+                  <Button variant="ghost" size="sm" className="flex-1 sm:flex-none" onClick={() => setSelectedStrategies([])}>
+                    Clear
+                  </Button>
+                </div>
+              </>
+            )}
           </FormField>
 
           <Button onClick={handleScan} disabled={scanMutation.isPending} className="w-full sm:w-auto">
@@ -230,7 +291,6 @@ export default function Scanner() {
         <Card className="mt-6">
           <h3 className="mb-4 text-base font-semibold text-white sm:text-lg">Results</h3>
 
-          {/* Mobile card list */}
           <div className="space-y-3 md:hidden">
             {sortedSignals.map((s) => (
               <div
@@ -247,12 +307,12 @@ export default function Scanner() {
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                   <div>
                     <span className="text-slate-500">Price</span>
-                    <p className="font-medium tabular-nums text-slate-200">{formatPrice(s.price)}</p>
+                    <p className="font-medium tabular-nums text-slate-200">{formatPrice(s.price, assetClass)}</p>
                   </div>
                   <div>
                     <span className="text-slate-500">Day High / Low</span>
                     <p className="font-medium tabular-nums text-slate-200">
-                      {formatPrice(s.day_high)} / {formatPrice(s.day_low)}
+                      {formatPrice(s.day_high, assetClass)} / {formatPrice(s.day_low, assetClass)}
                     </p>
                   </div>
                   <div>
@@ -286,7 +346,6 @@ export default function Scanner() {
             ))}
           </div>
 
-          {/* Desktop table */}
           <div className="hidden md:block">
           <DataTable minWidth={1050}>
             <thead>
@@ -313,9 +372,9 @@ export default function Scanner() {
                     <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs">{s.timeframe}</span>
                   </Td>
                   <Td><Badge action={s.action} /></Td>
-                  <Td className="tabular-nums">{formatPrice(s.price)}</Td>
-                  <Td className="tabular-nums text-emerald-400/90">{formatPrice(s.day_high)}</Td>
-                  <Td className="tabular-nums text-rose-400/90">{formatPrice(s.day_low)}</Td>
+                  <Td className="tabular-nums">{formatPrice(s.price, assetClass)}</Td>
+                  <Td className="tabular-nums text-emerald-400/90">{formatPrice(s.day_high, assetClass)}</Td>
+                  <Td className="tabular-nums text-rose-400/90">{formatPrice(s.day_low, assetClass)}</Td>
                   <Td>{s.sl_pct ? `${s.sl_pct}%` : '—'}</Td>
                   <Td>{s.tp_pct ? `${s.tp_pct}%` : '—'}</Td>
                   <Td className="min-w-[120px]">

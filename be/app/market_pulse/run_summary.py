@@ -72,3 +72,20 @@ def make_trade_plan(
         "exit_rule": exit_rule,
         "max_hold_exit": max_hold_exit,
     }
+
+
+def summarize_seasonality(bt_metrics: dict | None, ticker: str) -> dict:
+    """Compact summary for seasonality backtest (Streamlit / API)."""
+    m = bt_metrics or {}
+    return {
+        "ticker": ticker,
+        "cagr": m.get("CAGR") or m.get("cagr_pct"),
+        "sharpe": m.get("Sharpe") or m.get("sharpe_ratio"),
+        "max_drawdown": m.get("Max Drawdown") or m.get("max_drawdown_pct"),
+        "total_return": m.get("Total Return") or m.get("total_return_pct"),
+    }
+
+
+def render_run_summary(summary: dict) -> None:
+    """No-op outside Streamlit; seasonality tab calls this for UI parity."""
+    _ = summary

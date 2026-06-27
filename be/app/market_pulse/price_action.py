@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 """
 price_action.py
 ---------------
@@ -2280,7 +2279,7 @@ def _display_pa_result_block(key, data, is_crypto, pa_market, provider, model, a
         picker_sig = f"{provider}|{model}"
         sig_key = f"pa_ai_sig_{safe_key}"
         if force or cache_key not in st.session_state or st.session_state.get(sig_key) != picker_sig:
-            with nullcontext():
+            with st.spinner(f"🤖 Generating AI report for {symbol} | {tf}..."):
                 prompt = build_price_action_ai_prompt(symbol, tf, pa_market, a, currency)
                 report = get_price_action_ai_report(prompt, provider, model, api_key)
                 st.session_state[cache_key] = report

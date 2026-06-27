@@ -335,19 +335,8 @@ class MarketPulseService:
 
         return json_safe(await asyncio.to_thread(_wrapped))
 
-    async def ticker_investigation(self, tickers: list[str]) -> dict:
+    async def ticker_investigation(self, tickers: list[str], *, asset_class: str = "india") -> dict:
         import app.market_pulse.ticker_investigation_engine as eng
-
-        def _fetch():
-            try:
-                payload = eng.run_ticker_investigation(
-                    "india",
-                    tickers[:10],
-                    groww_token="",
-                )
-                return payload or {"error": "Investigation failed", "results": []}
-            except Exception as e:
-                return {"error": str(e), "results": []}
 
         token = await self._groww_token()
 
@@ -355,7 +344,7 @@ class MarketPulseService:
             set_groww_token(token)
             try:
                 payload = eng.run_ticker_investigation(
-                    "india",
+                    asset_class,
                     tickers[:10],
                     groww_token=token,
                 )

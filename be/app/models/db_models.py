@@ -70,3 +70,27 @@ class PaperOrder(Base):
     sl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     tp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AlertMonitor(Base):
+    __tablename__ = "alert_monitors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    market: Mapped[str] = mapped_column(String(64))
+    ticker: Mapped[str] = mapped_column(String(32))
+    timeframe: Mapped[str] = mapped_column(String(8))
+    strategy_name: Mapped[str] = mapped_column(String(256))
+    indicators_json: Mapped[str] = mapped_column(Text)
+    entry_rules_json: Mapped[str] = mapped_column(Text)
+    exit_rules_json: Mapped[str] = mapped_column(Text)
+    entry_mode: Mapped[str] = mapped_column(String(8), default="AND")
+    poll_minutes: Mapped[int] = mapped_column(Integer, default=15)
+    notify_telegram: Mapped[bool] = mapped_column(default=True)
+    notify_email: Mapped[bool] = mapped_column(default=False)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_signal: Mapped[str] = mapped_column(String(16), default="INACTIVE")
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

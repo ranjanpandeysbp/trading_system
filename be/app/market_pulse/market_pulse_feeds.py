@@ -45,6 +45,8 @@ INDIA_NEWS_FEEDS: list[tuple[str, str, int]] = [
     ("LiveMint Markets", "https://www.livemint.com/rss/markets", 8),
     ("Financial Express Markets", "https://www.financialexpress.com/market/feed/", 8),
     ("NDTV Profit", "https://feeds.feedburner.com/ndtvprofit-latest", 8),
+    ("CoinTelegraph", "https://cointelegraph.com/rss", 6),
+    ("CryptoSlate", "https://cryptoslate.com/feed/", 6),
 ]
 
 GLOBAL_NEWS_FEEDS: list[tuple[str, str, int]] = [
@@ -548,10 +550,6 @@ def get_upcoming_events(reference: date | None = None) -> tuple[list[dict], list
     return india, global_ev
 
 
-def fetch_india_news() -> list[dict]:
-    return fetch_news()
-
-
-def get_india_events(reference: date | None = None) -> list[dict]:
-    india, _global = get_upcoming_events(reference)
-    return india
+# Aliases used by india_loader / Market Pulse API
+fetch_india_news = fetch_news
+get_india_events = get_upcoming_events

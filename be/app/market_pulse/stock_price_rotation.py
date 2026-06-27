@@ -7,8 +7,6 @@ Ranks stocks by return over a user-selected candle interval and lookback window.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
-
 import logging
 from typing import Iterable
 
@@ -552,7 +550,10 @@ def render_stock_price_rotation_tab() -> None:
             compute_stock_price_rotation.clear()
             feed_label = "Groww API" if use_groww else "yfinance"
             sym_tuple = tuple(selected_symbols)
-            with nullcontext():
+            with st.spinner(
+                f"Computing rotation for {len(sym_tuple)} stocks vs {index_name} "
+                f"({tf_key}, {lookback_bars} bars) via {feed_label}…"
+            ):
                 result = compute_stock_price_rotation(
                     index_name,
                     sym_tuple,

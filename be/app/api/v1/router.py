@@ -7,6 +7,12 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.db_models import User
 from app.models.schemas import (
+    AIConfigResponse,
+    AlertMonitorCreate,
+    AskAIRequest,
+    AskAIResponse,
+    CommandCenterBuySellRequest,
+    CommandCenterMegaRequest,
     BacktestRequest,
     BacktestResponse,
     EtfTaRecommendRequest,
@@ -25,25 +31,42 @@ from app.models.schemas import (
     ResetPasswordRequest,
     ScanRequest,
     ScanResponse,
+    SeasonalityRequest,
     SettingsResponse,
     SettingsUpdate,
     StrategyInfo,
     StrategyCategoryInfo,
+    StrategyLabBacktestRequest,
+    StrategyLabMultiComboRequest,
+    StrategyLabScreenerRequest,
     TokenResponse,
     TradingHubScanRequest,
+    TaScreenerRunRequest,
     UserLogin,
     UserOut,
     UserRegister,
 )
+from app.services.command_center_service import CommandCenterService
+from app.services.ticker_universe_service import TickerUniverseService
+from app.services.alerts_service import AlertsService
 from app.services.auth_service import AuthService
+from app.services.ai_service import AIService
 from app.services.backtest_service import BacktestService
 from app.services.market_pulse_service import MarketPulseService
 from app.services.paper_trading_service import PaperTradingService
 from app.services.scanner_service import ScannerService
+from app.services.seasonality_service import SeasonalityService
+from app.services.strategy_lab_service import StrategyLabService
+from app.services.ta_screener_service import TaScreenerService
 from app.services.etf_ta_service import EtfTaService
 from app.services.trading_hub_service import TradingHubService
 from app.services.settings_service import SettingsService
-from app.strategies.registry import STRATEGY_META, list_categories
+from app.strategies.registry import (
+    all_strategy_meta_for_api,
+    get_strategy_meta_for_api,
+    list_categories,
+    list_scanner_categories,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -109,7 +132,7 @@ async def logout():
 
 @router.get("/strategies", response_model=list[StrategyInfo])
 async def list_strategies():
-    return [StrategyInfo(**meta) for meta in STRATEGY_META.values()]
+    return [StrategyInfo(**meta) for meta in all_strategy_meta_for_api().values()]
 
 
 @router.get("/strategies/categories", response_model=list[StrategyCategoryInfo])
@@ -117,9 +140,14 @@ async def list_strategy_categories():
     return [StrategyCategoryInfo(**cat) for cat in list_categories()]
 
 
+@router.get("/strategies/scanner-categories", response_model=list[StrategyCategoryInfo])
+async def list_scanner_strategy_categories():
+    return [StrategyCategoryInfo(**cat) for cat in list_scanner_categories()]
+
+
 @router.get("/strategies/{strategy_id}", response_model=StrategyInfo)
 async def get_strategy_detail(strategy_id: str):
-    meta = STRATEGY_META.get(strategy_id)
+    meta = get_strategy_meta_for_api(strategy_id)
     if not meta:
         raise HTTPException(status_code=404, detail=f"Unknown strategy: {strategy_id}")
     return StrategyInfo(**meta)
@@ -182,6 +210,41 @@ async def test_provider(
     settings = SettingsService(db)
     provider = await DataProviderFactory.get_provider(settings)
     return await provider.health_check()
+
+
+@router.get("/markets")
+async def list_markets():
+    from app.market_pulse.ticker_utils import MARKET_OPTIONS
+    return {"markets": MARKET_OPTIONS}
+
+
+@router.get("/ai/config", response_model=AIConfigResponse)
+async def ai_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = AIService(SettingsService(db))
+    return AIConfigResponse(**await service.provider_config())
+
+
+@router.post("/ai/ask", response_model=AskAIResponse)
+async def ai_ask(
+    payload: AskAIRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = AIService(SettingsService(db))
+    try:
+        result = await service.ask(
+            context=payload.context,
+            question=payload.question,
+            system_prompt=payload.system_prompt,
+            section=payload.section,
+            max_tokens=payload.max_tokens,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AskAIResponse(**result)
 
 
 @router.get("/paper/account")
@@ -423,7 +486,226 @@ async def market_pulse_ticker_investigation(
     current_user: User = Depends(get_current_user),
 ):
     service = MarketPulseService(SettingsService(db))
-    return await service.ticker_investigation(payload.tickers)
+    return await service.ticker_investigation(payload.tickers, asset_class=payload.asset_class)
+
+
+@router.get("/command-center/sections")
+async def command_center_sections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return CommandCenterService(SettingsService(db)).sections()
+
+
+@router.get("/command-center/ticker-universe")
+async def command_center_ticker_universe(
+    asset_class: str = "india",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if asset_class not in {"india", "us", "crypto", "commodity"}:
+        raise HTTPException(status_code=400, detail=f"Unknown asset class: {asset_class}")
+    return await CommandCenterService(SettingsService(db)).ticker_universe(asset_class)
+
+
+@router.get("/command-center/ticker-suggestions")
+async def command_center_ticker_suggestions(
+    asset_class: str = "india",
+    q: str = "",
+    limit: int = 80,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if asset_class not in {"india", "us", "crypto", "commodity"}:
+        raise HTTPException(status_code=400, detail=f"Unknown asset class: {asset_class}")
+    svc = TickerUniverseService()
+    return {"tickers": svc.suggest(asset_class, q, limit=min(limit, 200))}
+
+
+@router.get("/command-center/tomorrow-outlook")
+async def command_center_tomorrow(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db))
+    return await service.tomorrow_outlook()
+
+
+@router.post("/command-center/buy-sell")
+async def command_center_buy_sell(
+    payload: CommandCenterBuySellRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db))
+    return await service.buy_sell_advisor(
+        payload.tickers,
+        asset_class=payload.asset_class,
+        scenario=payload.scenario,
+        durations=payload.durations,
+    )
+
+
+@router.post("/command-center/mega-analyser")
+async def command_center_mega(
+    payload: CommandCenterMegaRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db))
+    return await service.mega_analyser(
+        payload.tickers,
+        asset_class=payload.asset_class,
+        durations=payload.durations,
+    )
+
+
+@router.get("/technical-analysis/screeners")
+async def ta_screener_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return TaScreenerService(SettingsService(db)).catalog()
+
+
+@router.post("/technical-analysis/scan")
+async def ta_screener_scan(
+    payload: TaScreenerRunRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = TaScreenerService(SettingsService(db))
+    try:
+        return await service.run(
+            payload.screener_id,
+            payload.tickers,
+            timeframe=payload.timeframe,
+            options=payload.options,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-lab/sections")
+async def strategy_lab_sections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return StrategyLabService(SettingsService(db)).sections()
+
+
+@router.get("/strategy-lab/presets")
+async def strategy_lab_presets(
+    market: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await StrategyLabService(SettingsService(db)).presets(market)
+
+
+@router.post("/strategy-lab/backtest")
+async def strategy_lab_backtest(
+    payload: StrategyLabBacktestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLabService(SettingsService(db))
+    try:
+        return await service.backtest(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/strategy-lab/multi-combo")
+async def strategy_lab_multi_combo(
+    payload: StrategyLabMultiComboRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLabService(SettingsService(db))
+    return await service.multi_combo(payload.model_dump())
+
+
+@router.post("/strategy-lab/screener")
+async def strategy_lab_screener(
+    payload: StrategyLabScreenerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLabService(SettingsService(db))
+    return await service.screener_scan(payload.model_dump())
+
+
+@router.post("/seasonality/analyze")
+async def seasonality_analyze(
+    payload: SeasonalityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = SeasonalityService(SettingsService(db))
+    return await service.analyze(payload.tickers, years=payload.years)
+
+
+@router.get("/alerts/config")
+async def alerts_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await AlertsService(db, SettingsService(db)).config()
+
+
+@router.get("/alerts/monitors")
+async def alerts_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return {"monitors": await AlertsService(db, SettingsService(db)).list_monitors(current_user.id)}
+
+
+@router.post("/alerts/monitors")
+async def alerts_create(
+    payload: AlertMonitorCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    mon = await AlertsService(db, SettingsService(db)).create_monitor(
+        current_user.id, payload.model_dump(),
+    )
+    return mon
+
+
+@router.delete("/alerts/monitors/{monitor_id}")
+async def alerts_delete(
+    monitor_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ok = await AlertsService(db, SettingsService(db)).delete_monitor(current_user.id, monitor_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Monitor not found")
+    return {"deleted": True}
+
+
+@router.patch("/alerts/monitors/{monitor_id}")
+async def alerts_toggle(
+    monitor_id: int,
+    enabled: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ok = await AlertsService(db, SettingsService(db)).toggle_monitor(current_user.id, monitor_id, enabled)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Monitor not found")
+    return {"enabled": enabled}
+
+
+@router.post("/alerts/poll")
+async def alerts_poll(
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await AlertsService(db, SettingsService(db)).poll_all(current_user.id, force=force)
 
 
 @router.post("/market-pulse/commodity-screener")

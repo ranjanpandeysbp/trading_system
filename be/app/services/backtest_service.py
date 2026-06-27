@@ -6,12 +6,12 @@ from app.models.schemas import BacktestRequest
 from app.services.engine_backtest_service import EngineBacktestService
 from app.services.settings_service import SettingsService
 from app.strategies.backtest import backtest_signals
-from app.strategies.engine_strategies import is_engine_strategy
 from app.strategies.registry import (
     default_backtest_period,
     get_strategy,
     min_bars_for_strategy,
     needs_benchmark,
+    uses_engine_backtest,
 )
 
 
@@ -20,7 +20,7 @@ class BacktestService:
         self.settings = settings
 
     async def run(self, request: BacktestRequest) -> dict:
-        if is_engine_strategy(request.strategy):
+        if uses_engine_backtest(request.strategy):
             return await EngineBacktestService(self.settings).run(request)
 
         provider = await DataProviderFactory.get_provider(self.settings)

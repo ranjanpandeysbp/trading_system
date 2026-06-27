@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.market_pulse.pa_sr_helpers import _calc_atr
+from app.market_pulse.price_action import _calc_atr
 from app.market_pulse.sr_breakout import _find_swing_points
 
 

@@ -139,7 +139,7 @@ export default function Backtester() {
     <div>
       <PageHeader
         title="Backtester"
-        description="Evaluate strategy signals on historical data with configurable period and transaction costs"
+        description="Backtest built-in rules, Trading Hubs, TA screeners, and Strategy Lab presets on historical data"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, Settings2, Wifi } from 'lucide-react'
+import { Bot, Database, Settings2, Wifi } from 'lucide-react'
 import { getSettings, testProvider, updateSettings } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -8,12 +8,19 @@ import { Button } from '../components/ui/Button'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
-const modules = [
-  'Data: yfinance / Groww providers (pluggable)',
-  'Strategies: 15 rule-based (scalping / intraday / swing)',
-  'Scanner: multi-ticker × strategy × timeframe',
-  'Backtester: transparent signal evaluation',
-  'Paper Trading: SQLite-backed virtual portfolio',
+const GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'llama3-70b-8192',
+  'mixtral-8x7b-32768',
+]
+
+const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-3.1-flash-lite']
+
+const MARKETS = [
+  'Groww (India Stocks)',
+  'US Stocks (Yahoo)',
+  'CoinDCX Futures',
 ]
 
 export default function ManageSettings() {
@@ -23,6 +30,12 @@ export default function ManageSettings() {
   const [provider, setProvider] = useState('yfinance')
   const [growwToken, setGrowwToken] = useState('')
   const [growwExchange, setGrowwExchange] = useState('NSE')
+  const [geminiKey, setGeminiKey] = useState('')
+  const [groqKey, setGroqKey] = useState('')
+  const [aiProvider, setAiProvider] = useState('Google Gemini')
+  const [groqModel, setGroqModel] = useState(GROQ_MODELS[0])
+  const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0])
+  const [defaultMarket, setDefaultMarket] = useState(MARKETS[0])
   const [initialCapital, setInitialCapital] = useState(1000000)
   const [costsPct, setCostsPct] = useState(0.0008)
   const [benchmark, setBenchmark] = useState('^NSEI')
@@ -36,12 +49,22 @@ export default function ManageSettings() {
       setInitialCapital(settings.initial_capital)
       setCostsPct(settings.costs_pct)
       setBenchmark(settings.benchmark_ticker)
+      setAiProvider(settings.ai_provider ?? 'Google Gemini')
+      setGroqModel(settings.groq_model ?? GROQ_MODELS[0])
+      setGeminiModel(settings.gemini_model ?? GEMINI_MODELS[0])
+      setDefaultMarket(settings.default_market ?? MARKETS[0])
     }
   }, [settings])
 
   const saveMutation = useMutation({
     mutationFn: updateSettings,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); setMsg('Settings saved'); setGrowwToken('') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      setMsg('Settings saved')
+      setGrowwToken('')
+      setGeminiKey('')
+      setGroqKey('')
+    },
     onError: (e: Error) => setMsg(e.message),
   })
 
@@ -51,13 +74,28 @@ export default function ManageSettings() {
     onError: (e: Error) => setTestResult({ ok: false, error: e.message }),
   })
 
+  const savePayload = () => ({
+    data_provider: provider,
+    ...(growwToken ? { groww_api_token: growwToken } : {}),
+    groww_exchange: growwExchange,
+    ...(geminiKey ? { gemini_api_key: geminiKey } : {}),
+    ...(groqKey ? { groq_api_key: groqKey } : {}),
+    ai_provider: aiProvider,
+    groq_model: groqModel,
+    gemini_model: geminiModel,
+    default_market: defaultMarket,
+    benchmark_ticker: benchmark,
+    initial_capital: initialCapital,
+    costs_pct: costsPct,
+  })
+
   if (isLoading) return <Loading message="Loading settings..." />
 
   return (
     <div>
       <PageHeader
         title="Manage Settings"
-        description="Configure data provider, API tokens, capital, and benchmark index"
+        description="Data provider · Groww · Gemini · Groq · default market · paper trading defaults"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -74,18 +112,18 @@ export default function ManageSettings() {
             </Select>
           </FormField>
 
+          <FormField label="Default market (India · US · Crypto)">
+            <Select value={defaultMarket} onChange={(e) => setDefaultMarket(e.target.value)}>
+              {MARKETS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </Select>
+          </FormField>
+
           {provider === 'groww' && (
             <>
               <FormField label={`Groww Bearer Token ${settings?.groww_token_set ? '(saved — enter new to replace)' : '(optional)'}`}>
-                <Input
-                  type="password"
-                  value={growwToken}
-                  onChange={(e) => setGrowwToken(e.target.value)}
-                  placeholder="Paste Groww API bearer token"
-                />
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Without token: public charting API. With token: authenticated REST + live quotes.
-                </p>
+                <Input type="password" value={growwToken} onChange={(e) => setGrowwToken(e.target.value)} placeholder="Paste Groww API bearer token" />
               </FormField>
               <FormField label="Exchange">
                 <Select value={growwExchange} onChange={(e) => setGrowwExchange(e.target.value)}>
@@ -96,23 +134,12 @@ export default function ManageSettings() {
             </>
           )}
 
-          <FormField label="Benchmark Ticker (for relative strength strategy)">
+          <FormField label="Benchmark Ticker">
             <Input value={benchmark} onChange={(e) => setBenchmark(e.target.value)} />
           </FormField>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => saveMutation.mutate({
-                data_provider: provider,
-                ...(growwToken ? { groww_api_token: growwToken } : {}),
-                groww_exchange: growwExchange,
-                benchmark_ticker: benchmark,
-                initial_capital: initialCapital,
-                costs_pct: costsPct,
-              })}
-              disabled={saveMutation.isPending}
-            >
+            <Button className="w-full sm:w-auto" onClick={() => saveMutation.mutate(savePayload())} disabled={saveMutation.isPending}>
               Save Settings
             </Button>
             <Button className="w-full sm:w-auto" variant="secondary" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
@@ -125,38 +152,77 @@ export default function ManageSettings() {
           {testResult && (
             <Alert type={testResult.ok ? 'success' : 'error'}>
               {testResult.ok
-                ? `Provider OK — ${String(testResult.provider)} (${String(testResult.mode ?? 'connected')}, ${String(testResult.rows ?? '')} bars)`
+                ? `Provider OK — ${String(testResult.provider)}`
                 : `Failed: ${String(testResult.error)}`}
             </Alert>
           )}
         </Card>
 
-        <div className="space-y-6">
-          <Card>
-            <h3 className="mb-5 font-semibold text-white">Trading Defaults</h3>
-            <FormField label="Initial Paper Capital (₹)">
-              <Input type="number" value={initialCapital} onChange={(e) => setInitialCapital(parseFloat(e.target.value))} />
-            </FormField>
-            <FormField label="Default Round-trip Cost %">
-              <Input type="number" step="0.0001" value={costsPct} onChange={(e) => setCostsPct(parseFloat(e.target.value))} />
-            </FormField>
-          </Card>
+        <Card>
+          <div className="mb-5 flex items-center gap-2">
+            <Bot className="text-violet-400" size={20} />
+            <h3 className="font-semibold text-white">AI Settings (Ask AI · AI View)</h3>
+          </div>
 
-          <Card>
-            <div className="mb-4 flex items-center gap-2">
-              <Database className="text-violet-400" size={20} />
-              <h3 className="font-semibold text-white">Module Architecture</h3>
-            </div>
-            <ul className="space-y-2">
-              {modules.map((item) => (
-                <li key={item} className="flex items-start gap-2 text-sm text-slate-400">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
+          <FormField label="AI Provider">
+            <Select value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+              <option value="Google Gemini">Google Gemini</option>
+              <option value="Groq (LLaMA)">Groq (LLaMA)</option>
+            </Select>
+          </FormField>
+
+          <FormField label={`Gemini API Key ${settings?.gemini_token_set ? '(saved)' : ''}`}>
+            <Input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIza…" />
+          </FormField>
+
+          <FormField label={`Groq API Key ${settings?.groq_token_set ? '(saved)' : ''}`}>
+            <Input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)} placeholder="gsk_…" />
+          </FormField>
+
+          {aiProvider === 'Groq (LLaMA)' ? (
+            <FormField label="Groq Model">
+              <Select value={groqModel} onChange={(e) => setGroqModel(e.target.value)}>
+                {GROQ_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </Select>
+            </FormField>
+          ) : (
+            <FormField label="Gemini Model">
+              <Select value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+                {GEMINI_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </Select>
+            </FormField>
+          )}
+
+          <p className="text-xs text-slate-500">
+            Keys are stored in the app database (same as Groww token). Env vars GEMINI_API_KEY / GROQ_API_KEY are used as fallback.
+          </p>
+
+          <Button className="mt-4" onClick={() => saveMutation.mutate(savePayload())} disabled={saveMutation.isPending}>
+            Save AI Settings
+          </Button>
+        </Card>
+
+        <Card>
+          <h3 className="mb-5 font-semibold text-white">Trading Defaults</h3>
+          <FormField label="Initial Paper Capital (₹)">
+            <Input type="number" value={initialCapital} onChange={(e) => setInitialCapital(parseFloat(e.target.value))} />
+          </FormField>
+          <FormField label="Default Round-trip Cost %">
+            <Input type="number" step="0.0001" value={costsPct} onChange={(e) => setCostsPct(parseFloat(e.target.value))} />
+          </FormField>
+        </Card>
+
+        <Card>
+          <div className="mb-4 flex items-center gap-2">
+            <Database className="text-violet-400" size={20} />
+            <h3 className="font-semibold text-white">Migrated from truebacktesting</h3>
+          </div>
+          <ul className="space-y-2 text-sm text-slate-400">
+            <li>Command Center · Market Pulse · TA screeners · Trading Hubs · ETF STF Shop</li>
+            <li>India · US · Crypto markets · Ask AI on all scan sections</li>
+            <li>Run <code className="text-slate-300">python scripts/migrate_full_tb.py</code> to copy remaining engines</li>
+          </ul>
+        </Card>
       </div>
     </div>
   )

@@ -1,15 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 
 const nav = [
   { to: '/', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
+  { to: '/command-center', label: 'Command Center', shortLabel: 'Command', icon: Compass },
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
   { to: '/market-pulse', label: 'Market Pulse', shortLabel: 'Pulse', icon: Activity },
   { to: '/etf-ta-in', label: 'ETF TA IN', shortLabel: 'ETF', icon: Landmark },
   { to: '/trading-hubs', label: 'Trading Hubs', shortLabel: 'Hubs', icon: Layers },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
+  { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
+  { to: '/seasonality', label: 'Seasonality', shortLabel: 'Season', icon: CalendarRange },
+  { to: '/alerts', label: 'Alerts', shortLabel: 'Alerts', icon: Bell },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },

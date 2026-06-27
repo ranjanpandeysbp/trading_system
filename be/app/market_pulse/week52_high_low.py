@@ -7,8 +7,6 @@ Shows stocks at/near 52W extremes plus % distance from ATH and ATL.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
-
 import logging
 import time
 from typing import Optional
@@ -704,7 +702,7 @@ def render_week52_high_low_tab() -> None:
     sr_map: dict[str, dict] = {}
     if hit_indices:
         from app.market_pulse.news_scanner import fetch_index_sr_levels
-        with nullcontext():
+        with st.spinner(f"Loading S/R for {len(hit_indices)} indices with hits…"):
             sr_map = fetch_index_sr_levels(tuple(hit_indices))
 
     st.markdown("### 📂 By index")

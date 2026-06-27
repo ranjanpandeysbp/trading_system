@@ -42,6 +42,56 @@ class SettingsService:
     async def get_benchmark_ticker(self) -> str:
         return await self._get("benchmark_ticker", settings.benchmark_ticker)
 
+    async def get_gemini_api_key(self) -> str | None:
+        token = await self._get("gemini_api_key", "")
+        if not token:
+            import os
+            token = (os.getenv("GEMINI_API_KEY") or "").strip()
+        return token or None
+
+    async def get_groq_api_key(self) -> str | None:
+        token = await self._get("groq_api_key", "")
+        if not token:
+            import os
+            token = (os.getenv("GROQ_API_KEY") or "").strip()
+        return token or None
+
+    async def get_ai_provider(self) -> str:
+        provider = await self._get("ai_provider", "")
+        if not provider:
+            gemini = await self.get_gemini_api_key()
+            groq = await self.get_groq_api_key()
+            if gemini:
+                return "Google Gemini"
+            if groq:
+                return "Groq (LLaMA)"
+            return "Google Gemini"
+        return provider
+
+    async def get_groq_model(self) -> str:
+        import os
+        return await self._get("groq_model", os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+
+    async def get_gemini_model(self) -> str:
+        import os
+        return await self._get("gemini_model", os.getenv("MODEL_NAME", "gemini-2.0-flash"))
+
+    async def get_ai_model(self, provider: str | None = None) -> str:
+        provider = provider or await self.get_ai_provider()
+        if provider == "Groq (LLaMA)":
+            return await self.get_groq_model()
+        return await self.get_gemini_model()
+
+    async def get_api_key_for_provider(self, provider: str) -> str | None:
+        if provider == "Groq (LLaMA)":
+            return await self.get_groq_api_key()
+        if provider == "Google Gemini":
+            return await self.get_gemini_api_key()
+        return None
+
+    async def get_default_market(self) -> str:
+        return await self._get("default_market", "Groww (India Stocks)")
+
     async def get_all(self) -> dict:
         token = await self.get_groww_token()
         return {
@@ -51,6 +101,12 @@ class SettingsService:
             "initial_capital": await self.get_initial_capital(),
             "costs_pct": await self.get_costs_pct(),
             "benchmark_ticker": await self.get_benchmark_ticker(),
+            "gemini_token_set": bool(await self.get_gemini_api_key()),
+            "groq_token_set": bool(await self.get_groq_api_key()),
+            "ai_provider": await self.get_ai_provider(),
+            "groq_model": await self.get_groq_model(),
+            "gemini_model": await self.get_gemini_model(),
+            "default_market": await self.get_default_market(),
         }
 
     async def update(self, payload: dict) -> dict:
@@ -66,4 +122,16 @@ class SettingsService:
             await self._set("costs_pct", str(payload["costs_pct"]))
         if payload.get("benchmark_ticker") is not None:
             await self._set("benchmark_ticker", payload["benchmark_ticker"])
+        if payload.get("gemini_api_key") is not None:
+            await self._set("gemini_api_key", payload["gemini_api_key"])
+        if payload.get("groq_api_key") is not None:
+            await self._set("groq_api_key", payload["groq_api_key"])
+        if payload.get("ai_provider") is not None:
+            await self._set("ai_provider", payload["ai_provider"])
+        if payload.get("groq_model") is not None:
+            await self._set("groq_model", payload["groq_model"])
+        if payload.get("gemini_model") is not None:
+            await self._set("gemini_model", payload["gemini_model"])
+        if payload.get("default_market") is not None:
+            await self._set("default_market", payload["default_market"])
         return await self.get_all()

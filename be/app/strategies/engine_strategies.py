@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.trading_hubs.registry import HUB_META, HUB_SECTIONS
+from app.market_pulse.ta_screener_registry import TA_SCREENERS
 
 ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_swing": "Swing Trading Hub engines — multi-day ST systems migrated from truebacktesting.",
@@ -12,6 +13,7 @@ ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
     "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
     "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
+    "ta_screeners": "TA screener engines — S-R, fakeout, SMC, crypto wave, and confluence scanners.",
 }
 
 _HUB_CATEGORY_MAP = {
@@ -151,6 +153,66 @@ for ta in TA_STRATEGIES:
         "engine": True,
     }
 
+_TA_SCREENER_RUNNERS: dict[str, str] = {
+    "zireman_confluence": "ta_native_bt",
+    "pump_dump_breakout": "ta_native_bt",
+}
+
+_TA_SCREENER_MIN_BARS: dict[str, int] = {
+    "weak_strong_sr": 100,
+    "fakeout_4h": 120,
+    "fakeout_15m": 150,
+    "top_down_mtf": 80,
+    "smc_fake_shift": 100,
+    "weekly_stoch": 60,
+    "kn_smart_rsi": 100,
+    "velez_retracement": 100,
+    "smart_wave_crypto": 80,
+    "crypto_scalping": 100,
+    "pump_dump_breakout": 80,
+    "big_whale": 60,
+    "zireman_confluence": 80,
+}
+
+for screener in TA_SCREENERS:
+    sid = screener["id"]
+    if sid in {"ticker_investigation", "sentiment_screener", "mtf_scanner"}:
+        continue
+    if not screener.get("engine"):
+        continue
+    default_tf = screener.get("default_tf", "15m")
+    tfs = [default_tf]
+    if default_tf == "15m":
+        tfs = ["5m", "15m", "30m", "1h"]
+    elif default_tf == "5m":
+        tfs = ["5m", "15m"]
+    elif default_tf == "1m":
+        tfs = ["1m", "5m"]
+    elif default_tf == "1d":
+        tfs = ["1d", "4h"]
+    elif default_tf == "30m":
+        tfs = ["30m", "1h", "4h"]
+
+    runner = _TA_SCREENER_RUNNERS.get(sid, "rolling_ta_screener")
+    ENGINE_RUNNER_KIND[sid] = runner
+    ENGINE_STRATEGY_META[sid] = {
+        "id": sid,
+        "name": screener["label"],
+        "category": "ta_screeners",
+        "category_label": "TA Screeners",
+        "timeframes": tfs,
+        "summary": f"{screener['label']} — migrated TA screener engine.",
+        "description": f"{screener['label']} screener backtest (rolling replay).",
+        "indicators": [],
+        "entry_rules": [],
+        "exit_rules": [],
+        "needs_benchmark": False,
+        "min_bars": _TA_SCREENER_MIN_BARS.get(sid, 80),
+        "engine": True,
+        "screener": True,
+        "default_tf": default_tf,
+    }
+
 ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
     "th_swing": {
         "label": "Trading Hubs — Swing Trading",
@@ -181,6 +243,15 @@ ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
         "description": ENGINE_CATEGORY_DESCRIPTIONS["technical_analysis"],
         "timeframes": ["5m", "15m", "1h", "4h", "1d"],
         "strategy_ids": [t["id"] for t in TA_STRATEGIES],
+    },
+    "ta_screeners": {
+        "label": "TA Screeners",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["ta_screeners"],
+        "timeframes": ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+        "strategy_ids": [
+            s["id"] for s in TA_SCREENERS
+            if s.get("engine") and s["id"] not in {"ticker_investigation", "sentiment_screener", "mtf_scanner"}
+        ],
     },
 }
 

@@ -156,6 +156,8 @@ export interface AccountSummary {
 export const fetchStrategies = () => api.get<StrategyInfo[]>('/strategies').then((r) => r.data)
 export const fetchStrategyCategories = () =>
   api.get<StrategyCategoryInfo[]>('/strategies/categories').then((r) => r.data)
+export const fetchScannerCategories = () =>
+  api.get<StrategyCategoryInfo[]>('/strategies/scanner-categories').then((r) => r.data)
 export const fetchStrategy = (id: string) => api.get<StrategyInfo>(`/strategies/${id}`).then((r) => r.data)
 export const runScan = (payload: { tickers: string[]; strategies: string[]; timeframes: string[] }) =>
   api.post<{ signals: ScanSignal[]; scanned_at: string }>('/scanner/scan', payload).then((r) => r.data)
@@ -166,9 +168,39 @@ export const runBacktest = (payload: {
   period?: string
   costs_pct?: number
 }) => api.post('/backtest/run', payload).then((r) => r.data)
-export const getSettings = () => api.get('/settings').then((r) => r.data)
+export const getSettings = () => api.get<{
+  data_provider: string
+  groww_token_set: boolean
+  groww_exchange: string
+  initial_capital: number
+  costs_pct: number
+  benchmark_ticker: string
+  gemini_token_set: boolean
+  groq_token_set: boolean
+  ai_provider: string
+  groq_model: string
+  gemini_model: string
+  default_market: string
+}>('/settings').then((r) => r.data)
 export const updateSettings = (payload: Record<string, unknown>) => api.put('/settings', payload).then((r) => r.data)
 export const testProvider = () => api.post('/settings/test-provider').then((r) => r.data)
+
+export const fetchMarkets = () => api.get<{ markets: string[] }>('/markets').then((r) => r.data)
+
+export const fetchAIConfig = () => api.get('/ai/config').then((r) => r.data)
+
+export const askAI = (payload: {
+  context: string
+  question?: string
+  section?: string
+  max_tokens?: number
+}) => api.post<{
+  report: string
+  verdict: string | null
+  provider: string
+  model: string
+  error: boolean
+}>('/ai/ask', payload, { timeout: 120_000 }).then((r) => r.data)
 export const getAccount = () => api.get<AccountSummary>('/paper/account').then((r) => r.data)
 export const placeOrder = (payload: Record<string, unknown>) => api.post('/paper/orders', payload).then((r) => r.data)
 export const executeSignal = (signal: ScanSignal) => api.post('/paper/execute-signal', signal).then((r) => r.data)
@@ -231,8 +263,74 @@ export const runSentimentScreener = (payload: { tickers: string[]; timeframes?: 
 export const runMtfScanner = (payload: { tickers: string[]; timeframes?: string[] }) =>
   api.post('/market-pulse/mtf-scanner', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runTickerInvestigation = (tickers: string[]) =>
-  api.post('/market-pulse/ticker-investigation', { tickers }, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const runTickerInvestigation = (payload: {
+  tickers: string[]
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
+}) =>
+  api.post('/market-pulse/ticker-investigation', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchCommandCenterSections = () =>
+  api.get('/command-center/sections').then((r) => r.data)
+
+export const fetchTickerUniverse = (asset_class: string) =>
+  api.get('/command-center/ticker-universe', { params: { asset_class } }).then((r) => r.data)
+
+export const runBuySellAdvisor = (payload: {
+  tickers: string[]
+  asset_class?: string
+  scenario?: string
+  durations?: string[]
+}) => api.post('/command-center/buy-sell', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runMegaAnalyser = (payload: {
+  tickers: string[]
+  asset_class?: string
+  durations?: string[]
+}) => api.post('/command-center/mega-analyser', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchTaScreeners = () =>
+  api.get('/technical-analysis/screeners').then((r) => r.data)
+
+export const runTaScreener = (payload: {
+  screener_id: string
+  tickers: string[]
+  timeframe?: string
+  options?: Record<string, unknown>
+}) => api.post('/technical-analysis/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchStrategyLabSections = () =>
+  api.get('/strategy-lab/sections').then((r) => r.data)
+
+export const fetchStrategyLabPresets = (market?: string) =>
+  api.get('/strategy-lab/presets', { params: market ? { market } : undefined }).then((r) => r.data)
+
+export const runStrategyLabBacktest = (payload: Record<string, unknown>) =>
+  api.post('/strategy-lab/backtest', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runStrategyLabMultiCombo = (payload: Record<string, unknown>) =>
+  api.post('/strategy-lab/multi-combo', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runStrategyLabScreener = (payload: Record<string, unknown>) =>
+  api.post('/strategy-lab/screener', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runSeasonalityAnalyze = (payload: { tickers: string[]; years?: number }) =>
+  api.post('/seasonality/analyze', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchAlertsConfig = () => api.get('/alerts/config').then((r) => r.data)
+
+export const fetchAlertMonitors = () => api.get('/alerts/monitors').then((r) => r.data)
+
+export const createAlertMonitor = (payload: Record<string, unknown>) =>
+  api.post('/alerts/monitors', payload).then((r) => r.data)
+
+export const deleteAlertMonitor = (id: number) =>
+  api.delete(`/alerts/monitors/${id}`).then((r) => r.data)
+
+export const toggleAlertMonitor = (id: number, enabled: boolean) =>
+  api.patch(`/alerts/monitors/${id}`, null, { params: { enabled } }).then((r) => r.data)
+
+export const pollAlerts = (force = false) =>
+  api.post('/alerts/poll', null, { params: { force }, timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export interface TradingHubSection {
   id: string

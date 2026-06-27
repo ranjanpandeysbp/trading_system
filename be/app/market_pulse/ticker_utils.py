@@ -63,20 +63,22 @@ INDEX_OPTIONS: dict[str, list[str]] = {
 }
 
 GROWW_MARKET = "Groww (India Stocks)"
-US_MARKET = "US Stocks"
-CRYPTO_MARKET = "Crypto (CoinDCX)"
+US_MARKET = "US Stocks (Yahoo)"
+CRYPTO_MARKET = "CoinDCX Futures"
+MARKET_OPTIONS = [GROWW_MARKET, US_MARKET, CRYPTO_MARKET]
+
+
+def is_crypto_market(market: str) -> bool:
+    return "CoinDCX" in (market or "")
+
+
+def is_us_market(market: str) -> bool:
+    m = (market or "").strip()
+    return m == US_MARKET or m == "US Stocks" or "US Stocks" in m
 
 
 def is_india_market(market: str) -> bool:
-    return True
-
-
-def is_us_market(_market: str) -> bool:
-    return False
-
-
-def is_crypto_market(_market: str) -> bool:
-    return False
+    return not is_crypto_market(market) and not is_us_market(market)
 
 
 def market_currency(_market: str) -> str:
@@ -84,4 +86,10 @@ def market_currency(_market: str) -> str:
 
 
 def get_index_options_for_market(_market: str) -> dict[str, list[str]]:
-    return INDEX_OPTIONS
+    from app.market_pulse.ticker_utils_src import get_index_options_for_market as _full
+    return _full(_market)
+
+
+def get_coindcx_ticker_list():
+    from app.market_pulse.ticker_utils_src import get_coindcx_ticker_list as _full
+    return _full()

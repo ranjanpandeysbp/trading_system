@@ -1,57 +1,102 @@
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useCallback, useMemo, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { LineChart, Search, Radar } from 'lucide-react'
 import {
   apiErrorMessage,
+  fetchTaScreeners,
   runMtfScanner,
   runSentimentScreener,
+  runTaScreener,
   runTickerInvestigation,
 } from '../api/client'
+import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
+import {
+  AssetClassTickerPicker,
+  type AssetClass,
+  type TickerPickerValue,
+} from '../components/command-center/AssetClassTickerPicker'
 import {
   MtfScannerPanel,
   SentimentScreenerPanel,
   TickerInvestigationPanel,
 } from '../components/technical-analysis/TechnicalAnalysisPanels'
+import { TaScreenerResultsPanel } from '../components/technical-analysis/TaScreenerResultsPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
-import { FormField, Textarea } from '../components/ui/Form'
+import { FormField, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
-const TABS = [
-  { id: 'investigation', label: 'Ticker Investigation', icon: Search },
-  { id: 'sentiment', label: 'Trend & Sentiment Screener', icon: Radar },
-  { id: 'mtf', label: 'MTF Scanner', icon: LineChart },
-] as const
+const CORE_ICONS: Record<string, typeof Search> = {
+  ticker_investigation: Search,
+  sentiment_screener: Radar,
+  mtf_scanner: LineChart,
+}
 
 const SENTIMENT_TFS = ['5m', '15m', '1h', '4h', '1d']
 const MTF_TFS = ['5m', '15m', '1h', '4h', '1d']
+const ENGINE_TFS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
 
-type TabId = (typeof TABS)[number]['id']
+type ScreenerMeta = {
+  id: string
+  label: string
+  markets?: string[]
+  api?: string
+  engine?: string
+  default_tf?: string
+}
 
 function parseTickers(raw: string) {
   return raw.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
 }
 
+function isEngineScreener(s: ScreenerMeta) {
+  return Boolean(s.engine)
+}
+
 export default function TechnicalAnalysis() {
-  const [tab, setTab] = useState<TabId>('investigation')
+  const [tab, setTab] = useState('ticker_investigation')
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
   const [sentimentTfs, setSentimentTfs] = useState<string[]>(['1d', '4h'])
   const [mtfTfs, setMtfTfs] = useState<string[]>(['15m', '1h', '4h', '1d'])
+  const [engineTf, setEngineTf] = useState('')
   const [error, setError] = useState('')
+
+  const { data: catalog } = useQuery({ queryKey: ['ta-screeners'], queryFn: fetchTaScreeners })
+
+  const screeners = useMemo(() => {
+    const list = (catalog as { screeners?: ScreenerMeta[] })?.screeners ?? []
+    return list
+  }, [catalog])
+
+  const active = screeners.find((s) => s.id === tab)
+  const isEngine = active ? isEngineScreener(active) : false
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => {
+    setPicker(v)
+  }, [])
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const list = parseTickers(tickers)
-      if (!list.length) throw new Error('Enter at least one ticker')
+      const list = tab === 'ticker_investigation' ? picker.tickers : parseTickers(tickers)
+      if (!list.length && tab !== 'big_whale') throw new Error('Enter at least one ticker')
+
       switch (tab) {
-        case 'investigation':
-          return runTickerInvestigation(list)
-        case 'sentiment':
+        case 'ticker_investigation':
+          return runTickerInvestigation({ tickers: list, asset_class: assetClass })
+        case 'sentiment_screener':
           return runSentimentScreener({ tickers: list, timeframes: sentimentTfs })
-        case 'mtf':
+        case 'mtf_scanner':
           return runMtfScanner({ tickers: list, timeframes: mtfTfs })
+        default:
+          return runTaScreener({
+            screener_id: tab,
+            tickers: tab === 'big_whale' ? ['BTC'] : list,
+            timeframe: engineTf || active?.default_tf || undefined,
+          })
       }
     },
     onError: (e) => setError(apiErrorMessage(e)),
@@ -62,30 +107,94 @@ export default function TechnicalAnalysis() {
     setter(selected.includes(tf) ? selected.filter((t) => t !== tf) : [...selected, tf])
   }
 
+  const selectTab = (id: string) => {
+    setTab(id)
+    setError('')
+    const meta = screeners.find((s) => s.id === id)
+    if (meta?.default_tf) setEngineTf(meta.default_tf)
+  }
+
+  const coreScreeners = screeners.filter((s) => !isEngineScreener(s))
+  const engineScreeners = screeners.filter((s) => isEngineScreener(s))
+
   return (
     <div>
       <PageHeader
         title="Technical Analysis"
-        description="Ticker Investigation · Trend & Sentiment Screener · MTF Scanner (Groww · India)"
+        description="16 screeners — Ticker Investigation · Sentiment · MTF · Weak S-R · Fakeout · SMC · Crypto engines"
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <Chip key={id} selected={tab === id} onClick={() => { setTab(id); setError('') }}>
-            <span className="inline-flex items-center gap-1.5">
-              <Icon size={14} />
-              {label}
-            </span>
-          </Chip>
-        ))}
+      <p className="mb-3 text-sm text-slate-500">
+        {(catalog as { count?: number })?.count ?? screeners.length} TA screeners · select a tab below
+      </p>
+
+      <div className="mb-2">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-600">Core</p>
+        <div className="flex flex-wrap gap-2">
+          {coreScreeners.map((s) => {
+            const Icon = CORE_ICONS[s.id] ?? Search
+            return (
+              <Chip key={s.id} selected={tab === s.id} onClick={() => selectTab(s.id)}>
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon size={14} />
+                  {s.label}
+                </span>
+              </Chip>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-600">Engine screeners</p>
+        <div className="flex flex-wrap gap-2">
+          {engineScreeners.map((s) => (
+            <Chip key={s.id} selected={tab === s.id} onClick={() => selectTab(s.id)}>
+              {s.label}
+            </Chip>
+          ))}
+        </div>
       </div>
 
       <Card className="mb-4">
-        <FormField label="Tickers (comma-separated)">
-          <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
-        </FormField>
+        {tab === 'ticker_investigation' && (
+          <>
+            <FormField label="Asset class">
+              <Select
+                value={assetClass}
+                onChange={(e) => {
+                  setAssetClass(e.target.value as AssetClass)
+                  setPicker({ tickers: [], durations: [] })
+                }}
+              >
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+                <option value="commodity">🛢️ Commodity futures</option>
+              </Select>
+            </FormField>
+            <AssetClassTickerPicker
+              key={assetClass}
+              assetClass={assetClass}
+              single
+              onChange={handlePickerChange}
+            />
+          </>
+        )}
 
-        {tab === 'sentiment' && (
+        {tab !== 'big_whale' && tab !== 'ticker_investigation' && (
+          <FormField label="Tickers (comma-separated, max 15)">
+            <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
+          </FormField>
+        )}
+
+        {tab === 'big_whale' && (
+          <p className="mb-4 text-sm text-slate-400">
+            Big Whale scan runs a global crypto universe scan — no tickers required.
+          </p>
+        )}
+
+        {tab === 'sentiment_screener' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Timeframes</p>
             <div className="flex flex-wrap gap-2">
@@ -98,7 +207,7 @@ export default function TechnicalAnalysis() {
           </div>
         )}
 
-        {tab === 'mtf' && (
+        {tab === 'mtf_scanner' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">MTF timeframes</p>
             <div className="flex flex-wrap gap-2">
@@ -111,9 +220,28 @@ export default function TechnicalAnalysis() {
           </div>
         )}
 
+        {isEngine && tab !== 'big_whale' && (
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Chart timeframe (default: {active?.default_tf ?? '15m'})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {ENGINE_TFS.map((tf) => (
+                <Chip
+                  key={tf}
+                  selected={(engineTf || active?.default_tf) === tf}
+                  onClick={() => setEngineTf(tf)}
+                >
+                  {tf}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-4">
           <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? 'Scanning…' : tab === 'investigation' ? 'Investigate' : 'Run scan'}
+            {mutation.isPending ? 'Scanning…' : tab === 'ticker_investigation' ? 'Investigate' : 'Run scan'}
           </Button>
         </div>
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
@@ -125,10 +253,22 @@ export default function TechnicalAnalysis() {
 
       {!mutation.isPending && mutation.data && (
         <Card>
-          {tab === 'investigation' && <TickerInvestigationPanel data={mutation.data as Record<string, unknown>} />}
-          {tab === 'sentiment' && <SentimentScreenerPanel data={mutation.data as Record<string, unknown>} />}
-          {tab === 'mtf' && <MtfScannerPanel data={mutation.data as Record<string, unknown>} />}
+          {tab === 'ticker_investigation' && (
+            <TickerInvestigationPanel data={mutation.data as Record<string, unknown>} />
+          )}
+          {tab === 'sentiment_screener' && (
+            <SentimentScreenerPanel data={mutation.data as Record<string, unknown>} />
+          )}
+          {tab === 'mtf_scanner' && <MtfScannerPanel data={mutation.data as Record<string, unknown>} />}
+          {isEngine && <TaScreenerResultsPanel data={mutation.data as Record<string, unknown>} />}
         </Card>
+      )}
+
+      {mutation.data && (
+        <AskAIPanel
+          context={buildAskContext(active?.label ?? tab, mutation.data)}
+          section={`technical-analysis/${tab}`}
+        />
       )}
     </div>
   )

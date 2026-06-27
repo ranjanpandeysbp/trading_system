@@ -126,6 +126,12 @@ class SettingsResponse(BaseModel):
     initial_capital: float
     costs_pct: float
     benchmark_ticker: str
+    gemini_token_set: bool = False
+    groq_token_set: bool = False
+    ai_provider: str = "Google Gemini"
+    groq_model: str = "llama-3.3-70b-versatile"
+    gemini_model: str = "gemini-2.0-flash"
+    default_market: str = "Groww (India Stocks)"
 
 
 class SettingsUpdate(BaseModel):
@@ -135,6 +141,40 @@ class SettingsUpdate(BaseModel):
     initial_capital: float | None = None
     costs_pct: float | None = None
     benchmark_ticker: str | None = None
+    gemini_api_key: str | None = None
+    groq_api_key: str | None = None
+    ai_provider: str | None = None
+    groq_model: str | None = None
+    gemini_model: str | None = None
+    default_market: str | None = None
+
+
+class AskAIRequest(BaseModel):
+    context: str = Field(..., min_length=1)
+    question: str | None = None
+    section: str | None = None
+    system_prompt: str | None = None
+    max_tokens: int = Field(default=3000, ge=256, le=8000)
+
+
+class AskAIResponse(BaseModel):
+    report: str
+    verdict: str | None = None
+    provider: str
+    model: str
+    section: str | None = None
+    error: bool = False
+
+
+class AIConfigResponse(BaseModel):
+    provider: str
+    model: str
+    gemini_token_set: bool
+    groq_token_set: bool
+    ready: bool
+    groq_models: list[str]
+    gemini_models: list[str]
+    providers: list[str]
 
 
 class PlaceOrderRequest(BaseModel):
@@ -182,6 +222,20 @@ class MarketPulseSentimentRequest(BaseModel):
 
 class MarketPulseTickerInvestigationRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1, max_length=15)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+
+
+class CommandCenterBuySellRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    scenario: str = "balanced"
+    durations: list[str] | None = None
+
+
+class CommandCenterMegaRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=5)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    durations: list[str] | None = None
 
 
 class TradingHubScanRequest(BaseModel):
@@ -220,6 +274,70 @@ class MarketPulseCommodityRequest(BaseModel):
 class MarketPulseHeatmapRequest(BaseModel):
     timeframe: str = "1d"
     mode: str = "sectoral"
+
+
+class TaScreenerRunRequest(BaseModel):
+    screener_id: str
+    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    timeframe: str | None = None
+    options: dict[str, Any] | None = None
+
+
+class StrategyLabBacktestRequest(BaseModel):
+    ticker: str
+    timeframe: str = "1d"
+    market: str | None = None
+    preset_name: str | None = None
+    indicators: list[dict[str, Any]] | None = None
+    entry_rules: list[dict[str, Any]] | None = None
+    exit_rules: list[dict[str, Any]] | None = None
+    entry_mode: str = "AND"
+    exit_mode: str = "AND"
+    capital: float = 100_000.0
+    commission: float = 0.001
+    slippage: float = 0.0005
+    sl_pct: float = 0.0
+    tp_pct: float = 0.0
+    days: int | None = None
+
+
+class StrategyLabMultiComboRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframes: list[str] = Field(default_factory=lambda: ["1d"])
+    strategies: list[str] | None = None
+    market: str | None = None
+    capital: float = 100_000.0
+    commission: float = 0.001
+
+
+class StrategyLabScreenerRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframes: list[str] = Field(default_factory=lambda: ["1d"])
+    indicators: list[dict[str, Any]] | None = None
+    entry_rules: list[dict[str, Any]] | None = None
+    entry_mode: str = "AND"
+    market: str | None = None
+
+
+class SeasonalityRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=8)
+    years: int = Field(default=10, ge=3, le=20)
+
+
+class AlertMonitorCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    ticker: str
+    timeframe: str = "1d"
+    market: str | None = None
+    strategy_name: str = "Custom"
+    indicators: list[dict[str, Any]] = Field(default_factory=list)
+    entry_rules: list[dict[str, Any]] = Field(default_factory=list)
+    exit_rules: list[dict[str, Any]] = Field(default_factory=list)
+    entry_mode: str = "AND"
+    poll_minutes: int = Field(default=15, ge=1, le=1440)
+    notify_telegram: bool = True
+    notify_email: bool = False
+    enabled: bool = True
 
 
 class MarketPulsePagination(BaseModel):

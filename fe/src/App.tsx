@@ -1,6 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import StrategyLab from './pages/StrategyLab'
+import Seasonality from './pages/Seasonality'
+import Alerts from './pages/Alerts'
+import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import Scanner from './pages/Scanner'
 import Backtester from './pages/Backtester'
@@ -67,10 +71,14 @@ export default function App() {
             <AppLayout>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/command-center" element={<CommandCenter />} />
                 <Route path="/strategies" element={<Strategies />} />
                 <Route path="/strategies/:id" element={<Strategies />} />
                 <Route path="/market-pulse" element={<MarketPulse />} />
                 <Route path="/technical-analysis" element={<TechnicalAnalysis />} />
+                <Route path="/strategy-lab" element={<StrategyLab />} />
+                <Route path="/seasonality" element={<Seasonality />} />
+                <Route path="/alerts" element={<Alerts />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
                 <Route path="/scanner" element={<Scanner />} />
