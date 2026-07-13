@@ -6,6 +6,8 @@ Paper / demo trading for learning — unlimited virtual capital, per logged-in u
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import re
 from datetime import date, datetime, timedelta
 
@@ -437,7 +439,7 @@ def render_demo_trading_portfolio(market_type: str):
     fetch_errors: list[str] = []
 
     if open_trades:
-        with st.spinner("Fetching live prices…"):
+        with nullcontext():
             for trade in open_trades:
                 mkt = _market_for_fetch(trade.get("market_label"), market_type)
                 quote = fetch_latest_price(

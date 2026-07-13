@@ -2,12 +2,11 @@
 fundamental_analysis_engine.py
 --------------------------------
 India-only fundamental analysis, scraped from screener.in's public company page
-(no login / API key required — server-rendered HTML, no JS needed). Optionally
-enriched with Dhan.co data (peer comparison + industry P/E, F&O options snapshot,
-analyst rating consensus, corporate actions, multi-period returns) where a
-`dhan_stock_engine.fetch_dhan_enrichment` helper is available in this backend —
-that module has not been ported yet, so the Dhan enrichment degrades gracefully
-to `None` (screener.in-only analysis) if it's missing.
+(no login / API key required — server-rendered HTML, no JS needed). Enriched
+with Dhan.co data via `dhan_stock_engine.fetch_dhan_enrichment` (peer comparison
++ industry P/E, F&O options snapshot, analyst rating consensus, corporate
+actions, multi-period returns) — degrades gracefully to `None`
+(screener.in-only analysis) if a ticker isn't covered by Dhan's slug map.
 
 For one or more NSE tickers, derives:
 - Valuation read (PE vs ROCE-adjusted fair band, plus industry-P/E comparison
@@ -35,13 +34,7 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-try:
-    # Not yet ported into this backend — Dhan enrichment is optional; when the
-    # module is unavailable we fall back to screener.in-only analysis.
-    from app.market_pulse.dhan_stock_engine import fetch_dhan_enrichment
-except ImportError:
-    def fetch_dhan_enrichment(ticker: str) -> dict[str, Any] | None:  # type: ignore[misc]
-        return None
+from app.market_pulse.dhan_stock_engine import fetch_dhan_enrichment
 
 _BASE = "https://www.screener.in/company"
 _HEADERS = {

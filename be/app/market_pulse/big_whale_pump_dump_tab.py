@@ -6,6 +6,8 @@ Market Pulse — Big Whale Pump & Dump (DexScreener + explorer workflow).
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import pandas as pd
 from app.market_pulse.big_whale_pump_dump_engine import (
     CHAIN_META,
@@ -245,7 +247,7 @@ def render_big_whale_pump_dump_tab(get_logged_in_mobile=None) -> None:
         if not chains:
             st.warning("Select at least one chain.")
         else:
-            with st.spinner("Fetching DexScreener boosts & DEX pairs…"):
+            with nullcontext():
                 try:
                     cfg = WhaleScanConfig(
                         chains=chains,

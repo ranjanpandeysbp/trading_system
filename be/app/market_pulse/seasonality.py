@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -236,7 +237,7 @@ def render_seasonality_tab():
             else US_MARKET if asset_type == "US Stocks"
             else GROWW_MARKET
         )
-        with st.spinner("Analyzing historical patterns..."):
+        with nullcontext():
             data_map = fetch_seasonality_data(selected_tickers, years=lookback_years, market=season_market)
             if not data_map:
                 st.error("No data found for selected tickers.")

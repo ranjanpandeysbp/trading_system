@@ -5,24 +5,16 @@ One-Click Trade Setup — Intraday composite.
 
 Combines:
   - mtf_intraday_bias_engine     — weighted 12+ indicator, 4-role-TF composite bias
-                                   (app.market_pulse.mtf_intraday_bias_engine)
+                                   AND regime classifier (trending vs. range-bound day)
   - intraday_mtf_breakout_retest — HTF-aligned, "clean traffic"-filtered opening-range
-                                   breakout + retest trigger
-                                   (app.trading_hubs.intraday_mtf_breakout_retest_engine)
+                                   breakout + retest trigger (used only on trending days)
+  - momentum_engine              — independent multi-timeframe regime confirmation
+                                   (reused for its existing trend/consolidation read)
 
-PORTING NOTE — momentum_engine unavailable in this backend:
-  The original truebacktesting composite used `momentum_engine.analyze_ticker()` for
-  two roles: (1) an independent multi-timeframe regime classifier (trending vs.
-  range-bound) that GATED whether the breakout-retest vote was trusted at all, and
-  (2) a non-voting confidence adjustment from its ADX-based strength read.
-  `momentum_engine` has not been ported into this backend (it is not present under
-  app.trading_hubs.* or app.market_pulse.*), so per the porting instructions this
-  vote/context source is dropped rather than failing the whole composite: the regime
-  gate is removed (the breakout-retest vote always participates) and the final
-  strength-based confidence nudge is skipped. This is flagged in `combo["reasons"]`
-  and in the returned `"regime"` field (always "UNAVAILABLE") so callers can see the
-  composite is running as a plain 2-of-2 confluence rather than the original
-  regime-routed 3-source design.
+This is a genuine regime router, not two triggers firing at once: the breakout-retest
+trigger is only trusted when both the bias engine AND momentum_engine agree the session
+is trending; on a day both classify as consolidating/mixed, the composite returns
+WATCH/NO TRADE rather than forcing a breakout call into a range.
 """
 
 from __future__ import annotations
@@ -35,10 +27,12 @@ import pandas as pd
 
 from app.trading_hubs import intraday_mtf_breakout_retest_engine as breakout_retest
 from app.market_pulse import mtf_intraday_bias_engine as mtf_bias
+from app.market_pulse import momentum_engine
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.one_click_common import (
     STRICT,
     combine_confluence,
+    momentum_context,
     vote_from_live_schema,
     vote_from_mtf_bias,
 )
@@ -65,11 +59,23 @@ def analyze_ticker(
 
     bias_result = mtf_bias.analyze_ticker(ticker, is_crypto=is_crypto)
     retest_result = breakout_retest.analyze_ticker(ticker, market, groww_token=groww_token, exchange=exchange)
+    mom_result = momentum_engine.analyze_ticker(ticker, market, groww_token=groww_token, exchange=exchange)
+
+    regime = (mom_result or {}).get("overall_direction", "NO_DATA")
+    is_trending_regime = regime in ("UP", "DOWN")
 
     bias_vote = vote_from_mtf_bias(bias_result)
     retest_vote = vote_from_live_schema("Breakout + Retest", retest_result)
 
-    votes = [bias_vote, retest_vote]
+    votes = [bias_vote]
+    regime_note = f"🧭 Regime (momentum_engine): {regime}"
+    if is_trending_regime:
+        votes.append(retest_vote)
+    else:
+        # Ranging/mixed day — the breakout-retest trigger is untrusted; record it as
+        # a non-voting reference only so the vote table stays transparent.
+        retest_vote.direction = "WAIT"
+        retest_vote.error = retest_vote.error or f"Suppressed — regime is {regime}, not trending"
 
     combo = combine_confluence(
         votes,
@@ -79,19 +85,36 @@ def analyze_ticker(
         take_threshold_strict=66.0,
         take_threshold_loose=52.0,
     )
-    combo["reasons"].append(
-        "⚠️ Regime gate unavailable — momentum_engine is not ported into this backend, so the "
-        "Breakout+Retest vote is not suppressed on ranging days as in the original design; "
-        "this is a plain 2-of-2 confluence instead of the original regime-routed 3-source design."
-    )
+    if not is_trending_regime:
+        combo["votes"].append({
+            "engine": "Breakout + Retest", "direction": retest_vote.direction,
+            "confidence": round(retest_vote.confidence, 1), "take": False,
+            "agreed": False, "error": retest_vote.error, "reasons": retest_vote.reasons[:3],
+        })
+        combo["reasons"].append("Breakout+Retest trigger suppressed (not a trending session) — bias-only read")
+        if cfg.strictness == STRICT:
+            combo["take_trade"] = False
+    combo["reasons"].append(regime_note)
+
+    # Momentum already routes the regime above; here its ADX-based strength further
+    # adjusts confidence (non-voting) and is always surfaced in the vote table.
+    if combo["direction"] != "WAIT":
+        mom_ctx = momentum_context(mom_result, combo["direction"])
+        combo["confidence_pct"] = max(0.0, min(96.0, combo["confidence_pct"] + mom_ctx["adjustment"]))
+        combo["reasons"].append(mom_ctx["note"])
+        combo["take_trade"] = combo["take_trade"] and combo["confidence_pct"] >= combo["take_threshold"]
+    combo["votes"].append({
+        "engine": "Momentum (regime + strength)", "direction": regime, "confidence": None, "take": False,
+        "agreed": is_trending_regime, "error": None, "reasons": [regime_note],
+    })
 
     return {
         "ticker": ticker,
         "market": market,
         "style": "intraday",
-        "regime": "UNAVAILABLE",
+        "regime": regime,
         "combo": combo,
-        "sub_results": {"mtf_bias": bias_result, "breakout_retest": retest_result},
+        "sub_results": {"mtf_bias": bias_result, "breakout_retest": retest_result, "momentum": mom_result},
     }
 
 

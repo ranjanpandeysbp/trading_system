@@ -11,17 +11,11 @@ price to be at the same HTF extreme but confirm entry differently:
                              (app.trading_hubs.scalp_sr_mss_engine)
 
 Both must be in the SAME direction (and, in strict mode, both must independently
-fire) before a TAKE verdict. A session/kill-zone filter (from
-app.trading_hubs.smc_golden_bullet_engine._in_killzone) and a volume (RVOL) check
-adjust confidence up/down around that core confluence.
-
-PORTING NOTE — momentum_engine unavailable in this backend:
-  The original composite also read `momentum_engine.analyze_ticker()` (1m/5m/15m/1h)
-  as a non-voting fast-timeframe trend+ADX-strength confidence filter. That module
-  has not been ported into this backend (not present under app.trading_hubs.* or
-  app.market_pulse.*), so per the porting instructions this non-voting context
-  source is dropped — the composite's core two-engine vote and session/volume
-  adjustments are otherwise unchanged and fully faithful to the original.
+fire) before a TAKE verdict. A session/kill-zone filter, a volume (RVOL) check, and
+momentum_engine's fast-timeframe (1m/5m/15m/1h) trend+ADX-strength read adjust
+confidence up/down around that core confluence — momentum is a non-voting strength
+filter here, not a third direction vote, since it would otherwise double-count the
+same EMA-trend information the liquidity-zone engines already use.
 """
 
 from __future__ import annotations
@@ -37,8 +31,10 @@ from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.one_click_common import (
     STRICT,
     combine_confluence,
+    momentum_context,
     vote_from_live_schema,
 )
+from app.market_pulse import momentum_engine
 from app.trading_hubs import scalp_crt_fvg_engine as crt_fvg
 from app.trading_hubs import scalp_sr_mss_engine as sr_mss
 from app.trading_hubs.smc_golden_bullet_engine import _in_killzone
@@ -46,6 +42,7 @@ from app.trading_hubs.smc_golden_bullet_engine import _in_killzone
 logger = logging.getLogger(__name__)
 
 _INDIA_SESSION_WINDOWS = [(9, 11), (13, 15)]  # IST hours — avoid the lunchtime chop
+_SCALP_MOMENTUM_TFS = ["1m", "5m", "15m", "1h"]
 
 
 @dataclass
@@ -154,11 +151,20 @@ def analyze_ticker(
     else:
         combo["reasons"].append(f"📊 Volume: {rvol_note}")
 
-    combo["reasons"].append(
-        "⚠️ Momentum filter unavailable — momentum_engine (1m/5m/15m/1h) is not ported into this "
-        "backend, so no fast-timeframe strength adjustment is applied (core two-engine vote and "
-        "session/volume adjustments are unaffected)."
-    )
+    mom_result = None
+    if has_direction:
+        mom_result = momentum_engine.analyze_ticker(
+            ticker, market, cfg=momentum_engine.MomentumConfig(timeframes=_SCALP_MOMENTUM_TFS),
+            groww_token=groww_token, exchange=exchange,
+        )
+        mom_ctx = momentum_context(mom_result, combo["direction"])
+        combo["confidence_pct"] = max(0.0, min(96.0, combo["confidence_pct"] + mom_ctx["adjustment"]))
+        combo["reasons"].append(mom_ctx["note"])
+        combo["votes"].append({
+            "engine": "Momentum (1m/5m/15m/1h)", "direction": mom_ctx["mom_direction"],
+            "confidence": None, "take": False, "agreed": mom_ctx["adjustment"] > 0,
+            "error": None, "reasons": [mom_ctx["note"]],
+        })
 
     # Re-check take_trade against threshold after adjustments (strict mode only re-gates session above).
     combo["take_trade"] = combo["take_trade"] and has_direction and combo["confidence_pct"] >= combo["take_threshold"]
@@ -172,7 +178,7 @@ def analyze_ticker(
         "session_ok": session_ok,
         "rvol": round(rvol, 2) if rvol is not None else None,
         "combo": combo,
-        "sub_results": {"crt_fvg": crt_result, "sr_mss": srmss_result},
+        "sub_results": {"crt_fvg": crt_result, "sr_mss": srmss_result, "momentum": mom_result},
     }
 
 

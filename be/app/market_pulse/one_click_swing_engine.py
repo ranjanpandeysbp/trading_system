@@ -9,25 +9,16 @@ Combines:
   - swing_trading_st_supertrend_engine — SuperTrend + SMA10 (reused for its trend direction,
                                          informing the trailing-stop rather than voting twice)
   - swing_trading_st_simple_steal_engine — measured-move projection (objective TP2 candidate)
-  (all four: app.trading_hubs.swing_trading_st_*)
+  - fundamental_analysis_engine (India only) — non-contradiction gate: downgrades/penalizes a
+    technical call that fundamentals strongly oppose (overvalued + declining profit/FII/DII/promoter)
 
 KISS weekly bias and MTF-MSS's entry trigger are the two required votes. SuperTrend and
 Simple Steal contribute risk-management levels (trailing stop, measured-move target) rather
 than a second and third independent direction vote, since they're both trend-following
 overlays correlated with the same price action KISS already reads — voting them separately
-would be the "correlated engines look like confluence" trap the audit flagged.
-
-PORTING NOTE — fundamental_analysis_engine and momentum_engine unavailable in this backend:
-  The original composite also (a) ran `fundamental_analysis_engine.analyze_ticker()` for
-  India tickers as a non-technical non-contradiction gate (downgrading a technical call
-  that fundamentals strongly oppose), and (b) read `momentum_engine.analyze_ticker()`
-  (1h/4h/1d/1w) as a non-voting ADX-based confidence adjustment. Neither module has been
-  ported into this backend (not present under app.trading_hubs.* or app.market_pulse.*),
-  so per the porting instructions both are dropped rather than failing the whole
-  composite — `fundamental_gate()`/`momentum_context()` in one_click_common.py are called
-  with `result=None` so they return neutral no-ops, and this is flagged in the reasons list.
-  The core two-vote KISS + MTF-MSS confluence and the SuperTrend/Simple-Steal risk-level
-  refinement are otherwise unchanged and fully faithful to the original.
+would be the "correlated engines look like confluence" trap the audit flagged. momentum_engine
+(1h/4h/1d/1w — matching swing's longer horizon) is likewise non-voting: its ADX-based
+trend/strength read adjusts confidence rather than casting a third direction vote.
 """
 
 from __future__ import annotations
@@ -38,11 +29,14 @@ from typing import Any
 
 import pandas as pd
 
+from app.market_pulse import fundamental_analysis_engine as fa_engine
+from app.market_pulse import momentum_engine
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.one_click_common import (
     STRICT,
     combine_confluence,
     fundamental_gate,
+    momentum_context,
     vote_from_live_schema,
 )
 from app.trading_hubs import swing_trading_st_kiss_engine as kiss
@@ -51,6 +45,8 @@ from app.trading_hubs import swing_trading_st_simple_steal_engine as simple_stea
 from app.trading_hubs import swing_trading_st_supertrend_engine as supertrend
 
 logger = logging.getLogger(__name__)
+
+_SWING_MOMENTUM_TFS = ["1h", "4h", "1d", "1w"]
 
 
 @dataclass
@@ -115,19 +111,35 @@ def analyze_ticker(
             combo["target2_price"] = steal_vote.tp1
             combo["reasons"].append(f"🎯 TP2 set to measured-move projection ({steal_vote.tp1:.4g})")
 
-    combo["reasons"].append(
-        "⚠️ Momentum filter unavailable — momentum_engine (1h/4h/1d/1w) is not ported into this "
-        "backend, so no ADX-based confidence adjustment is applied."
-    )
+    mom_result = None
+    if combo["direction"] != "WAIT":
+        mom_result = momentum_engine.analyze_ticker(
+            ticker, market, cfg=momentum_engine.MomentumConfig(timeframes=_SWING_MOMENTUM_TFS),
+            groww_token=groww_token, exchange=exchange,
+        )
+        mom_ctx = momentum_context(mom_result, combo["direction"])
+        combo["confidence_pct"] = max(0.0, min(96.0, combo["confidence_pct"] + mom_ctx["adjustment"]))
+        combo["reasons"].append(mom_ctx["note"])
+        combo["votes"].append({
+            "engine": "Momentum (1h/4h/1d/1w)", "direction": mom_ctx["mom_direction"],
+            "confidence": None, "take": False, "agreed": mom_ctx["adjustment"] > 0,
+            "error": None, "reasons": [mom_ctx["note"]],
+        })
+        combo["take_trade"] = combo["take_trade"] and combo["confidence_pct"] >= combo["take_threshold"]
 
     fundamental_note = None
     fundamental_result = None
     if include_fundamentals and combo["direction"] != "WAIT":
-        # fundamental_analysis_engine is not ported into this backend — fundamental_gate()
-        # is called with result=None so it returns a neutral WAIT lean (no gate applied),
-        # matching the "drop the missing vote source, don't fail the composite" instruction.
-        _lean, _f_conf, _ = fundamental_gate(None)
-        fundamental_note = "⚠️ Fundamentals gate unavailable — fundamental_analysis_engine is not ported into this backend."
+        fundamental_result = fa_engine.analyze_ticker(ticker)
+        lean, f_conf, fundamental_note = fundamental_gate(fundamental_result)
+        conflict = lean != "WAIT" and lean != combo["direction"] and f_conf >= 60
+        if conflict:
+            if cfg.strictness == STRICT:
+                combo["take_trade"] = False
+                combo["verdict"] = f"WATCH {combo['direction']} (fundamentals disagree)"
+            else:
+                combo["confidence_pct"] = max(0.0, combo["confidence_pct"] - 15.0)
+                combo["take_trade"] = combo["take_trade"] and combo["confidence_pct"] >= combo["take_threshold"]
         combo["reasons"].append(fundamental_note)
 
     return {
@@ -137,7 +149,7 @@ def analyze_ticker(
         "combo": combo,
         "sub_results": {
             "kiss": kiss_result, "mtf_mss": mss_result, "supertrend": st_result,
-            "simple_steal": steal_result, "fundamental": fundamental_result,
+            "simple_steal": steal_result, "fundamental": fundamental_result, "momentum": mom_result,
         },
     }
 
@@ -149,12 +161,16 @@ def analyze_tickers(
     cfg: OneClickSwingConfig | None = None,
     groww_token: str = "",
     exchange: str = "NSE",
+    include_fundamentals: bool | None = None,
 ) -> list[dict[str, Any]]:
     cfg = cfg or OneClickSwingConfig()
     out = []
     for t in tickers:
         try:
-            out.append(analyze_ticker(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange))
+            out.append(analyze_ticker(
+                t, market, cfg=cfg, groww_token=groww_token, exchange=exchange,
+                include_fundamentals=include_fundamentals,
+            ))
         except Exception as exc:
             logger.debug("one-click swing failed for %s: %s", t, exc)
             out.append({"ticker": t, "market": market, "style": "swing", "error": str(exc)[:200]})

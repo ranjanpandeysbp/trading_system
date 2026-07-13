@@ -6,6 +6,10 @@ Shared trade metrics for all ST Swing Trading sections.
 
 from __future__ import annotations
 
+from typing import Any
+
+from app.market_pulse.fundamentals_combine import combine_with_fundamentals, is_groww_india_market
+
 # Strategy-specific expected hold windows
 HOLD_CAPITULATION = "3–8 trading days (capitulation bounce)"
 HOLD_CONTINUATION = "2–6 weeks (breakout swing)"
@@ -44,5 +48,34 @@ def st_scan_table_row(live: dict) -> dict:
         "TP %": f"+{live.get('tp_pct')}" if live.get("tp_pct") is not None else "—",
         "Hold": (live.get("hold_duration") or "—")[:36],
     }
+
+
+def apply_fundamentals_to_st_payload(payload: dict[str, Any] | None, market: str) -> None:
+    """Combine every result's live direction/confidence with Fundamental Analysis
+    for the same ticker, in place — Groww (India) only. Re-derives `entries` /
+    `entry_count` afterward since a combine can flip take_trade either way."""
+    if not payload or not is_groww_india_market(market):
+        return
+    results = payload.get("results") or []
+    for res in results:
+        if res.get("error"):
+            continue
+        live = res.get("live") or {}
+        direction = live.get("direction")
+        if direction not in ("LONG", "SHORT"):
+            continue
+        confidence = live.get("confidence_pct") or 0.0
+        combo = combine_with_fundamentals(res.get("ticker", ""), direction, confidence)
+        live["fundamentals_combo"] = combo
+        live["technical_confidence_pct"] = confidence
+        if combo.get("available"):
+            live["confidence_pct"] = combo["combined_confidence_pct"]
+            if combo["combined_direction"] == "WAIT":
+                live["take_trade"] = False
+                live["verdict"] = "WATCH" if not combo.get("conflict") else "NO TRADE (fundamentals disagree)"
+        res["live"] = live
+    entries = [r for r in results if not r.get("error") and (r.get("live") or {}).get("take_trade")]
+    payload["entries"] = entries
+    payload["entry_count"] = len(entries)
 
 

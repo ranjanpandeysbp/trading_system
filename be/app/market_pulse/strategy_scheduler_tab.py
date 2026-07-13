@@ -7,6 +7,8 @@ Suggest trades with SL, TP, hold duration, confidence, and AI View.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import json
 import time
 from datetime import date, timedelta
@@ -332,7 +334,7 @@ def _render_market_results(
     due = force or (auto and poll_minutes and (time.time() - last_ts >= poll_minutes * 60))
     if due and st.session_state.get(config_key):
         cfg = st.session_state[config_key]
-        with st.spinner(f"Scanning {market_label}…"):
+        with nullcontext():
             token = get_active_groww_token()
             ex = exchange if market_key == "groww" else "NSE"
             scanned = _run_scan(

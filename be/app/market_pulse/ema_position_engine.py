@@ -131,7 +131,22 @@ _MIN_BARS_FOR_CHOP_CHECK = 20  # too few bars to meaningfully judge frequency
 _MIN_ROOM_PCT = 1.5  # need at least this much room to the next S/R level to call it actionable
 
 
+_BUCKET_BASE_CONFIDENCE = {"ACTIONABLE": 78.0, "WATCH": 58.0, "NO_TRADE": 25.0}
+
+
 def _classify_actionability(
+    ema_summary: list[dict[str, Any]], next_support: dict | None, next_resistance: dict | None,
+    last_price: float, bars_in_range: int = 0,
+) -> dict[str, Any]:
+    """Thin wrapper around `_classify_actionability_core` that attaches a numeric
+    confidence % (base value per bucket) so this section's actionability can be
+    combined with Fundamental Analysis the same way Momentum's is."""
+    result = _classify_actionability_core(ema_summary, next_support, next_resistance, last_price, bars_in_range)
+    result["confidence_pct"] = _BUCKET_BASE_CONFIDENCE.get(result["bucket"], 40.0)
+    return result
+
+
+def _classify_actionability_core(
     ema_summary: list[dict[str, Any]], next_support: dict | None, next_resistance: dict | None,
     last_price: float, bars_in_range: int = 0,
 ) -> dict[str, Any]:

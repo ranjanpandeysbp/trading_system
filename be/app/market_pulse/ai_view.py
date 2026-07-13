@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 """
 Shared AI View helpers for TrueBacktester tabs.
 Provider config, API calls, and theme-friendly report rendering.
@@ -521,7 +522,7 @@ def render_ai_view_report(
     picker_sig = f"{provider}|{model}"
     sig_key = f"{session_prefix}_ai_sig_{safe}"
     if force or cache_key not in st.session_state or st.session_state.get(sig_key) != picker_sig:
-        with st.spinner(f"🤖 Generating AI report for {symbol} | {timeframe_label}..."):
+        with nullcontext():
             prompt = build_prompt_fn()
             report = call_ai_report(prompt, system_prompt, provider, model, api_key)
             st.session_state[cache_key] = report
@@ -1074,7 +1075,7 @@ def render_ask_ai_panel(section_id: str, section_title: str) -> None:
                 "No analysis data found for this section. Load/refresh the section first, "
                 "then ask again."
             )
-        with st.spinner(f"🤖 {provider} is analyzing…"):
+        with nullcontext():
             st.session_state[answer_key] = call_ai_report(
                 "\n\n".join(parts),
                 ASK_AI_TRADER_SYSTEM,

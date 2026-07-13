@@ -7,6 +7,8 @@ Groww (India) · US Stocks · CoinDCX crypto · LTF / MTF / HTF chart timeframes
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from typing import Any
 
 import pandas as pd
@@ -246,7 +248,7 @@ def render_mtf_hedging_tab() -> None:
         if len(weights) != n:
             weights = [1.0 / n] * n
 
-        with st.spinner(f"Computing hedges on LTF {tf_map['LTF']} · MTF {tf_map['MTF']} · HTF {tf_map['HTF']}..."):
+        with nullcontext():
             suite = run_full_mtf_hedging_suite(
                 market=market,
                 portfolio_ticker=primary,

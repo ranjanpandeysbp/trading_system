@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -720,7 +721,7 @@ def _display_tb_tf_block(key, data, tb_market, tb_candles, provider, model, api_
             if st.session_state.get(ai_fc_key) and api_key:
                 cache_fc = f"tb_fc_merged_{safe_key}"
                 if cache_fc not in st.session_state:
-                    with st.spinner("AI refining probabilities..."):
+                    with nullcontext():
                         prompt = build_tb_forecast_ai_prompt(
                             forecast, metrics, ticker, tf, tb_market, tb_candles, currency,
                         )
@@ -803,7 +804,7 @@ def _display_tb_tf_block(key, data, tb_market, tb_candles, provider, model, api_
         picker_sig = f"{provider}|{model}"
         sig_key = f"tb_ai_sig_{safe_key}"
         if force or cache_key not in st.session_state or st.session_state.get(sig_key) != picker_sig:
-            with st.spinner(f"🤖 Generating AI report for {ticker} | {tf}..."):
+            with nullcontext():
                 m_ai = dict(metrics)
                 if forecast:
                     m_ai["forecast"] = forecast
@@ -914,7 +915,7 @@ def render_top_bottom_tab():
                 progress.progress(scan_idx / total, text=f"Analyzing {ticker} | {tf} ({scan_idx}/{total})...")
                 result_key = f"{ticker}|{tf}"
                 try:
-                    with st.spinner(f"Loading {ticker} {tf}..."):
+                    with nullcontext():
                         df = _fetch_tb_data(ticker, tf, tb_market, tb_candles, groww_token)
                         metrics = calculate_top_bottom_metrics(df, tb_candles)
                         if not metrics:

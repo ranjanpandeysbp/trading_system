@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 """
 news_scanner.py
 ---------------
@@ -2047,7 +2048,7 @@ def render_nifty_index_breadth_tab() -> None:
 
     if load_batch_btn:
         if not breadth:
-            with st.spinner("Fetching NSE index breadth…"):
+            with nullcontext():
                 breadth = fetch_nse_market_breadth()
             if not breadth:
                 st.error(
@@ -2068,7 +2069,7 @@ def render_nifty_index_breadth_tab() -> None:
             end = min(loaded_count + _NIFTY_BREADTH_BATCH_SIZE, total)
             batch_units = units[start:end]
             batch_names = [u["name"] for u in batch_units]
-            with st.spinner(f"Loading indices {start + 1}–{end} of {total}…"):
+            with nullcontext():
                 if batch_names:
                     sr_map.update(fetch_index_sr_levels(tuple(batch_names)))
             st.session_state["nifty_breadth_sr_map"] = sr_map
@@ -2511,7 +2512,7 @@ def render_nifty_monthly_performance_tab() -> None:
 
     if load_batch_btn:
         if not breadth:
-            with st.spinner("Fetching NSE index breadth & 1M performance…"):
+            with nullcontext():
                 breadth = fetch_nse_market_breadth()
             if not breadth:
                 st.error(
@@ -2972,7 +2973,7 @@ def render_nifty_gainers_losers_tab() -> None:
 
     if load_batch_btn:
         if not breadth:
-            with st.spinner("Fetching NSE index breadth…"):
+            with nullcontext():
                 breadth = fetch_nse_market_breadth()
             if not breadth:
                 st.error(
@@ -2995,7 +2996,7 @@ def render_nifty_gainers_losers_tab() -> None:
             end = min(loaded_count + _NIFTY_GL_BATCH_SIZE, total)
             batch_units = units[start:end]
             labels = ", ".join(u.get("label", u.get("kind", ""))[:40] for u in batch_units)
-            with st.spinner(f"Loading sections {start + 1}–{end} of {total}…"):
+            with nullcontext():
                 for unit in batch_units:
                     _load_nifty_gl_work_unit(unit, breadth, sr_map, fo_movers)
             st.session_state["nifty_gl_sr_map"] = sr_map
@@ -4569,7 +4570,7 @@ def _render_market_flows_section(fii_dii_data, breadth_data, turnover_delivery_d
                 help="Downloads ~22 trading days of NSE bhavcopy (may take 15–30 seconds on first load; cached 1 hour).",
             )
             if load_trends:
-                with st.spinner("Fetching 1-month delivery & turnover history from NSE bhavcopy..."):
+                with nullcontext():
                     history = fetch_nse_delivery_turnover_history()
                 if history:
                     _render_delivery_turnover_monthly_trends(turnover_delivery_data, history)
@@ -4859,7 +4860,7 @@ def _load_news_scanner_payload(
     if clear_caches:
         _clear_news_scanner_caches()
 
-    with st.spinner("Fetching live market data from global exchanges..."):
+    with nullcontext():
         market_data = fetch_all_market_data()
         if include_news:
             news_articles = fetch_news()
@@ -5412,7 +5413,7 @@ def render_news_scanner_tab(show_outlook_banners: bool = True):
         if provider == "Custom / Other" and not model:
             ai_placeholder.error("⚠️ Please enter a model name.")
             return
-        with st.spinner(f"🤖 Generating AI analysis using {model}..."):
+        with nullcontext():
             prompt_data = build_ai_prompt(
                 market_data, news_articles, global_news_articles, india_events, global_events,
                 option_data, fii_dii_data, breadth_data, turnover_delivery_data,

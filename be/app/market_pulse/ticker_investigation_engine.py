@@ -166,6 +166,7 @@ PRICE_WINDOWS: list[tuple[str, str, int]] = [
 
 SR_PRIMARY_TF = "15m"
 SR_LOOKBACK_TFS = ("5m", "15m", "1h", "1d")
+PA_ANALYSIS_TFS = ("15m", "1d")
 
 CRYPTO_NEWS_FEEDS: list[tuple[str, str, int]] = [
     ("CoinTelegraph", "https://cointelegraph.com/rss", 12),
@@ -684,6 +685,85 @@ def compute_price_windows(
     return rows
 
 
+def _compact_pa_profile(analysis: dict, tf: str) -> dict:
+    """Slim Price Action snapshot for investigation UI and setup scoring."""
+    adv = analysis.get("adv_indicators") or {}
+    vwap = adv.get("vwap") or {}
+    vol = analysis.get("volume") or adv.get("volume") or {}
+    approaching = analysis.get("approaching") or {}
+    setups = analysis.get("trade_setups") or []
+    best = max(setups, key=lambda s: s.get("confidence", 0)) if setups else None
+    smc = adv.get("smc") or {}
+
+    verdict = "AVOID"
+    if best and float(best.get("confidence", 0) or 0) >= 60:
+        verdict = "BUY" if best.get("direction") == "LONG" else "SELL"
+    elif approaching.get("count", 0) > 0:
+        verdict = "WATCHLIST"
+
+    return {
+        "timeframe": tf,
+        "overall_bias": analysis.get("overall_bias"),
+        "bias_score": analysis.get("bias_score"),
+        "trend": (analysis.get("trendlines") or {}).get("trend_direction"),
+        "rsi": (analysis.get("rsi") or {}).get("current_rsi"),
+        "rsi_zone": (analysis.get("rsi") or {}).get("zone"),
+        "rsi_bull_div": (analysis.get("rsi") or {}).get("bullish_divergence"),
+        "rsi_bear_div": (analysis.get("rsi") or {}).get("bearish_divergence"),
+        "ema_stack": (analysis.get("ema") or {}).get("ema_stack"),
+        "fib_golden": (analysis.get("fibonacci") or {}).get("price_in_golden_zone"),
+        "vwap_position": vwap.get("position"),
+        "vwap_distance_pct": vwap.get("distance_pct"),
+        "volume_ratio": vol.get("ratio"),
+        "volume_label": vol.get("label"),
+        "volume_trend": vol.get("trend"),
+        "mfi": vol.get("mfi"),
+        "smc_bull_ob": len(smc.get("ob_bullish") or []),
+        "smc_bear_ob": len(smc.get("ob_bearish") or []),
+        "smc_bull_fvg": len(smc.get("fvg_bullish") or []),
+        "smc_bear_fvg": len(smc.get("fvg_bearish") or []),
+        "approaching_alerts": approaching.get("alerts") or [],
+        "approaching_count": approaching.get("count", 0),
+        "verdict": verdict,
+        "best_setup": best,
+        "setup_count": len(setups),
+        "candle_pattern_count": len(analysis.get("candlestick_patterns") or []),
+        "chart_pattern_count": len(analysis.get("chart_patterns") or []),
+    }
+
+
+def compute_price_action_profile(
+    ticker: str,
+    market: str,
+    groww_token: str,
+    exchange: str,
+    cache: dict,
+    *,
+    is_crypto: bool,
+) -> dict:
+    """Run Price Action engine on primary intraday + daily bars."""
+    from app.market_pulse.price_action import run_full_analysis
+
+    limits = {"15m": 220, "1d": 120}
+    by_tf: dict[str, dict] = {}
+    for tf in PA_ANALYSIS_TFS:
+        df = _fetch_bars(
+            ticker, tf, market, groww_token, exchange, limits.get(tf, 200), cache,
+        )
+        if df.empty or len(df) < 50:
+            by_tf[tf] = {"insufficient": True, "timeframe": tf}
+            continue
+        try:
+            analysis = run_full_analysis(df, is_crypto=is_crypto)
+            by_tf[tf] = _compact_pa_profile(analysis, tf)
+        except Exception as exc:
+            logger.warning("PA analysis failed %s %s: %s", ticker, tf, exc)
+            by_tf[tf] = {"insufficient": True, "timeframe": tf, "error": str(exc)[:120]}
+
+    primary = by_tf.get(SR_PRIMARY_TF) or by_tf.get("1d") or {}
+    return {"primary_tf": SR_PRIMARY_TF, "by_tf": by_tf, "primary": primary}
+
+
 def _sr_from_wssr(df: pd.DataFrame, tf: str, is_crypto: bool) -> dict:
     if df.empty or len(df) < 45:
         return {"insufficient": True, "timeframe": tf}
@@ -911,11 +991,15 @@ def build_trade_setups(
     news: list[dict] | None = None,
     analyst_consensus: dict | None = None,
     current_price: float | None = None,
+    price_action: dict | None = None,
 ) -> dict[str, Any]:
-    """World-class confluence engine — TA + news + analysts → ranked setups with SL/TP."""
+    """World-class confluence engine — TA + Price Action + news + analysts → ranked setups."""
     setups: list[dict] = []
     by_tf = sr.get("by_tf") or {}
     imm = sr.get("immediate") or {}
+    pa_primary = (price_action or {}).get("primary") or {}
+    if pa_primary.get("insufficient"):
+        pa_primary = {}
     news_sent = _news_sentiment_score(news or [])
     anal_sent = _analyst_sentiment_score(analyst_consensus or {})
     bull_tf, bear_tf, mtf_label = _mtf_bias_score(by_tf)
@@ -928,6 +1012,69 @@ def build_trade_setups(
 
     def add(**kwargs) -> None:
         setups.append(_make_setup(price=price, imm=imm, asset_class=asset_class, **kwargs))
+
+    # ── 0. Price Action multi-indicator (same engine as PA screener) ──
+    best_pa = pa_primary.get("best_setup")
+    if best_pa and float(best_pa.get("confidence", 0) or 0) >= 58:
+        pa_dir = best_pa.get("direction", "LONG")
+        conf = float(best_pa.get("confidence", 50))
+        if pa_dir == "LONG" and news_sent["label"] == "BULLISH":
+            conf += 6
+        elif pa_dir == "SHORT" and news_sent["label"] == "BEARISH":
+            conf += 6
+        if pa_dir == "LONG" and anal_sent["label"] == "BULLISH":
+            conf += 5
+        elif pa_dir == "SHORT" and anal_sent["label"] == "BEARISH":
+            conf += 5
+        if pa_primary.get("volume_label") in ("VOLUME SPIKE", "HIGH VOLUME EXPANSION"):
+            conf += 4
+        if pa_primary.get("fib_golden"):
+            conf += 3
+        pa_signals = best_pa.get("signals") or []
+        add(
+            name="Price Action multi-indicator setup",
+            direction=pa_dir,
+            style=(best_pa.get("style") or "swing").lower(),
+            timeframe=pa_primary.get("timeframe", SR_PRIMARY_TF),
+            confidence=conf,
+            forming=conf >= 58,
+            detail=(
+                f"PA engine {pa_dir} — {pa_primary.get('overall_bias')} bias · "
+                f"engine conf {best_pa.get('confidence')}%"
+            ),
+            reasons=[
+                f"Trend {pa_primary.get('trend')} · RSI {pa_primary.get('rsi')} ({pa_primary.get('rsi_zone')})",
+                f"EMA {pa_primary.get('ema_stack')} · VWAP {str(pa_primary.get('vwap_position', '')).split('(')[0].strip()}",
+                f"RVOL {pa_primary.get('volume_ratio')}× ({pa_primary.get('volume_label', 'NORMAL')})",
+                *pa_signals[:3],
+            ],
+        )
+
+    if pa_primary.get("approaching_count", 0) > 0 and not (
+        best_pa and float(best_pa.get("confidence", 0) or 0) >= 65
+    ):
+        alerts = pa_primary.get("approaching_alerts") or []
+        blob = " ".join(alerts).lower()
+        appr_dir = "LONG"
+        if any(k in blob for k in ("resistance", "bearish", "loss", "breakdown")):
+            appr_dir = "SHORT"
+        elif any(k in blob for k in ("support", "reclaim", "bullish")):
+            appr_dir = "LONG"
+        conf = 52 + min(14, int(pa_primary.get("approaching_count", 0)) * 4)
+        if pa_primary.get("fib_golden"):
+            conf += 5
+        if pa_primary.get("volume_label") in ("VOLUME SPIKE", "HIGH VOLUME EXPANSION"):
+            conf += 4
+        add(
+            name="Price Action approaching setup (WATCHLIST)",
+            direction=appr_dir,
+            style="scalp" if asset_class in ("crypto", "india") else "swing",
+            timeframe=SR_PRIMARY_TF,
+            confidence=conf,
+            forming=False,
+            detail=alerts[0] if alerts else "Setup approaching key S/R or VWAP level.",
+            reasons=alerts[:4],
+        )
 
     # ── 1. Institutional breakout (S/R + event) ──
     if imm.get("event") == "BREAKOUT":
@@ -1138,6 +1285,15 @@ def build_trade_setups(
                 reasons=["Commodity futures S/R compression", f"News {news_sent['label']}"],
             )
 
+    # PA bias nudge on existing rule-based setups
+    pa_bias = str(pa_primary.get("overall_bias") or "").upper()
+    for s in setups:
+        d = s.get("direction")
+        if d == "LONG" and ("BULL" in pa_bias):
+            s["confidence_pct"] = min(92.0, float(s["confidence_pct"]) + 3)
+        elif d == "SHORT" and ("BEAR" in pa_bias):
+            s["confidence_pct"] = min(92.0, float(s["confidence_pct"]) + 3)
+
     if not setups:
         dsl, dtp = default_sl_tp_for_timeframe("15m")
         setups.append(_make_setup(
@@ -1180,7 +1336,91 @@ def build_trade_setups(
         "news_sentiment": news_sent,
         "analyst_sentiment": anal_sent,
         "mtf_label": mtf_label,
+        "pa_verdict": pa_primary.get("verdict"),
     }
+
+
+def _build_suggested_trades(
+    setup_bundle: dict,
+    price_action: dict | None = None,
+) -> list[dict]:
+    """Ranked trade ideas with confidence %, SL %, and TP % for investigation UI."""
+    trades: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _push(raw: dict) -> None:
+        name = str(raw.get("name") or "Setup")
+        direction = raw.get("direction", "WAIT")
+        if direction == "BUY":
+            direction = "LONG"
+        elif direction == "SELL":
+            direction = "SHORT"
+        key = (name, str(direction))
+        if key in seen:
+            return
+        seen.add(key)
+
+        conf = float(raw.get("confidence_pct") or raw.get("confidence") or 0)
+        take = bool(raw.get("take_trade"))
+        forming = bool(raw.get("forming"))
+        if take and direction in ("LONG", "SHORT"):
+            status = "TAKE"
+        elif forming or conf >= 52 or direction in ("LONG", "SHORT"):
+            status = "WATCH"
+        else:
+            status = "MONITOR"
+
+        sl = float(raw.get("sl_pct") or 0)
+        tp = float(raw.get("tp_pct") or raw.get("tp1_pct") or 0)
+        rr = raw.get("rr_ratio") or raw.get("rr_ratio_1")
+        if rr is not None:
+            try:
+                rr = round(float(rr), 2)
+            except (TypeError, ValueError):
+                rr = None
+
+        trades.append({
+            "name": name,
+            "direction": direction if direction in ("LONG", "SHORT") else "WAIT",
+            "status": status,
+            "confidence_pct": round(conf, 1),
+            "sl_pct": round(sl, 2),
+            "tp_pct": round(tp, 2),
+            "rr_ratio": rr,
+            "style": raw.get("style", "—"),
+            "timeframe": raw.get("timeframe", "—"),
+            "detail": raw.get("detail", ""),
+            "reasons": list(raw.get("reasons") or [])[:4],
+        })
+
+    for s in setup_bundle.get("setups") or []:
+        _push(s)
+
+    pa = (price_action or {}).get("primary") or {}
+    best_pa = pa.get("best_setup")
+    if best_pa and not pa.get("insufficient"):
+        pa_conf = float(best_pa.get("confidence") or 0)
+        _push({
+            "name": "Price Action engine (VWAP · RVOL · SMC)",
+            "direction": best_pa.get("direction", "WAIT"),
+            "confidence_pct": pa_conf,
+            "sl_pct": best_pa.get("sl_pct"),
+            "tp_pct": best_pa.get("tp1_pct"),
+            "rr_ratio_1": best_pa.get("rr_ratio_1"),
+            "style": (best_pa.get("style") or "swing").lower(),
+            "timeframe": pa.get("timeframe", SR_PRIMARY_TF),
+            "take_trade": pa_conf >= 62,
+            "forming": pa_conf >= 52 or pa.get("verdict") == "WATCHLIST",
+            "detail": f"PA bias {pa.get('overall_bias')} · verdict {pa.get('verdict', '—')}",
+            "reasons": best_pa.get("signals", [])[:4],
+        })
+
+    rank = {"TAKE": 3, "WATCH": 2, "MONITOR": 1}
+    trades.sort(
+        key=lambda t: (rank.get(t["status"], 0), t["confidence_pct"]),
+        reverse=True,
+    )
+    return trades[:8]
 
 
 def detect_forming_strategies(
@@ -1230,6 +1470,9 @@ def investigate_ticker(
     sr = compute_sr_levels(
         ticker, market, groww_token, exchange, cache, is_crypto=is_crypto,
     )
+    price_action = compute_price_action_profile(
+        ticker, market, groww_token, exchange, cache, is_crypto=is_crypto,
+    )
 
     current_price = None
     for w in price_windows:
@@ -1245,9 +1488,11 @@ def investigate_ticker(
         news=news,
         analyst_consensus=analyst_consensus,
         current_price=current_price,
+        price_action=price_action,
     )
     strategies = setup_bundle["strategies"]
     trade_setup = setup_bundle["primary"]
+    suggested_trades = _build_suggested_trades(setup_bundle, price_action)
 
     return {
         "ticker": ticker,
@@ -1261,12 +1506,15 @@ def investigate_ticker(
         "analyst_consensus": analyst_consensus,
         "price_windows": price_windows,
         "sr": sr,
+        "price_action": price_action,
         "strategies": strategies,
         "trade_setup": trade_setup,
         "trade_setups": setup_bundle.get("setups") or [],
+        "suggested_trades": suggested_trades,
         "news_sentiment": setup_bundle.get("news_sentiment"),
         "analyst_sentiment": setup_bundle.get("analyst_sentiment"),
         "mtf_label": setup_bundle.get("mtf_label"),
+        "pa_verdict": setup_bundle.get("pa_verdict"),
     }
 
 
@@ -1350,6 +1598,26 @@ def build_investigation_ai_prompt(result: dict, currency: str = "₹") -> str:
         )
 
     imm = (result.get("sr") or {}).get("immediate") or {}
+    pa = (result.get("price_action") or {}).get("primary") or {}
+    if not pa.get("insufficient"):
+        lines.extend([
+            "",
+            "── PRICE ACTION (multi-indicator) ──",
+            f"Bias: {pa.get('overall_bias', '—')} · Trend: {pa.get('trend', '—')} · "
+            f"RSI {pa.get('rsi', '—')} ({pa.get('rsi_zone', '—')}) · EMA {pa.get('ema_stack', '—')}",
+            f"VWAP: {pa.get('vwap_position', '—')} ({pa.get('vwap_distance_pct', '—')}%) · "
+            f"RVOL {pa.get('volume_ratio', '—')}× ({pa.get('volume_label', '—')}) · MFI {pa.get('mfi', '—')}",
+            f"Fib golden: {pa.get('fib_golden')} · SMC OB bull/bear {pa.get('smc_bull_ob')}/{pa.get('smc_bear_ob')} · "
+            f"PA verdict: {pa.get('verdict', '—')}",
+        ])
+        if pa.get("approaching_alerts"):
+            lines.append("Approaching: " + " | ".join(pa["approaching_alerts"][:4]))
+        best_pa = pa.get("best_setup")
+        if best_pa:
+            lines.append(
+                f"Best PA setup: {best_pa.get('direction')} conf {best_pa.get('confidence')}% · "
+                f"SL {best_pa.get('sl_pct')}% TP {best_pa.get('tp1_pct')}%"
+            )
     lines.extend([
         "",
         "── IMMEDIATE S/R (15m) ──",
@@ -1372,6 +1640,20 @@ def build_investigation_ai_prompt(result: dict, currency: str = "₹") -> str:
             f"• [{c.get('action')}] {c.get('call_type')} — {c.get('brokerage')} — "
             f"target {c.get('price_target')} (was {c.get('prior_target')}) — {c.get('title', '')[:100]}",
         )
+
+    lines.extend([
+        "",
+        "── SUGGESTED TRADES (confidence · SL · TP) ──",
+    ])
+    for tr in result.get("suggested_trades") or []:
+        lines.append(
+            f"[{tr.get('status')}] {tr.get('direction')} · {tr.get('name')} · "
+            f"conf {tr.get('confidence_pct')}% · SL -{tr.get('sl_pct')}% · "
+            f"TP +{tr.get('tp_pct')}% · R:R {tr.get('rr_ratio', '—')} · "
+            f"{tr.get('style')} · {tr.get('timeframe')}"
+        )
+        if tr.get("detail"):
+            lines.append(f"  {tr['detail'][:120]}")
 
     lines.extend([
         "",

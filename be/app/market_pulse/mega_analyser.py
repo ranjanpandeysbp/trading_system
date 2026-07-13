@@ -27,6 +27,7 @@ from app.market_pulse.ai_view import (
 )
 from app.market_pulse.database import get_strategies_by_mobile
 from app.market_pulse.engine import run_true_backtest
+from app.market_pulse.fundamentals_combine import combine_with_fundamentals
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan, generate_gap_trade_setups
 from app.market_pulse.groww_auth import get_active_groww_token
 from app.market_pulse.indicators import calculate_dynamic_indicators
@@ -173,6 +174,15 @@ MEGA_TICKER_SCANNER_MODULES = (
     "crypto_scalping",
     "smc_fake_market_shift",
 )
+
+MEGA_BATCH_SIZE = 20
+
+
+def _mega_pick_tf(timeframes: list[str], candidates: tuple[str, ...], fallback: str) -> str:
+    for tf in candidates:
+        if tf in timeframes:
+            return tf
+    return fallback
 
 
 def _df_title_case_ohlc(df: pd.DataFrame) -> pd.DataFrame:
@@ -462,6 +472,37 @@ def summarize_mega_ticker(ticker: str, summaries: list[dict]) -> dict:
         ),
         reasons=reason_lines,
     )
+
+
+_MEGA_VERDICT_TO_DIRECTION = {
+    "STRONG BUY": "LONG", "BUY": "LONG", "TOP PICK": "LONG", "DEPLOY": "LONG",
+    "SELL / AVOID": "SHORT", "STRONG SELL": "SHORT",
+}
+
+
+def _apply_fundamentals_mega(summary: dict, ticker: str) -> None:
+    """Combine a Mega Analyser ticker summary's verdict/score with Fundamental
+    Analysis for the same ticker, in place — India only, opt-in via checkbox."""
+    direction = _MEGA_VERDICT_TO_DIRECTION.get(summary.get("verdict", ""))
+    if direction is None:
+        return
+    technical_score = summary.get("score", 5.0)
+    confidence = technical_score * 10.0
+    combo = combine_with_fundamentals(ticker, direction, confidence)
+    summary["fundamentals_combo"] = combo
+    summary["technical_score"] = technical_score
+    if not combo.get("available"):
+        return
+    new_score = round(combo["combined_confidence_pct"] / 10.0, 1)
+    summary["score"] = new_score
+    if combo["combined_direction"] == "WAIT":
+        summary["verdict"] = "WAIT"
+        summary["recommendation"] = "WAIT (fundamentals disagree)" if combo.get("conflict") else "WAIT"
+    plan = summary.get("trade_plan") or {}
+    if plan:
+        plan["direction"] = combo["combined_direction"] if combo["combined_direction"] != "WAIT" else plan.get("direction", "—")
+        plan["confidence_pct"] = combo["combined_confidence_pct"]
+        summary["trade_plan"] = plan
 
 
 def build_mega_ai_prompt(ticker: str, market: str, summaries: list[dict], currency: str) -> str:
@@ -1243,6 +1284,121 @@ def _run_mega_scan(
         "timeframes": timeframes,
         "tb_candles": tb_candles,
     }
+
+
+def _mega_build_run_config(
+    *,
+    market: str,
+    timeframes: list[str],
+    start_date: date,
+    end_date: date,
+    exchange: str,
+    capital: float,
+    tb_candles: int,
+    gap_min_pct: float,
+    seasonality_years: int,
+    conf_fib_lb: int,
+    conf_st_period: int,
+    conf_st_mult: float,
+    modules: dict[str, bool],
+    mobile: str,
+) -> dict:
+    """Serializable scan settings for batch continuation."""
+    return {
+        "market": market,
+        "timeframes": list(timeframes),
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "exchange": exchange,
+        "capital": capital,
+        "commission": 0.001,
+        "slippage": 0.0005,
+        "tb_candles": tb_candles,
+        "gap_min_pct": gap_min_pct,
+        "seasonality_years": seasonality_years,
+        "conf_fib_lb": conf_fib_lb,
+        "conf_st_period": conf_st_period,
+        "conf_st_mult": conf_st_mult,
+        "modules": dict(modules),
+        "mobile": mobile or "",
+    }
+
+
+def _mega_run_batch(
+    tickers: list[str],
+    run_config: dict,
+    *,
+    progress_callback=None,
+) -> dict:
+    """Run mega scan for one ticker batch using stored config."""
+    groww_token = get_active_groww_token()
+    return _run_mega_scan(
+        market=run_config["market"],
+        tickers=tickers,
+        timeframes=run_config["timeframes"],
+        start_date=date.fromisoformat(run_config["start_date"]),
+        end_date=date.fromisoformat(run_config["end_date"]),
+        exchange=run_config["exchange"],
+        groww_token=groww_token,
+        capital=float(run_config["capital"]),
+        commission=float(run_config.get("commission", 0.001)),
+        slippage=float(run_config.get("slippage", 0.0005)),
+        tb_candles=int(run_config["tb_candles"]),
+        gap_min_pct=float(run_config["gap_min_pct"]),
+        seasonality_years=int(run_config["seasonality_years"]),
+        conf_fib_lb=int(run_config["conf_fib_lb"]),
+        conf_st_period=int(run_config["conf_st_period"]),
+        conf_st_mult=float(run_config["conf_st_mult"]),
+        modules=run_config["modules"],
+        mobile=run_config.get("mobile", ""),
+        progress_callback=progress_callback,
+    )
+
+
+def _mega_start_batched_run(all_tickers: list[str], run_config: dict, *, progress_callback=None) -> dict:
+    """Run first batch and initialize lazy-load session state."""
+    batch_tickers = all_tickers[:MEGA_BATCH_SIZE]
+    batch_result = _mega_run_batch(batch_tickers, run_config, progress_callback=progress_callback)
+    return {
+        "batches": [batch_result],
+        "all_tickers": list(all_tickers),
+        "next_index": len(batch_tickers),
+        "run_config": run_config,
+        "batch_size": MEGA_BATCH_SIZE,
+    }
+
+
+def _mega_append_next_batch(mega_state: dict, *, progress_callback=None) -> dict:
+    """Run and append the next ticker batch to an in-progress mega run."""
+    all_tickers = mega_state.get("all_tickers") or []
+    next_index = int(mega_state.get("next_index", 0))
+    run_config = mega_state.get("run_config") or {}
+    if next_index >= len(all_tickers):
+        return mega_state
+
+    batch_tickers = all_tickers[next_index: next_index + MEGA_BATCH_SIZE]
+    batch_result = _mega_run_batch(batch_tickers, run_config, progress_callback=progress_callback)
+    batches = list(mega_state.get("batches") or [])
+    batches.append(batch_result)
+    return {
+        **mega_state,
+        "batches": batches,
+        "next_index": next_index + len(batch_tickers),
+    }
+
+
+def _mega_batches_pending(mega_state: dict | None) -> bool:
+    if not mega_state:
+        return False
+    all_tickers = mega_state.get("all_tickers") or []
+    return int(mega_state.get("next_index", 0)) < len(all_tickers)
+
+
+def _mega_pending_count(mega_state: dict | None) -> int:
+    if not mega_state:
+        return 0
+    all_tickers = mega_state.get("all_tickers") or []
+    return max(0, len(all_tickers) - int(mega_state.get("next_index", 0)))
 
 
 def _render_mega_analyser_results(

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { DataTable, Th, Td } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
+import { StatCard } from '../ui/StatCard'
 
 type Row = Record<string, unknown>
 
@@ -158,7 +159,67 @@ export function MtfScannerPanel({ data }: { data: Row }) {
   )
 }
 
-export function TickerInvestigationPanel({ data }: { data: Row }) {
+function fmtN(v: unknown, digits = 2): string {
+  if (v == null || v === '') return '—'
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(digits) : String(v)
+}
+
+function verdictTone(verdict: string) {
+  const v = verdict.toUpperCase()
+  if (v.includes('BUY') || v.includes('BULL') || v.includes('LONG') || v === 'TAKE') return 'text-emerald-400'
+  if (v.includes('SELL') || v.includes('BEAR') || v.includes('SHORT') || v.includes('AVOID')) return 'text-rose-400'
+  return 'text-amber-400'
+}
+
+const SR_EVENT_LABELS: Record<string, string> = {
+  BREAKOUT: '🚀 Breakout',
+  BREAKDOWN: '🔻 Breakdown',
+  FAKEOUT: '⚠️ Fakeout',
+  REVERSAL: '🔄 Reversal',
+  RANGE: '↔️ Range',
+}
+
+function PriceActionSnapshot({ pa, title }: { pa: Row; title: string }) {
+  if (!pa || pa.insufficient) return null
+  const bestSetup = pa.best_setup as Row | undefined
+  const alerts = (pa.approaching_alerts as string[]) ?? []
+  return (
+    <div className="rounded-lg border border-slate-800/60 p-3">
+      <p className="mb-2 text-sm font-medium text-white">{title}</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-300 sm:grid-cols-3">
+        <span>Bias: <strong className={verdictTone(String(pa.overall_bias ?? ''))}>{String(pa.overall_bias ?? '—')}</strong></span>
+        <span>Trend: <strong>{String(pa.trend ?? '—')}</strong></span>
+        <span>RSI: <strong>{fmtN(pa.rsi, 1)}</strong> ({String(pa.rsi_zone ?? '—')})</span>
+        <span>EMA stack: <strong>{String(pa.ema_stack ?? '—')}</strong></span>
+        <span>Fib golden: <strong>{pa.fib_golden ? 'Yes' : 'No'}</strong></span>
+        <span>VWAP: <strong>{String(pa.vwap_position ?? '—')}</strong> ({fmtN(pa.vwap_distance_pct, 2)}%)</span>
+        <span>RVOL: <strong>{fmtN(pa.volume_ratio, 2)}x</strong> ({String(pa.volume_label ?? '—')})</span>
+        <span>MFI: <strong>{fmtN(pa.mfi, 1)}</strong></span>
+        <span>SMC OB bull/bear: <strong>{String(pa.smc_bull_ob ?? 0)}/{String(pa.smc_bear_ob ?? 0)}</strong></span>
+        <span>SMC FVG bull/bear: <strong>{String(pa.smc_bull_fvg ?? 0)}/{String(pa.smc_bear_fvg ?? 0)}</strong></span>
+        <span>Verdict: <strong className={verdictTone(String(pa.verdict ?? ''))}>{String(pa.verdict ?? '—')}</strong></span>
+      </div>
+      {alerts.length > 0 && (
+        <p className="mt-2 text-xs text-amber-300">{alerts.slice(0, 3).join(' · ')}</p>
+      )}
+      {bestSetup && (
+        <p className="mt-2 text-xs text-slate-400">
+          Best PA setup: <strong className={verdictTone(String(bestSetup.direction ?? ''))}>{String(bestSetup.direction ?? '—')}</strong>
+          {' '}conf {fmtN(bestSetup.confidence, 0)}% · SL {fmtN(bestSetup.sl_pct)}% · TP {fmtN(bestSetup.tp1_pct)}%
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function TickerInvestigationPanel({
+  data,
+  renderExtra,
+}: {
+  data: Row
+  renderExtra?: (result: Row) => ReactNode
+}) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
 
@@ -169,8 +230,18 @@ export function TickerInvestigationPanel({ data }: { data: Row }) {
   const news = (r.news as Row[]) ?? []
   const priceWindows = (r.price_windows as Row[]) ?? []
   const sr = r.sr as Row | undefined
+  const srImmediate = (sr?.immediate as Row) ?? {}
+  const srByTf = (sr?.by_tf as Record<string, Row>) ?? {}
+  const priceAction = r.price_action as Row | undefined
+  const paPrimary = (priceAction?.primary as Row) ?? undefined
+  const paByTf = (priceAction?.by_tf as Record<string, Row>) ?? {}
   const strategies = (r.strategies as Row[]) ?? []
   const tradeSetup = r.trade_setup as Row | undefined
+  const suggestedTrades = (r.suggested_trades as Row[]) ?? []
+  const analystCalls = (r.analyst_calls as Row[]) ?? []
+  const consensus = (r.analyst_consensus as Row) ?? {}
+  const newsSentiment = r.news_sentiment as Row | undefined
+  const analystSentiment = r.analyst_sentiment as Row | undefined
 
   return (
     <div className="space-y-4">
@@ -186,23 +257,59 @@ export function TickerInvestigationPanel({ data }: { data: Row }) {
         <p className="text-lg font-semibold text-white">{String(r.display_name ?? r.ticker)}</p>
         <p className="text-sm text-slate-400">
           Price: {r.current_price != null ? `₹${Number(r.current_price).toFixed(2)}` : '—'}
-          {r.mtf_label ? ` · ${String(r.mtf_label)}` : ''}
+          {' '}· {news.length} headlines · {analystCalls.length} analyst calls
+          {r.mtf_label ? ` · MTF ${String(r.mtf_label)}` : ''}
+          {r.pa_verdict != null ? ` · PA ${String(r.pa_verdict)}` : ''}
         </p>
         {r.error != null ? <Alert type="error">{String(r.error)}</Alert> : null}
       </div>
 
+      {paPrimary && (
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-slate-400">Price Action (multi-indicator)</h4>
+          <PriceActionSnapshot pa={paPrimary} title={`Primary (${String(priceAction?.primary_tf ?? '')})`} />
+          {Object.keys(paByTf).length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-slate-500">By timeframe ({Object.keys(paByTf).length})</summary>
+              <DataTable minWidth={640}>
+                <thead><tr><Th>TF</Th><Th>Bias</Th><Th>Trend</Th><Th>RSI</Th><Th>EMA stack</Th><Th>VWAP</Th><Th>RVOL</Th><Th>Verdict</Th></tr></thead>
+                <tbody>
+                  {Object.entries(paByTf).map(([tf, p]) => (
+                    <tr key={tf}>
+                      <Td>{tf}</Td>
+                      <Td className={verdictTone(String(p.overall_bias ?? ''))}>{String(p.overall_bias ?? '—')}</Td>
+                      <Td>{String(p.trend ?? '—')}</Td>
+                      <Td>{fmtN(p.rsi, 1)}</Td>
+                      <Td>{String(p.ema_stack ?? '—')}</Td>
+                      <Td>{String(p.vwap_position ?? '—')}</Td>
+                      <Td>{fmtN(p.volume_ratio, 2)}x</Td>
+                      <Td className={verdictTone(String(p.verdict ?? ''))}>{String(p.verdict ?? '—')}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </details>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <h4 className="mb-2 text-sm font-medium text-slate-400">News ({news.length})</h4>
-          <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-            {news.slice(0, 8).map((a, i) => (
+          <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+            {news.slice(0, 12).map((a, i) => (
               <li key={i} className="text-slate-300">
                 {a.link ? (
                   <a href={String(a.link)} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
                     {String(a.title ?? 'Article')}
                   </a>
                 ) : String(a.title ?? 'Article')}
-                {a.source != null ? <span className="ml-1 text-xs text-slate-500">({String(a.source)})</span> : null}
+                <div className="text-xs text-slate-500">
+                  {a.source != null ? String(a.source) : ''}{a.published != null ? ` · ${String(a.published)}` : ''}
+                </div>
+                {a.summary != null && String(a.summary).trim() && (
+                  <p className="mt-0.5 text-xs text-slate-400 line-clamp-2">{String(a.summary)}</p>
+                )}
               </li>
             ))}
             {!news.length && <li className="text-slate-500">No recent headlines.</li>}
@@ -211,7 +318,7 @@ export function TickerInvestigationPanel({ data }: { data: Row }) {
         <div>
           <h4 className="mb-2 text-sm font-medium text-slate-400">Price windows</h4>
           <DataTable>
-            <thead><tr><Th>Window</Th><Th>Change</Th><Th>RSI</Th></tr></thead>
+            <thead><tr><Th>Window</Th><Th>Change</Th><Th>RSI</Th><Th>Zone</Th></tr></thead>
             <tbody>
               {priceWindows.map((w) => (
                 <tr key={String(w.window)}>
@@ -220,6 +327,7 @@ export function TickerInvestigationPanel({ data }: { data: Row }) {
                     {w.change_pct != null ? `${Number(w.change_pct) > 0 ? '+' : ''}${Number(w.change_pct).toFixed(2)}%` : '—'}
                   </Td>
                   <Td>{w.rsi != null ? Number(w.rsi).toFixed(1) : '—'}</Td>
+                  <Td>{String(w.rsi_zone ?? '—')}</Td>
                 </tr>
               ))}
             </tbody>
@@ -227,42 +335,145 @@ export function TickerInvestigationPanel({ data }: { data: Row }) {
         </div>
       </div>
 
-      {sr && Object.keys(sr).length > 0 && (
+      {Object.keys(srImmediate).length > 0 && (
         <div>
-          <h4 className="mb-2 text-sm font-medium text-slate-400">Support / Resistance</h4>
-          <div className="grid gap-2 text-sm sm:grid-cols-2">
-            {Object.entries(sr).map(([tf, levels]) => (
-              <div key={tf} className="rounded-lg border border-slate-800/60 p-3">
-                <p className="font-medium text-white">{tf}</p>
-                <p className="text-slate-400">{(levels as Row).summary ? String((levels as Row).summary) : JSON.stringify(levels).slice(0, 120)}</p>
-              </div>
-            ))}
+          <h4 className="mb-2 text-sm font-medium text-slate-400">Support / Resistance ({String(sr?.primary_tf ?? '—')})</h4>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatCard label="Support" value={`${fmtN(srImmediate.support, 4)} (${String(srImmediate.support_strength ?? '—')}, ${String(srImmediate.support_touches ?? 0)} touches)`} />
+            <StatCard label="Resistance" value={`${fmtN(srImmediate.resistance, 4)} (${String(srImmediate.resistance_strength ?? '—')})`} />
+            <StatCard label="Event" value={String(srImmediate.event_label ?? SR_EVENT_LABELS[String(srImmediate.event ?? '')] ?? srImmediate.event ?? '—')} />
           </div>
+          <p className="mt-2 text-xs text-slate-400">
+            Breakout {fmtN(srImmediate.breakout_chance_pct, 0)}% · Breakdown {fmtN(srImmediate.breakdown_chance_pct, 0)}% · Bias {String(srImmediate.sr_bias ?? '—')}
+          </p>
+          {Object.keys(srByTf).length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-slate-500">By timeframe ({Object.keys(srByTf).length})</summary>
+              <DataTable minWidth={640}>
+                <thead><tr><Th>TF</Th><Th>Support</Th><Th>Resistance</Th><Th>Breakout %</Th><Th>Breakdown %</Th><Th>Bias</Th></tr></thead>
+                <tbody>
+                  {Object.entries(srByTf).map(([tf, s]) => (
+                    <tr key={tf}>
+                      <Td>{tf}</Td>
+                      <Td>{fmtN(s.support, 4)}</Td>
+                      <Td>{fmtN(s.resistance, 4)}</Td>
+                      <Td>{fmtN(s.breakout_chance_pct, 0)}</Td>
+                      <Td>{fmtN(s.breakdown_chance_pct, 0)}</Td>
+                      <Td>{String(s.sr_bias ?? '—')}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </details>
+          )}
+        </div>
+      )}
+
+      {(analystCalls.length > 0 || Object.keys(consensus).length > 0) && (
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-slate-400">Analyst calls &amp; consensus</h4>
+          <div className="mb-3 grid gap-3 sm:grid-cols-4">
+            <StatCard label="Consensus" value={String(consensus.consensus ?? '—')} />
+            <StatCard label="Buy / Sell / Hold" value={`${String(consensus.buy ?? 0)}/${String(consensus.sell ?? 0)}/${String(consensus.hold ?? 0)}`} />
+            <StatCard label="Upgrades / Downgrades" value={`${String(consensus.upgrades ?? 0)}/${String(consensus.downgrades ?? 0)}`} />
+            <StatCard label="Latest target" value={String(consensus.latest_target ?? '—')} />
+          </div>
+          {analystCalls.length > 0 && (
+            <DataTable minWidth={640}>
+              <thead><tr><Th>Action</Th><Th>Type</Th><Th>Brokerage</Th><Th>Target</Th><Th>Title</Th></tr></thead>
+              <tbody>
+                {analystCalls.slice(0, 10).map((c, i) => (
+                  <tr key={i}>
+                    <Td className={verdictTone(String(c.action ?? ''))}>{String(c.action ?? '—')}</Td>
+                    <Td>{String(c.call_type ?? '—')}</Td>
+                    <Td>{String(c.brokerage ?? '—')}</Td>
+                    <Td>{fmtN(c.price_target)}{c.prior_target != null ? ` (was ${fmtN(c.prior_target)})` : ''}</Td>
+                    <Td className="max-w-xs truncate text-slate-400">{String(c.title ?? '—')}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          )}
+        </div>
+      )}
+
+      {suggestedTrades.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-slate-400">Suggested trades</h4>
+          {(newsSentiment || analystSentiment) && (
+            <p className="mb-2 text-xs text-slate-500">
+              News sentiment: {String(newsSentiment?.label ?? '—')} ({String(newsSentiment?.score ?? 0)}) ·
+              {' '}Analyst tone: {String(analystSentiment?.label ?? '—')}
+            </p>
+          )}
+          <DataTable minWidth={800}>
+            <thead><tr><Th>Status</Th><Th>Direction</Th><Th>Name</Th><Th>Conf %</Th><Th>SL %</Th><Th>TP %</Th><Th>R:R</Th><Th>Style</Th><Th>TF</Th></tr></thead>
+            <tbody>
+              {suggestedTrades.map((t, i) => (
+                <tr key={i}>
+                  <Td className={verdictTone(String(t.status ?? ''))}>{String(t.status ?? '—')}</Td>
+                  <Td className={verdictTone(String(t.direction ?? ''))}>{String(t.direction ?? '—')}</Td>
+                  <Td className="max-w-xs truncate">{String(t.name ?? '—')}</Td>
+                  <Td>{fmtN(t.confidence_pct, 0)}</Td>
+                  <Td>{fmtN(t.sl_pct)}</Td>
+                  <Td>{fmtN(t.tp_pct)}</Td>
+                  <Td>{t.rr_ratio != null ? String(t.rr_ratio) : '—'}</Td>
+                  <Td>{String(t.style ?? '—')}</Td>
+                  <Td>{String(t.timeframe ?? '—')}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
         </div>
       )}
 
       {tradeSetup && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
           <h4 className="text-sm font-medium text-emerald-400">Primary trade setup</h4>
-          <p className="mt-1 text-white">{String(tradeSetup.name ?? tradeSetup.strategy ?? 'Setup')}</p>
-          <p className="text-sm text-slate-300">{String(tradeSetup.rationale ?? tradeSetup.summary ?? '')}</p>
+          <p className="mt-1 text-white">
+            {String(tradeSetup.name ?? 'Setup')} ·
+            {' '}<span className={verdictTone(String(tradeSetup.direction ?? ''))}>{tradeSetup.take_trade ? `TAKE ${String(tradeSetup.direction ?? '')}` : 'NO TRADE / WAIT'}</span>
+          </p>
+          <p className="mt-1 text-sm text-slate-300">
+            Conf {fmtN(tradeSetup.confidence_pct, 0)}% · SL -{fmtN(tradeSetup.sl_pct)}% · TP +{fmtN(tradeSetup.tp_pct)}% ·
+            {' '}R:R {tradeSetup.rr_ratio != null ? String(tradeSetup.rr_ratio) : '—'} · {String(tradeSetup.style ?? '—')} · {String(tradeSetup.timeframe ?? '—')}
+          </p>
+          {tradeSetup.detail != null && <p className="mt-1 text-sm text-slate-400">{String(tradeSetup.detail)}</p>}
+          {((tradeSetup.reasons as string[]) ?? []).length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-slate-400">
+              {(tradeSetup.reasons as string[]).map((rr, i) => <li key={i}>• {rr}</li>)}
+            </ul>
+          )}
+          {tradeSetup.invalidation != null && (
+            <p className="mt-2 text-xs text-slate-500">Invalidation: {String(tradeSetup.invalidation)}</p>
+          )}
         </div>
       )}
 
       {strategies.length > 0 && (
         <div>
-          <h4 className="mb-2 text-sm font-medium text-slate-400">Strategies ({strategies.length})</h4>
-          <ul className="space-y-2 text-sm">
-            {strategies.slice(0, 8).map((s, i) => (
-              <li key={i} className="rounded-lg border border-slate-800/60 p-3 text-slate-300">
-                <span className="font-medium text-white">{String(s.name ?? s.strategy ?? `Strategy ${i + 1}`)}</span>
-                {s.status != null ? <span className="ml-2 text-xs text-slate-500">{String(s.status)}</span> : null}
-                {s.note != null ? <p className="mt-1 text-xs">{String(s.note)}</p> : null}
-              </li>
-            ))}
-          </ul>
+          <h4 className="mb-2 text-sm font-medium text-slate-400">Ranked setups ({strategies.length})</h4>
+          <DataTable minWidth={800}>
+            <thead><tr><Th>Flag</Th><Th>Name</Th><Th>Direction</Th><Th>Style</Th><Th>TF</Th><Th>Conf %</Th><Th>SL %</Th><Th>TP %</Th></tr></thead>
+            <tbody>
+              {strategies.slice(0, 12).map((s, i) => (
+                <tr key={i}>
+                  <Td>{s.take_trade ? 'TAKE' : s.forming ? 'FORMING' : 'watch'}</Td>
+                  <Td className="max-w-xs truncate">{String(s.name ?? `Strategy ${i + 1}`)}</Td>
+                  <Td className={verdictTone(String(s.direction ?? ''))}>{String(s.direction ?? '—')}</Td>
+                  <Td>{String(s.style ?? '—')}</Td>
+                  <Td>{String(s.timeframe ?? '—')}</Td>
+                  <Td>{fmtN(s.confidence_pct, 0)}</Td>
+                  <Td>{fmtN(s.sl_pct)}</Td>
+                  <Td>{fmtN(s.tp_pct)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
         </div>
       )}
+
+      {renderExtra ? renderExtra(r) : null}
     </div>
   )
 }

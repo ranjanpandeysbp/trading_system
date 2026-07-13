@@ -6,6 +6,9 @@ Pump & Dump Predictor — Crypto + India (NSE/BSE) pre-move signals, scorer, tra
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
+
 from app.market_pulse.ai_view import (
     STANDARD_REPORT_FORMAT,
     render_ai_config,
@@ -724,7 +727,7 @@ def _render_crypto_section(provider: str, model: str, api_key: str) -> None:
                     st.session_state["pdp_crypto_last"] = None
                 st.toast(f"Crypto scan done — {len(rows)} row(s)", icon="✅")
         if b2.button("🎯 Analyze one", key="pdp_c_one_btn") and single != "—":
-            with st.spinner(f"Analyzing {single}…"):
+            with nullcontext():
                 st.session_state["pdp_crypto_last"] = analyze_crypto_pair(single, entry_tf, htf)
                 st.session_state["pdp_crypto_scan_done"] = True
     _render_crypto_scan_results(provider, model, api_key)
@@ -845,7 +848,7 @@ def _render_india_section(provider: str, model: str, api_key: str) -> None:
                     st.session_state["pdp_india_last"] = None
                 st.toast(f"India scan done — {len(rows)} row(s)", icon="✅")
         if b2.button("🎯 Analyze one", key="pdp_i_one_btn") and single != "—":
-            with st.spinner(f"Analyzing {single}…"):
+            with nullcontext():
                 st.session_state["pdp_india_last"] = analyze_india_ticker(
                     single, entry_tf, htf, groww_token, exchange,
                 )
