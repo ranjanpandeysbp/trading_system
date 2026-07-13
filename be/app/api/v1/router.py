@@ -29,7 +29,9 @@ from app.models.schemas import (
     CommandCenterInvestigateStrategiesRequest,
     CommandCenterMegaAdviceRequest,
     CommandCenterMfHoldingsRequest,
+    CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
+    CommandCenterOptionChainRequest,
     CommandCenterTickerScanRequest,
     WatchlistCreate,
     WatchlistItemCreate,
@@ -747,6 +749,56 @@ async def command_center_mega_setup_advisor(
         use_ai=payload.use_ai,
         user_goal=payload.user_goal,
     )
+
+
+@router.get("/command-center/coindcx-24h-volatility")
+async def command_center_coindcx_24h_volatility(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).coindcx_24h_volatility()
+
+
+@router.get("/command-center/nse-indices")
+async def command_center_nse_indices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).nse_indices()
+
+
+@router.get("/command-center/global-indices")
+async def command_center_global_indices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).global_indices()
+
+
+@router.get("/command-center/india-market-heatmap/indices")
+async def command_center_india_market_heatmap_indices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).india_market_heatmap_indices()
+
+
+@router.post("/command-center/india-market-heatmap")
+async def command_center_india_market_heatmap(
+    payload: CommandCenterHeatmapRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).india_market_heatmap(payload.index_name)
+
+
+@router.post("/command-center/option-chain")
+async def command_center_option_chain(
+    payload: CommandCenterOptionChainRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).option_chain(payload.symbol, payload.is_index)
 
 
 @router.get("/technical-analysis/screeners")

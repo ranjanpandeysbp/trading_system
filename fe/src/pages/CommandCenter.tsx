@@ -1,20 +1,26 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, Compass, Globe2, LineChart, Newspaper, Radar, RefreshCw, Search, Sparkles, Sun, TrendingUp, Zap } from 'lucide-react'
+import { BarChart3, Compass, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Search, Sparkles, Sun, TrendingUp, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
+  fetchCoinDcx24hVolatility,
   fetchCommandCenterSections,
+  fetchGlobalIndices,
   fetchGlobalMarketMood,
+  fetchIndiaMarketHeatmapIndices,
   fetchInvestigationStrategyCatalog,
+  fetchNseIndices,
   fetchTomorrowOutlook,
   runBuySellAdvisor,
   runEmaPositionScan,
   runFundamentalAnalysis,
+  runIndiaMarketHeatmap,
   runInvestigationWithStrategies,
   runMegaAnalyser,
   runMegaSetupAdvisor,
   runMomentumScan,
   runOneClick,
+  runOptionChain,
   runTickerInvestigation,
   runUpgradeDowngradeScan,
 } from '../api/client'
@@ -46,6 +52,10 @@ const TABS = [
   { id: 'stock_upgrade_downgrade', label: 'Upgrade/Downgrade', icon: Newspaper },
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
   { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
+  { id: 'option_chain', label: 'Option Chain', icon: Link2 },
+  { id: 'india_market_heatmap', label: 'Indian Market Heatmap', icon: Grid3x3 },
+  { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
+  { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
 ] as const
 
 const ONE_CLICK_STYLE: Record<string, 'intraday' | 'scalping' | 'swing'> = {
@@ -60,7 +70,7 @@ type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: ['1d'] }
 
 export default function CommandCenter() {
-  const [tab, setTab] = useState<TabId>('tomorrow_outlook')
+  const [tab, setTab] = useState<TabId>('nse_world_indices')
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [result, setResult] = useState<unknown>(null)
@@ -68,6 +78,9 @@ export default function CommandCenter() {
   const [timeframes, setTimeframes] = useState('15m,1h,1d')
   const [useAi, setUseAi] = useState(false)
   const [strategyIds, setStrategyIds] = useState<string[]>([])
+  const [heatmapIndex, setHeatmapIndex] = useState('Nifty 50')
+  const [optionInstrumentType, setOptionInstrumentType] = useState<'Index' | 'Stock'>('Index')
+  const [optionSymbol, setOptionSymbol] = useState('NIFTY')
 
   useQuery({ queryKey: ['cc-sections'], queryFn: fetchCommandCenterSections })
 
@@ -87,6 +100,30 @@ export default function CommandCenter() {
     queryKey: ['cc-strategy-catalog'],
     queryFn: fetchInvestigationStrategyCatalog,
     enabled: tab === 'investigation_strategies',
+  })
+
+  const coinDcxQuery = useQuery({
+    queryKey: ['cc-coindcx-24h'],
+    queryFn: fetchCoinDcx24hVolatility,
+    enabled: tab === 'coindcx_24h_volatility',
+  })
+
+  const nseIndicesQuery = useQuery({
+    queryKey: ['cc-nse-indices'],
+    queryFn: fetchNseIndices,
+    enabled: false,
+  })
+
+  const globalIndicesQuery = useQuery({
+    queryKey: ['cc-global-indices'],
+    queryFn: fetchGlobalIndices,
+    enabled: false,
+  })
+
+  const heatmapIndicesQuery = useQuery({
+    queryKey: ['cc-heatmap-indices'],
+    queryFn: fetchIndiaMarketHeatmapIndices,
+    enabled: tab === 'india_market_heatmap',
   })
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => {
@@ -111,6 +148,16 @@ export default function CommandCenter() {
           ticker_count: tickers.length,
           use_ai: useAi,
         })
+      }
+
+      if (tab === 'india_market_heatmap') {
+        if (!heatmapIndex) throw new Error('Choose an index/sector')
+        return runIndiaMarketHeatmap({ index_name: heatmapIndex })
+      }
+
+      if (tab === 'option_chain') {
+        if (!optionSymbol.trim()) throw new Error('Enter or select a symbol')
+        return runOptionChain({ symbol: optionSymbol.trim().toUpperCase(), is_index: optionInstrumentType === 'Index' })
       }
 
       if (!tickers.length) throw new Error('Select at least one ticker')
@@ -144,10 +191,25 @@ export default function CommandCenter() {
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data : tab === 'global_market_mood' ? moodQuery.data : result
-  const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading : tab === 'global_market_mood' ? moodQuery.isLoading : runMutation.isPending
+  const nseWorldIndicesData = (nseIndicesQuery.data || globalIndicesQuery.data)
+    ? { nse_rows: nseIndicesQuery.data?.rows, global_rows: globalIndicesQuery.data?.rows }
+    : null
+
+  const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data
+    : tab === 'global_market_mood' ? moodQuery.data
+    : tab === 'coindcx_24h_volatility' ? coinDcxQuery.data
+    : tab === 'nse_world_indices' ? nseWorldIndicesData
+    : result
+  const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading
+    : tab === 'global_market_mood' ? moodQuery.isLoading
+    : tab === 'coindcx_24h_volatility' ? coinDcxQuery.isLoading
+    : tab === 'nse_world_indices' ? (nseIndicesQuery.isFetching || globalIndicesQuery.isFetching)
+    : runMutation.isPending
   const queryError = tab === 'tomorrow_outlook' ? (tomorrowQuery.isError ? apiErrorMessage(tomorrowQuery.error) : '')
-    : tab === 'global_market_mood' ? (moodQuery.isError ? apiErrorMessage(moodQuery.error) : '') : ''
+    : tab === 'global_market_mood' ? (moodQuery.isError ? apiErrorMessage(moodQuery.error) : '')
+    : tab === 'coindcx_24h_volatility' ? (coinDcxQuery.isError ? apiErrorMessage(coinDcxQuery.error) : '')
+    : tab === 'nse_world_indices' ? (nseIndicesQuery.isError ? apiErrorMessage(nseIndicesQuery.error) : globalIndicesQuery.isError ? apiErrorMessage(globalIndicesQuery.error) : '')
+    : ''
   const askContext = displayData ? buildAskContext(TABS.find((t) => t.id === tab)?.label ?? tab, displayData) : ''
 
   const handleAssetClassChange = (next: AssetClass) => {
@@ -204,6 +266,104 @@ export default function CommandCenter() {
           {(queryError || error) && (
             <div className="mt-3"><Alert type="error">{queryError || error}</Alert></div>
           )}
+        </Card>
+      ) : tab === 'coindcx_24h_volatility' ? (
+        <Card className="mb-6">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => coinDcxQuery.refetch()}
+            disabled={coinDcxQuery.isFetching}
+          >
+            <RefreshCw size={14} />
+            {coinDcxQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
+          {(queryError || error) && (
+            <div className="mt-3"><Alert type="error">{queryError || error}</Alert></div>
+          )}
+        </Card>
+      ) : tab === 'nse_world_indices' ? (
+        <Card className="mb-6">
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => nseIndicesQuery.refetch()}
+              disabled={nseIndicesQuery.isFetching}
+            >
+              {nseIndicesQuery.isFetching ? 'Loading…' : '📥 Load NSE Indices'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => globalIndicesQuery.refetch()}
+              disabled={globalIndicesQuery.isFetching}
+            >
+              {globalIndicesQuery.isFetching ? 'Loading…' : '🌍 Load Global Indices'}
+            </Button>
+          </div>
+          {(queryError || error) && (
+            <div className="mt-3"><Alert type="error">{queryError || error}</Alert></div>
+          )}
+        </Card>
+      ) : tab === 'india_market_heatmap' ? (
+        <Card className="mb-6">
+          <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
+            <FormField label="Index / Sector">
+              <Select value={heatmapIndex} onChange={(e) => setHeatmapIndex(e.target.value)}>
+                {(heatmapIndicesQuery.data?.index_names ?? [heatmapIndex]).map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </Select>
+            </FormField>
+            <div className="flex items-end">
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+                {runMutation.isPending ? 'Loading…' : 'Submit'}
+              </Button>
+            </div>
+          </div>
+          {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+        </Card>
+      ) : tab === 'option_chain' ? (
+        <Card className="mb-6">
+          <div className="grid gap-4 sm:grid-cols-[1fr_2fr_1.3fr]">
+            <FormField label="Instrument type">
+              <Select
+                value={optionInstrumentType}
+                onChange={(e) => {
+                  const next = e.target.value as 'Index' | 'Stock'
+                  setOptionInstrumentType(next)
+                  setOptionSymbol(next === 'Index' ? 'NIFTY' : 'RELIANCE')
+                }}
+              >
+                <option value="Index">Index</option>
+                <option value="Stock">Stock</option>
+              </Select>
+            </FormField>
+            {optionInstrumentType === 'Index' ? (
+              <FormField label="Index">
+                <Select value={optionSymbol} onChange={(e) => setOptionSymbol(e.target.value)}>
+                  <option value="NIFTY">NIFTY</option>
+                  <option value="BANKNIFTY">BANKNIFTY</option>
+                  <option value="FINNIFTY">FINNIFTY</option>
+                  <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+                </Select>
+              </FormField>
+            ) : (
+              <FormField label="Stock symbol (NSE)">
+                <input
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={optionSymbol}
+                  onChange={(e) => setOptionSymbol(e.target.value.toUpperCase())}
+                  placeholder="RELIANCE"
+                />
+              </FormField>
+            )}
+            <div className="flex items-end">
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+                {runMutation.isPending ? 'Fetching…' : '🔍 Analyze Option Chain'}
+              </Button>
+            </div>
+          </div>
+          {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
         </Card>
       ) : tab === 'mega_setup_advisor' ? (
         <Card className="mb-6">

@@ -23,6 +23,7 @@ from app.trading_hubs import (
     smc_golden_bullet_engine,
     smc_liquidity_engine,
     smc_mtf_day_plan_engine,
+    smc_ttg_sniper_engine,
     smc_weekly_sweep_cisd_engine,
     swing_trading_st_engine,
     swing_trading_st_ha_ema_engine,
@@ -231,6 +232,34 @@ HUB_SECTIONS: list[HubSection] = [
         description="Structural BSL/SSL sweep-vs-grab classification, liquidity runs, and fair-value-gap rebalance entries.",
         module=smc_liquidity_engine,
         config_cls=smc_liquidity_engine.LiquidityConfig,
+    ),
+    _section(
+        id="smc_ttg_sniper",
+        hub="smart_money",
+        label="SM - TTG - Sniper Entry",
+        description="Liquidity sweep + displacement + Order Block + Fair Value Gap tap, HTF-trend-aligned, aggressive or conservative (MSS-confirmed) entry.",
+        module=smc_ttg_sniper_engine,
+        config_cls=smc_ttg_sniper_engine.TTGSniperConfig,
+        config_options={
+            "ltf": {
+                "type": "select",
+                "label": "Execution timeframe (LTF)",
+                "choices": [{"value": v, "label": v} for v in smc_ttg_sniper_engine.LTF_OPTIONS],
+                "default": "15m",
+            },
+            "htf": {
+                "type": "select",
+                "label": "HTF trend bias",
+                "choices": [{"value": v, "label": v} for v in smc_ttg_sniper_engine.HTF_OPTIONS],
+                "default": "1h",
+            },
+            "entry_mode": {
+                "type": "select",
+                "label": "Entry mode",
+                "choices": [{"value": v, "label": v} for v in smc_ttg_sniper_engine.ENTRY_MODE_OPTIONS],
+                "default": "Aggressive",
+            },
+        },
     ),
     _section(
         id="smb_snp",

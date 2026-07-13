@@ -262,6 +262,53 @@ class CommandCenterService:
 
         return json_safe(await asyncio.to_thread(_run))
 
+    async def coindcx_24h_volatility(self) -> dict[str, Any]:
+        from app.market_pulse.coindcx_24h_volatility_engine import fetch_change_24h
+
+        return json_safe({"rows": await asyncio.to_thread(fetch_change_24h)})
+
+    async def nse_indices(self) -> dict[str, Any]:
+        from app.market_pulse.dhan_indices_engine import fetch_nse_indices
+
+        return json_safe({"rows": await asyncio.to_thread(fetch_nse_indices)})
+
+    async def global_indices(self) -> dict[str, Any]:
+        from app.market_pulse.dhan_indices_engine import fetch_global_indices
+
+        return json_safe({"rows": await asyncio.to_thread(fetch_global_indices)})
+
+    async def india_market_heatmap_indices(self) -> dict[str, Any]:
+        from app.market_pulse.india_market_heatmap_engine import INDEX_NAMES
+
+        return json_safe({"index_names": INDEX_NAMES})
+
+    async def india_market_heatmap(self, index_name: str) -> dict[str, Any]:
+        from app.market_pulse.india_market_heatmap_engine import (
+            INDEX_NAME_TO_SYMBOL,
+            fetch_heatmap,
+        )
+
+        symbol = INDEX_NAME_TO_SYMBOL.get(index_name, index_name)
+        rows = await asyncio.to_thread(fetch_heatmap, symbol)
+        return json_safe({"index_name": index_name, "symbol": symbol, "rows": rows})
+
+    async def option_chain(self, symbol: str, is_index: bool) -> dict[str, Any]:
+        from app.market_pulse.option_chain_engine import (
+            classify_option_chain_signal,
+            fetch_option_chain,
+        )
+
+        _, token, _ = await self._ctx()
+
+        def _run():
+            chain = fetch_option_chain(symbol, is_index, token)
+            if not chain:
+                return None
+            return {"symbol": symbol, "chain": chain, "signal": classify_option_chain_signal(chain)}
+
+        result = await asyncio.to_thread(_run)
+        return json_safe(result or {"error": f"Could not fetch the option chain for {symbol} right now."})
+
     def sections(self) -> dict[str, Any]:
         return {
             "sections": [
@@ -280,5 +327,9 @@ class CommandCenterService:
                 {"id": "stock_upgrade_downgrade", "label": "Upgrade/Downgrade & Corporate Actions"},
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},
                 {"id": "mega_setup_advisor", "label": "Mega Setup Advisor"},
+                {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
+                {"id": "india_market_heatmap", "label": "Indian Market Heatmap"},
+                {"id": "nse_world_indices", "label": "NSE and World Indices"},
+                {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
             ]
         }

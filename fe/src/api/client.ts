@@ -466,6 +466,24 @@ export const runMegaSetupAdvisor = (payload: {
   user_goal?: string
 }) => api.post('/command-center/mega-setup-advisor', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const fetchCoinDcx24hVolatility = () =>
+  api.get('/command-center/coindcx-24h-volatility', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchNseIndices = () =>
+  api.get('/command-center/nse-indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchGlobalIndices = () =>
+  api.get('/command-center/global-indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchIndiaMarketHeatmapIndices = () =>
+  api.get<{ index_names: string[] }>('/command-center/india-market-heatmap/indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runIndiaMarketHeatmap = (payload: { index_name: string }) =>
+  api.post('/command-center/india-market-heatmap', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionChain = (payload: { symbol: string; is_index: boolean }) =>
+  api.post('/command-center/option-chain', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const fetchMutualFundAmcs = () =>
   api.get<{ amcs: Array<{ Id: number; Name: string }> }>('/command-center/mutual-fund/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
 

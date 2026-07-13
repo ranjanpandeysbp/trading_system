@@ -1201,6 +1201,306 @@ function StockUpgradeDowngradePanel({ data }: { data: Row }) {
   )
 }
 
+function heatmapTileStyle(pct: number | null | undefined, maxAbs: number): { bg: string; fg: string } {
+  if (pct == null) return { bg: 'rgba(148,163,184,0.18)', fg: '#94a3b8' }
+  const magnitude = Math.min(Math.abs(pct), maxAbs) / maxAbs
+  const alpha = 0.18 + magnitude * 0.72
+  if (pct > 0) return { bg: `rgba(22,163,74,${alpha.toFixed(2)})`, fg: alpha > 0.45 ? '#ffffff' : '#166534' }
+  if (pct < 0) return { bg: `rgba(220,38,38,${alpha.toFixed(2)})`, fg: alpha > 0.45 ? '#ffffff' : '#991b1b' }
+  return { bg: 'rgba(148,163,184,0.18)', fg: '#94a3b8' }
+}
+
+function AdvanceDecline({ rows, pctKey }: { rows: Row[]; pctKey: string }) {
+  if (!rows.length) return null
+  const advances = rows.filter((r) => Number(r[pctKey] ?? 0) > 0).length
+  const declines = rows.filter((r) => Number(r[pctKey] ?? 0) < 0).length
+  const unchanged = rows.length - advances - declines
+  const total = rows.length || 1
+  const adRatio = declines ? (advances / declines).toFixed(2) : advances ? '∞' : '—'
+  const advPct = (advances / total) * 100
+  const decPct = (declines / total) * 100
+  return (
+    <div className="mb-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <StatCard label="Total" value={rows.length} />
+        <StatCard label="🟢 Advances" value={advances} />
+        <StatCard label="🔴 Declines" value={declines} />
+        <StatCard label="⚪ Unchanged" value={unchanged} />
+        <StatCard label="A/D Ratio" value={adRatio} />
+      </div>
+      <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-md">
+        <div style={{ width: `${advPct}%`, background: '#16a34a' }} />
+        <div style={{ width: `${decPct}%`, background: '#dc2626' }} />
+        <div style={{ width: `${100 - advPct - decPct}%`, background: '#94a3b8' }} />
+      </div>
+    </div>
+  )
+}
+
+function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
+  const rows = (data.rows as Row[]) ?? []
+  const [direction, setDirection] = useState<'gainers' | 'losers'>('gainers')
+  const [topN, setTopN] = useState<number | 'all'>(50)
+
+  if (!rows.length) return <p className="text-sm text-slate-500">No data returned right now.</p>
+
+  const shown = direction === 'losers'
+    ? [...rows].reverse().slice(0, topN === 'all' ? undefined : topN)
+    : rows.slice(0, topN === 'all' ? undefined : topN)
+
+  const fmtVol = (v: unknown) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return '—'
+    for (const [suffix, threshold] of [['B', 1e9], ['M', 1e6], ['K', 1e3]] as const) {
+      if (Math.abs(n) >= threshold) return `${(n / threshold).toFixed(2)}${suffix}`
+    }
+    return n.toFixed(0)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1.5">
+          <Chip selected={direction === 'gainers'} onClick={() => setDirection('gainers')}>Top gainers</Chip>
+          <Chip selected={direction === 'losers'} onClick={() => setDirection('losers')}>Top losers</Chip>
+        </div>
+        <div className="flex gap-1.5">
+          {[25, 50, 100, 200].map((n) => (
+            <Chip key={n} selected={topN === n} onClick={() => setTopN(n)}>{n}</Chip>
+          ))}
+          <Chip selected={topN === 'all'} onClick={() => setTopN('all')}>All</Chip>
+        </div>
+      </div>
+      <p className="text-sm text-slate-400">{shown.length} of {rows.length} pairs shown ({direction})</p>
+      <AdvanceDecline rows={rows} pctKey="percent_change" />
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+        {shown.map((r, i) => {
+          const { bg, fg } = heatmapTileStyle(r.percent_change as number | null, 15)
+          const pct = r.percent_change as number | null
+          return (
+            <div key={i} className="flex min-h-[112px] flex-col justify-between rounded-lg p-2.5 shadow-sm" style={{ background: bg, color: fg }}>
+              <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+              <div>
+                <div className="text-[10px] opacity-85">Ticker name</div>
+                <div className="text-sm font-bold leading-tight">{String(r.ticker ?? '—')}</div>
+              </div>
+              <div className="text-[10px] leading-relaxed">
+                High {fmtNum(r.high, 4)}<br />Low {fmtNum(r.low, 4)}<br />Vol {fmtVol(r.vol)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
+  const rows = (data.rows as Row[]) ?? []
+  if (!rows.length) return <p className="text-sm text-slate-500">No data returned for this index right now.</p>
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">{String(data.index_name ?? '—')} — {rows.length} stocks</p>
+      <AdvanceDecline rows={rows} pctKey="change_pct" />
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+        {rows.map((r, i) => {
+          const { bg, fg } = heatmapTileStyle(r.change_pct as number | null, 6)
+          const pct = r.change_pct as number | null
+          const price = r.price as number | null
+          return (
+            <div key={i} className="flex min-h-[96px] flex-col justify-between rounded-lg p-2.5 shadow-sm" style={{ background: bg, color: fg }}>
+              <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+              <div>
+                <div className="text-[10px] opacity-85">Ticker name</div>
+                <div className="text-sm font-bold leading-tight">{String(r.ticker ?? '—')}</div>
+                <div className="truncate text-[10px] opacity-85" title={String(r.company ?? '')}>{String(r.company ?? '')}</div>
+              </div>
+              <div className="text-sm font-semibold">{price != null ? `₹ ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function NseWorldIndicesPanel({ data }: { data: Row }) {
+  const nseRows = (data.nse_rows as Row[] | undefined) ?? []
+  const globalRows = (data.global_rows as Row[] | undefined) ?? []
+  const arrow = (pct: unknown) => {
+    const n = Number(pct)
+    if (!Number.isFinite(n) || n === 0) return '—'
+    return n > 0 ? '▲' : '▼'
+  }
+
+  if (!nseRows.length && !globalRows.length) {
+    return <p className="text-sm text-slate-500">Click a button above to load live index data.</p>
+  }
+
+  return (
+    <div className="space-y-6">
+      {nseRows.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-semibold text-white">🇮🇳 NSE Indices — {nseRows.length}</h4>
+          <DataTable minWidth={960}>
+            <thead>
+              <tr>
+                <Th>Index Name</Th><Th>LTP</Th><Th>Trend</Th><Th>Change %</Th><Th>Open</Th><Th>Prev. Close</Th>
+                <Th>52W High</Th><Th>52W Low</Th><Th>1Yr Return %</Th><Th>3Yr Returns %</Th><Th>5Yr Returns %</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {nseRows.map((r, i) => (
+                <tr key={i}>
+                  <Td className="font-medium">{String(r.name ?? '—')}</Td>
+                  <Td>{fmtNum(r.ltp)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{arrow(r.change_pct)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change_pct)}</Td>
+                  <Td>{fmtNum(r.open)}</Td>
+                  <Td>{fmtNum(r.prev_close)}</Td>
+                  <Td>{fmtNum(r.high_52w)}</Td>
+                  <Td>{fmtNum(r.low_52w)}</Td>
+                  <Td>{fmtNum(r.return_1y_pct)}</Td>
+                  <Td>{fmtNum(r.return_3y_pct)}</Td>
+                  <Td>{fmtNum(r.return_5y_pct)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+      )}
+      {globalRows.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-semibold text-white">🌍 Global Indices — {globalRows.length}</h4>
+          <DataTable minWidth={800}>
+            <thead>
+              <tr><Th>Index Name</Th><Th>LTP</Th><Th>Change</Th><Th>Change %</Th><Th>Trend</Th><Th>Open</Th><Th>Prev. Close</Th><Th>Day High</Th><Th>Day Low</Th></tr>
+            </thead>
+            <tbody>
+              {globalRows.map((r, i) => (
+                <tr key={i}>
+                  <Td className="font-medium">{String(r.name ?? '—')}{r.country ? <span className="ml-1 text-xs text-slate-500">({String(r.country)})</span> : null}</Td>
+                  <Td>{fmtNum(r.ltp)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change_pct)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{arrow(r.change_pct)}</Td>
+                  <Td>{fmtNum(r.open)}</Td>
+                  <Td>{fmtNum(r.prev_close)}</Td>
+                  <Td>{fmtNum(r.day_high)}</Td>
+                  <Td>{fmtNum(r.day_low)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OptionChainPanel({ data }: { data: Row }) {
+  const chain = (data.chain as Row) ?? {}
+  const signal = (data.signal as Row) ?? {}
+  const strikes = (chain.strikes as Row[]) ?? []
+  const topCallOi = (chain.top_call_oi as Row[]) ?? []
+  const topPutOi = (chain.top_put_oi as Row[]) ?? []
+  const [showFullChain, setShowFullChain] = useState(false)
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Option Chain · {String(data.symbol ?? '—')}</p>
+        <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(signal.bias ?? ''))}`}>
+          {String(signal.bias ?? '—')} · {String(signal.trade_signal ?? '—')} · {fmtNum(signal.confidence_pct, 0)}% confidence
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <StatCard label="Underlying LTP" value={fmtNum(chain.underlying, 2)} />
+        <StatCard label="PCR (OI)" value={fmtNum(chain.pcr_oi, 2)} />
+        <StatCard label="PCR (Volume)" value={fmtNum(chain.pcr_vol, 2)} />
+        <StatCard label="Max Pain" value={fmtNum(chain.max_pain, 0)} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <StatCard label="Support (highest Put OI)" value={fmtNum(signal.support, 0)} />
+        <StatCard label="Resistance (highest Call OI)" value={fmtNum(signal.resistance, 0)} />
+        <StatCard label="Expiry" value={String(chain.current_expiry ?? '—')} />
+        <StatCard label="Source" value={String(chain.source ?? '—')} />
+      </div>
+
+      {((signal.reasons as string[]) ?? []).length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Why this signal</h4>
+          <ul className="space-y-1.5 text-sm text-slate-300">
+            {(signal.reasons as string[]).map((r, i) => (
+              <li key={i} className="flex gap-2"><span className="text-slate-500">•</span>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Call OI (resistance zones)</h4>
+          <DataTable minWidth={320}>
+            <thead><tr><Th>Strike</Th><Th>Call OI</Th><Th>Chg OI</Th></tr></thead>
+            <tbody>
+              {topCallOi.map((r, i) => (
+                <tr key={i}><Td>{String(r.strike ?? '—')}</Td><Td>{fmtNum(r.ce_oi, 0)}</Td><Td>{fmtNum(r.ce_chg_oi, 0)}</Td></tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+        <div>
+          <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Put OI (support zones)</h4>
+          <DataTable minWidth={320}>
+            <thead><tr><Th>Strike</Th><Th>Put OI</Th><Th>Chg OI</Th></tr></thead>
+            <tbody>
+              {topPutOi.map((r, i) => (
+                <tr key={i}><Td>{String(r.strike ?? '—')}</Td><Td>{fmtNum(r.pe_oi, 0)}</Td><Td>{fmtNum(r.pe_chg_oi, 0)}</Td></tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+      </div>
+
+      {strikes.length > 0 && (
+        <div>
+          <button
+            className="mb-2 text-sm font-semibold text-white underline decoration-slate-600 hover:decoration-slate-400"
+            onClick={() => setShowFullChain((v) => !v)}
+          >
+            {showFullChain ? 'Hide' : 'Show'} full option chain — {strikes.length} strikes
+          </button>
+          {showFullChain && (
+            <DataTable minWidth={900}>
+              <thead>
+                <tr>
+                  <Th>Call OI</Th><Th>Call Chg OI</Th><Th>Call Vol</Th><Th>Call IV</Th><Th>Call LTP</Th>
+                  <Th>Strike</Th>
+                  <Th>Put LTP</Th><Th>Put IV</Th><Th>Put Vol</Th><Th>Put Chg OI</Th><Th>Put OI</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {strikes.map((s, i) => (
+                  <tr key={i}>
+                    <Td>{fmtNum(s.ce_oi, 0)}</Td><Td>{fmtNum(s.ce_chg_oi, 0)}</Td><Td>{fmtNum(s.ce_vol, 0)}</Td>
+                    <Td>{fmtNum(s.ce_iv, 1)}</Td><Td>{fmtNum(s.ce_ltp, 2)}</Td>
+                    <Td className="font-semibold">{String(s.strike ?? '—')}</Td>
+                    <Td>{fmtNum(s.pe_ltp, 2)}</Td><Td>{fmtNum(s.pe_iv, 1)}</Td><Td>{fmtNum(s.pe_vol, 0)}</Td>
+                    <Td>{fmtNum(s.pe_chg_oi, 0)}</Td><Td>{fmtNum(s.pe_oi, 0)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) {
   if (data.error && tab !== 'investigation' && tab !== 'investigation_strategies') {
     return <Alert type="error">{String(data.error)}</Alert>
@@ -1219,6 +1519,14 @@ export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) 
       return <GlobalMarketMoodPanel data={data} />
     case 'mega_setup_advisor':
       return <MegaSetupAdvisorPanel data={data} />
+    case 'option_chain':
+      return <OptionChainPanel data={data} />
+    case 'india_market_heatmap':
+      return <IndiaMarketHeatmapPanel data={data} />
+    case 'nse_world_indices':
+      return <NseWorldIndicesPanel data={data} />
+    case 'coindcx_24h_volatility':
+      return <CoinDcx24hVolatilityPanel data={data} />
     case 'momentum':
       return <MomentumPanel data={data} />
     case 'ema_position':

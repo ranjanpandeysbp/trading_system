@@ -20,6 +20,7 @@ type Universe = {
   default_group?: string
   crypto_modes?: string[]
   crypto_tickers?: Array<{ symbol: string; display: string }>
+  crypto_tickers_by_volatility?: string[]
   default_mode?: string
   commodities?: Array<{ symbol: string; name: string }>
 }
@@ -105,7 +106,10 @@ export function AssetClassTickerPicker({
       if (cryptoMode === 'Manual Selection') {
         return selected.map((d) => byDisplay.get(d) ?? d)
       }
-      const pool = (universe.crypto_tickers ?? []).map((t) => t.display)
+      const volatilityPool = universe.crypto_tickers_by_volatility ?? []
+      const pool = cryptoMode === 'Top Volatile' && volatilityPool.length
+        ? volatilityPool
+        : (universe.crypto_tickers ?? []).map((t) => t.display)
       const slice = cryptoMode === 'All USDT Pairs'
         ? pool
         : pool.slice(0, cryptoTopN)

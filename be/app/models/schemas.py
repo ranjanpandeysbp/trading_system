@@ -280,6 +280,15 @@ class CommandCenterMegaAdviceRequest(BaseModel):
     user_goal: str = ""
 
 
+class CommandCenterHeatmapRequest(BaseModel):
+    index_name: str
+
+
+class CommandCenterOptionChainRequest(BaseModel):
+    symbol: str
+    is_index: bool = True
+
+
 class TradingHubScanRequest(BaseModel):
     section_id: str
     tickers: list[str] = Field(..., min_length=1, max_length=20)

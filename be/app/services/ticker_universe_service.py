@@ -66,6 +66,12 @@ class TickerUniverseService:
 
     def _crypto_config(self, cfg: dict) -> dict[str, Any]:
         tickers = get_coindcx_ticker_list()
+        try:
+            from app.market_pulse.coindcx_24h_volatility_engine import ranked_display_tickers
+
+            volatility_ranked = ranked_display_tickers()
+        except Exception:
+            volatility_ranked = []
         return {
             "asset_class": "crypto",
             "picker_type": "crypto",
@@ -76,6 +82,7 @@ class TickerUniverseService:
             "all_durations": ALL_DURATIONS,
             "crypto_modes": COINDCX_MODES,
             "crypto_tickers": tickers,
+            "crypto_tickers_by_volatility": volatility_ranked,
             "custom_default": CUSTOM_DEFAULTS["crypto"],
             "default_mode": "Manual Selection",
         }
