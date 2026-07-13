@@ -1,13 +1,22 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Compass, Radar, RefreshCw, Search, Sun } from 'lucide-react'
+import { BarChart3, Compass, Globe2, LineChart, Newspaper, Radar, RefreshCw, Search, Sparkles, Sun, TrendingUp, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCommandCenterSections,
+  fetchGlobalMarketMood,
+  fetchInvestigationStrategyCatalog,
   fetchTomorrowOutlook,
   runBuySellAdvisor,
+  runEmaPositionScan,
+  runFundamentalAnalysis,
+  runInvestigationWithStrategies,
   runMegaAnalyser,
+  runMegaSetupAdvisor,
+  runMomentumScan,
+  runOneClick,
   runTickerInvestigation,
+  runUpgradeDowngradeScan,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import {
@@ -27,7 +36,23 @@ const TABS = [
   { id: 'mega_analyser', label: 'Mega Analyser', icon: Radar },
   { id: 'buy_sell', label: 'Buy or Sell', icon: Compass },
   { id: 'investigation', label: 'Ticker Investigation', icon: Search },
+  { id: 'global_market_mood', label: 'Global Market Mood', icon: Globe2 },
+  { id: 'momentum', label: 'Momentum Scanner', icon: TrendingUp },
+  { id: 'ema_position', label: 'EMA Position', icon: LineChart },
+  { id: 'one_click_intraday', label: 'One-Click Intraday', icon: Zap },
+  { id: 'one_click_scalping', label: 'One-Click Scalping', icon: Zap },
+  { id: 'one_click_swing', label: 'One-Click Swing', icon: Zap },
+  { id: 'fundamental_analysis', label: 'Fundamental Analysis', icon: BarChart3 },
+  { id: 'stock_upgrade_downgrade', label: 'Upgrade/Downgrade', icon: Newspaper },
+  { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
+  { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
 ] as const
+
+const ONE_CLICK_STYLE: Record<string, 'intraday' | 'scalping' | 'swing'> = {
+  one_click_intraday: 'intraday',
+  one_click_scalping: 'scalping',
+  one_click_swing: 'swing',
+}
 
 type TabId = (typeof TABS)[number]['id']
 type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
@@ -40,6 +65,9 @@ export default function CommandCenter() {
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [result, setResult] = useState<unknown>(null)
   const [error, setError] = useState('')
+  const [timeframes, setTimeframes] = useState('15m,1h,1d')
+  const [useAi, setUseAi] = useState(false)
+  const [strategyIds, setStrategyIds] = useState<string[]>([])
 
   useQuery({ queryKey: ['cc-sections'], queryFn: fetchCommandCenterSections })
 
@@ -49,13 +77,42 @@ export default function CommandCenter() {
     enabled: tab === 'tomorrow_outlook',
   })
 
+  const moodQuery = useQuery({
+    queryKey: ['cc-market-mood'],
+    queryFn: fetchGlobalMarketMood,
+    enabled: tab === 'global_market_mood',
+  })
+
+  const strategyCatalogQuery = useQuery({
+    queryKey: ['cc-strategy-catalog'],
+    queryFn: fetchInvestigationStrategyCatalog,
+    enabled: tab === 'investigation_strategies',
+  })
+
   const handlePickerChange = useCallback((v: TickerPickerValue) => {
     setPicker(v)
   }, [])
 
+  const toggleStrategyId = (id: string) => {
+    setStrategyIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+  }
+
   const runMutation = useMutation({
     mutationFn: async () => {
       const { tickers, durations } = picker
+
+      if (tab === 'mega_setup_advisor') {
+        const market = assetClass === 'india' ? 'Groww (India Stocks)'
+          : assetClass === 'us' ? 'US Stocks (Yahoo)'
+          : assetClass === 'crypto' ? 'CoinDCX Futures' : 'Commodity Futures'
+        return runMegaSetupAdvisor({
+          market,
+          timeframes: timeframes.split(',').map((t) => t.trim()).filter(Boolean),
+          ticker_count: tickers.length,
+          use_ai: useAi,
+        })
+      }
+
       if (!tickers.length) throw new Error('Select at least one ticker')
 
       switch (tab) {
@@ -67,15 +124,30 @@ export default function CommandCenter() {
           return runBuySellAdvisor({ tickers, asset_class: assetClass, durations })
         case 'investigation':
           return runTickerInvestigation({ tickers, asset_class: assetClass })
+        case 'momentum':
+          return runMomentumScan({ tickers, asset_class: assetClass })
+        case 'ema_position':
+          return runEmaPositionScan({ tickers, asset_class: assetClass })
+        case 'fundamental_analysis':
+          return runFundamentalAnalysis({ tickers, asset_class: assetClass })
+        case 'stock_upgrade_downgrade':
+          return runUpgradeDowngradeScan({ tickers, asset_class: assetClass })
+        case 'one_click_intraday':
+        case 'one_click_scalping':
+        case 'one_click_swing':
+          return runOneClick({ style: ONE_CLICK_STYLE[tab], tickers, asset_class: assetClass })
+        case 'investigation_strategies':
+          return runInvestigationWithStrategies({ tickers, asset_class: assetClass, strategy_ids: strategyIds })
       }
     },
     onSuccess: (data) => { setResult(data); setError('') },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data : result
-  const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading : runMutation.isPending
-  const queryError = tomorrowQuery.isError ? apiErrorMessage(tomorrowQuery.error) : ''
+  const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data : tab === 'global_market_mood' ? moodQuery.data : result
+  const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading : tab === 'global_market_mood' ? moodQuery.isLoading : runMutation.isPending
+  const queryError = tab === 'tomorrow_outlook' ? (tomorrowQuery.isError ? apiErrorMessage(tomorrowQuery.error) : '')
+    : tab === 'global_market_mood' ? (moodQuery.isError ? apiErrorMessage(moodQuery.error) : '') : ''
   const askContext = displayData ? buildAskContext(TABS.find((t) => t.id === tab)?.label ?? tab, displayData) : ''
 
   const handleAssetClassChange = (next: AssetClass) => {
@@ -118,6 +190,49 @@ export default function CommandCenter() {
             <div className="mt-3"><Alert type="error">{queryError || error}</Alert></div>
           )}
         </Card>
+      ) : tab === 'global_market_mood' ? (
+        <Card className="mb-6">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => moodQuery.refetch()}
+            disabled={moodQuery.isFetching}
+          >
+            <RefreshCw size={14} />
+            {moodQuery.isFetching ? 'Refreshing…' : 'Refresh mood'}
+          </Button>
+          {(queryError || error) && (
+            <div className="mt-3"><Alert type="error">{queryError || error}</Alert></div>
+          )}
+        </Card>
+      ) : tab === 'mega_setup_advisor' ? (
+        <Card className="mb-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Asset class">
+              <Select value={assetClass} onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}>
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+                <option value="commodity">🛢️ Commodity futures</option>
+              </Select>
+            </FormField>
+            <FormField label="Timeframes (comma-separated)">
+              <input
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                value={timeframes}
+                onChange={(e) => setTimeframes(e.target.value)}
+              />
+            </FormField>
+          </div>
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
+            Use AI to personalize (falls back to rule-based if no API key configured)
+          </label>
+          <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+            {runMutation.isPending ? 'Thinking…' : 'Get recommendation'}
+          </Button>
+          {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+        </Card>
       ) : (
         <Card className="mb-6">
           <FormField label="Asset class">
@@ -139,6 +254,28 @@ export default function CommandCenter() {
             showDurations={tab === 'buy_sell' || tab === 'mega_analyser'}
             onChange={handlePickerChange}
           />
+
+          {tab === 'investigation_strategies' && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+                Strategies to run against this ticker
+              </p>
+              <div className="max-h-48 space-y-3 overflow-y-auto rounded-lg border border-slate-800 p-3">
+                {Object.entries(strategyCatalogQuery.data?.groups ?? {}).map(([group, opts]) => (
+                  <div key={group}>
+                    <p className="mb-1 text-xs font-semibold text-slate-400">{group}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {opts.map((o) => (
+                        <Chip key={o.id} selected={strategyIds.includes(o.id)} onClick={() => toggleStrategyId(o.id)}>
+                          {o.label}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
             {runMutation.isPending ? 'Running…' : 'Run analysis'}

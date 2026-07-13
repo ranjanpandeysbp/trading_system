@@ -21,6 +21,11 @@ TA_SCREENERS: list[dict[str, Any]] = [
     {"id": "pump_dump_breakout", "label": "Pump/Dump Breakout", "markets": ["india", "crypto"], "engine": "pump_dump_breakout_engine", "default_tf": "15m"},
     {"id": "big_whale", "label": "Big Whale Pump & Dump", "markets": ["crypto"], "engine": "big_whale_pump_dump_engine", "default_tf": "15m"},
     {"id": "zireman_confluence", "label": "Accurate Strategy (OB+FVG+S/R)", "markets": ["india"], "engine": "zireman_confluence_engine", "default_tf": "1d"},
+    {"id": "bb_exposed", "label": "BB Exposed (Free Bar + Squeeze)", "markets": ["india", "us", "crypto"], "engine": "bb_exposed_engine", "default_tf": "15m"},
+    {"id": "breakout_mtf", "label": "Multi-Period Breakout (10/20/50/90/200D)", "markets": ["india", "us", "crypto"], "engine": "breakout_mtf_engine", "default_tf": "1d"},
+    {"id": "box_trading", "label": "Box Trading (Prev-Day Range)", "markets": ["india", "us", "crypto"], "engine": "box_trading_engine", "default_tf": "5m"},
+    {"id": "one_ta", "label": "Golden Zone Confluence", "markets": ["india", "us", "crypto"], "engine": "one_ta_engine", "default_tf": "1h"},
+    {"id": "topdown_mtf", "label": "TOPDOWN - MTF (Liquidity + Order Blocks)", "markets": ["india", "us", "crypto"], "engine": "topdown_mtf_engine", "default_tf": "15m"},
 ]
 
 

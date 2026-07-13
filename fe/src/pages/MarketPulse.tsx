@@ -13,12 +13,16 @@ import {
   fetchOppositeHedge,
   fetchSectorRotation,
   fetchSectorRotationIntraday,
+  fetchSectorRotationMarket,
+  fetchSectorRotationMarketIntraday,
+  fetchStockRotationUniverses,
   fetchTomorrowOutlook,
   fetchWeek52,
   runCommodityScreener,
   runGainersLosers,
   runMtfBias,
   runStockRotation,
+  runStockRotationMarket,
 } from '../api/client'
 import {
   BreadthPanel,
@@ -42,8 +46,21 @@ import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
 const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d', '1w', '1M']
-const SLOW_SECTIONS = new Set(['sector_rotation', 'sector_rotation_intraday', 'opposite_hedge', 'week52', 'commodity_screener'])
-const ACTION_SECTIONS = new Set(['gainers_losers', 'stock_rotation', 'commodity_screener', 'mtf_bias'])
+const SLOW_SECTIONS = new Set([
+  'sector_rotation', 'sector_rotation_intraday', 'opposite_hedge', 'week52', 'commodity_screener',
+  'sector_rotation_us', 'sector_rotation_us_intraday', 'sector_rotation_crypto', 'sector_rotation_crypto_intraday',
+])
+const ACTION_SECTIONS = new Set(['gainers_losers', 'stock_rotation', 'commodity_screener', 'mtf_bias', 'stock_rotation_us', 'stock_rotation_crypto'])
+const MARKET_ROTATION_SECTIONS: Record<string, 'us' | 'crypto'> = {
+  sector_rotation_us: 'us',
+  sector_rotation_us_intraday: 'us',
+  sector_rotation_crypto: 'crypto',
+  sector_rotation_crypto_intraday: 'crypto',
+}
+const STOCK_ROTATION_MARKETS: Record<string, 'us' | 'crypto'> = {
+  stock_rotation_us: 'us',
+  stock_rotation_crypto: 'crypto',
+}
 
 type SectionData = Record<string, unknown>
 
@@ -64,6 +81,15 @@ function SectionContent({ section, data }: { section: string; data: SectionData 
       return <SectorRotationPanel data={data} />
     case 'sector_rotation_intraday':
       return <SectorRotationPanel data={data} intraday />
+    case 'sector_rotation_us':
+    case 'sector_rotation_crypto':
+      return <SectorRotationPanel data={data} />
+    case 'sector_rotation_us_intraday':
+    case 'sector_rotation_crypto_intraday':
+      return <SectorRotationPanel data={data} intraday />
+    case 'stock_rotation_us':
+    case 'stock_rotation_crypto':
+      return <StockRotationPanel data={data} />
     case 'opposite_hedge':
       return <HedgePanel data={data} />
     case 'week52':
@@ -92,7 +118,19 @@ export default function MarketPulse() {
   const [breadthOffset, setBreadthOffset] = useState(0)
   const [monthlyOffset, setMonthlyOffset] = useState(0)
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
+  const [universeId, setUniverseId] = useState('sp500')
   const [error, setError] = useState('')
+
+  const stockRotationMarket = STOCK_ROTATION_MARKETS[section]
+  const universesQ = useQuery({
+    queryKey: ['mp-rotation-universes', stockRotationMarket],
+    queryFn: () => fetchStockRotationUniverses(stockRotationMarket!),
+    enabled: Boolean(stockRotationMarket),
+  })
+  useEffect(() => {
+    if (stockRotationMarket) setUniverseId(stockRotationMarket === 'crypto' ? 'Major L1 / Large Cap' : 'sp500')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockRotationMarket])
 
   const { data: sections } = useQuery({ queryKey: ['mp-sections'], queryFn: fetchMarketPulseSections })
   const { data: indices } = useQuery({ queryKey: ['mp-indices'], queryFn: fetchMarketPulseIndices })
@@ -141,6 +179,17 @@ export default function MarketPulse() {
     enabled: section === 'sector_rotation_intraday',
   })
 
+  const marketRotationHtf = MARKET_ROTATION_SECTIONS[section]
+  const isMarketIntraday = section.endsWith('_intraday') && Boolean(marketRotationHtf)
+  const marketSectorQ = useQuery({
+    queryKey: ['mp-sector-market', marketRotationHtf, isMarketIntraday],
+    queryFn: () =>
+      isMarketIntraday
+        ? fetchSectorRotationMarketIntraday(marketRotationHtf!)
+        : fetchSectorRotationMarket(marketRotationHtf!),
+    enabled: Boolean(marketRotationHtf),
+  })
+
   const hedgeQ = useQuery({
     queryKey: ['mp-hedge'],
     queryFn: () => fetchOppositeHedge(),
@@ -171,6 +220,11 @@ export default function MarketPulse() {
           return runCommodityScreener(['1 day', '1 week'])
         case 'mtf_bias':
           return runMtfBias(tickers.split(/[,\s]+/).filter(Boolean))
+        case 'stock_rotation_us':
+        case 'stock_rotation_crypto':
+          return runStockRotationMarket(STOCK_ROTATION_MARKETS[section], {
+            universe_id: universeId, tf_key: tfKey, lookback_bars: lookback,
+          })
         default:
           return null
       }
@@ -195,12 +249,17 @@ export default function MarketPulse() {
       case 'nifty_movers': return moversQ
       case 'sector_rotation': return sectorQ
       case 'sector_rotation_intraday': return sectorIntraQ
+      case 'sector_rotation_us':
+      case 'sector_rotation_us_intraday':
+      case 'sector_rotation_crypto':
+      case 'sector_rotation_crypto_intraday':
+        return marketSectorQ
       case 'opposite_hedge': return hedgeQ
       case 'week52': return week52Q
       case 'heatmap': return heatmapQ
       default: return null
     }
-  }, [section, tomorrowQ, intelligenceQ, breadthQ, monthlyQ, moversQ, sectorQ, sectorIntraQ, hedgeQ, week52Q, heatmapQ])
+  }, [section, tomorrowQ, intelligenceQ, breadthQ, monthlyQ, moversQ, sectorQ, sectorIntraQ, marketSectorQ, hedgeQ, week52Q, heatmapQ])
 
   const activeData = useMemo(() => {
     switch (section) {
@@ -211,12 +270,17 @@ export default function MarketPulse() {
       case 'nifty_movers': return moversQ.data
       case 'sector_rotation': return sectorQ.data
       case 'sector_rotation_intraday': return sectorIntraQ.data
+      case 'sector_rotation_us':
+      case 'sector_rotation_us_intraday':
+      case 'sector_rotation_crypto':
+      case 'sector_rotation_crypto_intraday':
+        return marketSectorQ.data
       case 'opposite_hedge': return hedgeQ.data
       case 'week52': return week52Q.data
       case 'heatmap': return heatmapQ.data
       default: return actionMutation.data
     }
-  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, actionMutation.data])
+  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, marketSectorQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, actionMutation.data])
 
   const isLoading = (
     (activeQuery?.isFetching && activeQuery.isEnabled) ||
@@ -246,21 +310,30 @@ export default function MarketPulse() {
 
       <Card className="mb-4">
         <div className="grid gap-4 md:grid-cols-3">
-          {section !== 'intelligence' && section !== 'tomorrow_outlook' && section !== 'mtf_bias' && (
+          {!['intelligence', 'tomorrow_outlook', 'mtf_bias', ...Object.keys(MARKET_ROTATION_SECTIONS), ...Object.keys(STOCK_ROTATION_MARKETS)].includes(section) && (
             <FormField label="Index">
               <Select value={indexName} onChange={(e) => setIndexName(e.target.value)}>
                 {indexOptions.map((n) => <option key={n} value={n}>{n}</option>)}
               </Select>
             </FormField>
           )}
-          {['gainers_losers', 'stock_rotation', 'heatmap'].includes(section) && (
+          {stockRotationMarket && (
+            <FormField label="Universe">
+              <Select value={universeId} onChange={(e) => setUniverseId(e.target.value)}>
+                {(universesQ.data?.universes ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>{u.label}</option>
+                ))}
+              </Select>
+            </FormField>
+          )}
+          {['gainers_losers', 'stock_rotation', 'heatmap', 'stock_rotation_us', 'stock_rotation_crypto'].includes(section) && (
             <FormField label="Timeframe">
               <Select value={tfKey} onChange={(e) => setTfKey(e.target.value)}>
                 {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
               </Select>
             </FormField>
           )}
-          {['gainers_losers', 'stock_rotation'].includes(section) && (
+          {['gainers_losers', 'stock_rotation', 'stock_rotation_us', 'stock_rotation_crypto'].includes(section) && (
             <FormField label="Lookback bars">
               <Input type="number" value={lookback} onChange={(e) => setLookback(Number(e.target.value))} />
             </FormField>
@@ -293,7 +366,7 @@ export default function MarketPulse() {
           )}
           <Button variant="ghost" size="sm" onClick={() => {
             intelligenceQ.refetch(); tomorrowQ.refetch(); breadthQ.refetch(); monthlyQ.refetch(); moversQ.refetch()
-            sectorQ.refetch(); sectorIntraQ.refetch(); hedgeQ.refetch(); week52Q.refetch(); heatmapQ.refetch()
+            sectorQ.refetch(); sectorIntraQ.refetch(); marketSectorQ.refetch(); hedgeQ.refetch(); week52Q.refetch(); heatmapQ.refetch()
           }}>
             <RefreshCw size={16} />
             Refresh

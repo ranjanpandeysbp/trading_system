@@ -239,6 +239,22 @@ export const fetchSectorRotation = () =>
 export const fetchSectorRotationIntraday = () =>
   api.get('/market-pulse/sector-rotation/intraday', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const fetchSectorRotationMarket = (market: 'us' | 'crypto') =>
+  api.get(`/market-pulse/sector-rotation/${market}`, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchSectorRotationMarketIntraday = (market: 'us' | 'crypto') =>
+  api.get(`/market-pulse/sector-rotation/${market}/intraday`, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchStockRotationUniverses = (market: 'us' | 'crypto') =>
+  api.get<{ universes: Array<{ id: string; label: string }> }>(
+    `/market-pulse/stock-rotation/${market}/universes`,
+  ).then((r) => r.data)
+
+export const runStockRotationMarket = (
+  market: 'us' | 'crypto',
+  payload: { universe_id: string; tf_key: string; lookback_bars: number },
+) => api.post(`/market-pulse/stock-rotation/${market}`, payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const fetchOppositeHedge = (capital = 100000) =>
   api.get('/market-pulse/opposite-hedge', { params: { capital }, timeout: MP_TIMEOUT }).then((r) => r.data)
 
@@ -372,3 +388,96 @@ export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string })
 
 export const recommendEtfTaStf = (payload: Record<string, unknown>) =>
   api.post('/etf-ta/stf-shop/recommend', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export interface WatchlistInfo {
+  id: number
+  market_type: 'india' | 'us' | 'crypto'
+  name: string
+  created_at: string
+}
+
+export interface WatchlistItemInfo {
+  id: number
+  watchlist_id: number
+  ticker: string
+  display_name: string
+  added_price: number | null
+  added_at: string
+  ltp?: number | null
+  change_pct?: number | null
+  change_since_added_pct?: number | null
+}
+
+export const fetchWatchlists = () =>
+  api.get<{ watchlists: WatchlistInfo[] }>('/watchlists').then((r) => r.data)
+
+export const createWatchlist = (payload: { market_type: string; name: string }) =>
+  api.post<WatchlistInfo>('/watchlists', payload).then((r) => r.data)
+
+export const deleteWatchlist = (id: number) =>
+  api.delete(`/watchlists/${id}`).then((r) => r.data)
+
+export const fetchWatchlistItems = (id: number) =>
+  api.get<WatchlistInfo & { items: WatchlistItemInfo[] }>(`/watchlists/${id}/items`, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const addWatchlistItem = (
+  watchlistId: number,
+  payload: { ticker: string; display_name?: string; added_price?: number | null },
+) => api.post<WatchlistItemInfo>(`/watchlists/${watchlistId}/items`, payload).then((r) => r.data)
+
+export const removeWatchlistItem = (watchlistId: number, itemId: number) =>
+  api.delete(`/watchlists/${watchlistId}/items/${itemId}`).then((r) => r.data)
+
+// Command Center — standalone tools
+export const fetchGlobalMarketMood = () =>
+  api.get('/command-center/global-market-mood', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runMomentumScan = (payload: { tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/momentum', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOneClick = (payload: { style: 'intraday' | 'scalping' | 'swing'; tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/one-click', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runFundamentalAnalysis = (payload: { tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/fundamental-analysis', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runUpgradeDowngradeScan = (payload: { tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/upgrade-downgrade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchInvestigationStrategyCatalog = () =>
+  api.get<{ groups: Record<string, Array<{ id: string; label: string }>> }>(
+    '/command-center/investigation-strategies/catalog',
+  ).then((r) => r.data)
+
+export const runInvestigationWithStrategies = (payload: {
+  tickers: string[]
+  asset_class: string
+  strategy_ids: string[]
+}) => api.post('/command-center/investigation-strategies/run', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runMegaSetupAdvisor = (payload: {
+  market: string
+  timeframes: string[]
+  ticker_count?: number
+  use_ai?: boolean
+  user_goal?: string
+}) => api.post('/command-center/mega-setup-advisor', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchMutualFundAmcs = () =>
+  api.get<{ amcs: Array<{ Id: number; Name: string }> }>('/command-center/mutual-fund/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchMutualFundSchemes = (amcId: number) =>
+  api.get<{ schemes: Array<Record<string, unknown>> }>('/command-center/mutual-fund/schemes', {
+    params: { amc_id: amcId },
+    timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
+
+export const runMutualFundHoldingsChange = (payload: {
+  scheme_ids: number[]
+  scheme_names: Record<number, string>
+  from_date: string
+  to_date: string
+}) => api.post('/command-center/mutual-fund/holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

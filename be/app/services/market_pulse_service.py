@@ -199,6 +199,85 @@ class MarketPulseService:
         set_groww_token(token)
         return json_safe(await asyncio.to_thread(_fetch) or {"error": "Intraday rotation unavailable"})
 
+    async def sector_rotation_market(self, market: str, indices: list[str] | None = None) -> dict:
+        """Sector rotation (HTF) for 'us' or 'crypto' — India uses sector_rotation()."""
+        from app.market_pulse.sector_rotation_markets import (
+            CRYPTO_BENCHMARK_SYMBOL,
+            CRYPTO_SECTOR_SYMBOLS,
+            US_BENCHMARK_SYMBOL,
+            US_SPDR_SECTORS,
+            compute_market_sector_rotation_htf,
+        )
+
+        catalog = CRYPTO_SECTOR_SYMBOLS if market == "crypto" else US_SPDR_SECTORS
+        benchmark = CRYPTO_BENCHMARK_SYMBOL if market == "crypto" else US_BENCHMARK_SYMBOL
+        names = [n for n in (indices or list(catalog.keys())) if n in catalog]
+        instruments = tuple((n, catalog[n]) for n in names)
+
+        def _fetch():
+            return compute_market_sector_rotation_htf(instruments, benchmark, 5, 4, 3, market)
+
+        return json_safe(await asyncio.to_thread(_fetch) or {"error": "Sector rotation unavailable"})
+
+    async def sector_rotation_market_intraday(self, market: str, indices: list[str] | None = None) -> dict:
+        from app.market_pulse.sector_rotation_markets import (
+            CRYPTO_BENCHMARK_SYMBOL,
+            CRYPTO_SECTOR_SYMBOLS,
+            US_BENCHMARK_SYMBOL,
+            US_SPDR_SECTORS,
+            compute_market_sector_rotation_intraday,
+        )
+
+        catalog = CRYPTO_SECTOR_SYMBOLS if market == "crypto" else US_SPDR_SECTORS
+        benchmark = CRYPTO_BENCHMARK_SYMBOL if market == "crypto" else US_BENCHMARK_SYMBOL
+        names = [n for n in (indices or list(catalog.keys())) if n in catalog]
+        instruments = tuple((n, catalog[n]) for n in names)
+
+        def _fetch():
+            return compute_market_sector_rotation_intraday(instruments, benchmark, 15, 4, 5, market)
+
+        return json_safe(await asyncio.to_thread(_fetch) or {"error": "Intraday rotation unavailable"})
+
+    async def stock_rotation_market(
+        self, market: str, universe_id: str, tf_key: str = "1d", lookback_bars: int = 5
+    ) -> dict:
+        """Stock/pair price rotation for 'us' or 'crypto' — India uses stock_rotation()."""
+
+        def _fetch():
+            if market == "crypto":
+                from app.market_pulse.sector_rotation_markets import (
+                    CRYPTO_SECTOR_FILTER_GROUPS,
+                    CRYPTO_SECTOR_SYMBOLS,
+                )
+                from app.market_pulse.stock_price_rotation_markets import compute_crypto_price_rotation
+
+                names = CRYPTO_SECTOR_FILTER_GROUPS.get(universe_id, list(CRYPTO_SECTOR_SYMBOLS.keys()))
+                instruments = tuple((n, CRYPTO_SECTOR_SYMBOLS[n]) for n in names if n in CRYPTO_SECTOR_SYMBOLS)
+                return compute_crypto_price_rotation(universe_id, instruments, tf_key, lookback_bars)
+
+            from app.market_pulse.stock_price_rotation_markets import (
+                _US_INDEX_CATALOG,
+                compute_us_stock_price_rotation,
+            )
+
+            entry = next((e for e in _US_INDEX_CATALOG if e["id"] == universe_id), None)
+            if not entry:
+                return {"error": f"Unknown universe '{universe_id}'"}
+            symbols = tuple(entry["fetch"]())
+            return compute_us_stock_price_rotation(universe_id, symbols, tf_key, lookback_bars)
+
+        return json_safe(await asyncio.to_thread(_fetch) or {"error": "No rotation data", "inflow": [], "outflow": []})
+
+    async def rotation_universes(self, market: str) -> dict:
+        """List available universe ids/labels for stock_rotation_market()."""
+        if market == "crypto":
+            from app.market_pulse.sector_rotation_markets import CRYPTO_SECTOR_FILTER_GROUPS
+
+            return {"universes": [{"id": k, "label": k} for k in CRYPTO_SECTOR_FILTER_GROUPS]}
+        from app.market_pulse.stock_price_rotation_markets import _US_INDEX_CATALOG
+
+        return {"universes": [{"id": e["id"], "label": e["label_fn"]()} for e in _US_INDEX_CATALOG]}
+
     async def opposite_hedge(self, capital: float = 100_000.0, mode: str = "index") -> dict:
         import app.market_pulse.opposite_hedge_mtf_engine as eng
 

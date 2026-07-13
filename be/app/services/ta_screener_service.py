@@ -26,6 +26,11 @@ _DEFAULT_TF: dict[str, str] = {
     "pump_dump_breakout": "15m",
     "big_whale": "15m",
     "zireman_confluence": "1d",
+    "bb_exposed": "15m",
+    "breakout_mtf": "1d",
+    "box_trading": "5m",
+    "one_ta": "1h",
+    "topdown_mtf": "15m",
 }
 
 _LIMIT: dict[str, int] = {
@@ -258,6 +263,34 @@ def _run_one(
                 min_confluence=float(opts.get("min_confluence", 60)),
                 rr_target=float(opts.get("rr_target", 2.0)),
             )
+
+        if screener_id == "bb_exposed":
+            from app.market_pulse.bb_exposed_engine import analyze_bb_exposed
+
+            return analyze_bb_exposed(ticker, market, tf, groww_token=groww_token, exchange=exchange)
+
+        if screener_id == "breakout_mtf":
+            from app.market_pulse.breakout_mtf_engine import analyze_breakout_mtf
+
+            return analyze_breakout_mtf(ticker, market, groww_token=groww_token, exchange=exchange)
+
+        if screener_id == "box_trading":
+            from app.market_pulse.box_trading_engine import analyze_ticker as analyze_box_trading
+
+            row = analyze_box_trading(ticker, market, groww_token=groww_token, exchange=exchange)
+            if row.get("error"):
+                return row
+            return {**row, **(row.get("live") or {})}
+
+        if screener_id == "one_ta":
+            from app.market_pulse.one_ta_engine import analyze_one_ta
+
+            return analyze_one_ta(ticker, market, tf, groww_token=groww_token, exchange=exchange)
+
+        if screener_id == "topdown_mtf":
+            from app.market_pulse.topdown_mtf_engine import analyze_ticker as analyze_topdown_mtf
+
+            return analyze_topdown_mtf(ticker, market, groww_token=groww_token, exchange=exchange)
 
         return {"ticker": ticker, "error": f"Unknown screener engine: {screener_id}"}
     except Exception as exc:

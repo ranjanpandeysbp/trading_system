@@ -8,6 +8,7 @@ CRM
 CSCO
 CVX
 DIS
+GOOGL
 GS
 HD
 HON
@@ -26,5 +27,4 @@ SHW
 TRV
 UNH
 V
-VZ
 WMT

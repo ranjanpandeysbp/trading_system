@@ -25,6 +25,14 @@ from app.models.schemas import (
     MarketPulsePagination,
     MarketPulseRotationRequest,
     MarketPulseSentimentRequest,
+    MarketPulseStockRotationMarketRequest,
+    CommandCenterInvestigateStrategiesRequest,
+    CommandCenterMegaAdviceRequest,
+    CommandCenterMfHoldingsRequest,
+    CommandCenterOneClickRequest,
+    CommandCenterTickerScanRequest,
+    WatchlistCreate,
+    WatchlistItemCreate,
     MarketPulseTickerInvestigationRequest,
     MessageResponse,
     PlaceOrderRequest,
@@ -49,6 +57,7 @@ from app.models.schemas import (
 from app.services.command_center_service import CommandCenterService
 from app.services.ticker_universe_service import TickerUniverseService
 from app.services.alerts_service import AlertsService
+from app.services.watchlist_service import WatchlistService
 from app.services.auth_service import AuthService
 from app.services.ai_service import AIService
 from app.services.backtest_service import BacktestService
@@ -309,6 +318,12 @@ async def market_pulse_sections():
             {"id": "commodity_screener", "label": "Commodity Screener (Nifty)"},
             {"id": "sector_rotation", "label": "Sector Rotation (HTF)"},
             {"id": "sector_rotation_intraday", "label": "Sector Rotation (Intraday)"},
+            {"id": "sector_rotation_us", "label": "Sector Rotation — US (HTF)"},
+            {"id": "sector_rotation_us_intraday", "label": "Sector Rotation — US (Intraday)"},
+            {"id": "sector_rotation_crypto", "label": "Sector Rotation — Crypto (HTF)"},
+            {"id": "sector_rotation_crypto_intraday", "label": "Sector Rotation — Crypto (Intraday)"},
+            {"id": "stock_rotation_us", "label": "Stock Price Rotation — US"},
+            {"id": "stock_rotation_crypto", "label": "Stock Price Rotation — Crypto"},
             {"id": "opposite_hedge", "label": "Opposite Hedge-MTF"},
             {"id": "mtf_bias", "label": "MTF Intraday Bias"},
             {"id": "week52", "label": "52-Week High & Low"},
@@ -416,6 +431,57 @@ async def market_pulse_sector_rotation_intraday(
 ):
     service = MarketPulseService(SettingsService(db))
     return await service.sector_rotation_intraday()
+
+
+@router.get("/market-pulse/sector-rotation/{market}")
+async def market_pulse_sector_rotation_market(
+    market: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if market not in ("us", "crypto"):
+        raise HTTPException(status_code=400, detail="market must be 'us' or 'crypto'")
+    service = MarketPulseService(SettingsService(db))
+    return await service.sector_rotation_market(market)
+
+
+@router.get("/market-pulse/sector-rotation/{market}/intraday")
+async def market_pulse_sector_rotation_market_intraday(
+    market: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if market not in ("us", "crypto"):
+        raise HTTPException(status_code=400, detail="market must be 'us' or 'crypto'")
+    service = MarketPulseService(SettingsService(db))
+    return await service.sector_rotation_market_intraday(market)
+
+
+@router.get("/market-pulse/stock-rotation/{market}/universes")
+async def market_pulse_stock_rotation_universes(
+    market: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if market not in ("us", "crypto"):
+        raise HTTPException(status_code=400, detail="market must be 'us' or 'crypto'")
+    service = MarketPulseService(SettingsService(db))
+    return await service.rotation_universes(market)
+
+
+@router.post("/market-pulse/stock-rotation/{market}")
+async def market_pulse_stock_rotation_market(
+    market: str,
+    payload: MarketPulseStockRotationMarketRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if market not in ("us", "crypto"):
+        raise HTTPException(status_code=400, detail="market must be 'us' or 'crypto'")
+    service = MarketPulseService(SettingsService(db))
+    return await service.stock_rotation_market(
+        market, payload.universe_id, payload.tf_key, payload.lookback_bars
+    )
 
 
 @router.get("/market-pulse/opposite-hedge")
@@ -557,6 +623,129 @@ async def command_center_mega(
         payload.tickers,
         asset_class=payload.asset_class,
         durations=payload.durations,
+    )
+
+
+@router.get("/command-center/global-market-mood")
+async def command_center_global_market_mood(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).global_market_mood()
+
+
+@router.post("/command-center/momentum")
+async def command_center_momentum(
+    payload: CommandCenterTickerScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).momentum(
+        payload.tickers, asset_class=payload.asset_class,
+    )
+
+
+@router.post("/command-center/ema-position")
+async def command_center_ema_position(
+    payload: CommandCenterTickerScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).ema_position(
+        payload.tickers, asset_class=payload.asset_class,
+    )
+
+
+@router.post("/command-center/one-click")
+async def command_center_one_click(
+    payload: CommandCenterOneClickRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).one_click(
+        payload.style, payload.tickers, asset_class=payload.asset_class,
+    )
+
+
+@router.get("/command-center/mutual-fund/amcs")
+async def command_center_mf_amcs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).mutual_fund_amc_list()
+
+
+@router.get("/command-center/mutual-fund/schemes")
+async def command_center_mf_schemes(
+    amc_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).mutual_fund_schemes(amc_id)
+
+
+@router.post("/command-center/mutual-fund/holdings")
+async def command_center_mf_holdings(
+    payload: CommandCenterMfHoldingsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).mutual_fund_holdings_change(
+        payload.scheme_ids, payload.scheme_names, payload.from_date, payload.to_date,
+    )
+
+
+@router.post("/command-center/fundamental-analysis")
+async def command_center_fundamental_analysis(
+    payload: CommandCenterTickerScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).fundamental_analysis(payload.tickers)
+
+
+@router.post("/command-center/upgrade-downgrade")
+async def command_center_upgrade_downgrade(
+    payload: CommandCenterTickerScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).stock_upgrade_downgrade(
+        payload.tickers, asset_class=payload.asset_class,
+    )
+
+
+@router.get("/command-center/investigation-strategies/catalog")
+async def command_center_investigation_strategy_catalog(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).investigation_strategy_catalog()
+
+
+@router.post("/command-center/investigation-strategies/run")
+async def command_center_investigation_strategy_run(
+    payload: CommandCenterInvestigateStrategiesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).investigate_with_strategies(
+        payload.asset_class, payload.tickers, strategy_ids=payload.strategy_ids,
+    )
+
+
+@router.post("/command-center/mega-setup-advisor")
+async def command_center_mega_setup_advisor(
+    payload: CommandCenterMegaAdviceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).mega_setup_advice(
+        payload.market,
+        payload.timeframes,
+        ticker_count=payload.ticker_count,
+        use_ai=payload.use_ai,
+        user_goal=payload.user_goal,
     )
 
 
@@ -706,6 +895,80 @@ async def alerts_poll(
     current_user: User = Depends(get_current_user),
 ):
     return await AlertsService(db, SettingsService(db)).poll_all(current_user.id, force=force)
+
+
+@router.get("/watchlists")
+async def watchlists_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return {"watchlists": await WatchlistService(db, SettingsService(db)).list_watchlists(current_user.id)}
+
+
+@router.post("/watchlists")
+async def watchlists_create(
+    payload: WatchlistCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await WatchlistService(db, SettingsService(db)).create_watchlist(
+            current_user.id, payload.market_type, payload.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/watchlists/{watchlist_id}")
+async def watchlists_delete(
+    watchlist_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ok = await WatchlistService(db, SettingsService(db)).delete_watchlist(current_user.id, watchlist_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return {"deleted": True}
+
+
+@router.get("/watchlists/{watchlist_id}/items")
+async def watchlists_items(
+    watchlist_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await WatchlistService(db, SettingsService(db)).get_items_with_quotes(current_user.id, watchlist_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/watchlists/{watchlist_id}/items")
+async def watchlists_add_item(
+    watchlist_id: int,
+    payload: WatchlistItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await WatchlistService(db, SettingsService(db)).add_item(
+            current_user.id, watchlist_id, payload.ticker, payload.display_name, payload.added_price,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/watchlists/{watchlist_id}/items/{item_id}")
+async def watchlists_remove_item(
+    watchlist_id: int,
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ok = await WatchlistService(db, SettingsService(db)).remove_item(current_user.id, watchlist_id, item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"deleted": True}
 
 
 @router.post("/market-pulse/commodity-screener")

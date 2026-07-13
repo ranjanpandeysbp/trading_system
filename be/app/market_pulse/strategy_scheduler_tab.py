@@ -285,11 +285,11 @@ def _run_scan(
 
 
 def _fragment_decorator() -> Callable:
-    """Prefer run_every so auto-poll works while the section is open (Streamlit ≥1.33)."""
+    """Prefer run_every so auto-poll works while the section is open (Streamlit ≥1.33); no-op outside Streamlit."""
     try:
         return st.fragment(run_every=timedelta(minutes=1))
-    except TypeError:
-        return st.fragment
+    except Exception:
+        return lambda fn: fn
 
 
 def _all_scheduler_results() -> list[dict]:

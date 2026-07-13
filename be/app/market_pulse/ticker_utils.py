@@ -93,3 +93,8 @@ def get_index_options_for_market(_market: str) -> dict[str, list[str]]:
 def get_coindcx_ticker_list():
     from app.market_pulse.ticker_utils_src import get_coindcx_ticker_list as _full
     return _full()
+
+
+def get_us_index_options() -> dict[str, list[str]]:
+    from app.market_pulse.us_index_constituents import get_us_index_options as _full
+    return _full()

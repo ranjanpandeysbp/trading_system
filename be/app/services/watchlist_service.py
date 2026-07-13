@@ -1,0 +1,158 @@
+"""Watchlists — per-user ticker lists with live price resolution."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.db_models import Watchlist, WatchlistItem
+from app.services.settings_service import SettingsService
+
+_MARKET_LABELS = {
+    "india": "Groww (India Stocks)",
+    "us": "US Stocks (Yahoo)",
+    "crypto": "CoinDCX Futures",
+}
+
+
+class WatchlistService:
+    def __init__(self, db: AsyncSession, settings: SettingsService):
+        self.db = db
+        self.settings = settings
+
+    async def list_watchlists(self, user_id: int) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(Watchlist).where(Watchlist.user_id == user_id).order_by(Watchlist.created_at.asc())
+        )
+        return [self._watchlist_dict(w) for w in result.scalars().all()]
+
+    async def create_watchlist(self, user_id: int, market_type: str, name: str) -> dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Watchlist name cannot be empty.")
+        existing = await self.db.execute(
+            select(Watchlist).where(
+                Watchlist.user_id == user_id,
+                Watchlist.market_type == market_type,
+                Watchlist.name == name,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise ValueError(f"A watchlist named '{name}' already exists for this market.")
+        wl = Watchlist(user_id=user_id, market_type=market_type, name=name)
+        self.db.add(wl)
+        await self.db.commit()
+        await self.db.refresh(wl)
+        return self._watchlist_dict(wl)
+
+    async def delete_watchlist(self, user_id: int, watchlist_id: int) -> bool:
+        wl = await self._get_owned(user_id, watchlist_id)
+        if not wl:
+            return False
+        await self.db.execute(
+            WatchlistItem.__table__.delete().where(WatchlistItem.watchlist_id == watchlist_id)
+        )
+        await self.db.delete(wl)
+        await self.db.commit()
+        return True
+
+    async def add_item(
+        self, user_id: int, watchlist_id: int, ticker: str, display_name: str = "", added_price: float | None = None
+    ) -> dict[str, Any]:
+        wl = await self._get_owned(user_id, watchlist_id)
+        if not wl:
+            raise ValueError("Watchlist not found.")
+        item = WatchlistItem(
+            watchlist_id=watchlist_id,
+            ticker=ticker.upper().strip(),
+            display_name=display_name or ticker.upper().strip(),
+            added_price=added_price,
+        )
+        self.db.add(item)
+        await self.db.commit()
+        await self.db.refresh(item)
+        return self._item_dict(item)
+
+    async def remove_item(self, user_id: int, watchlist_id: int, item_id: int) -> bool:
+        wl = await self._get_owned(user_id, watchlist_id)
+        if not wl:
+            return False
+        result = await self.db.execute(
+            select(WatchlistItem).where(WatchlistItem.id == item_id, WatchlistItem.watchlist_id == watchlist_id)
+        )
+        item = result.scalar_one_or_none()
+        if not item:
+            return False
+        await self.db.delete(item)
+        await self.db.commit()
+        return True
+
+    async def get_items_with_quotes(self, user_id: int, watchlist_id: int) -> dict[str, Any]:
+        """Resolve live LTP + change% for every ticker in a watchlist."""
+        wl = await self._get_owned(user_id, watchlist_id)
+        if not wl:
+            raise ValueError("Watchlist not found.")
+        result = await self.db.execute(
+            select(WatchlistItem).where(WatchlistItem.watchlist_id == watchlist_id).order_by(WatchlistItem.added_at.asc())
+        )
+        items = list(result.scalars().all())
+        market_label = _MARKET_LABELS.get(wl.market_type, _MARKET_LABELS["india"])
+        token = await self.settings.get_groww_token() or ""
+        exchange = await self.settings.get_groww_exchange()
+
+        def _quote_all():
+            from backtesting.data_fetcher import get_live_quote
+
+            rows = []
+            for item in items:
+                quote = {}
+                try:
+                    quote = get_live_quote(item.ticker, market_label, exchange=exchange, groww_token=token) or {}
+                except Exception:
+                    quote = {}
+                ltp = quote.get("ltp")
+                change_pct = quote.get("change_pct")
+                added_pct = None
+                if ltp is not None and item.added_price:
+                    added_pct = (float(ltp) - item.added_price) / item.added_price * 100
+                rows.append(
+                    {
+                        **self._item_dict(item),
+                        "ltp": ltp,
+                        "change_pct": change_pct,
+                        "change_since_added_pct": added_pct,
+                    }
+                )
+            return rows
+
+        rows = await asyncio.to_thread(_quote_all)
+        return {**self._watchlist_dict(wl), "items": rows}
+
+    async def _get_owned(self, user_id: int, watchlist_id: int) -> Watchlist | None:
+        result = await self.db.execute(
+            select(Watchlist).where(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _watchlist_dict(w: Watchlist) -> dict[str, Any]:
+        return {
+            "id": w.id,
+            "market_type": w.market_type,
+            "name": w.name,
+            "created_at": w.created_at.isoformat() if w.created_at else None,
+        }
+
+    @staticmethod
+    def _item_dict(i: WatchlistItem) -> dict[str, Any]:
+        return {
+            "id": i.id,
+            "watchlist_id": i.watchlist_id,
+            "ticker": i.ticker,
+            "display_name": i.display_name,
+            "added_price": i.added_price,
+            "added_at": i.added_at.isoformat() if i.added_at else None,
+        }

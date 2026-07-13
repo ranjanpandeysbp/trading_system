@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import StrategyLab from './pages/StrategyLab'
 import Seasonality from './pages/Seasonality'
 import Alerts from './pages/Alerts'
+import WatchlistPage from './pages/Watchlist'
 import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import Scanner from './pages/Scanner'
@@ -79,6 +80,7 @@ export default function App() {
                 <Route path="/strategy-lab" element={<StrategyLab />} />
                 <Route path="/seasonality" element={<Seasonality />} />
                 <Route path="/alerts" element={<Alerts />} />
+                <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
                 <Route path="/scanner" element={<Scanner />} />

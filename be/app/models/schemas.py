@@ -209,6 +209,12 @@ class MarketPulseRotationRequest(BaseModel):
     lookback_bars: int = Field(default=5, ge=1, le=500)
 
 
+class MarketPulseStockRotationMarketRequest(BaseModel):
+    universe_id: str = "sp500"
+    tf_key: str = "1d"
+    lookback_bars: int = Field(default=5, ge=1, le=500)
+
+
 class MarketPulseMtfRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] | None = None
@@ -236,6 +242,42 @@ class CommandCenterMegaRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1, max_length=5)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     durations: list[str] | None = None
+
+
+class CommandCenterTickerScanRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    asset_class: Literal["india", "us", "crypto"] = "india"
+
+
+class CommandCenterOneClickRequest(BaseModel):
+    style: Literal["intraday", "scalping", "swing"]
+    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    asset_class: Literal["india", "us", "crypto"] = "india"
+
+
+class CommandCenterMfSchemesRequest(BaseModel):
+    amc_id: int
+
+
+class CommandCenterMfHoldingsRequest(BaseModel):
+    scheme_ids: list[int] = Field(..., min_length=1, max_length=10)
+    scheme_names: dict[int, str] = Field(default_factory=dict)
+    from_date: str
+    to_date: str
+
+
+class CommandCenterInvestigateStrategiesRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=5)
+    asset_class: Literal["india", "us", "crypto"] = "india"
+    strategy_ids: list[str] = Field(default_factory=list)
+
+
+class CommandCenterMegaAdviceRequest(BaseModel):
+    market: str = "Groww (India Stocks)"
+    timeframes: list[str] = Field(default_factory=list)
+    ticker_count: int = 0
+    use_ai: bool = False
+    user_goal: str = ""
 
 
 class TradingHubScanRequest(BaseModel):
@@ -343,3 +385,14 @@ class AlertMonitorCreate(BaseModel):
 class MarketPulsePagination(BaseModel):
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=10, ge=1, le=50)
+
+
+class WatchlistCreate(BaseModel):
+    market_type: Literal["india", "us", "crypto"] = "india"
+    name: str = Field(..., min_length=1, max_length=128)
+
+
+class WatchlistItemCreate(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=32)
+    display_name: str = ""
+    added_price: float | None = None

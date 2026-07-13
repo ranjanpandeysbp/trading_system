@@ -94,3 +94,24 @@ class AlertMonitor(Base):
     last_signal: Mapped[str] = mapped_column(String(16), default="INACTIVE")
     last_alert_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    market_type: Mapped[str] = mapped_column(String(16), default="india")
+    name: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    watchlist_id: Mapped[int] = mapped_column(Integer, index=True)
+    ticker: Mapped[str] = mapped_column(String(32))
+    display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    added_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

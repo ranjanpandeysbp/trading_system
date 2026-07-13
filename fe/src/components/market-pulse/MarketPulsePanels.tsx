@@ -338,14 +338,14 @@ export function MonthlyPanel({ data }: { data: Row }) {
   )
 }
 
-function SectorWindowTable({ title, window }: { title: string; window?: Row }) {
+function SectorWindowTable({ title, window, benchmarkLabel = 'Nifty' }: { title: string; window?: Row; benchmarkLabel?: string }) {
   const sectors = (window?.sectors as Row[]) ?? []
   if (!sectors.length) return null
   return (
     <div>
       <h4 className="mb-2 text-sm font-medium text-slate-300">{title}</h4>
       <DataTable>
-        <thead><tr><Th>Sector</Th><Th>Return</Th><Th>vs Nifty</Th><Th>Last</Th></tr></thead>
+        <thead><tr><Th>Sector</Th><Th>Return</Th><Th>vs {benchmarkLabel}</Th><Th>Last</Th></tr></thead>
         <tbody>
           {sectors.slice(0, 15).map((s) => (
             <tr key={String(s.name)}>
@@ -382,7 +382,12 @@ export function SectorRotationPanel({ data, intraday = false }: { data: Row; int
     <div className="space-y-6">
       <p className="text-sm text-slate-500">Data feed: {String(data.data_feed ?? 'yfinance')}</p>
       {windows.map((w) => (
-        <SectorWindowTable key={w.key} title={w.title} window={data[w.key] as Row} />
+        <SectorWindowTable
+          key={w.key}
+          title={w.title}
+          window={data[w.key] as Row}
+          benchmarkLabel={data.benchmark_symbol ? String(data.benchmark_symbol) : 'Nifty'}
+        />
       ))}
       <div className="grid gap-4 md:grid-cols-2">
         <InflowOutflow title="Top performers" rows={(data.daily as Row)?.inflow as Row[] ?? (data.minutes as Row)?.inflow as Row[]} />
