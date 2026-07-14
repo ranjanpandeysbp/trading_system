@@ -292,6 +292,36 @@ class CommandCenterService:
         rows = await asyncio.to_thread(fetch_heatmap, symbol)
         return json_safe({"index_name": index_name, "symbol": symbol, "rows": rows})
 
+    async def quick_analyzer(
+        self,
+        tickers: list[str],
+        timeframes: list[str],
+        *,
+        asset_class: str = "india",
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict[str, Any]:
+        from datetime import date as date_cls, timedelta
+
+        from app.market_pulse.quick_analyzer_engine import analyze_quick_many
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+
+        parsed_to = date_cls.fromisoformat(to_date) if to_date else date_cls.today()
+        parsed_from = date_cls.fromisoformat(from_date) if from_date else parsed_to - timedelta(days=90)
+
+        def _run():
+            return analyze_quick_many(
+                resolved, timeframes, market,
+                groww_token=token, exchange=exchange,
+                from_date=parsed_from, to_date=parsed_to,
+            )
+
+        results = await asyncio.to_thread(_run)
+        return json_safe({"market": market, "results": results})
+
     async def option_chain(self, symbol: str, is_index: bool) -> dict[str, Any]:
         from app.market_pulse.option_chain_engine import (
             classify_option_chain_signal,
@@ -331,5 +361,6 @@ class CommandCenterService:
                 {"id": "india_market_heatmap", "label": "Indian Market Heatmap"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
+                {"id": "quick_analyzer", "label": "Quick Analyzer (India · US · Crypto)"},
             ]
         }

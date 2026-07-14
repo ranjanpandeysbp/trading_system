@@ -289,6 +289,14 @@ class CommandCenterOptionChainRequest(BaseModel):
     is_index: bool = True
 
 
+class CommandCenterQuickAnalyzerRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    timeframes: list[str] = Field(..., min_length=1, max_length=6)
+    asset_class: Literal["india", "us", "crypto"] = "india"
+    from_date: str | None = None
+    to_date: str | None = None
+
+
 class TradingHubScanRequest(BaseModel):
     section_id: str
     tickers: list[str] = Field(..., min_length=1, max_length=20)

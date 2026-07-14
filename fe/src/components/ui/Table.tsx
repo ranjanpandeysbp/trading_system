@@ -47,9 +47,20 @@ export function SortableTh({
   )
 }
 
-export function Td({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function Td({
+  children,
+  className = '',
+  colSpan,
+}: {
+  children: ReactNode
+  className?: string
+  colSpan?: number
+}) {
   return (
-    <td className={`whitespace-nowrap border-b border-slate-800/40 px-3 py-2.5 text-xs text-slate-300 sm:px-4 sm:py-3 sm:text-sm ${className}`}>
+    <td
+      colSpan={colSpan}
+      className={`whitespace-nowrap border-b border-slate-800/40 px-3 py-2.5 text-xs text-slate-300 sm:px-4 sm:py-3 sm:text-sm ${className}`}
+    >
       {children}
     </td>
   )

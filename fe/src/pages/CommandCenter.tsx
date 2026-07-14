@@ -21,6 +21,7 @@ import {
   runMomentumScan,
   runOneClick,
   runOptionChain,
+  runQuickAnalyzer,
   runTickerInvestigation,
   runUpgradeDowngradeScan,
 } from '../api/client'
@@ -56,7 +57,14 @@ const TABS = [
   { id: 'india_market_heatmap', label: 'Indian Market Heatmap', icon: Grid3x3 },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
+  { id: 'quick_analyzer', label: 'Quick Analyzer', icon: Zap },
 ] as const
+
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString().slice(0, 10)
+}
 
 const ONE_CLICK_STYLE: Record<string, 'intraday' | 'scalping' | 'swing'> = {
   one_click_intraday: 'intraday',
@@ -81,6 +89,9 @@ export default function CommandCenter() {
   const [heatmapIndex, setHeatmapIndex] = useState('Nifty 50')
   const [optionInstrumentType, setOptionInstrumentType] = useState<'Index' | 'Stock'>('Index')
   const [optionSymbol, setOptionSymbol] = useState('NIFTY')
+  const [qaTimeframes, setQaTimeframes] = useState('15m,1h,4h,1d')
+  const [qaFromDate, setQaFromDate] = useState(() => isoDaysAgo(90))
+  const [qaToDate, setQaToDate] = useState(() => isoDaysAgo(0))
 
   useQuery({ queryKey: ['cc-sections'], queryFn: fetchCommandCenterSections })
 
@@ -158,6 +169,18 @@ export default function CommandCenter() {
       if (tab === 'option_chain') {
         if (!optionSymbol.trim()) throw new Error('Enter or select a symbol')
         return runOptionChain({ symbol: optionSymbol.trim().toUpperCase(), is_index: optionInstrumentType === 'Index' })
+      }
+
+      if (tab === 'quick_analyzer') {
+        if (!tickers.length) throw new Error('Select at least one ticker')
+        if (assetClass === 'commodity') throw new Error('Quick Analyzer supports India, US, and Crypto only')
+        const qaTfs = qaTimeframes.split(',').map((t) => t.trim()).filter(Boolean)
+        if (!qaTfs.length) throw new Error('Select at least one timeframe')
+        if (qaFromDate > qaToDate) throw new Error('From date must be on or before To date')
+        return runQuickAnalyzer({
+          tickers, timeframes: qaTfs, asset_class: assetClass,
+          from_date: qaFromDate, to_date: qaToDate,
+        })
       }
 
       if (!tickers.length) throw new Error('Select at least one ticker')
@@ -414,6 +437,34 @@ export default function CommandCenter() {
             showDurations={tab === 'buy_sell' || tab === 'mega_analyser'}
             onChange={handlePickerChange}
           />
+
+          {tab === 'quick_analyzer' && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <FormField label="Timeframes (comma-separated)">
+                <input
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={qaTimeframes}
+                  onChange={(e) => setQaTimeframes(e.target.value)}
+                />
+              </FormField>
+              <FormField label="From date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={qaFromDate}
+                  onChange={(e) => setQaFromDate(e.target.value)}
+                />
+              </FormField>
+              <FormField label="To date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={qaToDate}
+                  onChange={(e) => setQaToDate(e.target.value)}
+                />
+              </FormField>
+            </div>
+          )}
 
           {tab === 'investigation_strategies' && (
             <div className="mt-4">

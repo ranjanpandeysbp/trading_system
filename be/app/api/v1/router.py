@@ -32,6 +32,7 @@ from app.models.schemas import (
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
+    CommandCenterQuickAnalyzerRequest,
     CommandCenterTickerScanRequest,
     WatchlistCreate,
     WatchlistItemCreate,
@@ -799,6 +800,21 @@ async def command_center_option_chain(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).option_chain(payload.symbol, payload.is_index)
+
+
+@router.post("/command-center/quick-analyzer")
+async def command_center_quick_analyzer(
+    payload: CommandCenterQuickAnalyzerRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).quick_analyzer(
+        payload.tickers,
+        payload.timeframes,
+        asset_class=payload.asset_class,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+    )
 
 
 @router.get("/technical-analysis/screeners")

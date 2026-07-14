@@ -484,6 +484,14 @@ export const runIndiaMarketHeatmap = (payload: { index_name: string }) =>
 export const runOptionChain = (payload: { symbol: string; is_index: boolean }) =>
   api.post('/command-center/option-chain', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runQuickAnalyzer = (payload: {
+  tickers: string[]
+  timeframes: string[]
+  asset_class: 'india' | 'us' | 'crypto'
+  from_date?: string
+  to_date?: string
+}) => api.post('/command-center/quick-analyzer', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const fetchMutualFundAmcs = () =>
   api.get<{ amcs: Array<{ Id: number; Name: string }> }>('/command-center/mutual-fund/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
 

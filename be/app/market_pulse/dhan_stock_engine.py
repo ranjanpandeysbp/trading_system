@@ -226,6 +226,48 @@ def parse_corporate_actions(pp: dict[str, Any], limit: int = 12) -> list[dict[st
     return out
 
 
+def parse_technical_analysis(pp: dict[str, Any]) -> dict[str, Any] | None:
+    """EMA/SMA/oscillator technical-indicator snapshot with Dhan's own Bullish/Bearish/
+    Neutral Action tags, plus pivot points — prefers NSE, falls back to BSE."""
+    ta = pp.get("TechicalsAnalysisData") or {}
+    for exch in ("NSE", "BSE"):
+        entries = ta.get(exch) or []
+        if not entries:
+            continue
+        entry = entries[0]
+        if entry.get("status") != "success":
+            continue
+        blocks = entry.get("data") or []
+        if not blocks:
+            continue
+        block0 = blocks[0] if len(blocks) > 0 else {}
+        block1 = blocks[1] if len(blocks) > 1 else {}
+
+        def _rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [
+                {"indicator": x.get("Indicator"), "value": _num(x.get("Value")), "action": x.get("Action")}
+                for x in items
+            ]
+
+        pivots_raw = block1.get("Pivot") or []
+        return {
+            "exchange": exch,
+            "ema": _rows(block0.get("EMA") or []),
+            "sma": _rows(block0.get("SMA") or []),
+            "indicators": _rows(block0.get("Indicator") or []),
+            "pivot": pivots_raw[0] if pivots_raw else None,
+        }
+    return None
+
+
+def fetch_technical_analysis(ticker: str) -> dict[str, Any] | None:
+    """EMA/Indicator technical-analysis snapshot for one ticker (None if not in DHAN_SLUG_MAP)."""
+    pp = fetch_dhan_page_props(ticker)
+    if not pp:
+        return None
+    return parse_technical_analysis(pp)
+
+
 def parse_investment_returns(pp: dict[str, Any]) -> dict[str, float | None]:
     """Multi-period % price return, from the live quote snapshot."""
     scrip_list = pp.get("scripData") or []

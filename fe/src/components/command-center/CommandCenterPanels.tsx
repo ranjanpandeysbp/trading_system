@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react'
+import { TrendingDown, TrendingUp } from 'lucide-react'
 import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
 import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysisPanels'
 import { Alert } from '../ui/Feedback'
@@ -1330,8 +1331,12 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
   const globalRows = (data.global_rows as Row[] | undefined) ?? []
   const arrow = (pct: unknown) => {
     const n = Number(pct)
-    if (!Number.isFinite(n) || n === 0) return '—'
-    return n > 0 ? '▲' : '▼'
+    if (!Number.isFinite(n) || n === 0) return <span className="text-slate-500">—</span>
+    return n > 0 ? (
+      <TrendingUp size={14} className="inline text-emerald-400" />
+    ) : (
+      <TrendingDown size={14} className="inline text-rose-400" />
+    )
   }
 
   if (!nseRows.length && !globalRows.length) {
@@ -1501,6 +1506,191 @@ function OptionChainPanel({ data }: { data: Row }) {
   )
 }
 
+const _SETUP_BADGE: Record<string, string> = { LONG: '🟢 LONG', SHORT: '🔴 SHORT', NEUTRAL: '🟡 NEUTRAL' }
+
+function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
+  const emaSma = [...((snap.ema as Row[]) ?? []), ...((snap.sma as Row[]) ?? [])]
+  const indicators = (snap.indicators as Row[]) ?? []
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div>
+        <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          EMA/SMA {snap.price != null ? `· price ${fmtNum(snap.price, 4)}` : ''}
+        </h5>
+        {emaSma.length > 0 ? (
+          <DataTable minWidth={320}>
+            <thead><tr><Th>Indicator</Th><Th>Value</Th><Th>Action</Th></tr></thead>
+            <tbody>
+              {emaSma.map((e, i) => (
+                <tr key={i}>
+                  <Td>{String(e.indicator ?? '—')}</Td>
+                  <Td>{fmtNum(e.value, 4)}</Td>
+                  <Td className={verdictClass(String(e.action ?? ''))}>{String(e.action ?? '—')}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        ) : <p className="text-xs text-slate-500">—</p>}
+      </div>
+      <div>
+        <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Technical Indicators</h5>
+        {indicators.length > 0 ? (
+          <DataTable minWidth={480}>
+            <thead><tr><Th>Indicator</Th><Th>Value</Th><Th>Action</Th><Th>Description</Th></tr></thead>
+            <tbody>
+              {indicators.map((e, i) => (
+                <tr key={i}>
+                  <Td>{String(e.indicator ?? '—')}</Td>
+                  <Td>{e.value == null ? '—' : String(e.value)}</Td>
+                  <Td className={verdictClass(String(e.action ?? ''))}>{String(e.action ?? '—')}</Td>
+                  <Td className="max-w-sm whitespace-normal text-slate-400">{String(e.description ?? '—')}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        ) : <p className="text-xs text-slate-500">—</p>}
+      </div>
+    </div>
+  )
+}
+
+function QuickAnalyzerPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [idx, setIdx] = useState(0)
+  const [tfTab, setTfTab] = useState<string | null>(null)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  const valid = results.filter((r) => !r.error)
+  const r = results[idx] ?? results[0]
+  const setup = (r.setup as Row) ?? {}
+  const momentum = (r.momentum as Row) ?? {}
+  const perTf = (momentum.per_tf as Row[]) ?? []
+  const technicalByTf = (r.technical_by_tf as Record<string, Row>) ?? {}
+  const dailyRef = r.daily_reference as Row | undefined
+  const tfKeys = Object.keys(technicalByTf)
+  const activeTf = tfTab && tfKeys.includes(tfTab) ? tfTab : tfKeys[0]
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">{valid.length} of {results.length} tickers analyzed</p>
+
+      <DataTable minWidth={1000}>
+        <thead>
+          <tr>
+            <Th>Ticker</Th><Th>Trade Setup</Th><Th>Confidence %</Th><Th>SL %</Th><Th>TP %</Th>
+            <Th>Momentum</Th><Th>Mom. Strength</Th><Th>Mom. Confidence %</Th>
+            <Th>EMA Bull/Bear</Th><Th>Indicators Bull/Bear</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((res, i) => {
+            const s = (res.setup as Row) ?? {}
+            const m = (res.momentum as Row) ?? {}
+            return (
+              <tr
+                key={String(res.ticker) + i}
+                className={`cursor-pointer hover:bg-slate-800/30 ${idx === i ? 'bg-slate-800/40' : ''}`}
+                onClick={() => { setIdx(i); setTfTab(null) }}
+              >
+                <Td className="font-medium text-white">{String(res.ticker ?? '—')}</Td>
+                {res.error ? (
+                  <Td colSpan={9} className="text-rose-400">ERROR — {String(res.error)}</Td>
+                ) : (
+                  <>
+                    <Td className={verdictClass(String(s.direction ?? ''))}>{_SETUP_BADGE[String(s.direction ?? '')] ?? String(s.direction ?? '—')}</Td>
+                    <Td>{fmtNum(s.confidence_pct, 1)}</Td>
+                    <Td>{s.sl_pct != null ? fmtNum(s.sl_pct, 2) : '—'}</Td>
+                    <Td>{s.tp_pct != null ? fmtNum(s.tp_pct, 2) : '—'}</Td>
+                    <Td>{String(m.overall_direction ?? '—')}</Td>
+                    <Td>{String(m.overall_strength ?? '—')}</Td>
+                    <Td>{fmtNum(m.confidence_continue_pct, 0)}</Td>
+                    <Td>{s.ema_total ? `${s.ema_bullish}/${s.ema_bearish}` : '—'}</Td>
+                    <Td>{s.indicator_total ? `${s.indicator_bullish}/${s.indicator_bearish}` : '—'}</Td>
+                  </>
+                )}
+              </tr>
+            )
+          })}
+        </tbody>
+      </DataTable>
+
+      <div className="flex flex-wrap gap-2">
+        {results.map((res, i) => (
+          <Chip key={`${String(res.ticker)}-${i}`} selected={idx === i} onClick={() => { setIdx(i); setTfTab(null) }}>
+            {String(res.ticker)}
+          </Chip>
+        ))}
+      </div>
+
+      {r.error ? (
+        <Alert type="error">{String(r.error)}</Alert>
+      ) : (
+        <>
+          <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Quick Analyzer · {String(r.ticker)}</p>
+            <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(setup.direction ?? ''))}`}>
+              {_SETUP_BADGE[String(setup.direction ?? '')] ?? String(setup.direction ?? '—')} · {fmtNum(setup.confidence_pct, 1)}% confidence
+              {setup.sl_pct != null ? ` · SL ${fmtNum(setup.sl_pct, 2)}% / TP ${fmtNum(setup.tp_pct, 2)}%` : ''}
+            </p>
+            {((setup.reasons as string[]) ?? []).length > 0 && (
+              <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                {(setup.reasons as string[]).map((rr, i) => <li key={i} className="flex gap-2"><span className="text-slate-500">•</span>{rr}</li>)}
+              </ul>
+            )}
+          </div>
+
+          {perTf.length > 0 && (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Momentum — per timeframe</h4>
+              <DataTable minWidth={800}>
+                <thead>
+                  <tr><Th>TF</Th><Th>Direction</Th><Th>Strength</Th><Th>ADX</Th><Th>RSI</Th><Th>MACD Hist</Th><Th>ROC %</Th><Th>Volume x</Th><Th>Confidence %</Th></tr>
+                </thead>
+                <tbody>
+                  {perTf.map((tf, i) => (
+                    <tr key={i}>
+                      <Td>{String(tf.timeframe)}</Td>
+                      <Td className={verdictClass(String(tf.trend_direction ?? ''))}>{String(tf.trend_direction ?? '—')}</Td>
+                      <Td>{String(tf.strength ?? '—')}</Td>
+                      <Td>{fmtNum(tf.adx)}</Td>
+                      <Td>{fmtNum(tf.rsi)}</Td>
+                      <Td>{fmtNum(tf.macd_hist)}</Td>
+                      <Td>{fmtNum(tf.roc_pct)}</Td>
+                      <Td>{fmtNum(tf.volume_ratio)}</Td>
+                      <Td>{fmtNum(tf.confidence_continue_pct, 0)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </div>
+          )}
+
+          {tfKeys.length > 0 ? (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">EMA / Technical Indicators — per timeframe</h4>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {tfKeys.map((tf) => (
+                  <Chip key={tf} selected={activeTf === tf} onClick={() => setTfTab(tf)}>{tf}</Chip>
+                ))}
+              </div>
+              {activeTf && <EmaSmaIndicatorTables snap={technicalByTf[activeTf]} />}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">EMA / Technical Indicators unavailable — insufficient OHLCV on the selected timeframe(s).</p>
+          )}
+
+          <div>
+            <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">📌 Daily reference (Dhan.co) — not timeframe-specific</h4>
+            {dailyRef ? <EmaSmaIndicatorTables snap={dailyRef} /> : (
+              <p className="text-xs text-slate-500">Unavailable for this ticker (outside Dhan's coverage).</p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) {
   if (data.error && tab !== 'investigation' && tab !== 'investigation_strategies') {
     return <Alert type="error">{String(data.error)}</Alert>
@@ -1527,6 +1717,8 @@ export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) 
       return <NseWorldIndicesPanel data={data} />
     case 'coindcx_24h_volatility':
       return <CoinDcx24hVolatilityPanel data={data} />
+    case 'quick_analyzer':
+      return <QuickAnalyzerPanel data={data} />
     case 'momentum':
       return <MomentumPanel data={data} />
     case 'ema_position':
