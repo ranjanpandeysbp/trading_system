@@ -38,9 +38,15 @@ type Props = {
 }
 
 const CRYPTO_TOP_N = [10, 15, 25, 50, 100, 200, 500]
+const TICKER_SELECT_COUNTS = [15, 25, 50, 100, 200, 'All'] as const
+type TickerSelectCount = number | 'All'
 
 function parseCustom(raw: string) {
   return raw.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)
+}
+
+function applyCount(pool: string[], n: TickerSelectCount) {
+  return n === 'All' ? pool : pool.slice(0, n)
 }
 
 export function AssetClassTickerPicker({
@@ -52,6 +58,7 @@ export function AssetClassTickerPicker({
   const [group, setGroup] = useState('Custom')
   const [cryptoMode, setCryptoMode] = useState('Manual Selection')
   const [cryptoTopN, setCryptoTopN] = useState(15)
+  const [selectCount, setSelectCount] = useState<TickerSelectCount>(15)
   const [search, setSearch] = useState('')
   const [customText, setCustomText] = useState('')
   const [selected, setSelected] = useState<string[]>([])
@@ -75,17 +82,17 @@ export function AssetClassTickerPicker({
       const g = universe.default_group ?? universe.group_names?.[0] ?? 'Custom'
       setGroup(g)
       const pool = universe.index_groups?.[g] ?? []
-      setSelected(single ? pool.slice(0, 1) : pool.slice(0, 3))
+      setSelected(single ? pool.slice(0, 1) : applyCount(pool, selectCount))
       setCustomText(universe.custom_default ?? '')
     } else if (universe.picker_type === 'crypto') {
       setCryptoMode(universe.default_mode ?? 'Manual Selection')
       const displays = (universe.crypto_tickers ?? []).map((t) => t.display)
-      setSelected(single ? displays.slice(0, 1) : displays.slice(0, 3))
+      setSelected(single ? displays.slice(0, 1) : applyCount(displays, selectCount))
       setCustomText(universe.custom_default ?? '')
     } else {
       setGroup('All Commodities')
       const syms = (universe.commodities ?? []).map((c) => c.symbol)
-      setSelected(single ? syms.slice(0, 1) : syms.slice(0, 3))
+      setSelected(single ? syms.slice(0, 1) : applyCount(syms, selectCount))
       setCustomText(universe.custom_default ?? '')
     }
   }, [assetClass, universe, single])
@@ -179,7 +186,7 @@ export function AssetClassTickerPicker({
                   setGroup(g)
                   if (g !== 'Custom') {
                     const pool = universe.index_groups?.[g] ?? []
-                    setSelected(single ? pool.slice(0, 1) : pool.slice(0, 3))
+                    setSelected(single ? pool.slice(0, 1) : applyCount(pool, selectCount))
                   }
                 }}
               >
@@ -198,6 +205,24 @@ export function AssetClassTickerPicker({
               </FormField>
             )}
           </div>
+          {group !== 'Custom' && !single && (
+            <FormField label="Select how many tickers">
+              <Select
+                value={String(selectCount)}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  const n: TickerSelectCount = raw === 'All' ? 'All' : Number(raw)
+                  setSelectCount(n)
+                  const pool = universe.index_groups?.[group] ?? []
+                  setSelected(applyCount(pool, n))
+                }}
+              >
+                {TICKER_SELECT_COUNTS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </Select>
+            </FormField>
+          )}
           {group === 'Custom' ? (
             <FormField label="Custom tickers (comma-separated)">
               <Textarea
@@ -324,7 +349,7 @@ export function AssetClassTickerPicker({
       {showDurations && (
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-            Durations (multi-timeframe confluence)
+            Timeframes to analyze
           </p>
           <div className="flex flex-wrap gap-2">
             {universe.all_durations.map((d) => (

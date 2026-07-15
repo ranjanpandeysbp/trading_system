@@ -17,7 +17,7 @@ import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { StatCard } from '../components/ui/StatCard'
-import { DataTable, Td, Th } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 const TABS = [
   { id: 'builder', label: 'Builder & Tester', icon: Beaker },
@@ -224,20 +224,28 @@ function BuilderResults({ data }: { data: Record<string, unknown> }) {
 
 function ComboResults({ data }: { data: Record<string, unknown> }) {
   const rows = (data.rows as Record<string, unknown>[]) ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows, {
+    ticker: (r) => (r.Ticker != null ? String(r.Ticker) : null),
+    tf: (r) => (r.Timeframe != null ? String(r.Timeframe) : null),
+    strategy: (r) => (r.Strategy != null ? String(r.Strategy) : null),
+    return_pct: (r) => (r['Return %'] != null ? Number(r['Return %']) : null),
+    sharpe: (r) => (r.Sharpe != null ? Number(r.Sharpe) : null),
+    status: (r) => (r.Status != null ? String(r.Status) : null),
+  })
   return (
     <DataTable>
       <thead>
         <tr>
-          <Th>Ticker</Th>
-          <Th>TF</Th>
-          <Th>Strategy</Th>
-          <Th>Return %</Th>
-          <Th>Sharpe</Th>
-          <Th>Status</Th>
+          <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+          <SortableTh active={sortKey === 'tf'} direction={sortDir} onSort={() => handleSort('tf')}>TF</SortableTh>
+          <SortableTh active={sortKey === 'strategy'} direction={sortDir} onSort={() => handleSort('strategy')}>Strategy</SortableTh>
+          <SortableTh active={sortKey === 'return_pct'} direction={sortDir} onSort={() => handleSort('return_pct')}>Return %</SortableTh>
+          <SortableTh active={sortKey === 'sharpe'} direction={sortDir} onSort={() => handleSort('sharpe')}>Sharpe</SortableTh>
+          <SortableTh active={sortKey === 'status'} direction={sortDir} onSort={() => handleSort('status')}>Status</SortableTh>
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, i) => (
+        {sorted.map((r, i) => (
           <tr key={i}>
             <Td>{String(r.Ticker)}</Td>
             <Td>{String(r.Timeframe)}</Td>
@@ -254,19 +262,25 @@ function ComboResults({ data }: { data: Record<string, unknown> }) {
 
 function ScreenerResults({ data }: { data: Record<string, unknown> }) {
   const signals = (data.signals as Record<string, unknown>[]) ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(signals, {
+    ticker: (s) => (s.Ticker != null ? String(s.Ticker) : null),
+    tf: (s) => (s.Timeframe != null ? String(s.Timeframe) : null),
+    close: (s) => (s.Close != null ? Number(s.Close) : null),
+    signal: (s) => (s.Signal != null ? String(s.Signal) : null),
+  })
   if (!signals.length) return <p className="text-slate-500">No signals matched entry rules.</p>
   return (
     <DataTable>
       <thead>
         <tr>
-          <Th>Ticker</Th>
-          <Th>TF</Th>
-          <Th>Close</Th>
-          <Th>Signal</Th>
+          <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+          <SortableTh active={sortKey === 'tf'} direction={sortDir} onSort={() => handleSort('tf')}>TF</SortableTh>
+          <SortableTh active={sortKey === 'close'} direction={sortDir} onSort={() => handleSort('close')}>Close</SortableTh>
+          <SortableTh active={sortKey === 'signal'} direction={sortDir} onSort={() => handleSort('signal')}>Signal</SortableTh>
         </tr>
       </thead>
       <tbody>
-        {signals.map((s, i) => (
+        {sorted.map((s, i) => (
           <tr key={i}>
             <Td>{String(s.Ticker)}</Td>
             <Td>{String(s.Timeframe)}</Td>

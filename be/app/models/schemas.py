@@ -227,12 +227,12 @@ class MarketPulseSentimentRequest(BaseModel):
 
 
 class MarketPulseTickerInvestigationRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class CommandCenterBuySellRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     scenario: str = "balanced"
     durations: list[str] | None = None
@@ -245,13 +245,14 @@ class CommandCenterMegaRequest(BaseModel):
 
 
 class CommandCenterTickerScanRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
+    timeframes: list[str] | None = None
 
 
 class CommandCenterOneClickRequest(BaseModel):
     style: Literal["intraday", "scalping", "swing"]
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
 
 
@@ -290,11 +291,13 @@ class CommandCenterOptionChainRequest(BaseModel):
 
 
 class CommandCenterQuickAnalyzerRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(..., min_length=1, max_length=6)
     asset_class: Literal["india", "us", "crypto"] = "india"
     from_date: str | None = None
     to_date: str | None = None
+    include_fundamentals: bool = False
+    include_option_chain: bool = False
 
 
 class TradingHubScanRequest(BaseModel):
@@ -337,7 +340,7 @@ class MarketPulseHeatmapRequest(BaseModel):
 
 class TaScreenerRunRequest(BaseModel):
     screener_id: str
-    tickers: list[str] = Field(..., min_length=1, max_length=15)
+    tickers: list[str] = Field(..., min_length=1)
     timeframe: str | None = None
     options: dict[str, Any] | None = None
 

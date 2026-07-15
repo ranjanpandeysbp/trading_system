@@ -11,7 +11,7 @@ import { Badge } from '../components/ui/Badge'
 import { StatCard } from '../components/ui/StatCard'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert } from '../components/ui/Feedback'
-import { DataTable, Th, Td } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 import { StrategySelect } from '../components/strategies/StrategySelect'
 
 const PERIODS_BY_TIMEFRAME: Record<string, { value: string; label: string }[]> = {
@@ -135,6 +135,15 @@ export default function Backtester() {
 
   const chartData = result?.stats.trades?.slice(-20).map((t, i) => ({ trade: i + 1, pnl: t.pnl_pct })) ?? []
 
+  const { sorted: sortedSignals, sortKey: signalsSortKey, sortDir: signalsSortDir, handleSort: handleSignalsSort } = useSort(
+    result?.recent_signals ?? [],
+    {
+      timestamp: (r) => r.timestamp,
+      close: (r) => Number(r.close),
+      action: (r) => r.action,
+    },
+  )
+
   return (
     <div>
       <PageHeader
@@ -237,13 +246,13 @@ export default function Backtester() {
           <DataTable>
             <thead>
               <tr>
-                <Th>Time</Th>
-                <Th>Close</Th>
-                <Th>Action</Th>
+                <SortableTh active={signalsSortKey === 'timestamp'} direction={signalsSortDir} onSort={() => handleSignalsSort('timestamp')}>Time</SortableTh>
+                <SortableTh active={signalsSortKey === 'close'} direction={signalsSortDir} onSort={() => handleSignalsSort('close')}>Close</SortableTh>
+                <SortableTh active={signalsSortKey === 'action'} direction={signalsSortDir} onSort={() => handleSignalsSort('action')}>Action</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {result.recent_signals.map((s, i) => (
+              {sortedSignals.map((s, i) => (
                 <tr key={i} className="hover:bg-slate-800/20">
                   <Td className="text-slate-400">{s.timestamp}</Td>
                   <Td className="tabular-nums">₹{s.close}</Td>

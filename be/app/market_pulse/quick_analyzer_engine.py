@@ -679,3 +679,49 @@ def analyze_quick_many(
             logger.debug("Quick Analyzer failed for %s: %s", ticker, exc)
             results.append({"ticker": ticker, "error": str(exc)[:200]})
     return results
+
+
+def apply_combined_signals_to_quick_results(
+    results: list[dict[str, Any]],
+    market: str,
+    *,
+    include_fundamentals: bool = False,
+    include_option_chain: bool = False,
+    groww_token: str = "",
+) -> None:
+    """Combine each result's technical setup direction/confidence with Fundamental
+    Analysis and/or Option Chain PCR/max-pain/OI bias for the same ticker, in place —
+    Groww (India) only. Mirrors the original app's checkbox behaviour: fundamentals
+    are combined first, then option chain chains on top of that combined read. Stashes
+    the pre-combination technical-only direction/confidence before overwriting."""
+    if not (include_fundamentals or include_option_chain):
+        return
+    from app.market_pulse.fundamentals_combine import combine_with_fundamentals, is_groww_india_market
+
+    if not is_groww_india_market(market):
+        return
+    from app.market_pulse.option_chain_combine import combine_with_option_chain
+
+    for r in results:
+        setup = r.get("setup")
+        if not setup or r.get("error"):
+            continue
+        direction = setup.get("direction")
+        confidence = setup.get("confidence_pct") or 0.0
+        setup["technical_direction"] = direction
+        setup["technical_confidence_pct"] = confidence
+
+        if include_fundamentals:
+            combo = combine_with_fundamentals(r["ticker"], direction, confidence)
+            r["fundamentals_combo"] = combo
+            direction = combo["combined_direction"]
+            confidence = combo["combined_confidence_pct"]
+
+        if include_option_chain:
+            combo = combine_with_option_chain(r["ticker"], direction, confidence, groww_token=groww_token)
+            r["option_chain_combo"] = combo
+            direction = combo["combined_direction"]
+            confidence = combo["combined_confidence_pct"]
+
+        setup["direction"] = direction
+        setup["confidence_pct"] = confidence

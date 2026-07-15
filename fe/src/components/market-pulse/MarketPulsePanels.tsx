@@ -1,5 +1,5 @@
 import { StatCard } from '../ui/StatCard'
-import { DataTable, Th, Td } from '../ui/Table'
+import { DataTable, Td, SortableTh, useSort } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 
@@ -34,19 +34,30 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export function MoversTable({ gainers, losers, emptyMessage = 'No mover data' }: { gainers?: Row[]; losers?: Row[]; emptyMessage?: string }) {
   const g = gainers ?? []
   const l = losers ?? []
+  const moverAccessors = {
+    symbol: (r: Row) => String(r.symbol ?? ''),
+    pct: (r: Row) => Number(r.pct),
+    last: (r: Row) => Number(r.last),
+  }
+  const gainersSort = useSort(g, moverAccessors)
+  const losersSort = useSort(l, moverAccessors)
   if (!g.length && !l.length) {
     return <p className="text-sm text-slate-500">{emptyMessage}</p>
   }
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <div>
+      <div className="min-w-0">
         <h4 className="mb-2 text-sm font-medium text-emerald-400">Gainers</h4>
         <DataTable>
-          <thead><tr><Th>Symbol</Th><Th>%</Th><Th>Last</Th></tr></thead>
+          <thead><tr>
+            <SortableTh active={gainersSort.sortKey === 'symbol'} direction={gainersSort.sortDir} onSort={() => gainersSort.handleSort('symbol')}>Symbol</SortableTh>
+            <SortableTh active={gainersSort.sortKey === 'pct'} direction={gainersSort.sortDir} onSort={() => gainersSort.handleSort('pct')}>%</SortableTh>
+            <SortableTh active={gainersSort.sortKey === 'last'} direction={gainersSort.sortDir} onSort={() => gainersSort.handleSort('last')}>Last</SortableTh>
+          </tr></thead>
           <tbody>
-            {(gainers ?? []).length === 0 ? (
+            {g.length === 0 ? (
               <tr><td colSpan={3} className="whitespace-nowrap border-b border-slate-800/40 px-3 py-2.5 text-xs text-slate-500 sm:px-4 sm:py-3 sm:text-sm">No gainers</td></tr>
-            ) : (gainers ?? []).map((r) => (
+            ) : gainersSort.sorted.map((r) => (
               <tr key={String(r.symbol)}>
                 <Td>{String(r.symbol)}</Td>
                 <Td className="text-emerald-400">{fmtPct(Number(r.pct))}</Td>
@@ -56,14 +67,18 @@ export function MoversTable({ gainers, losers, emptyMessage = 'No mover data' }:
           </tbody>
         </DataTable>
       </div>
-      <div>
+      <div className="min-w-0">
         <h4 className="mb-2 text-sm font-medium text-rose-400">Losers</h4>
         <DataTable>
-          <thead><tr><Th>Symbol</Th><Th>%</Th><Th>Last</Th></tr></thead>
+          <thead><tr>
+            <SortableTh active={losersSort.sortKey === 'symbol'} direction={losersSort.sortDir} onSort={() => losersSort.handleSort('symbol')}>Symbol</SortableTh>
+            <SortableTh active={losersSort.sortKey === 'pct'} direction={losersSort.sortDir} onSort={() => losersSort.handleSort('pct')}>%</SortableTh>
+            <SortableTh active={losersSort.sortKey === 'last'} direction={losersSort.sortDir} onSort={() => losersSort.handleSort('last')}>Last</SortableTh>
+          </tr></thead>
           <tbody>
-            {(losers ?? []).length === 0 ? (
+            {l.length === 0 ? (
               <tr><td colSpan={3} className="whitespace-nowrap border-b border-slate-800/40 px-3 py-2.5 text-xs text-slate-500 sm:px-4 sm:py-3 sm:text-sm">No losers</td></tr>
-            ) : (losers ?? []).map((r) => (
+            ) : losersSort.sorted.map((r) => (
               <tr key={String(r.symbol)}>
                 <Td>{String(r.symbol)}</Td>
                 <Td className="text-rose-400">{fmtPct(Number(r.pct))}</Td>
@@ -139,6 +154,15 @@ export function IntelligencePanel({ data }: { data: Row }) {
   const fiiNet = Number((fiiDii?.fii as Row)?.net_cr)
   const diiNet = Number((fiiDii?.dii as Row)?.net_cr)
 
+  const srRows = Object.entries(srMap).map(([name, sr]) => ({ name, ...sr }))
+  const srSort = useSort(srRows, {
+    name: (r) => r.name,
+    s1: (r) => r.s1,
+    s2: (r) => r.s2,
+    r1: (r) => r.r1,
+    r2: (r) => r.r2,
+  })
+
   return (
     <div className="space-y-6">
       {data.tomorrow_outlook != null ? (
@@ -208,12 +232,18 @@ export function IntelligencePanel({ data }: { data: Row }) {
           <div className="mt-3 overflow-x-auto">
             <DataTable>
               <thead>
-                <tr><Th>Index</Th><Th>S1</Th><Th>S2</Th><Th>R1</Th><Th>R2</Th></tr>
+                <tr>
+                  <SortableTh active={srSort.sortKey === 'name'} direction={srSort.sortDir} onSort={() => srSort.handleSort('name')}>Index</SortableTh>
+                  <SortableTh active={srSort.sortKey === 's1'} direction={srSort.sortDir} onSort={() => srSort.handleSort('s1')}>S1</SortableTh>
+                  <SortableTh active={srSort.sortKey === 's2'} direction={srSort.sortDir} onSort={() => srSort.handleSort('s2')}>S2</SortableTh>
+                  <SortableTh active={srSort.sortKey === 'r1'} direction={srSort.sortDir} onSort={() => srSort.handleSort('r1')}>R1</SortableTh>
+                  <SortableTh active={srSort.sortKey === 'r2'} direction={srSort.sortDir} onSort={() => srSort.handleSort('r2')}>R2</SortableTh>
+                </tr>
               </thead>
               <tbody>
-                {Object.entries(srMap).map(([name, sr]) => (
-                  <tr key={name}>
-                    <Td>{name}</Td>
+                {srSort.sorted.map((sr) => (
+                  <tr key={sr.name}>
+                    <Td>{sr.name}</Td>
                     <Td className="tabular-nums">{fmtPrice(sr.s1)}</Td>
                     <Td className="tabular-nums">{fmtPrice(sr.s2)}</Td>
                     <Td className="tabular-nums">{fmtPrice(sr.r1)}</Td>
@@ -285,6 +315,15 @@ export function IntelligencePanel({ data }: { data: Row }) {
 
 export function BreadthPanel({ data }: { data: Row }) {
   const items = (data.items as Row[]) ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(items, {
+    index_name: (r) => String(r.index_name ?? ''),
+    group: (r) => String(r.group ?? ''),
+    advances: (r) => Number(r.advances),
+    declines: (r) => Number(r.declines),
+    unchanged: (r) => Number(r.unchanged),
+    pct_change: (r) => Number(r.pct_change),
+    last: (r) => Number(r.last),
+  })
   if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   if (!items.length) return <p className="text-sm text-slate-500">No breadth data available.</p>
   return (
@@ -292,10 +331,18 @@ export function BreadthPanel({ data }: { data: Row }) {
       <p className="mb-4 text-sm text-slate-500">Showing {items.length} of {Number(data.total ?? 0)} indices</p>
       <DataTable>
         <thead>
-          <tr><Th>Index</Th><Th>Group</Th><Th>Adv</Th><Th>Dec</Th><Th>Unch</Th><Th>% Chg</Th><Th>Last</Th></tr>
+          <tr>
+            <SortableTh active={sortKey === 'index_name'} direction={sortDir} onSort={() => handleSort('index_name')}>Index</SortableTh>
+            <SortableTh active={sortKey === 'group'} direction={sortDir} onSort={() => handleSort('group')}>Group</SortableTh>
+            <SortableTh active={sortKey === 'advances'} direction={sortDir} onSort={() => handleSort('advances')}>Adv</SortableTh>
+            <SortableTh active={sortKey === 'declines'} direction={sortDir} onSort={() => handleSort('declines')}>Dec</SortableTh>
+            <SortableTh active={sortKey === 'unchanged'} direction={sortDir} onSort={() => handleSort('unchanged')}>Unch</SortableTh>
+            <SortableTh active={sortKey === 'pct_change'} direction={sortDir} onSort={() => handleSort('pct_change')}>% Chg</SortableTh>
+            <SortableTh active={sortKey === 'last'} direction={sortDir} onSort={() => handleSort('last')}>Last</SortableTh>
+          </tr>
         </thead>
         <tbody>
-          {items.map((row) => (
+          {sorted.map((row) => (
             <tr key={String(row.index_name)}>
               <Td>{String(row.index_name)}</Td>
               <Td className="text-slate-400">{String(row.group ?? '')}</Td>
@@ -340,14 +387,25 @@ export function MonthlyPanel({ data }: { data: Row }) {
 
 function SectorWindowTable({ title, window, benchmarkLabel = 'Nifty' }: { title: string; window?: Row; benchmarkLabel?: string }) {
   const sectors = (window?.sectors as Row[]) ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(sectors, {
+    name: (r) => String(r.name ?? ''),
+    pct: (r) => Number(r.pct),
+    relative: (r) => Number(r.relative),
+    last: (r) => Number(r.last),
+  })
   if (!sectors.length) return null
   return (
     <div>
       <h4 className="mb-2 text-sm font-medium text-slate-300">{title}</h4>
       <DataTable>
-        <thead><tr><Th>Sector</Th><Th>Return</Th><Th>vs {benchmarkLabel}</Th><Th>Last</Th></tr></thead>
+        <thead><tr>
+          <SortableTh active={sortKey === 'name'} direction={sortDir} onSort={() => handleSort('name')}>Sector</SortableTh>
+          <SortableTh active={sortKey === 'pct'} direction={sortDir} onSort={() => handleSort('pct')}>Return</SortableTh>
+          <SortableTh active={sortKey === 'relative'} direction={sortDir} onSort={() => handleSort('relative')}>vs {benchmarkLabel}</SortableTh>
+          <SortableTh active={sortKey === 'last'} direction={sortDir} onSort={() => handleSort('last')}>Last</SortableTh>
+        </tr></thead>
         <tbody>
-          {sectors.slice(0, 15).map((s) => (
+          {sorted.slice(0, 15).map((s) => (
             <tr key={String(s.name)}>
               <Td>{String(s.name).replace('NIFTY ', '')}</Td>
               <Td className={pctClass(Number(s.pct))}>{fmtPct(Number(s.pct))}</Td>
@@ -398,16 +456,24 @@ export function SectorRotationPanel({ data, intraday = false }: { data: Row; int
 }
 
 function InflowOutflow({ title, rows, negative }: { title: string; rows?: Row[]; negative?: boolean }) {
+  const r = rows ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(r, {
+    name: (row) => String(row.name ?? ''),
+    pct: (row) => Number(row.pct),
+  })
   return (
-    <div>
+    <div className="min-w-0">
       <h4 className={`mb-2 text-sm font-medium ${negative ? 'text-rose-400' : 'text-emerald-400'}`}>{title}</h4>
       <DataTable>
-        <thead><tr><Th>Name</Th><Th>%</Th></tr></thead>
+        <thead><tr>
+          <SortableTh active={sortKey === 'name'} direction={sortDir} onSort={() => handleSort('name')}>Name</SortableTh>
+          <SortableTh active={sortKey === 'pct'} direction={sortDir} onSort={() => handleSort('pct')}>%</SortableTh>
+        </tr></thead>
         <tbody>
-          {(rows ?? []).map((r) => (
-            <tr key={String(r.name)}>
-              <Td>{String(r.name).replace('NIFTY ', '')}</Td>
-              <Td className={pctClass(Number(r.pct))}>{fmtPct(Number(r.pct))}</Td>
+          {sorted.map((row) => (
+            <tr key={String(row.name)}>
+              <Td>{String(row.name).replace('NIFTY ', '')}</Td>
+              <Td className={pctClass(Number(row.pct))}>{fmtPct(Number(row.pct))}</Td>
             </tr>
           ))}
         </tbody>
@@ -432,19 +498,36 @@ export function StockRotationPanel({ data }: { data: Row }) {
 }
 
 export function Week52Panel({ data }: { data: Row }) {
-  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   const highs = (data.at_52w_high as Row[]) ?? []
   const lows = (data.at_52w_low as Row[]) ?? []
+  const highsSort = useSort(highs, {
+    symbol: (r) => String(r.symbol ?? ''),
+    ltp: (r) => Number(r.ltp ?? r.last),
+    high_52w: (r) => Number(r.high_52w),
+    dist: (r) => Number(r.dist_from_high_pct ?? r.pct_from_high),
+  })
+  const lowsSort = useSort(lows, {
+    symbol: (r) => String(r.symbol ?? ''),
+    ltp: (r) => Number(r.ltp ?? r.last),
+    low_52w: (r) => Number(r.low_52w),
+    dist: (r) => Number(r.dist_from_low_pct ?? r.pct_from_low),
+  })
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">{String(data.index)} · {Number(data.constituent_count)} constituents scanned</p>
       <div className="grid gap-4 md:grid-cols-2">
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-emerald-400">Near 52W High</h4>
           <DataTable>
-            <thead><tr><Th>Symbol</Th><Th>LTP</Th><Th>High</Th><Th>Dist %</Th></tr></thead>
+            <thead><tr>
+              <SortableTh active={highsSort.sortKey === 'symbol'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('symbol')}>Symbol</SortableTh>
+              <SortableTh active={highsSort.sortKey === 'ltp'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('ltp')}>LTP</SortableTh>
+              <SortableTh active={highsSort.sortKey === 'high_52w'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('high_52w')}>High</SortableTh>
+              <SortableTh active={highsSort.sortKey === 'dist'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('dist')}>Dist %</SortableTh>
+            </tr></thead>
             <tbody>
-              {highs.slice(0, 15).map((r) => (
+              {highsSort.sorted.slice(0, 15).map((r) => (
                 <tr key={String(r.symbol)}>
                   <Td>{String(r.symbol)}</Td>
                   <Td>{fmtPrice(Number(r.ltp ?? r.last))}</Td>
@@ -455,12 +538,17 @@ export function Week52Panel({ data }: { data: Row }) {
             </tbody>
           </DataTable>
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-rose-400">Near 52W Low</h4>
           <DataTable>
-            <thead><tr><Th>Symbol</Th><Th>LTP</Th><Th>Low</Th><Th>Dist %</Th></tr></thead>
+            <thead><tr>
+              <SortableTh active={lowsSort.sortKey === 'symbol'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('symbol')}>Symbol</SortableTh>
+              <SortableTh active={lowsSort.sortKey === 'ltp'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('ltp')}>LTP</SortableTh>
+              <SortableTh active={lowsSort.sortKey === 'low_52w'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('low_52w')}>Low</SortableTh>
+              <SortableTh active={lowsSort.sortKey === 'dist'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('dist')}>Dist %</SortableTh>
+            </tr></thead>
             <tbody>
-              {lows.slice(0, 15).map((r) => (
+              {lowsSort.sorted.slice(0, 15).map((r) => (
                 <tr key={String(r.symbol)}>
                   <Td>{String(r.symbol)}</Td>
                   <Td>{fmtPrice(Number(r.ltp ?? r.last))}</Td>
@@ -506,9 +594,16 @@ export function HeatmapPanel({ data }: { data: Row }) {
 }
 
 export function HedgePanel({ data }: { data: Row }) {
+  const plans = (data.plans as Row[]) ?? []
+  const { sorted, sortKey, sortDir, handleSort } = useSort(plans, {
+    window: (p) => String(p.window_label ?? p.window_key ?? ''),
+    long: (p) => String((p.long as Row | undefined)?.sector ?? (p.long as Row | undefined)?.ticker ?? ''),
+    short: (p) => String((p.short as Row | undefined)?.sector ?? (p.short as Row | undefined)?.ticker ?? ''),
+    edge: (p) => Number(p.spread_edge_pct),
+    conf: (p) => Number(p.confidence_pct),
+  })
   if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   const consensus = data.consensus as Row | undefined
-  const plans = (data.plans as Row[]) ?? []
   const longLeg = consensus?.long as Row | undefined
   const shortLeg = consensus?.short as Row | undefined
   return (
@@ -528,9 +623,15 @@ export function HedgePanel({ data }: { data: Row }) {
       )}
       {plans.length > 0 && (
         <DataTable>
-          <thead><tr><Th>Window</Th><Th>Long</Th><Th>Short</Th><Th>Edge %</Th><Th>Conf</Th></tr></thead>
+          <thead><tr>
+            <SortableTh active={sortKey === 'window'} direction={sortDir} onSort={() => handleSort('window')}>Window</SortableTh>
+            <SortableTh active={sortKey === 'long'} direction={sortDir} onSort={() => handleSort('long')}>Long</SortableTh>
+            <SortableTh active={sortKey === 'short'} direction={sortDir} onSort={() => handleSort('short')}>Short</SortableTh>
+            <SortableTh active={sortKey === 'edge'} direction={sortDir} onSort={() => handleSort('edge')}>Edge %</SortableTh>
+            <SortableTh active={sortKey === 'conf'} direction={sortDir} onSort={() => handleSort('conf')}>Conf</SortableTh>
+          </tr></thead>
           <tbody>
-            {plans.map((p) => {
+            {sorted.map((p) => {
               const long = p.long as Row | undefined
               const short = p.short as Row | undefined
               return (
@@ -554,16 +655,27 @@ export function MtfBiasPanel({ data }: { data: Row }) {
   const bullish = (data.bullish as Row[]) ?? []
   const bearish = (data.bearish as Row[]) ?? []
   const errors = (data.errors as Row[]) ?? []
+  const biasAccessors = {
+    ticker: (r: Row) => String(r.ticker ?? ''),
+    confidence: (r: Row) => Number(r.confidence),
+    direction: (r: Row) => String(r.trade_direction ?? r.direction ?? r.bias ?? ''),
+  }
+  const bullishSort = useSort(bullish, biasAccessors)
+  const bearishSort = useSort(bearish, biasAccessors)
   return (
     <div className="space-y-4">
       {errors.length > 0 && <Alert type="error">{errors.map((e) => String(e.error)).join('; ')}</Alert>}
       <div className="grid gap-4 md:grid-cols-2">
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-emerald-400">Bullish bias</h4>
           <DataTable>
-            <thead><tr><Th>Ticker</Th><Th>Conf</Th><Th>Direction</Th></tr></thead>
+            <thead><tr>
+              <SortableTh active={bullishSort.sortKey === 'ticker'} direction={bullishSort.sortDir} onSort={() => bullishSort.handleSort('ticker')}>Ticker</SortableTh>
+              <SortableTh active={bullishSort.sortKey === 'confidence'} direction={bullishSort.sortDir} onSort={() => bullishSort.handleSort('confidence')}>Conf</SortableTh>
+              <SortableTh active={bullishSort.sortKey === 'direction'} direction={bullishSort.sortDir} onSort={() => bullishSort.handleSort('direction')}>Direction</SortableTh>
+            </tr></thead>
             <tbody>
-              {bullish.map((r) => (
+              {bullishSort.sorted.map((r) => (
                 <tr key={String(r.ticker)}>
                   <Td>{String(r.ticker)}</Td>
                   <Td>{String(r.confidence_pct ?? `${Number(r.confidence).toFixed(0)}%`)}</Td>
@@ -573,12 +685,16 @@ export function MtfBiasPanel({ data }: { data: Row }) {
             </tbody>
           </DataTable>
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-rose-400">Bearish bias</h4>
           <DataTable>
-            <thead><tr><Th>Ticker</Th><Th>Conf</Th><Th>Direction</Th></tr></thead>
+            <thead><tr>
+              <SortableTh active={bearishSort.sortKey === 'ticker'} direction={bearishSort.sortDir} onSort={() => bearishSort.handleSort('ticker')}>Ticker</SortableTh>
+              <SortableTh active={bearishSort.sortKey === 'confidence'} direction={bearishSort.sortDir} onSort={() => bearishSort.handleSort('confidence')}>Conf</SortableTh>
+              <SortableTh active={bearishSort.sortKey === 'direction'} direction={bearishSort.sortDir} onSort={() => bearishSort.handleSort('direction')}>Direction</SortableTh>
+            </tr></thead>
             <tbody>
-              {bearish.map((r) => (
+              {bearishSort.sorted.map((r) => (
                 <tr key={String(r.ticker)}>
                   <Td>{String(r.ticker)}</Td>
                   <Td>{String(r.confidence_pct ?? `${Number(r.confidence).toFixed(0)}%`)}</Td>
@@ -594,18 +710,35 @@ export function MtfBiasPanel({ data }: { data: Row }) {
 }
 
 export function CommodityPanel({ data }: { data: Row }) {
-  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   const commodities = (data.commodities as Row[]) ?? []
   const niftySignals = (data.nifty_signals as Row[]) ?? []
+  const commoditiesSort = useSort(commodities, {
+    name: (c) => String(c.name ?? ''),
+    price: (c) => Number(c.price),
+    avg_change: (c) => Number(c.avg_change),
+    consensus: (c) => String(c.consensus ?? ''),
+  })
+  const signalsSort = useSort(niftySignals, {
+    ticker: (s) => String(s.ticker ?? s.sector ?? ''),
+    direction: (s) => String(s.direction ?? ''),
+    confidence: (s) => Number(s.confidence),
+    commodity: (s) => String(s.commodity ?? ''),
+  })
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   return (
     <div className="space-y-6">
       <div>
         <SectionTitle>Commodity stance</SectionTitle>
         <div className="mt-3 overflow-x-auto">
           <DataTable>
-            <thead><tr><Th>Commodity</Th><Th>Price</Th><Th>Avg chg</Th><Th>Consensus</Th></tr></thead>
+            <thead><tr>
+              <SortableTh active={commoditiesSort.sortKey === 'name'} direction={commoditiesSort.sortDir} onSort={() => commoditiesSort.handleSort('name')}>Commodity</SortableTh>
+              <SortableTh active={commoditiesSort.sortKey === 'price'} direction={commoditiesSort.sortDir} onSort={() => commoditiesSort.handleSort('price')}>Price</SortableTh>
+              <SortableTh active={commoditiesSort.sortKey === 'avg_change'} direction={commoditiesSort.sortDir} onSort={() => commoditiesSort.handleSort('avg_change')}>Avg chg</SortableTh>
+              <SortableTh active={commoditiesSort.sortKey === 'consensus'} direction={commoditiesSort.sortDir} onSort={() => commoditiesSort.handleSort('consensus')}>Consensus</SortableTh>
+            </tr></thead>
             <tbody>
-              {commodities.map((c) => (
+              {commoditiesSort.sorted.map((c) => (
                 <tr key={String(c.symbol)}>
                   <Td>{String(c.name)}</Td>
                   <Td>{fmtPrice(Number(c.price))}</Td>
@@ -622,9 +755,14 @@ export function CommodityPanel({ data }: { data: Row }) {
           <SectionTitle>Nifty index trade ideas</SectionTitle>
           <div className="mt-3 overflow-x-auto">
             <DataTable>
-              <thead><tr><Th>Index</Th><Th>Direction</Th><Th>Conf</Th><Th>Commodity</Th></tr></thead>
+              <thead><tr>
+                <SortableTh active={signalsSort.sortKey === 'ticker'} direction={signalsSort.sortDir} onSort={() => signalsSort.handleSort('ticker')}>Index</SortableTh>
+                <SortableTh active={signalsSort.sortKey === 'direction'} direction={signalsSort.sortDir} onSort={() => signalsSort.handleSort('direction')}>Direction</SortableTh>
+                <SortableTh active={signalsSort.sortKey === 'confidence'} direction={signalsSort.sortDir} onSort={() => signalsSort.handleSort('confidence')}>Conf</SortableTh>
+                <SortableTh active={signalsSort.sortKey === 'commodity'} direction={signalsSort.sortDir} onSort={() => signalsSort.handleSort('commodity')}>Commodity</SortableTh>
+              </tr></thead>
               <tbody>
-                {niftySignals.slice(0, 10).map((s, i) => (
+                {signalsSort.sorted.slice(0, 10).map((s, i) => (
                   <tr key={`${s.ticker}-${i}`}>
                     <Td>{String(s.ticker ?? s.sector)}</Td>
                     <Td className={String(s.direction).toUpperCase().includes('BUY') ? 'text-emerald-400' : 'text-rose-400'}>{String(s.direction)}</Td>

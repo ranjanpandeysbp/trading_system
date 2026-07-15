@@ -16,7 +16,7 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
-import { DataTable, Th, Td } from '../components/ui/Table'
+import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
 
 const STORAGE_KEY = 'ist_stf_shop_state'
 
@@ -148,6 +148,17 @@ export default function EtfTaIn() {
   const rec = recommendMutation.data as Record<string, unknown> | undefined
   const analyses = (rec?.analyses as Record<string, unknown>[]) ?? []
   const openLots = state.portfolio.filter((p) => p.status === 'open')
+
+  const { sorted: sortedLots, sortKey: lotsSortKey, sortDir: lotsSortDir, handleSort: handleLotsSort } = useSort(
+    openLots,
+    {
+      symbol: (r) => r.symbol,
+      purchase_date: (r) => r.purchase_date,
+      purchase_price: (r) => r.purchase_price,
+      amount: (r) => r.amount,
+      lot_type: (r) => r.lot_type ?? 'standard',
+    },
+  )
 
   const handleAddLot = () => {
     const price = Number(addPrice)
@@ -289,18 +300,18 @@ export default function EtfTaIn() {
         <DataTable>
           <thead>
             <tr>
-              <Th>Symbol</Th>
-              <Th>Date</Th>
-              <Th>Price</Th>
-              <Th>Amount</Th>
-              <Th>Type</Th>
+              <SortableTh active={lotsSortKey === 'symbol'} direction={lotsSortDir} onSort={() => handleLotsSort('symbol')}>Symbol</SortableTh>
+              <SortableTh active={lotsSortKey === 'purchase_date'} direction={lotsSortDir} onSort={() => handleLotsSort('purchase_date')}>Date</SortableTh>
+              <SortableTh active={lotsSortKey === 'purchase_price'} direction={lotsSortDir} onSort={() => handleLotsSort('purchase_price')}>Price</SortableTh>
+              <SortableTh active={lotsSortKey === 'amount'} direction={lotsSortDir} onSort={() => handleLotsSort('amount')}>Amount</SortableTh>
+              <SortableTh active={lotsSortKey === 'lot_type'} direction={lotsSortDir} onSort={() => handleLotsSort('lot_type')}>Type</SortableTh>
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {openLots.length === 0 ? (
+            {sortedLots.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-3 text-sm text-slate-500">No open lots — record buys after execution.</td></tr>
-            ) : openLots.map((p) => (
+            ) : sortedLots.map((p) => (
               <tr key={p.slot_id}>
                 <Td className="font-medium">{p.symbol}</Td>
                 <Td>{p.purchase_date}</Td>

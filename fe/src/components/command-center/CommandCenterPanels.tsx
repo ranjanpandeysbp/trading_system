@@ -5,7 +5,7 @@ import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysi
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
-import { DataTable, Td, Th } from '../ui/Table'
+import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
 
 type Row = Record<string, unknown>
@@ -183,6 +183,27 @@ function EngineSummaryTable({
   }, null)
   const bestPlan = (best?.trade_plan as Row) ?? {}
 
+  const { sorted, sortKey, sortDir, handleSort } = useSort(filtered, {
+    ticker: (s) => String(s.ticker ?? ''),
+    engine: (s) => String(s.tab ?? ''),
+    tf: (s) => String(s.timeframe ?? ''),
+    score: (s) => (s.score != null ? Number(s.score) : null),
+    verdict: (s) => String(s.verdict ?? ''),
+    recommendation: (s) => String(s.recommendation ?? s.summary ?? ''),
+    sl: (s) => {
+      const plan = (s.trade_plan as Row) ?? {}
+      return s.signal_type === 'trade' && plan.stop_loss_pct != null ? Number(plan.stop_loss_pct) : null
+    },
+    tp: (s) => {
+      const plan = (s.trade_plan as Row) ?? {}
+      return s.signal_type === 'trade' && plan.take_profit_pct != null ? Number(plan.take_profit_pct) : null
+    },
+    exp: (s) => {
+      const plan = (s.trade_plan as Row) ?? {}
+      return s.signal_type === 'trade' && plan.expected_profit_pct != null ? Number(plan.expected_profit_pct) : null
+    },
+  })
+
   return (
     <div>
       {best && (
@@ -211,19 +232,19 @@ function EngineSummaryTable({
       <DataTable minWidth={900}>
         <thead>
           <tr>
-            <Th>Ticker</Th>
-            <Th>Engine</Th>
-            <Th>TF</Th>
-            <Th>Score</Th>
-            <Th>Verdict</Th>
-            <Th>Recommendation</Th>
-            <Th>SL %</Th>
-            <Th>TP %</Th>
-            <Th>Exp %</Th>
+            <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+            <SortableTh active={sortKey === 'engine'} direction={sortDir} onSort={() => handleSort('engine')}>Engine</SortableTh>
+            <SortableTh active={sortKey === 'tf'} direction={sortDir} onSort={() => handleSort('tf')}>TF</SortableTh>
+            <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
+            <SortableTh active={sortKey === 'verdict'} direction={sortDir} onSort={() => handleSort('verdict')}>Verdict</SortableTh>
+            <SortableTh active={sortKey === 'recommendation'} direction={sortDir} onSort={() => handleSort('recommendation')}>Recommendation</SortableTh>
+            <SortableTh active={sortKey === 'sl'} direction={sortDir} onSort={() => handleSort('sl')}>SL %</SortableTh>
+            <SortableTh active={sortKey === 'tp'} direction={sortDir} onSort={() => handleSort('tp')}>TP %</SortableTh>
+            <SortableTh active={sortKey === 'exp'} direction={sortDir} onSort={() => handleSort('exp')}>Exp %</SortableTh>
           </tr>
         </thead>
         <tbody>
-          {filtered.slice(0, 40).map((s, i) => {
+          {sorted.slice(0, 40).map((s, i) => {
             const plan = (s.trade_plan as Row) ?? {}
             const reasons = (s.reasons as string[]) ?? []
             const isTrade = s.signal_type === 'trade'
@@ -266,6 +287,16 @@ function EngineSummaryTable({
 function BuySellPanel({ data }: { data: Row }) {
   const recs = (data.recommendations as Row[]) ?? []
   const [idx, setIdx] = useState(0)
+  const { sorted, sortKey, sortDir, handleSort } = useSort(recs, {
+    ticker: (r) => String(r.ticker ?? ''),
+    take_trade: (r) => (r.take_trade ? 1 : 0),
+    verdict: (r) => String(r.verdict ?? ''),
+    score: (r) => (r.score != null ? Number(r.score) : null),
+    confidence_pct: (r) => (r.confidence_pct != null ? Number(r.confidence_pct) : null),
+    sl_pct: (r) => (r.sl_pct != null ? Number(r.sl_pct) : null),
+    tp_pct: (r) => (r.tp_pct != null ? Number(r.tp_pct) : null),
+    engine_count: (r) => (r.engine_count != null ? Number(r.engine_count) : null),
+  })
 
   if (!recs.length) {
     return <p className="text-sm text-slate-500">No recommendations returned.</p>
@@ -278,27 +309,36 @@ function BuySellPanel({ data }: { data: Row }) {
         <DataTable minWidth={720}>
           <thead>
             <tr>
-              <Th>Ticker</Th><Th>Take trade?</Th><Th>Verdict</Th><Th>Score</Th>
-              <Th>Confidence</Th><Th>SL %</Th><Th>TP %</Th><Th>Engines</Th>
+              <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+              <SortableTh active={sortKey === 'take_trade'} direction={sortDir} onSort={() => handleSort('take_trade')}>Take trade?</SortableTh>
+              <SortableTh active={sortKey === 'verdict'} direction={sortDir} onSort={() => handleSort('verdict')}>Verdict</SortableTh>
+              <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
+              <SortableTh active={sortKey === 'confidence_pct'} direction={sortDir} onSort={() => handleSort('confidence_pct')}>Confidence</SortableTh>
+              <SortableTh active={sortKey === 'sl_pct'} direction={sortDir} onSort={() => handleSort('sl_pct')}>SL %</SortableTh>
+              <SortableTh active={sortKey === 'tp_pct'} direction={sortDir} onSort={() => handleSort('tp_pct')}>TP %</SortableTh>
+              <SortableTh active={sortKey === 'engine_count'} direction={sortDir} onSort={() => handleSort('engine_count')}>Engines</SortableTh>
             </tr>
           </thead>
           <tbody>
-            {recs.map((r, i) => (
-              <tr
-                key={String(r.ticker)}
-                className={`cursor-pointer hover:bg-slate-800/30 ${idx === i ? 'bg-slate-800/40' : ''}`}
-                onClick={() => setIdx(i)}
-              >
-                <Td className="font-medium text-white">{String(r.ticker)}</Td>
-                <Td>{r.take_trade ? '✅' : '❌'}</Td>
-                <Td className={verdictClass(String(r.verdict ?? ''))}>{String(r.verdict ?? '—')}</Td>
-                <Td>{fmtNum(r.score, 1)}</Td>
-                <Td>{fmtNum(r.confidence_pct, 0)}%</Td>
-                <Td>{fmtNum(r.sl_pct)}</Td>
-                <Td>{fmtNum(r.tp_pct)}</Td>
-                <Td>{String(r.engine_count ?? '—')}</Td>
-              </tr>
-            ))}
+            {sorted.map((r) => {
+              const i = recs.indexOf(r)
+              return (
+                <tr
+                  key={String(r.ticker)}
+                  className={`cursor-pointer hover:bg-slate-800/30 ${idx === i ? 'bg-slate-800/40' : ''}`}
+                  onClick={() => setIdx(i)}
+                >
+                  <Td className="font-medium text-white">{String(r.ticker)}</Td>
+                  <Td>{r.take_trade ? '✅' : '❌'}</Td>
+                  <Td className={verdictClass(String(r.verdict ?? ''))}>{String(r.verdict ?? '—')}</Td>
+                  <Td>{fmtNum(r.score, 1)}</Td>
+                  <Td>{fmtNum(r.confidence_pct, 0)}%</Td>
+                  <Td>{fmtNum(r.sl_pct)}</Td>
+                  <Td>{fmtNum(r.tp_pct)}</Td>
+                  <Td>{String(r.engine_count ?? '—')}</Td>
+                </tr>
+              )
+            })}
           </tbody>
         </DataTable>
       )}
@@ -317,11 +357,27 @@ function BuySellPanel({ data }: { data: Row }) {
 function MomentumPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const perTf = (r.per_tf as Row[]) ?? []
+  const { sorted: sortedPerTf, sortKey: perTfSortKey, sortDir: perTfSortDir, handleSort: handlePerTfSort } = useSort(perTf, {
+    tf: (t) => String(t.timeframe ?? ''),
+    direction: (t) => String(t.trend_direction ?? ''),
+    strength: (t) => String(t.strength ?? ''),
+    momentum: (t) => String(t.momentum_change ?? ''),
+    sr_event: (t) => String(t.breakout_event ?? ''),
+    adx: (t) => (t.adx != null ? Number(t.adx) : null),
+    adx_delta: (t) => (t.adx_delta != null ? Number(t.adx_delta) : null),
+    rsi: (t) => (t.rsi != null ? Number(t.rsi) : null),
+    rsi_zone: (t) => String(t.rsi_zone ?? ''),
+    macd_hist: (t) => (t.macd_hist != null ? Number(t.macd_hist) : null),
+    roc: (t) => (t.roc_pct != null ? Number(t.roc_pct) : null),
+    vol: (t) => (t.volume_ratio != null ? Number(t.volume_ratio) : null),
+    conf: (t) => (t.confidence_continue_pct != null ? Number(t.confidence_continue_pct) : null),
+    breakout: (t) => (t.breakout_up_pct != null ? Number(t.breakout_up_pct) : null),
+  })
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
-  const r = results[idx] ?? results[0]
   const combo = r.fundamentals_combo as Row | undefined
   const action = (r.actionability as Row) ?? {}
-  const perTf = (r.per_tf as Row[]) ?? []
   const upPct = r.breakout_up_pct
 
   return (
@@ -383,13 +439,24 @@ function MomentumPanel({ data }: { data: Row }) {
               <DataTable minWidth={960}>
                 <thead>
                   <tr>
-                    <Th>TF</Th><Th>Direction</Th><Th>Strength</Th><Th>Momentum</Th><Th>S/R Event</Th>
-                    <Th>ADX</Th><Th>ADX Δ</Th><Th>RSI</Th><Th>RSI zone</Th><Th>MACD hist</Th><Th>ROC %</Th>
-                    <Th>Vol x</Th><Th>Conf %</Th><Th>Breakout ↑/↓ %</Th>
+                    <SortableTh active={perTfSortKey === 'tf'} direction={perTfSortDir} onSort={() => handlePerTfSort('tf')}>TF</SortableTh>
+                    <SortableTh active={perTfSortKey === 'direction'} direction={perTfSortDir} onSort={() => handlePerTfSort('direction')}>Direction</SortableTh>
+                    <SortableTh active={perTfSortKey === 'strength'} direction={perTfSortDir} onSort={() => handlePerTfSort('strength')}>Strength</SortableTh>
+                    <SortableTh active={perTfSortKey === 'momentum'} direction={perTfSortDir} onSort={() => handlePerTfSort('momentum')}>Momentum</SortableTh>
+                    <SortableTh active={perTfSortKey === 'sr_event'} direction={perTfSortDir} onSort={() => handlePerTfSort('sr_event')}>S/R Event</SortableTh>
+                    <SortableTh active={perTfSortKey === 'adx'} direction={perTfSortDir} onSort={() => handlePerTfSort('adx')}>ADX</SortableTh>
+                    <SortableTh active={perTfSortKey === 'adx_delta'} direction={perTfSortDir} onSort={() => handlePerTfSort('adx_delta')}>ADX Δ</SortableTh>
+                    <SortableTh active={perTfSortKey === 'rsi'} direction={perTfSortDir} onSort={() => handlePerTfSort('rsi')}>RSI</SortableTh>
+                    <SortableTh active={perTfSortKey === 'rsi_zone'} direction={perTfSortDir} onSort={() => handlePerTfSort('rsi_zone')}>RSI zone</SortableTh>
+                    <SortableTh active={perTfSortKey === 'macd_hist'} direction={perTfSortDir} onSort={() => handlePerTfSort('macd_hist')}>MACD hist</SortableTh>
+                    <SortableTh active={perTfSortKey === 'roc'} direction={perTfSortDir} onSort={() => handlePerTfSort('roc')}>ROC %</SortableTh>
+                    <SortableTh active={perTfSortKey === 'vol'} direction={perTfSortDir} onSort={() => handlePerTfSort('vol')}>Vol x</SortableTh>
+                    <SortableTh active={perTfSortKey === 'conf'} direction={perTfSortDir} onSort={() => handlePerTfSort('conf')}>Conf %</SortableTh>
+                    <SortableTh active={perTfSortKey === 'breakout'} direction={perTfSortDir} onSort={() => handlePerTfSort('breakout')}>Breakout ↑/↓ %</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {perTf.map((tf, i) => (
+                  {sortedPerTf.map((tf, i) => (
                     <tr key={i}>
                       <Td>{String(tf.timeframe)}</Td>
                       <Td className={verdictClass(String(tf.trend_direction ?? ''))}>{String(tf.trend_direction ?? '—')}</Td>
@@ -420,13 +487,22 @@ function MomentumPanel({ data }: { data: Row }) {
 function EmaPositionPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const emaSummary = (r.ema_summary as Row[]) ?? []
+  const { sorted: sortedEmaSummary, sortKey: emaSortKey, sortDir: emaSortDir, handleSort: handleEmaSort } = useSort(emaSummary, {
+    ema: (e) => (e.ema_period != null ? Number(e.ema_period) : null),
+    status_from: (e) => String(e.status_from ?? ''),
+    status_to: (e) => String(e.status_to ?? ''),
+    verdict: (e) => String(e.verdict_label ?? e.verdict ?? ''),
+    crossings: (e) => (e.crossover_count != null ? Number(e.crossover_count) : null),
+    ema_value: (e) => (e.ema_value_now != null ? Number(e.ema_value_now) : null),
+    dist: (e) => (e.distance_pct != null ? Number(e.distance_pct) : null),
+  })
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
-  const r = results[idx] ?? results[0]
   const action = (r.actionability as Row) ?? {}
   const combo = r.fundamentals_combo as Row | undefined
   const ns = r.next_support as Row | undefined
   const nr = r.next_resistance as Row | undefined
-  const emaSummary = (r.ema_summary as Row[]) ?? []
 
   return (
     <div className="space-y-4">
@@ -475,12 +551,17 @@ function EmaPositionPanel({ data }: { data: Row }) {
               <DataTable minWidth={720}>
                 <thead>
                   <tr>
-                    <Th>EMA</Th><Th>Status@From</Th><Th>Status@To</Th><Th>Verdict</Th>
-                    <Th># Crossings</Th><Th>EMA value now</Th><Th>Dist %</Th>
+                    <SortableTh active={emaSortKey === 'ema'} direction={emaSortDir} onSort={() => handleEmaSort('ema')}>EMA</SortableTh>
+                    <SortableTh active={emaSortKey === 'status_from'} direction={emaSortDir} onSort={() => handleEmaSort('status_from')}>Status@From</SortableTh>
+                    <SortableTh active={emaSortKey === 'status_to'} direction={emaSortDir} onSort={() => handleEmaSort('status_to')}>Status@To</SortableTh>
+                    <SortableTh active={emaSortKey === 'verdict'} direction={emaSortDir} onSort={() => handleEmaSort('verdict')}>Verdict</SortableTh>
+                    <SortableTh active={emaSortKey === 'crossings'} direction={emaSortDir} onSort={() => handleEmaSort('crossings')}># Crossings</SortableTh>
+                    <SortableTh active={emaSortKey === 'ema_value'} direction={emaSortDir} onSort={() => handleEmaSort('ema_value')}>EMA value now</SortableTh>
+                    <SortableTh active={emaSortKey === 'dist'} direction={emaSortDir} onSort={() => handleEmaSort('dist')}>Dist %</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {emaSummary.map((e, i) => (
+                  {sortedEmaSummary.map((e, i) => (
                     <tr key={i}>
                       <Td>{String(e.ema_period)}</Td>
                       <Td>{String(e.status_from ?? '—')}</Td>
@@ -504,25 +585,55 @@ function EmaPositionPanel({ data }: { data: Row }) {
 function FundamentalAnalysisPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const holdingTrend = (r.holding_trend as Record<string, Row>) ?? {}
+  const holdingRows: (Row & { label: string })[] = Object.entries(holdingTrend).map(([label, info]) => ({ label, ...info }))
+  const dhan = r.dhan as Row | undefined
+  const peers = (dhan?.peers as Row) ?? {}
+  const peerRows = (peers.peers as Row[]) ?? []
+  const corpActs = (dhan?.corporate_actions as Row[]) ?? []
+
+  const { sorted: sortedHolding, sortKey: holdingSortKey, sortDir: holdingSortDir, handleSort: handleHoldingSort } = useSort(holdingRows, {
+    category: (h) => String(h.label ?? ''),
+    latest: (h) => (h.latest_pct != null ? Number(h.latest_pct) : null),
+    delta: (h) => (h.delta_pp_12m != null ? Number(h.delta_pp_12m) : null),
+    trend: (h) => String(h.trend ?? ''),
+    implication: (h) => String(h.implication ?? ''),
+  })
+  const { sorted: sortedPeers, sortKey: peersSortKey, sortDir: peersSortDir, handleSort: handlePeersSort } = useSort(peerRows, {
+    symbol: (p) => String(p.symbol ?? ''),
+    name: (p) => String(p.name ?? ''),
+    price: (p) => (p.price != null ? Number(p.price) : null),
+    pe: (p) => (p.pe != null ? Number(p.pe) : null),
+    pb: (p) => (p.pb != null ? Number(p.pb) : null),
+    roe: (p) => (p.roe_pct != null ? Number(p.roe_pct) : null),
+    roce: (p) => (p.roce_pct != null ? Number(p.roce_pct) : null),
+    div_yield: (p) => (p.div_yield_pct != null ? Number(p.div_yield_pct) : null),
+    mkt_cap: (p) => (p.market_cap_cr != null ? Number(p.market_cap_cr) : null),
+    ret_1y: (p) => (p.return_1y_pct != null ? Number(p.return_1y_pct) : null),
+    qtr_growth: (p) => (p.qtr_profit_growth_pct != null ? Number(p.qtr_profit_growth_pct) : null),
+  })
+  const { sorted: sortedCorpActs, sortKey: corpActsSortKey, sortDir: corpActsSortDir, handleSort: handleCorpActsSort } = useSort(corpActs, {
+    type: (a) => String(a.type ?? ''),
+    announced: (a) => String(a.announced ?? ''),
+    ex_date: (a) => String(a.ex_date ?? ''),
+    record_date: (a) => String(a.record_date ?? ''),
+    dividend_type: (a) => String(a.dividend_type ?? ''),
+  })
+
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
-  const r = results[idx] ?? results[0]
   const overall = (r.overall as Row) ?? {}
   const valuation = (r.valuation as Row) ?? {}
-  const holdingTrend = (r.holding_trend as Record<string, Row>) ?? {}
   const prTrend = (r.profit_revenue_trend as Row) ?? {}
   const debt = (r.debt as Row) ?? {}
   const prosCons = (r.pros_cons as Row) ?? {}
   const pros = (prosCons.pros as string[]) ?? []
   const cons = (prosCons.cons as string[]) ?? []
-  const dhan = r.dhan as Row | undefined
   const profile = (dhan?.profile as Row) ?? {}
-  const peers = (dhan?.peers as Row) ?? {}
-  const peerRows = (peers.peers as Row[]) ?? []
   const industryPe = peers.industry_pe as number | undefined
   const opts = dhan?.options_snapshot as Row | undefined
   const rating = dhan?.analyst_rating as Row | undefined
   const returns = (dhan?.investment_returns as Row) ?? {}
-  const corpActs = (dhan?.corporate_actions as Row[]) ?? []
   const salesCagr = (prTrend.sales_cagr as Row) ?? {}
   const profitCagr = (prTrend.profit_cagr as Row) ?? {}
 
@@ -572,11 +683,19 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
             <div>
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Shareholding trend (~12 months)</h4>
               <DataTable minWidth={640}>
-                <thead><tr><Th>Category</Th><Th>Latest %</Th><Th>Δ 12m (pp)</Th><Th>Trend</Th><Th>Implication</Th></tr></thead>
+                <thead>
+                  <tr>
+                    <SortableTh active={holdingSortKey === 'category'} direction={holdingSortDir} onSort={() => handleHoldingSort('category')}>Category</SortableTh>
+                    <SortableTh active={holdingSortKey === 'latest'} direction={holdingSortDir} onSort={() => handleHoldingSort('latest')}>Latest %</SortableTh>
+                    <SortableTh active={holdingSortKey === 'delta'} direction={holdingSortDir} onSort={() => handleHoldingSort('delta')}>Δ 12m (pp)</SortableTh>
+                    <SortableTh active={holdingSortKey === 'trend'} direction={holdingSortDir} onSort={() => handleHoldingSort('trend')}>Trend</SortableTh>
+                    <SortableTh active={holdingSortKey === 'implication'} direction={holdingSortDir} onSort={() => handleHoldingSort('implication')}>Implication</SortableTh>
+                  </tr>
+                </thead>
                 <tbody>
-                  {Object.entries(holdingTrend).map(([label, info]) => (
-                    <tr key={label}>
-                      <Td>{label}</Td>
+                  {sortedHolding.map((info) => (
+                    <tr key={String(info.label)}>
+                      <Td>{String(info.label)}</Td>
                       <Td>{fmtNum(info.latest_pct, 1)}</Td>
                       <Td>{fmtNum(info.delta_pp_12m, 1)}</Td>
                       <Td>{String(info.trend ?? '—')}</Td>
@@ -643,12 +762,21 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
                     <DataTable minWidth={900}>
                       <thead>
                         <tr>
-                          <Th>Symbol</Th><Th>Name</Th><Th>Price</Th><Th>P/E</Th><Th>P/B</Th><Th>ROE %</Th>
-                          <Th>ROCE %</Th><Th>Div Yield %</Th><Th>Mkt Cap (Cr)</Th><Th>1Y Return %</Th><Th>Qtr Profit Growth %</Th>
+                          <SortableTh active={peersSortKey === 'symbol'} direction={peersSortDir} onSort={() => handlePeersSort('symbol')}>Symbol</SortableTh>
+                          <SortableTh active={peersSortKey === 'name'} direction={peersSortDir} onSort={() => handlePeersSort('name')}>Name</SortableTh>
+                          <SortableTh active={peersSortKey === 'price'} direction={peersSortDir} onSort={() => handlePeersSort('price')}>Price</SortableTh>
+                          <SortableTh active={peersSortKey === 'pe'} direction={peersSortDir} onSort={() => handlePeersSort('pe')}>P/E</SortableTh>
+                          <SortableTh active={peersSortKey === 'pb'} direction={peersSortDir} onSort={() => handlePeersSort('pb')}>P/B</SortableTh>
+                          <SortableTh active={peersSortKey === 'roe'} direction={peersSortDir} onSort={() => handlePeersSort('roe')}>ROE %</SortableTh>
+                          <SortableTh active={peersSortKey === 'roce'} direction={peersSortDir} onSort={() => handlePeersSort('roce')}>ROCE %</SortableTh>
+                          <SortableTh active={peersSortKey === 'div_yield'} direction={peersSortDir} onSort={() => handlePeersSort('div_yield')}>Div Yield %</SortableTh>
+                          <SortableTh active={peersSortKey === 'mkt_cap'} direction={peersSortDir} onSort={() => handlePeersSort('mkt_cap')}>Mkt Cap (Cr)</SortableTh>
+                          <SortableTh active={peersSortKey === 'ret_1y'} direction={peersSortDir} onSort={() => handlePeersSort('ret_1y')}>1Y Return %</SortableTh>
+                          <SortableTh active={peersSortKey === 'qtr_growth'} direction={peersSortDir} onSort={() => handlePeersSort('qtr_growth')}>Qtr Profit Growth %</SortableTh>
                         </tr>
                       </thead>
                       <tbody>
-                        {peerRows.map((p, i) => (
+                        {sortedPeers.map((p, i) => (
                           <tr key={i}>
                             <Td>{String(p.symbol ?? '—')}</Td>
                             <Td>{String(p.name ?? '—')}</Td>
@@ -718,9 +846,17 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
                 <div>
                   <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Corporate Actions</h4>
                   <DataTable minWidth={640}>
-                    <thead><tr><Th>Type</Th><Th>Announced</Th><Th>Ex-Date</Th><Th>Record Date</Th><Th>Dividend Type</Th></tr></thead>
+                    <thead>
+                      <tr>
+                        <SortableTh active={corpActsSortKey === 'type'} direction={corpActsSortDir} onSort={() => handleCorpActsSort('type')}>Type</SortableTh>
+                        <SortableTh active={corpActsSortKey === 'announced'} direction={corpActsSortDir} onSort={() => handleCorpActsSort('announced')}>Announced</SortableTh>
+                        <SortableTh active={corpActsSortKey === 'ex_date'} direction={corpActsSortDir} onSort={() => handleCorpActsSort('ex_date')}>Ex-Date</SortableTh>
+                        <SortableTh active={corpActsSortKey === 'record_date'} direction={corpActsSortDir} onSort={() => handleCorpActsSort('record_date')}>Record Date</SortableTh>
+                        <SortableTh active={corpActsSortKey === 'dividend_type'} direction={corpActsSortDir} onSort={() => handleCorpActsSort('dividend_type')}>Dividend Type</SortableTh>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {corpActs.map((a, i) => (
+                      {sortedCorpActs.map((a, i) => (
                         <tr key={i}>
                           <Td>{String(a.type ?? '—')}</Td>
                           <Td>{String(a.announced ?? '—')}</Td>
@@ -760,10 +896,18 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
 function OneClickPanel({ data, style }: { data: Row; style: 'intraday' | 'scalping' | 'swing' }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
-  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
-  const r = results[idx] ?? results[0]
+  const r = results[idx] ?? results[0] ?? {}
   const combo = (r.combo as Row) ?? {}
   const votes = (combo.votes as Row[]) ?? []
+  const { sorted: sortedVotes, sortKey: votesSortKey, sortDir: votesSortDir, handleSort: handleVotesSort } = useSort(votes, {
+    engine: (v) => String(v.engine ?? ''),
+    direction: (v) => String(v.direction ?? ''),
+    confidence: (v) => (v.confidence != null ? Number(v.confidence) : null),
+    take: (v) => (v.take ? 1 : 0),
+    agreed: (v) => (v.agreed ? 1 : v.direction === 'WAIT' ? 0 : -1),
+    note: (v) => (v.error != null ? String(v.error) : String(((v.reasons as string[]) ?? [])[0] ?? '')),
+  })
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
   const combofa = r.fundamentals_combo as Row | undefined
 
   return (
@@ -849,10 +993,17 @@ function OneClickPanel({ data, style }: { data: Row; style: 'intraday' | 'scalpi
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Engine votes</h4>
               <DataTable minWidth={720}>
                 <thead>
-                  <tr><Th>Engine</Th><Th>Direction</Th><Th>Confidence</Th><Th>Take</Th><Th>Agreed</Th><Th>Note</Th></tr>
+                  <tr>
+                    <SortableTh active={votesSortKey === 'engine'} direction={votesSortDir} onSort={() => handleVotesSort('engine')}>Engine</SortableTh>
+                    <SortableTh active={votesSortKey === 'direction'} direction={votesSortDir} onSort={() => handleVotesSort('direction')}>Direction</SortableTh>
+                    <SortableTh active={votesSortKey === 'confidence'} direction={votesSortDir} onSort={() => handleVotesSort('confidence')}>Confidence</SortableTh>
+                    <SortableTh active={votesSortKey === 'take'} direction={votesSortDir} onSort={() => handleVotesSort('take')}>Take</SortableTh>
+                    <SortableTh active={votesSortKey === 'agreed'} direction={votesSortDir} onSort={() => handleVotesSort('agreed')}>Agreed</SortableTh>
+                    <SortableTh active={votesSortKey === 'note'} direction={votesSortDir} onSort={() => handleVotesSort('note')}>Note</SortableTh>
+                  </tr>
                 </thead>
                 <tbody>
-                  {votes.map((v, i) => (
+                  {sortedVotes.map((v, i) => (
                     <tr key={i}>
                       <Td>{String(v.engine ?? '—')}</Td>
                       <Td className={verdictClass(String(v.direction ?? ''))}>{String(v.direction ?? '—')}</Td>
@@ -935,6 +1086,16 @@ function GlobalMarketMoodPanel({ data }: { data: Row }) {
   const indiaSentiment = data.india_sentiment as Row | undefined
   const movers = (data.stock_movers as Row) ?? {}
   const [moversTab, setMoversTab] = useState<'india' | 'us' | 'crypto'>('india')
+  const leadingRows = ((sectors.leading as Row[]) ?? []).slice(0, 8)
+  const laggingRows = ((sectors.lagging as Row[]) ?? []).slice(0, 8)
+  const sectorAccessors = {
+    sector: (s: Row) => String(s.name ?? ''),
+    pct: (s: Row) => (s.pct != null ? Number(s.pct) : null),
+    adv: (s: Row) => (s.advances != null ? Number(s.advances) : null),
+    dec: (s: Row) => (s.declines != null ? Number(s.declines) : null),
+  }
+  const { sorted: sortedLeading, sortKey: leadingSortKey, sortDir: leadingSortDir, handleSort: handleLeadingSort } = useSort(leadingRows, sectorAccessors)
+  const { sorted: sortedLagging, sortKey: laggingSortKey, sortDir: laggingSortDir, handleSort: handleLaggingSort } = useSort(laggingRows, sectorAccessors)
 
   return (
     <div className="space-y-6">
@@ -989,9 +1150,16 @@ function GlobalMarketMoodPanel({ data }: { data: Row }) {
             <div>
               <h4 className="mb-2 text-sm font-semibold text-emerald-400">Leading sectors</h4>
               <DataTable minWidth={360}>
-                <thead><tr><Th>Sector</Th><Th>% Chg</Th><Th>Adv</Th><Th>Dec</Th></tr></thead>
+                <thead>
+                  <tr>
+                    <SortableTh active={leadingSortKey === 'sector'} direction={leadingSortDir} onSort={() => handleLeadingSort('sector')}>Sector</SortableTh>
+                    <SortableTh active={leadingSortKey === 'pct'} direction={leadingSortDir} onSort={() => handleLeadingSort('pct')}>% Chg</SortableTh>
+                    <SortableTh active={leadingSortKey === 'adv'} direction={leadingSortDir} onSort={() => handleLeadingSort('adv')}>Adv</SortableTh>
+                    <SortableTh active={leadingSortKey === 'dec'} direction={leadingSortDir} onSort={() => handleLeadingSort('dec')}>Dec</SortableTh>
+                  </tr>
+                </thead>
                 <tbody>
-                  {((sectors.leading as Row[]) ?? []).slice(0, 8).map((s, i) => (
+                  {sortedLeading.map((s, i) => (
                     <tr key={i}>
                       <Td>{String(s.name)}</Td>
                       <Td className="text-emerald-400">{fmtNum(s.pct, 2)}%</Td>
@@ -1005,9 +1173,16 @@ function GlobalMarketMoodPanel({ data }: { data: Row }) {
             <div>
               <h4 className="mb-2 text-sm font-semibold text-rose-400">Lagging sectors</h4>
               <DataTable minWidth={360}>
-                <thead><tr><Th>Sector</Th><Th>% Chg</Th><Th>Adv</Th><Th>Dec</Th></tr></thead>
+                <thead>
+                  <tr>
+                    <SortableTh active={laggingSortKey === 'sector'} direction={laggingSortDir} onSort={() => handleLaggingSort('sector')}>Sector</SortableTh>
+                    <SortableTh active={laggingSortKey === 'pct'} direction={laggingSortDir} onSort={() => handleLaggingSort('pct')}>% Chg</SortableTh>
+                    <SortableTh active={laggingSortKey === 'adv'} direction={laggingSortDir} onSort={() => handleLaggingSort('adv')}>Adv</SortableTh>
+                    <SortableTh active={laggingSortKey === 'dec'} direction={laggingSortDir} onSort={() => handleLaggingSort('dec')}>Dec</SortableTh>
+                  </tr>
+                </thead>
                 <tbody>
-                  {((sectors.lagging as Row[]) ?? []).slice(0, 8).map((s, i) => (
+                  {sortedLagging.map((s, i) => (
                     <tr key={i}>
                       <Td>{String(s.name)}</Td>
                       <Td className="text-rose-400">{fmtNum(s.pct, 2)}%</Td>
@@ -1127,10 +1302,18 @@ const _CATEGORY_LABELS: Record<string, string> = {
 function StockUpgradeDowngradePanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
-  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
-  const r = results[idx] ?? results[0]
-  const consensus = (r.consensus as Row) ?? {}
+  const r = results[idx] ?? results[0] ?? {}
   const items = (r.items as Row[]) ?? []
+  const { sorted: sortedItems, sortKey: itemsSortKey, sortDir: itemsSortDir, handleSort: handleItemsSort } = useSort(items, {
+    category: (it) => String(it.category_label ?? it.call_type ?? ''),
+    action: (it) => String(it.action ?? ''),
+    brokerage: (it) => String(it.brokerage ?? ''),
+    target: (it) => String(it.price_target ?? ''),
+    title: (it) => String(it.title ?? ''),
+    published: (it) => String(it.published ?? ''),
+  })
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+  const consensus = (r.consensus as Row) ?? {}
   const sitesChecked = (r.sites_checked as string[]) ?? []
   const categoryCounts = (r.category_counts as Record<string, number>) ?? {}
 
@@ -1174,10 +1357,17 @@ function StockUpgradeDowngradePanel({ data }: { data: Row }) {
       {items.length > 0 ? (
         <DataTable minWidth={900}>
           <thead>
-            <tr><Th>Category</Th><Th>Action</Th><Th>Brokerage</Th><Th>Target</Th><Th>Title</Th><Th>Published</Th></tr>
+            <tr>
+              <SortableTh active={itemsSortKey === 'category'} direction={itemsSortDir} onSort={() => handleItemsSort('category')}>Category</SortableTh>
+              <SortableTh active={itemsSortKey === 'action'} direction={itemsSortDir} onSort={() => handleItemsSort('action')}>Action</SortableTh>
+              <SortableTh active={itemsSortKey === 'brokerage'} direction={itemsSortDir} onSort={() => handleItemsSort('brokerage')}>Brokerage</SortableTh>
+              <SortableTh active={itemsSortKey === 'target'} direction={itemsSortDir} onSort={() => handleItemsSort('target')}>Target</SortableTh>
+              <SortableTh active={itemsSortKey === 'title'} direction={itemsSortDir} onSort={() => handleItemsSort('title')}>Title</SortableTh>
+              <SortableTh active={itemsSortKey === 'published'} direction={itemsSortDir} onSort={() => handleItemsSort('published')}>Published</SortableTh>
+            </tr>
           </thead>
           <tbody>
-            {items.map((it, i) => (
+            {sortedItems.map((it, i) => (
               <tr key={i}>
                 <Td>{String(it.category_label ?? it.call_type ?? '—')}</Td>
                 <Td className={verdictClass(String(it.action ?? ''))}>{String(it.action ?? '—')}</Td>
@@ -1329,6 +1519,30 @@ function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
 function NseWorldIndicesPanel({ data }: { data: Row }) {
   const nseRows = (data.nse_rows as Row[] | undefined) ?? []
   const globalRows = (data.global_rows as Row[] | undefined) ?? []
+  const { sorted: sortedNseRows, sortKey: nseSortKey, sortDir: nseSortDir, handleSort: handleNseSort } = useSort(nseRows, {
+    name: (r) => String(r.name ?? ''),
+    ltp: (r) => (r.ltp != null ? Number(r.ltp) : null),
+    trend: (r) => (r.change_pct != null ? Number(r.change_pct) : null),
+    change_pct: (r) => (r.change_pct != null ? Number(r.change_pct) : null),
+    open: (r) => (r.open != null ? Number(r.open) : null),
+    prev_close: (r) => (r.prev_close != null ? Number(r.prev_close) : null),
+    high_52w: (r) => (r.high_52w != null ? Number(r.high_52w) : null),
+    low_52w: (r) => (r.low_52w != null ? Number(r.low_52w) : null),
+    return_1y: (r) => (r.return_1y_pct != null ? Number(r.return_1y_pct) : null),
+    return_3y: (r) => (r.return_3y_pct != null ? Number(r.return_3y_pct) : null),
+    return_5y: (r) => (r.return_5y_pct != null ? Number(r.return_5y_pct) : null),
+  })
+  const { sorted: sortedGlobalRows, sortKey: globalSortKey, sortDir: globalSortDir, handleSort: handleGlobalSort } = useSort(globalRows, {
+    name: (r) => String(r.name ?? ''),
+    ltp: (r) => (r.ltp != null ? Number(r.ltp) : null),
+    change: (r) => (r.change != null ? Number(r.change) : null),
+    change_pct: (r) => (r.change_pct != null ? Number(r.change_pct) : null),
+    trend: (r) => (r.change_pct != null ? Number(r.change_pct) : null),
+    open: (r) => (r.open != null ? Number(r.open) : null),
+    prev_close: (r) => (r.prev_close != null ? Number(r.prev_close) : null),
+    day_high: (r) => (r.day_high != null ? Number(r.day_high) : null),
+    day_low: (r) => (r.day_low != null ? Number(r.day_low) : null),
+  })
   const arrow = (pct: unknown) => {
     const n = Number(pct)
     if (!Number.isFinite(n) || n === 0) return <span className="text-slate-500">—</span>
@@ -1351,12 +1565,21 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
           <DataTable minWidth={960}>
             <thead>
               <tr>
-                <Th>Index Name</Th><Th>LTP</Th><Th>Trend</Th><Th>Change %</Th><Th>Open</Th><Th>Prev. Close</Th>
-                <Th>52W High</Th><Th>52W Low</Th><Th>1Yr Return %</Th><Th>3Yr Returns %</Th><Th>5Yr Returns %</Th>
+                <SortableTh active={nseSortKey === 'name'} direction={nseSortDir} onSort={() => handleNseSort('name')}>Index Name</SortableTh>
+                <SortableTh active={nseSortKey === 'ltp'} direction={nseSortDir} onSort={() => handleNseSort('ltp')}>LTP</SortableTh>
+                <SortableTh active={nseSortKey === 'trend'} direction={nseSortDir} onSort={() => handleNseSort('trend')}>Trend</SortableTh>
+                <SortableTh active={nseSortKey === 'change_pct'} direction={nseSortDir} onSort={() => handleNseSort('change_pct')}>Change %</SortableTh>
+                <SortableTh active={nseSortKey === 'open'} direction={nseSortDir} onSort={() => handleNseSort('open')}>Open</SortableTh>
+                <SortableTh active={nseSortKey === 'prev_close'} direction={nseSortDir} onSort={() => handleNseSort('prev_close')}>Prev. Close</SortableTh>
+                <SortableTh active={nseSortKey === 'high_52w'} direction={nseSortDir} onSort={() => handleNseSort('high_52w')}>52W High</SortableTh>
+                <SortableTh active={nseSortKey === 'low_52w'} direction={nseSortDir} onSort={() => handleNseSort('low_52w')}>52W Low</SortableTh>
+                <SortableTh active={nseSortKey === 'return_1y'} direction={nseSortDir} onSort={() => handleNseSort('return_1y')}>1Yr Return %</SortableTh>
+                <SortableTh active={nseSortKey === 'return_3y'} direction={nseSortDir} onSort={() => handleNseSort('return_3y')}>3Yr Returns %</SortableTh>
+                <SortableTh active={nseSortKey === 'return_5y'} direction={nseSortDir} onSort={() => handleNseSort('return_5y')}>5Yr Returns %</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {nseRows.map((r, i) => (
+              {sortedNseRows.map((r, i) => (
                 <tr key={i}>
                   <Td className="font-medium">{String(r.name ?? '—')}</Td>
                   <Td>{fmtNum(r.ltp)}</Td>
@@ -1380,10 +1603,20 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
           <h4 className="mb-2 text-sm font-semibold text-white">🌍 Global Indices — {globalRows.length}</h4>
           <DataTable minWidth={800}>
             <thead>
-              <tr><Th>Index Name</Th><Th>LTP</Th><Th>Change</Th><Th>Change %</Th><Th>Trend</Th><Th>Open</Th><Th>Prev. Close</Th><Th>Day High</Th><Th>Day Low</Th></tr>
+              <tr>
+                <SortableTh active={globalSortKey === 'name'} direction={globalSortDir} onSort={() => handleGlobalSort('name')}>Index Name</SortableTh>
+                <SortableTh active={globalSortKey === 'ltp'} direction={globalSortDir} onSort={() => handleGlobalSort('ltp')}>LTP</SortableTh>
+                <SortableTh active={globalSortKey === 'change'} direction={globalSortDir} onSort={() => handleGlobalSort('change')}>Change</SortableTh>
+                <SortableTh active={globalSortKey === 'change_pct'} direction={globalSortDir} onSort={() => handleGlobalSort('change_pct')}>Change %</SortableTh>
+                <SortableTh active={globalSortKey === 'trend'} direction={globalSortDir} onSort={() => handleGlobalSort('trend')}>Trend</SortableTh>
+                <SortableTh active={globalSortKey === 'open'} direction={globalSortDir} onSort={() => handleGlobalSort('open')}>Open</SortableTh>
+                <SortableTh active={globalSortKey === 'prev_close'} direction={globalSortDir} onSort={() => handleGlobalSort('prev_close')}>Prev. Close</SortableTh>
+                <SortableTh active={globalSortKey === 'day_high'} direction={globalSortDir} onSort={() => handleGlobalSort('day_high')}>Day High</SortableTh>
+                <SortableTh active={globalSortKey === 'day_low'} direction={globalSortDir} onSort={() => handleGlobalSort('day_low')}>Day Low</SortableTh>
+              </tr>
             </thead>
             <tbody>
-              {globalRows.map((r, i) => (
+              {sortedGlobalRows.map((r, i) => (
                 <tr key={i}>
                   <Td className="font-medium">{String(r.name ?? '—')}{r.country ? <span className="ml-1 text-xs text-slate-500">({String(r.country)})</span> : null}</Td>
                   <Td>{fmtNum(r.ltp)}</Td>
@@ -1411,6 +1644,29 @@ function OptionChainPanel({ data }: { data: Row }) {
   const topCallOi = (chain.top_call_oi as Row[]) ?? []
   const topPutOi = (chain.top_put_oi as Row[]) ?? []
   const [showFullChain, setShowFullChain] = useState(false)
+  const { sorted: sortedTopCallOi, sortKey: topCallSortKey, sortDir: topCallSortDir, handleSort: handleTopCallSort } = useSort(topCallOi, {
+    strike: (r) => (r.strike != null ? Number(r.strike) : String(r.strike ?? '')),
+    ce_oi: (r) => (r.ce_oi != null ? Number(r.ce_oi) : null),
+    ce_chg_oi: (r) => (r.ce_chg_oi != null ? Number(r.ce_chg_oi) : null),
+  })
+  const { sorted: sortedTopPutOi, sortKey: topPutSortKey, sortDir: topPutSortDir, handleSort: handleTopPutSort } = useSort(topPutOi, {
+    strike: (r) => (r.strike != null ? Number(r.strike) : String(r.strike ?? '')),
+    pe_oi: (r) => (r.pe_oi != null ? Number(r.pe_oi) : null),
+    pe_chg_oi: (r) => (r.pe_chg_oi != null ? Number(r.pe_chg_oi) : null),
+  })
+  const { sorted: sortedStrikes, sortKey: strikesSortKey, sortDir: strikesSortDir, handleSort: handleStrikesSort } = useSort(strikes, {
+    ce_oi: (s) => (s.ce_oi != null ? Number(s.ce_oi) : null),
+    ce_chg_oi: (s) => (s.ce_chg_oi != null ? Number(s.ce_chg_oi) : null),
+    ce_vol: (s) => (s.ce_vol != null ? Number(s.ce_vol) : null),
+    ce_iv: (s) => (s.ce_iv != null ? Number(s.ce_iv) : null),
+    ce_ltp: (s) => (s.ce_ltp != null ? Number(s.ce_ltp) : null),
+    strike: (s) => (s.strike != null ? Number(s.strike) : null),
+    pe_ltp: (s) => (s.pe_ltp != null ? Number(s.pe_ltp) : null),
+    pe_iv: (s) => (s.pe_iv != null ? Number(s.pe_iv) : null),
+    pe_vol: (s) => (s.pe_vol != null ? Number(s.pe_vol) : null),
+    pe_chg_oi: (s) => (s.pe_chg_oi != null ? Number(s.pe_chg_oi) : null),
+    pe_oi: (s) => (s.pe_oi != null ? Number(s.pe_oi) : null),
+  })
 
   return (
     <div className="space-y-4">
@@ -1449,9 +1705,15 @@ function OptionChainPanel({ data }: { data: Row }) {
         <div>
           <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Call OI (resistance zones)</h4>
           <DataTable minWidth={320}>
-            <thead><tr><Th>Strike</Th><Th>Call OI</Th><Th>Chg OI</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={topCallSortKey === 'strike'} direction={topCallSortDir} onSort={() => handleTopCallSort('strike')}>Strike</SortableTh>
+                <SortableTh active={topCallSortKey === 'ce_oi'} direction={topCallSortDir} onSort={() => handleTopCallSort('ce_oi')}>Call OI</SortableTh>
+                <SortableTh active={topCallSortKey === 'ce_chg_oi'} direction={topCallSortDir} onSort={() => handleTopCallSort('ce_chg_oi')}>Chg OI</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {topCallOi.map((r, i) => (
+              {sortedTopCallOi.map((r, i) => (
                 <tr key={i}><Td>{String(r.strike ?? '—')}</Td><Td>{fmtNum(r.ce_oi, 0)}</Td><Td>{fmtNum(r.ce_chg_oi, 0)}</Td></tr>
               ))}
             </tbody>
@@ -1460,9 +1722,15 @@ function OptionChainPanel({ data }: { data: Row }) {
         <div>
           <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Put OI (support zones)</h4>
           <DataTable minWidth={320}>
-            <thead><tr><Th>Strike</Th><Th>Put OI</Th><Th>Chg OI</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={topPutSortKey === 'strike'} direction={topPutSortDir} onSort={() => handleTopPutSort('strike')}>Strike</SortableTh>
+                <SortableTh active={topPutSortKey === 'pe_oi'} direction={topPutSortDir} onSort={() => handleTopPutSort('pe_oi')}>Put OI</SortableTh>
+                <SortableTh active={topPutSortKey === 'pe_chg_oi'} direction={topPutSortDir} onSort={() => handleTopPutSort('pe_chg_oi')}>Chg OI</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {topPutOi.map((r, i) => (
+              {sortedTopPutOi.map((r, i) => (
                 <tr key={i}><Td>{String(r.strike ?? '—')}</Td><Td>{fmtNum(r.pe_oi, 0)}</Td><Td>{fmtNum(r.pe_chg_oi, 0)}</Td></tr>
               ))}
             </tbody>
@@ -1482,13 +1750,21 @@ function OptionChainPanel({ data }: { data: Row }) {
             <DataTable minWidth={900}>
               <thead>
                 <tr>
-                  <Th>Call OI</Th><Th>Call Chg OI</Th><Th>Call Vol</Th><Th>Call IV</Th><Th>Call LTP</Th>
-                  <Th>Strike</Th>
-                  <Th>Put LTP</Th><Th>Put IV</Th><Th>Put Vol</Th><Th>Put Chg OI</Th><Th>Put OI</Th>
+                  <SortableTh active={strikesSortKey === 'ce_oi'} direction={strikesSortDir} onSort={() => handleStrikesSort('ce_oi')}>Call OI</SortableTh>
+                  <SortableTh active={strikesSortKey === 'ce_chg_oi'} direction={strikesSortDir} onSort={() => handleStrikesSort('ce_chg_oi')}>Call Chg OI</SortableTh>
+                  <SortableTh active={strikesSortKey === 'ce_vol'} direction={strikesSortDir} onSort={() => handleStrikesSort('ce_vol')}>Call Vol</SortableTh>
+                  <SortableTh active={strikesSortKey === 'ce_iv'} direction={strikesSortDir} onSort={() => handleStrikesSort('ce_iv')}>Call IV</SortableTh>
+                  <SortableTh active={strikesSortKey === 'ce_ltp'} direction={strikesSortDir} onSort={() => handleStrikesSort('ce_ltp')}>Call LTP</SortableTh>
+                  <SortableTh active={strikesSortKey === 'strike'} direction={strikesSortDir} onSort={() => handleStrikesSort('strike')}>Strike</SortableTh>
+                  <SortableTh active={strikesSortKey === 'pe_ltp'} direction={strikesSortDir} onSort={() => handleStrikesSort('pe_ltp')}>Put LTP</SortableTh>
+                  <SortableTh active={strikesSortKey === 'pe_iv'} direction={strikesSortDir} onSort={() => handleStrikesSort('pe_iv')}>Put IV</SortableTh>
+                  <SortableTh active={strikesSortKey === 'pe_vol'} direction={strikesSortDir} onSort={() => handleStrikesSort('pe_vol')}>Put Vol</SortableTh>
+                  <SortableTh active={strikesSortKey === 'pe_chg_oi'} direction={strikesSortDir} onSort={() => handleStrikesSort('pe_chg_oi')}>Put Chg OI</SortableTh>
+                  <SortableTh active={strikesSortKey === 'pe_oi'} direction={strikesSortDir} onSort={() => handleStrikesSort('pe_oi')}>Put OI</SortableTh>
                 </tr>
               </thead>
               <tbody>
-                {strikes.map((s, i) => (
+                {sortedStrikes.map((s, i) => (
                   <tr key={i}>
                     <Td>{fmtNum(s.ce_oi, 0)}</Td><Td>{fmtNum(s.ce_chg_oi, 0)}</Td><Td>{fmtNum(s.ce_vol, 0)}</Td>
                     <Td>{fmtNum(s.ce_iv, 1)}</Td><Td>{fmtNum(s.ce_ltp, 2)}</Td>
@@ -1511,6 +1787,21 @@ const _SETUP_BADGE: Record<string, string> = { LONG: '🟢 LONG', SHORT: '🔴 S
 function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
   const emaSma = [...((snap.ema as Row[]) ?? []), ...((snap.sma as Row[]) ?? [])]
   const indicators = (snap.indicators as Row[]) ?? []
+  const { sorted: sortedEmaSma, sortKey: emaSmaSortKey, sortDir: emaSmaSortDir, handleSort: handleEmaSmaSort } = useSort(emaSma, {
+    indicator: (e) => String(e.indicator ?? ''),
+    value: (e) => (e.value != null ? Number(e.value) : null),
+    action: (e) => String(e.action ?? ''),
+  })
+  const { sorted: sortedIndicators, sortKey: indicatorsSortKey, sortDir: indicatorsSortDir, handleSort: handleIndicatorsSort } = useSort(indicators, {
+    indicator: (e) => String(e.indicator ?? ''),
+    value: (e) => {
+      if (e.value == null) return null
+      const n = Number(e.value)
+      return Number.isFinite(n) ? n : String(e.value)
+    },
+    action: (e) => String(e.action ?? ''),
+    description: (e) => String(e.description ?? ''),
+  })
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div>
@@ -1519,9 +1810,15 @@ function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
         </h5>
         {emaSma.length > 0 ? (
           <DataTable minWidth={320}>
-            <thead><tr><Th>Indicator</Th><Th>Value</Th><Th>Action</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={emaSmaSortKey === 'indicator'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('indicator')}>Indicator</SortableTh>
+                <SortableTh active={emaSmaSortKey === 'value'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('value')}>Value</SortableTh>
+                <SortableTh active={emaSmaSortKey === 'action'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('action')}>Action</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {emaSma.map((e, i) => (
+              {sortedEmaSma.map((e, i) => (
                 <tr key={i}>
                   <Td>{String(e.indicator ?? '—')}</Td>
                   <Td>{fmtNum(e.value, 4)}</Td>
@@ -1536,14 +1833,21 @@ function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
         <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Technical Indicators</h5>
         {indicators.length > 0 ? (
           <DataTable minWidth={480}>
-            <thead><tr><Th>Indicator</Th><Th>Value</Th><Th>Action</Th><Th>Description</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={indicatorsSortKey === 'indicator'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('indicator')}>Indicator</SortableTh>
+                <SortableTh active={indicatorsSortKey === 'value'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('value')}>Value</SortableTh>
+                <SortableTh active={indicatorsSortKey === 'action'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('action')}>Action</SortableTh>
+                <SortableTh active={indicatorsSortKey === 'description'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('description')}>Description</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {indicators.map((e, i) => (
+              {sortedIndicators.map((e, i) => (
                 <tr key={i}>
                   <Td>{String(e.indicator ?? '—')}</Td>
                   <Td>{e.value == null ? '—' : String(e.value)}</Td>
                   <Td className={verdictClass(String(e.action ?? ''))}>{String(e.action ?? '—')}</Td>
-                  <Td className="max-w-sm whitespace-normal text-slate-400">{String(e.description ?? '—')}</Td>
+                  <Td className="max-w-sm !whitespace-normal text-slate-400">{String(e.description ?? '—')}</Td>
                 </tr>
               ))}
             </tbody>
@@ -1558,17 +1862,47 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
   const [tfTab, setTfTab] = useState<string | null>(null)
+  const r = results[idx] ?? results[0] ?? {}
+  const momentum = (r.momentum as Row) ?? {}
+  const perTf = (momentum.per_tf as Row[]) ?? []
+  const showCombos = results.some((res) => res.fundamentals_combo != null || res.option_chain_combo != null)
+
+  const { sorted: sortedResults, sortKey: resultsSortKey, sortDir: resultsSortDir, handleSort: handleResultsSort } = useSort(results, {
+    ticker: (res) => String(res.ticker ?? ''),
+    direction: (res) => String((res.setup as Row)?.direction ?? ''),
+    confidence: (res) => ((res.setup as Row)?.confidence_pct != null ? Number((res.setup as Row).confidence_pct) : null),
+    sl: (res) => ((res.setup as Row)?.sl_pct != null ? Number((res.setup as Row).sl_pct) : null),
+    tp: (res) => ((res.setup as Row)?.tp_pct != null ? Number((res.setup as Row).tp_pct) : null),
+    momentum_dir: (res) => String((res.momentum as Row)?.overall_direction ?? ''),
+    momentum_strength: (res) => String((res.momentum as Row)?.overall_strength ?? ''),
+    momentum_conf: (res) => ((res.momentum as Row)?.confidence_continue_pct != null ? Number((res.momentum as Row).confidence_continue_pct) : null),
+    ema_bull: (res) => ((res.setup as Row)?.ema_bullish != null ? Number((res.setup as Row).ema_bullish) : null),
+    indicator_bull: (res) => ((res.setup as Row)?.indicator_bullish != null ? Number((res.setup as Row).indicator_bullish) : null),
+    fundamentals: (res) => (res.fundamentals_combo ? String((res.fundamentals_combo as Row).fundamental_signal ?? '') : ''),
+    option_chain: (res) => (res.option_chain_combo ? String((res.option_chain_combo as Row).option_chain_bias ?? '') : ''),
+  })
+  const { sorted: sortedPerTf, sortKey: perTfSortKey, sortDir: perTfSortDir, handleSort: handlePerTfSort } = useSort(perTf, {
+    tf: (t) => String(t.timeframe ?? ''),
+    direction: (t) => String(t.trend_direction ?? ''),
+    strength: (t) => String(t.strength ?? ''),
+    adx: (t) => (t.adx != null ? Number(t.adx) : null),
+    rsi: (t) => (t.rsi != null ? Number(t.rsi) : null),
+    macd_hist: (t) => (t.macd_hist != null ? Number(t.macd_hist) : null),
+    roc: (t) => (t.roc_pct != null ? Number(t.roc_pct) : null),
+    vol: (t) => (t.volume_ratio != null ? Number(t.volume_ratio) : null),
+    conf: (t) => (t.confidence_continue_pct != null ? Number(t.confidence_continue_pct) : null),
+  })
+
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
 
   const valid = results.filter((r) => !r.error)
-  const r = results[idx] ?? results[0]
   const setup = (r.setup as Row) ?? {}
-  const momentum = (r.momentum as Row) ?? {}
-  const perTf = (momentum.per_tf as Row[]) ?? []
   const technicalByTf = (r.technical_by_tf as Record<string, Row>) ?? {}
   const dailyRef = r.daily_reference as Row | undefined
   const tfKeys = Object.keys(technicalByTf)
   const activeTf = tfTab && tfKeys.includes(tfTab) ? tfTab : tfKeys[0]
+  const faCombo = r.fundamentals_combo as Row | undefined
+  const ocCombo = r.option_chain_combo as Row | undefined
 
   return (
     <div className="space-y-4">
@@ -1577,15 +1911,31 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
       <DataTable minWidth={1000}>
         <thead>
           <tr>
-            <Th>Ticker</Th><Th>Trade Setup</Th><Th>Confidence %</Th><Th>SL %</Th><Th>TP %</Th>
-            <Th>Momentum</Th><Th>Mom. Strength</Th><Th>Mom. Confidence %</Th>
-            <Th>EMA Bull/Bear</Th><Th>Indicators Bull/Bear</Th>
+            <SortableTh active={resultsSortKey === 'ticker'} direction={resultsSortDir} onSort={() => handleResultsSort('ticker')}>Ticker</SortableTh>
+            <SortableTh active={resultsSortKey === 'direction'} direction={resultsSortDir} onSort={() => handleResultsSort('direction')}>Trade Setup</SortableTh>
+            <SortableTh active={resultsSortKey === 'confidence'} direction={resultsSortDir} onSort={() => handleResultsSort('confidence')}>Confidence %</SortableTh>
+            <SortableTh active={resultsSortKey === 'sl'} direction={resultsSortDir} onSort={() => handleResultsSort('sl')}>SL %</SortableTh>
+            <SortableTh active={resultsSortKey === 'tp'} direction={resultsSortDir} onSort={() => handleResultsSort('tp')}>TP %</SortableTh>
+            <SortableTh active={resultsSortKey === 'momentum_dir'} direction={resultsSortDir} onSort={() => handleResultsSort('momentum_dir')}>Momentum</SortableTh>
+            <SortableTh active={resultsSortKey === 'momentum_strength'} direction={resultsSortDir} onSort={() => handleResultsSort('momentum_strength')}>Mom. Strength</SortableTh>
+            <SortableTh active={resultsSortKey === 'momentum_conf'} direction={resultsSortDir} onSort={() => handleResultsSort('momentum_conf')}>Mom. Confidence %</SortableTh>
+            <SortableTh active={resultsSortKey === 'ema_bull'} direction={resultsSortDir} onSort={() => handleResultsSort('ema_bull')}>EMA Bull/Bear</SortableTh>
+            <SortableTh active={resultsSortKey === 'indicator_bull'} direction={resultsSortDir} onSort={() => handleResultsSort('indicator_bull')}>Indicators Bull/Bear</SortableTh>
+            {showCombos && (
+              <>
+                <SortableTh active={resultsSortKey === 'fundamentals'} direction={resultsSortDir} onSort={() => handleResultsSort('fundamentals')}>Fundamentals</SortableTh>
+                <SortableTh active={resultsSortKey === 'option_chain'} direction={resultsSortDir} onSort={() => handleResultsSort('option_chain')}>Option Chain</SortableTh>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
-          {results.map((res, i) => {
+          {sortedResults.map((res) => {
+            const i = results.indexOf(res)
             const s = (res.setup as Row) ?? {}
             const m = (res.momentum as Row) ?? {}
+            const rFa = res.fundamentals_combo as Row | undefined
+            const rOc = res.option_chain_combo as Row | undefined
             return (
               <tr
                 key={String(res.ticker) + i}
@@ -1594,7 +1944,7 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
               >
                 <Td className="font-medium text-white">{String(res.ticker ?? '—')}</Td>
                 {res.error ? (
-                  <Td colSpan={9} className="text-rose-400">ERROR — {String(res.error)}</Td>
+                  <Td colSpan={showCombos ? 11 : 9} className="text-rose-400">ERROR — {String(res.error)}</Td>
                 ) : (
                   <>
                     <Td className={verdictClass(String(s.direction ?? ''))}>{_SETUP_BADGE[String(s.direction ?? '')] ?? String(s.direction ?? '—')}</Td>
@@ -1606,6 +1956,12 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
                     <Td>{fmtNum(m.confidence_continue_pct, 0)}</Td>
                     <Td>{s.ema_total ? `${s.ema_bullish}/${s.ema_bearish}` : '—'}</Td>
                     <Td>{s.indicator_total ? `${s.indicator_bullish}/${s.indicator_bearish}` : '—'}</Td>
+                    {showCombos && (
+                      <>
+                        <Td>{rFa ? (rFa.available ? String(rFa.fundamental_signal ?? '—') : 'unavailable') : '—'}</Td>
+                        <Td>{rOc ? (rOc.available ? String(rOc.option_chain_bias ?? '—') : 'unavailable') : '—'}</Td>
+                      </>
+                    )}
                   </>
                 )}
               </tr>
@@ -1637,6 +1993,29 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
                 {(setup.reasons as string[]).map((rr, i) => <li key={i} className="flex gap-2"><span className="text-slate-500">•</span>{rr}</li>)}
               </ul>
             )}
+            {(faCombo || ocCombo) && setup.technical_direction != null && (
+              <p className="mt-2 text-xs text-slate-500">
+                Technical-only: {_SETUP_BADGE[String(setup.technical_direction ?? '')] ?? String(setup.technical_direction ?? '—')} · {fmtNum(setup.technical_confidence_pct, 0)}% confidence
+              </p>
+            )}
+            {faCombo && (
+              <div className="mt-2 text-sm text-slate-400">
+                {faCombo.available ? (
+                  <p>📚 <strong>Combined with Fundamentals:</strong> {String(faCombo.note ?? '')} (Signal: {String(faCombo.fundamental_signal ?? '—')} · {fmtNum(faCombo.fundamental_confidence_pct, 0)}% · Valuation: {String(faCombo.fundamental_valuation ?? '—')})</p>
+                ) : (
+                  <p className="text-xs text-slate-500">📚 Fundamentals unavailable for this ticker: {String(faCombo.error ?? 'unknown error')}</p>
+                )}
+              </div>
+            )}
+            {ocCombo && (
+              <div className="mt-2 text-sm text-slate-400">
+                {ocCombo.available ? (
+                  <p>⛓️ <strong>Combined with Option Chain:</strong> {String(ocCombo.note ?? '')} (Bias: {String(ocCombo.option_chain_bias ?? '—')} · {fmtNum(ocCombo.option_chain_confidence_pct, 0)}%{ocCombo.pcr_oi != null ? ` · PCR: ${fmtNum(ocCombo.pcr_oi, 2)}` : ''}{ocCombo.max_pain != null ? ` · Max Pain: ${fmtNum(ocCombo.max_pain, 0)}` : ''})</p>
+                ) : (
+                  <p className="text-xs text-slate-500">⛓️ Option Chain unavailable for this ticker: {String(ocCombo.error ?? 'unknown error')}</p>
+                )}
+              </div>
+            )}
           </div>
 
           {perTf.length > 0 && (
@@ -1644,10 +2023,20 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Momentum — per timeframe</h4>
               <DataTable minWidth={800}>
                 <thead>
-                  <tr><Th>TF</Th><Th>Direction</Th><Th>Strength</Th><Th>ADX</Th><Th>RSI</Th><Th>MACD Hist</Th><Th>ROC %</Th><Th>Volume x</Th><Th>Confidence %</Th></tr>
+                  <tr>
+                    <SortableTh active={perTfSortKey === 'tf'} direction={perTfSortDir} onSort={() => handlePerTfSort('tf')}>TF</SortableTh>
+                    <SortableTh active={perTfSortKey === 'direction'} direction={perTfSortDir} onSort={() => handlePerTfSort('direction')}>Direction</SortableTh>
+                    <SortableTh active={perTfSortKey === 'strength'} direction={perTfSortDir} onSort={() => handlePerTfSort('strength')}>Strength</SortableTh>
+                    <SortableTh active={perTfSortKey === 'adx'} direction={perTfSortDir} onSort={() => handlePerTfSort('adx')}>ADX</SortableTh>
+                    <SortableTh active={perTfSortKey === 'rsi'} direction={perTfSortDir} onSort={() => handlePerTfSort('rsi')}>RSI</SortableTh>
+                    <SortableTh active={perTfSortKey === 'macd_hist'} direction={perTfSortDir} onSort={() => handlePerTfSort('macd_hist')}>MACD Hist</SortableTh>
+                    <SortableTh active={perTfSortKey === 'roc'} direction={perTfSortDir} onSort={() => handlePerTfSort('roc')}>ROC %</SortableTh>
+                    <SortableTh active={perTfSortKey === 'vol'} direction={perTfSortDir} onSort={() => handlePerTfSort('vol')}>Volume x</SortableTh>
+                    <SortableTh active={perTfSortKey === 'conf'} direction={perTfSortDir} onSort={() => handlePerTfSort('conf')}>Confidence %</SortableTh>
+                  </tr>
                 </thead>
                 <tbody>
-                  {perTf.map((tf, i) => (
+                  {sortedPerTf.map((tf, i) => (
                     <tr key={i}>
                       <Td>{String(tf.timeframe)}</Td>
                       <Td className={verdictClass(String(tf.trend_direction ?? ''))}>{String(tf.trend_direction ?? '—')}</Td>
@@ -1688,6 +2077,51 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
         </>
       )}
     </div>
+  )
+}
+
+function StrategyRunsTable({ runs }: { runs: Row[] }) {
+  const extract = (run: Row) => {
+    const analysis = (run.analysis as Row) ?? {}
+    const live = (analysis.live as Row) ?? analysis
+    const verdict = live.verdict ?? analysis.verdict ?? analysis.primary_label
+    const confidence = live.confidence_pct ?? live.confidence ?? analysis.confidence
+    const take = live.take_trade ?? analysis.take_trade ?? analysis.actionable
+    return { verdict, confidence, take }
+  }
+  const { sorted, sortKey, sortDir, handleSort } = useSort(runs, {
+    strategy: (run) => String(run.label ?? run.strategy_id ?? ''),
+    verdict: (run) => String(extract(run).verdict ?? run.error ?? ''),
+    confidence: (run) => {
+      const c = extract(run).confidence
+      return c != null ? Number(c) : null
+    },
+    take: (run) => (extract(run).take ? 1 : 0),
+  })
+  return (
+    <DataTable>
+      <thead>
+        <tr>
+          <SortableTh active={sortKey === 'strategy'} direction={sortDir} onSort={() => handleSort('strategy')}>Strategy</SortableTh>
+          <SortableTh active={sortKey === 'verdict'} direction={sortDir} onSort={() => handleSort('verdict')}>Verdict</SortableTh>
+          <SortableTh active={sortKey === 'confidence'} direction={sortDir} onSort={() => handleSort('confidence')}>Confidence</SortableTh>
+          <SortableTh active={sortKey === 'take'} direction={sortDir} onSort={() => handleSort('take')}>Take</SortableTh>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((run, i) => {
+          const { verdict, confidence, take } = extract(run)
+          return (
+            <tr key={i}>
+              <Td>{String(run.label ?? run.strategy_id)}</Td>
+              <Td className={verdictClass(String(verdict ?? ''))}>{String(verdict ?? run.error ?? '—')}</Td>
+              <Td>{confidence != null ? `${fmtNum(confidence, 0)}%` : '—'}</Td>
+              <Td>{take ? '✅' : '—'}</Td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </DataTable>
   )
 }
 
@@ -1749,26 +2183,7 @@ export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) 
                 {runs.length > 0 && (
                   <div>
                     <h4 className="mb-2 text-sm font-semibold text-white">Selected strategy runs</h4>
-                    <DataTable>
-                      <thead><tr><Th>Strategy</Th><Th>Verdict</Th><Th>Confidence</Th><Th>Take</Th></tr></thead>
-                      <tbody>
-                        {runs.map((run, i) => {
-                          const analysis = (run.analysis as Row) ?? {}
-                          const live = (analysis.live as Row) ?? analysis
-                          const verdict = live.verdict ?? analysis.verdict ?? analysis.primary_label
-                          const confidence = live.confidence_pct ?? live.confidence ?? analysis.confidence
-                          const take = live.take_trade ?? analysis.take_trade ?? analysis.actionable
-                          return (
-                            <tr key={i}>
-                              <Td>{String(run.label ?? run.strategy_id)}</Td>
-                              <Td className={verdictClass(String(verdict ?? ''))}>{String(verdict ?? run.error ?? '—')}</Td>
-                              <Td>{confidence != null ? `${fmtNum(confidence, 0)}%` : '—'}</Td>
-                              <Td>{take ? '✅' : '—'}</Td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </DataTable>
+                    <StrategyRunsTable runs={runs} />
                   </div>
                 )}
               </div>

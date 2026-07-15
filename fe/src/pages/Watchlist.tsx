@@ -16,7 +16,7 @@ import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
-import { DataTable, Td, Th } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, Th, useSort } from '../components/ui/Table'
 
 const MARKETS: Array<{ value: 'india' | 'us' | 'crypto'; label: string }> = [
   { value: 'india', label: '🇮🇳 India (Groww)' },
@@ -94,6 +94,16 @@ export default function WatchlistPage() {
   })
 
   const items = itemsQ.data?.items ?? []
+
+  const { sorted: sortedItems, sortKey: itemsSortKey, sortDir: itemsSortDir, handleSort: handleItemsSort } = useSort(
+    items,
+    {
+      ticker: (r) => r.display_name || r.ticker,
+      ltp: (r) => r.ltp,
+      change_pct: (r) => r.change_pct,
+      change_since_added_pct: (r) => r.change_since_added_pct,
+    },
+  )
 
   return (
     <div>
@@ -179,15 +189,15 @@ export default function WatchlistPage() {
                 <DataTable>
                   <thead>
                     <tr>
-                      <Th>Ticker</Th>
-                      <Th>LTP</Th>
-                      <Th>Change %</Th>
-                      <Th>Since added</Th>
+                      <SortableTh active={itemsSortKey === 'ticker'} direction={itemsSortDir} onSort={() => handleItemsSort('ticker')}>Ticker</SortableTh>
+                      <SortableTh active={itemsSortKey === 'ltp'} direction={itemsSortDir} onSort={() => handleItemsSort('ltp')}>LTP</SortableTh>
+                      <SortableTh active={itemsSortKey === 'change_pct'} direction={itemsSortDir} onSort={() => handleItemsSort('change_pct')}>Change %</SortableTh>
+                      <SortableTh active={itemsSortKey === 'change_since_added_pct'} direction={itemsSortDir} onSort={() => handleItemsSort('change_since_added_pct')}>Since added</SortableTh>
                       <Th />
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((it) => (
+                    {sortedItems.map((it) => (
                       <tr key={it.id}>
                         <Td className="font-medium">{it.display_name || it.ticker}</Td>
                         <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>

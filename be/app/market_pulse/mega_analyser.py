@@ -836,9 +836,9 @@ def _run_mega_scan(
     )
     step = 0
 
-    indicators = st.session_state.get("indicators", [])
-    entry_rules = st.session_state.get("entry_rules", [])
-    exit_rules = st.session_state.get("exit_rules", [])
+    indicators: list = []
+    entry_rules: list = []
+    exit_rules: list = []
     entry_mode = "ALL (AND)"
 
     saved_strats = []

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw, ShoppingCart } from 'lucide-react'
+import { RefreshCw, RotateCcw, ShoppingCart } from 'lucide-react'
 import { getAccount, placeOrder, resetAccount } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -9,7 +9,7 @@ import { Badge } from '../components/ui/Badge'
 import { StatCard } from '../components/ui/StatCard'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
-import { DataTable, Th, Td } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 export default function PaperTrading() {
   const qc = useQueryClient()
@@ -18,7 +18,7 @@ export default function PaperTrading() {
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
   const [msg, setMsg] = useState('')
 
-  const { data: account, isLoading } = useQuery({ queryKey: ['account'], queryFn: getAccount })
+  const { data: account, isLoading, isFetching, refetch } = useQuery({ queryKey: ['account'], queryFn: getAccount })
 
   const orderMutation = useMutation({
     mutationFn: placeOrder,
@@ -29,6 +29,34 @@ export default function PaperTrading() {
   const resetMutation = useMutation({
     mutationFn: resetAccount,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['account'] }); setMsg('Account reset'); },
+  })
+
+  const {
+    sorted: sortedPositions,
+    sortKey: positionsSortKey,
+    sortDir: positionsSortDir,
+    handleSort: handlePositionsSort,
+  } = useSort(account?.positions ?? [], {
+    ticker: (r) => r.ticker,
+    quantity: (r) => r.quantity,
+    avg_price: (r) => r.avg_price,
+    ltp: (r) => r.ltp,
+    pnl_pct: (r) => r.pnl_pct,
+    sl_pct: (r) => r.sl_pct,
+  })
+
+  const {
+    sorted: sortedOrders,
+    sortKey: ordersSortKey,
+    sortDir: ordersSortDir,
+    handleSort: handleOrdersSort,
+  } = useSort(account?.recent_orders ?? [], {
+    created_at: (r) => r.created_at,
+    ticker: (r) => r.ticker,
+    side: (r) => r.side,
+    quantity: (r) => r.quantity,
+    price: (r) => r.price,
+    strategy: (r) => r.strategy,
   })
 
   if (isLoading) return <Loading message="Loading account..." />
@@ -56,7 +84,7 @@ export default function PaperTrading() {
       )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="min-w-0">
           <div className="mb-5 flex items-center gap-2">
             <ShoppingCart className="text-emerald-400" size={20} />
             <h3 className="font-semibold text-white">Place Order</h3>
@@ -87,22 +115,28 @@ export default function PaperTrading() {
           {msg && <Alert type={isSuccess ? 'success' : 'error'}>{msg}</Alert>}
         </Card>
 
-        <Card>
-          <h3 className="mb-4 font-semibold text-white">Open Positions</h3>
+        <Card className="min-w-0">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold text-white">Open Positions</h3>
+            <Button variant="secondary" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+              {isFetching ? 'Refreshing…' : 'Refresh'}
+            </Button>
+          </div>
           {account?.positions.length ? (
             <DataTable>
               <thead>
                 <tr>
-                  <Th>Ticker</Th>
-                  <Th>Qty</Th>
-                  <Th>Avg</Th>
-                  <Th>LTP</Th>
-                  <Th>P&L</Th>
-                  <Th>SL/TP</Th>
+                  <SortableTh active={positionsSortKey === 'ticker'} direction={positionsSortDir} onSort={() => handlePositionsSort('ticker')}>Ticker</SortableTh>
+                  <SortableTh active={positionsSortKey === 'quantity'} direction={positionsSortDir} onSort={() => handlePositionsSort('quantity')}>Qty</SortableTh>
+                  <SortableTh active={positionsSortKey === 'avg_price'} direction={positionsSortDir} onSort={() => handlePositionsSort('avg_price')}>Avg</SortableTh>
+                  <SortableTh active={positionsSortKey === 'ltp'} direction={positionsSortDir} onSort={() => handlePositionsSort('ltp')}>LTP</SortableTh>
+                  <SortableTh active={positionsSortKey === 'pnl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('pnl_pct')}>P&L</SortableTh>
+                  <SortableTh active={positionsSortKey === 'sl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('sl_pct')}>SL/TP</SortableTh>
                 </tr>
               </thead>
               <tbody>
-                {account.positions.map((p) => (
+                {sortedPositions.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-800/20">
                     <Td className="font-medium text-white">{p.ticker}</Td>
                     <Td>{p.quantity}</Td>
@@ -126,16 +160,16 @@ export default function PaperTrading() {
           <DataTable>
             <thead>
               <tr>
-                <Th>Time</Th>
-                <Th>Ticker</Th>
-                <Th>Side</Th>
-                <Th>Qty</Th>
-                <Th>Price</Th>
-                <Th>Strategy</Th>
+                <SortableTh active={ordersSortKey === 'created_at'} direction={ordersSortDir} onSort={() => handleOrdersSort('created_at')}>Time</SortableTh>
+                <SortableTh active={ordersSortKey === 'ticker'} direction={ordersSortDir} onSort={() => handleOrdersSort('ticker')}>Ticker</SortableTh>
+                <SortableTh active={ordersSortKey === 'side'} direction={ordersSortDir} onSort={() => handleOrdersSort('side')}>Side</SortableTh>
+                <SortableTh active={ordersSortKey === 'quantity'} direction={ordersSortDir} onSort={() => handleOrdersSort('quantity')}>Qty</SortableTh>
+                <SortableTh active={ordersSortKey === 'price'} direction={ordersSortDir} onSort={() => handleOrdersSort('price')}>Price</SortableTh>
+                <SortableTh active={ordersSortKey === 'strategy'} direction={ordersSortDir} onSort={() => handleOrdersSort('strategy')}>Strategy</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {account.recent_orders.map((o) => (
+              {sortedOrders.map((o) => (
                 <tr key={o.id} className="hover:bg-slate-800/20">
                   <Td className="text-slate-400">{new Date(o.created_at).toLocaleString()}</Td>
                   <Td className="font-medium text-white">{o.ticker}</Td>

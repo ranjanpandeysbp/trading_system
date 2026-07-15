@@ -325,7 +325,7 @@ class TaScreenerService:
         def _batch():
             set_groww_token(token)
             results = []
-            for ticker in tickers[:15]:
+            for ticker in tickers:
                 row = _run_one(
                     screener_id, ticker,
                     market=market, groww_token=token, exchange=exchange,

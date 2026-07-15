@@ -29,10 +29,10 @@
     @apply rounded-full bg-slate-700;
   }
 
-  /* Safe area for notched phones + bottom nav */
+  /* Safe area for notched phones */
   @supports (padding-bottom: env(safe-area-inset-bottom)) {
     .pb-safe {
-      padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+      padding-bottom: calc(1rem + env(safe-area-inset-bottom));
     }
   }
 }

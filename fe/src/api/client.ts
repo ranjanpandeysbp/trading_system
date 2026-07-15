@@ -432,10 +432,10 @@ export const removeWatchlistItem = (watchlistId: number, itemId: number) =>
 export const fetchGlobalMarketMood = () =>
   api.get('/command-center/global-market-mood', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runMomentumScan = (payload: { tickers: string[]; asset_class: string }) =>
+export const runMomentumScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/momentum', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string }) =>
+export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOneClick = (payload: { style: 'intraday' | 'scalping' | 'swing'; tickers: string[]; asset_class: string }) =>
@@ -490,6 +490,8 @@ export const runQuickAnalyzer = (payload: {
   asset_class: 'india' | 'us' | 'crypto'
   from_date?: string
   to_date?: string
+  include_fundamentals?: boolean
+  include_option_chain?: boolean
 }) => api.post('/command-center/quick-analyzer', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchMutualFundAmcs = () =>

@@ -644,7 +644,7 @@ async def command_center_momentum(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).momentum(
-        payload.tickers, asset_class=payload.asset_class,
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
     )
 
 
@@ -655,7 +655,7 @@ async def command_center_ema_position(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).ema_position(
-        payload.tickers, asset_class=payload.asset_class,
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
     )
 
 
@@ -814,6 +814,8 @@ async def command_center_quick_analyzer(
         asset_class=payload.asset_class,
         from_date=payload.from_date,
         to_date=payload.to_date,
+        include_fundamentals=payload.include_fundamentals,
+        include_option_chain=payload.include_option_chain,
     )
 
 

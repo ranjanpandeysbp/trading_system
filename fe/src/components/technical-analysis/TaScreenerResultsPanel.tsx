@@ -1,5 +1,5 @@
 import { Badge } from '../ui/Badge'
-import { DataTable, Td, Th } from '../ui/Table'
+import { DataTable, Td, SortableTh, useSort } from '../ui/Table'
 
 type ScreenerResult = Record<string, unknown>
 
@@ -32,6 +32,12 @@ export function TaScreenerResultsPanel({ data }: { data: Record<string, unknown>
   const actionable = (data.actionable as ScreenerResult[]) ?? []
   const label = String(data.label ?? data.screener_id ?? 'Screener')
 
+  const { sorted, sortKey, sortDir, handleSort } = useSort(results, {
+    ticker: (row) => String(row.ticker ?? ''),
+    summary: (row) => summaryFor(row),
+    status: (row) => (row.error ? 'ERROR' : isActionable(row) ? 'BUY' : 'HOLD'),
+  })
+
   if (!results.length) {
     return <p className="text-sm text-slate-500">No results returned.</p>
   }
@@ -52,13 +58,13 @@ export function TaScreenerResultsPanel({ data }: { data: Record<string, unknown>
       <DataTable>
         <thead>
           <tr>
-            <Th>Ticker</Th>
-            <Th>Summary</Th>
-            <Th>Status</Th>
+            <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+            <SortableTh active={sortKey === 'summary'} direction={sortDir} onSort={() => handleSort('summary')}>Summary</SortableTh>
+            <SortableTh active={sortKey === 'status'} direction={sortDir} onSort={() => handleSort('status')}>Status</SortableTh>
           </tr>
         </thead>
         <tbody>
-          {results.map((row, i) => {
+          {sorted.map((row, i) => {
             const ticker = String(row.ticker ?? `#${i + 1}`)
             return (
               <tr key={`${ticker}-${i}`}>

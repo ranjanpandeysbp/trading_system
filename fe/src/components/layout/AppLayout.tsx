@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 
 const nav = [
@@ -48,6 +48,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showScrollTop, setShowScrollTop] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
@@ -67,6 +68,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
       document.body.style.overflow = ''
     }
   }, [menuOpen])
+
+  // The layout grows with content (min-h-screen, not h-screen), so the
+  // window/document scrolls rather than <main> internally — track that.
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 400)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+    setShowScrollTop(false)
+  }, [location.pathname])
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
@@ -165,31 +179,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="w-10" aria-hidden />
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-safe sm:p-6 lg:p-8 lg:pb-8">
+        <main className="flex-1 overflow-x-hidden p-4 pb-safe sm:p-6 lg:p-8 lg:pb-8">
           <div className="mx-auto w-full max-w-7xl">{children}</div>
         </main>
 
-        {/* Mobile bottom navigation */}
-        <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-800/80 bg-slate-950/95 px-1 py-1.5 backdrop-blur-xl pb-[max(0.375rem,env(safe-area-inset-bottom))] lg:hidden">
-          <div className="mx-auto flex max-w-lg items-stretch justify-around gap-0.5">
-            {nav.map(({ to, shortLabel, icon: Icon }) => {
-              const isActive = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
-              return (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={to === '/'}
-                  className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition-colors sm:text-xs ${
-                    isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <Icon size={20} strokeWidth={isActive ? 2.25 : 2} className="shrink-0" />
-                  <span className="truncate">{shortLabel}</span>
-                </NavLink>
-              )
-            })}
-          </div>
-        </nav>
+        {/* Mobile scroll-to-top */}
+        {showScrollTop && (
+          <button
+            type="button"
+            aria-label="Scroll to top"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-slate-700/60 bg-slate-800/90 text-slate-200 shadow-lg shadow-black/30 backdrop-blur-xl transition-colors hover:bg-slate-700 lg:hidden"
+          >
+            <ArrowUp size={20} />
+          </button>
+        )}
       </div>
     </div>
   )

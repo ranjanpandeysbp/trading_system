@@ -109,28 +109,34 @@ class CommandCenterService:
 
         return json_safe(await asyncio.to_thread(scan_global_market_mood))
 
-    async def momentum(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
-        from app.market_pulse.momentum_engine import scan_universe
+    async def momentum(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.momentum_engine import MomentumConfig, scan_universe
 
         market, exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
+        cfg = MomentumConfig(timeframes=timeframes) if timeframes else None
 
         def _run():
-            return scan_universe(resolved, market, groww_token=token, exchange=exchange)
+            return scan_universe(resolved, market, cfg=cfg, groww_token=token, exchange=exchange)
 
         results = await asyncio.to_thread(_run)
         return json_safe({"market": market, "results": results})
 
-    async def ema_position(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
-        from app.market_pulse.ema_position_engine import scan_universe
+    async def ema_position(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ema_position_engine import EmaPositionConfig, scan_universe
 
         market, exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
+        cfg = EmaPositionConfig(timeframes=timeframes) if timeframes else None
 
         def _run():
-            return scan_universe(resolved, market, groww_token=token, exchange=exchange)
+            return scan_universe(resolved, market, cfg=cfg, groww_token=token, exchange=exchange)
 
         results = await asyncio.to_thread(_run)
         return json_safe({"market": market, "results": results})
@@ -184,7 +190,7 @@ class CommandCenterService:
     async def fundamental_analysis(self, tickers: list[str]) -> dict[str, Any]:
         from app.market_pulse.fundamental_analysis_engine import analyze_tickers
 
-        results = await asyncio.to_thread(analyze_tickers, tickers[:10])
+        results = await asyncio.to_thread(analyze_tickers, tickers)
         return json_safe({"results": results})
 
     async def stock_upgrade_downgrade(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
@@ -192,7 +198,7 @@ class CommandCenterService:
 
         market, _ = await self._asset_ctx(asset_class)
         resolved = self.universe.resolve(asset_class, tickers)
-        results = await asyncio.to_thread(scan_tickers, resolved[:10], market)
+        results = await asyncio.to_thread(scan_tickers, resolved, market)
         return json_safe({"market": market, "results": results})
 
     async def investigation_strategy_catalog(self) -> dict[str, Any]:
@@ -300,10 +306,15 @@ class CommandCenterService:
         asset_class: str = "india",
         from_date: str | None = None,
         to_date: str | None = None,
+        include_fundamentals: bool = False,
+        include_option_chain: bool = False,
     ) -> dict[str, Any]:
         from datetime import date as date_cls, timedelta
 
-        from app.market_pulse.quick_analyzer_engine import analyze_quick_many
+        from app.market_pulse.quick_analyzer_engine import (
+            analyze_quick_many,
+            apply_combined_signals_to_quick_results,
+        )
 
         market, exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
@@ -313,11 +324,18 @@ class CommandCenterService:
         parsed_from = date_cls.fromisoformat(from_date) if from_date else parsed_to - timedelta(days=90)
 
         def _run():
-            return analyze_quick_many(
+            results = analyze_quick_many(
                 resolved, timeframes, market,
                 groww_token=token, exchange=exchange,
                 from_date=parsed_from, to_date=parsed_to,
             )
+            apply_combined_signals_to_quick_results(
+                results, market,
+                include_fundamentals=include_fundamentals,
+                include_option_chain=include_option_chain,
+                groww_token=token,
+            )
+            return results
 
         results = await asyncio.to_thread(_run)
         return json_safe({"market": market, "results": results})

@@ -15,7 +15,7 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert } from '../components/ui/Feedback'
-import { DataTable, Td, Th } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, Th, useSort } from '../components/ui/Table'
 
 const DEFAULT_INDICATORS = [{ type: 'rsi', period: 14 }, { type: 'ema', period: 20 }]
 const DEFAULT_ENTRY = [{ left: 'rsi_14', op: '<', right_type: 'value', right_val: '35' }]
@@ -69,6 +69,18 @@ export default function Alerts() {
 
   const config = configQuery.data as Record<string, unknown> | undefined
   const monitors = ((monitorsQuery.data as { monitors?: Record<string, unknown>[] })?.monitors) ?? []
+
+  const { sorted: sortedMonitors, sortKey: monitorsSortKey, sortDir: monitorsSortDir, handleSort: handleMonitorsSort } = useSort(
+    monitors,
+    {
+      name: (r) => String(r.name ?? ''),
+      ticker: (r) => String(r.ticker ?? ''),
+      timeframe: (r) => String(r.timeframe ?? ''),
+      last_signal: (r) => String(r.last_signal ?? ''),
+      poll_minutes: (r) => Number(r.poll_minutes),
+      enabled: (r) => (r.enabled ? 1 : 0),
+    },
+  )
 
   return (
     <div>
@@ -159,17 +171,17 @@ export default function Alerts() {
           <DataTable>
             <thead>
               <tr>
-                <Th>Name</Th>
-                <Th>Ticker</Th>
-                <Th>TF</Th>
-                <Th>Signal</Th>
-                <Th>Poll</Th>
-                <Th>Status</Th>
+                <SortableTh active={monitorsSortKey === 'name'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('name')}>Name</SortableTh>
+                <SortableTh active={monitorsSortKey === 'ticker'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('ticker')}>Ticker</SortableTh>
+                <SortableTh active={monitorsSortKey === 'timeframe'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('timeframe')}>TF</SortableTh>
+                <SortableTh active={monitorsSortKey === 'last_signal'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('last_signal')}>Signal</SortableTh>
+                <SortableTh active={monitorsSortKey === 'poll_minutes'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('poll_minutes')}>Poll</SortableTh>
+                <SortableTh active={monitorsSortKey === 'enabled'} direction={monitorsSortDir} onSort={() => handleMonitorsSort('enabled')}>Status</SortableTh>
                 <Th />
               </tr>
             </thead>
             <tbody>
-              {monitors.map((m) => (
+              {sortedMonitors.map((m) => (
                 <tr key={Number(m.id)}>
                   <Td>{String(m.name)}</Td>
                   <Td className="font-medium">{String(m.ticker)}</Td>

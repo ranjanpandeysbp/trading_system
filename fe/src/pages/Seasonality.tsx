@@ -9,7 +9,7 @@ import { Button } from '../components/ui/Button'
 import { FormField, Input, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { StatCard } from '../components/ui/StatCard'
-import { DataTable, Td, Th } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 function parseTickers(raw: string) {
   return raw.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
@@ -93,6 +93,19 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
   const signals = (item.signals as Record<string, unknown>[]) ?? []
   const bullish = signals.filter((s) => String(s.Signal ?? s.signal).toUpperCase().includes('BUY'))
 
+  const { sorted: sortedStats, sortKey: statsSortKey, sortDir: statsSortDir, handleSort: handleStatsSort } = useSort(
+    stats,
+    {
+      month: (r) => String(r.MonthName ?? r.Month ?? ''),
+      avg_return: (r) => (r.AvgReturn != null ? Number(r.AvgReturn) : null),
+      win_rate: (r) => (r.WinRate != null ? Number(r.WinRate) : null),
+      signal: (r) => {
+        const sig = signals.find((s) => s.Month === r.Month)
+        return sig ? String(sig.Signal ?? sig.signal ?? '') : ''
+      },
+    },
+  )
+
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-white">{symbol}</h3>
@@ -106,14 +119,14 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
         <DataTable>
           <thead>
             <tr>
-              <Th>Month</Th>
-              <Th>Avg return %</Th>
-              <Th>Win rate %</Th>
-              <Th>Signal</Th>
+              <SortableTh active={statsSortKey === 'month'} direction={statsSortDir} onSort={() => handleStatsSort('month')}>Month</SortableTh>
+              <SortableTh active={statsSortKey === 'avg_return'} direction={statsSortDir} onSort={() => handleStatsSort('avg_return')}>Avg return %</SortableTh>
+              <SortableTh active={statsSortKey === 'win_rate'} direction={statsSortDir} onSort={() => handleStatsSort('win_rate')}>Win rate %</SortableTh>
+              <SortableTh active={statsSortKey === 'signal'} direction={statsSortDir} onSort={() => handleStatsSort('signal')}>Signal</SortableTh>
             </tr>
           </thead>
           <tbody>
-            {stats.map((row, i) => {
+            {sortedStats.map((row, i) => {
               const month = String(row.MonthName ?? row.Month ?? i + 1)
               const sig = signals.find((s) => s.Month === row.Month)
               return (

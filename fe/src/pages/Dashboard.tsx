@@ -6,7 +6,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { StatCard } from '../components/ui/StatCard'
 import { Card } from '../components/ui/Card'
 import { Loading } from '../components/ui/Feedback'
-import { DataTable, Th, Td } from '../components/ui/Table'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 const quickLinks = [
   {
@@ -46,6 +46,17 @@ const quickLinks = [
 export default function Dashboard() {
   const { data: account, isLoading: accLoading } = useQuery({ queryKey: ['account'], queryFn: getAccount })
   const { data: strategies } = useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
+
+  const { sorted: sortedPositions, sortKey: posSortKey, sortDir: posSortDir, handleSort: handlePosSort } = useSort(
+    account?.positions ?? [],
+    {
+      ticker: (r) => r.ticker,
+      quantity: (r) => r.quantity,
+      avg_price: (r) => r.avg_price,
+      ltp: (r) => r.ltp,
+      pnl: (r) => r.pnl,
+    },
+  )
 
   return (
     <div>
@@ -96,15 +107,15 @@ export default function Dashboard() {
           <DataTable>
             <thead>
               <tr>
-                <Th>Ticker</Th>
-                <Th>Qty</Th>
-                <Th>Avg</Th>
-                <Th>LTP</Th>
-                <Th>P&L</Th>
+                <SortableTh active={posSortKey === 'ticker'} direction={posSortDir} onSort={() => handlePosSort('ticker')}>Ticker</SortableTh>
+                <SortableTh active={posSortKey === 'quantity'} direction={posSortDir} onSort={() => handlePosSort('quantity')}>Qty</SortableTh>
+                <SortableTh active={posSortKey === 'avg_price'} direction={posSortDir} onSort={() => handlePosSort('avg_price')}>Avg</SortableTh>
+                <SortableTh active={posSortKey === 'ltp'} direction={posSortDir} onSort={() => handlePosSort('ltp')}>LTP</SortableTh>
+                <SortableTh active={posSortKey === 'pnl'} direction={posSortDir} onSort={() => handlePosSort('pnl')}>P&L</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {account.positions.map((p) => (
+              {sortedPositions.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-800/30">
                   <Td className="font-medium text-white">{p.ticker}</Td>
                   <Td>{p.quantity}</Td>

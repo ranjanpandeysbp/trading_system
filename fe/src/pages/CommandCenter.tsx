@@ -92,6 +92,8 @@ export default function CommandCenter() {
   const [qaTimeframes, setQaTimeframes] = useState('15m,1h,4h,1d')
   const [qaFromDate, setQaFromDate] = useState(() => isoDaysAgo(90))
   const [qaToDate, setQaToDate] = useState(() => isoDaysAgo(0))
+  const [qaIncludeFundamentals, setQaIncludeFundamentals] = useState(false)
+  const [qaIncludeOptionChain, setQaIncludeOptionChain] = useState(false)
 
   useQuery({ queryKey: ['cc-sections'], queryFn: fetchCommandCenterSections })
 
@@ -180,6 +182,8 @@ export default function CommandCenter() {
         return runQuickAnalyzer({
           tickers, timeframes: qaTfs, asset_class: assetClass,
           from_date: qaFromDate, to_date: qaToDate,
+          include_fundamentals: assetClass === 'india' && qaIncludeFundamentals,
+          include_option_chain: assetClass === 'india' && qaIncludeOptionChain,
         })
       }
 
@@ -195,9 +199,9 @@ export default function CommandCenter() {
         case 'investigation':
           return runTickerInvestigation({ tickers, asset_class: assetClass })
         case 'momentum':
-          return runMomentumScan({ tickers, asset_class: assetClass })
+          return runMomentumScan({ tickers, asset_class: assetClass, timeframes: durations })
         case 'ema_position':
-          return runEmaPositionScan({ tickers, asset_class: assetClass })
+          return runEmaPositionScan({ tickers, asset_class: assetClass, timeframes: durations })
         case 'fundamental_analysis':
           return runFundamentalAnalysis({ tickers, asset_class: assetClass })
         case 'stock_upgrade_downgrade':
@@ -434,7 +438,7 @@ export default function CommandCenter() {
             key={assetClass}
             assetClass={assetClass}
             single={tab === 'mega_analyser'}
-            showDurations={tab === 'buy_sell' || tab === 'mega_analyser'}
+            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position'}
             onChange={handlePickerChange}
           />
 
@@ -463,6 +467,27 @@ export default function CommandCenter() {
                   onChange={(e) => setQaToDate(e.target.value)}
                 />
               </FormField>
+            </div>
+          )}
+
+          {tab === 'quick_analyzer' && assetClass === 'india' && (
+            <div className="mt-4 flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={qaIncludeFundamentals}
+                  onChange={(e) => setQaIncludeFundamentals(e.target.checked)}
+                />
+                📚 Include Fundamental Analysis in trade setup &amp; confidence
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={qaIncludeOptionChain}
+                  onChange={(e) => setQaIncludeOptionChain(e.target.checked)}
+                />
+                ⛓️ Include Option Chain Analysis in trade setup &amp; confidence
+              </label>
             </div>
           )}
 

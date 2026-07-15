@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { DataTable, Th, Td } from '../ui/Table'
+import { DataTable, Td, SortableTh, useSort } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
@@ -23,6 +23,16 @@ export function SentimentScreenerPanel({ data }: { data: Row }) {
   const rows = (data.rows as Row[]) ?? []
   const errors = (data.errors as string[]) ?? []
   const [expanded, setExpanded] = useState<string | null>(null)
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows, {
+    ticker: (r) => String(r.ticker ?? ''),
+    timeframe: (r) => String(r.timeframe ?? ''),
+    score: (r) => Number(r.score ?? 0),
+    rating: (r) => String(r.rating ?? ''),
+    trade_signal: (r) => String(r.trade_signal ?? ''),
+    trade_confidence: (r) => (r.trade_confidence != null ? Number(r.trade_confidence) : null),
+    rsi: (r) => (r.rsi != null ? Number(r.rsi) : null),
+    sl_pct: (r) => (r.sl_pct != null ? Number(r.sl_pct) : null),
+  })
 
   if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   if (!rows.length) return <p className="text-sm text-slate-500">No results — add tickers and run scan.</p>
@@ -35,18 +45,18 @@ export function SentimentScreenerPanel({ data }: { data: Row }) {
       <DataTable>
         <thead>
           <tr>
-            <Th>Ticker</Th>
-            <Th>TF</Th>
-            <Th>Score</Th>
-            <Th>Rating</Th>
-            <Th>Signal</Th>
-            <Th>Conf</Th>
-            <Th>RSI</Th>
-            <Th>SL/TP %</Th>
+            <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+            <SortableTh active={sortKey === 'timeframe'} direction={sortDir} onSort={() => handleSort('timeframe')}>TF</SortableTh>
+            <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
+            <SortableTh active={sortKey === 'rating'} direction={sortDir} onSort={() => handleSort('rating')}>Rating</SortableTh>
+            <SortableTh active={sortKey === 'trade_signal'} direction={sortDir} onSort={() => handleSort('trade_signal')}>Signal</SortableTh>
+            <SortableTh active={sortKey === 'trade_confidence'} direction={sortDir} onSort={() => handleSort('trade_confidence')}>Conf</SortableTh>
+            <SortableTh active={sortKey === 'rsi'} direction={sortDir} onSort={() => handleSort('rsi')}>RSI</SortableTh>
+            <SortableTh active={sortKey === 'sl_pct'} direction={sortDir} onSort={() => handleSort('sl_pct')}>SL/TP %</SortableTh>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {sorted.map((r) => {
             const key = `${r.ticker}-${r.timeframe}`
             const score = Number(r.score ?? 0)
             return (
@@ -89,13 +99,20 @@ export function MtfScannerPanel({ data }: { data: Row }) {
   const tickers = Object.keys(results)
   const [selected, setSelected] = useState(tickers[0] ?? '')
 
-  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
-  if (!tickers.length) return <p className="text-sm text-slate-500">No MTF results.</p>
-
   const item = results[selected] as Row | undefined
   const confluence = item?.confluence as Row | undefined
   const setups = (item?.trade_setups as Row[]) ?? []
   const tfResults = (item?.timeframes as Record<string, Row>) ?? {}
+  const tfEntries = Object.entries(tfResults)
+  const { sorted: sortedTf, sortKey: tfSortKey, sortDir: tfSortDir, handleSort: handleTfSort } = useSort(tfEntries, {
+    tf: ([tf]) => tf,
+    score: ([, d]) => Number(d.score ?? 0),
+    bias: ([, d]) => String(d.bias ?? ''),
+    confidence: ([, d]) => Number(d.confidence ?? 0),
+  })
+
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
+  if (!tickers.length) return <p className="text-sm text-slate-500">No MTF results.</p>
 
   return (
     <div className="space-y-4">
@@ -125,9 +142,16 @@ export function MtfScannerPanel({ data }: { data: Row }) {
         <div>
           <h4 className="mb-2 text-sm font-medium text-slate-400">Per-timeframe components</h4>
           <DataTable>
-            <thead><tr><Th>TF</Th><Th>Score</Th><Th>Bias</Th><Th>Conf</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={tfSortKey === 'tf'} direction={tfSortDir} onSort={() => handleTfSort('tf')}>TF</SortableTh>
+                <SortableTh active={tfSortKey === 'score'} direction={tfSortDir} onSort={() => handleTfSort('score')}>Score</SortableTh>
+                <SortableTh active={tfSortKey === 'bias'} direction={tfSortDir} onSort={() => handleTfSort('bias')}>Bias</SortableTh>
+                <SortableTh active={tfSortKey === 'confidence'} direction={tfSortDir} onSort={() => handleTfSort('confidence')}>Conf</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {Object.entries(tfResults).map(([tf, tfData]) => (
+              {sortedTf.map(([tf, tfData]) => (
                 <tr key={tf}>
                   <Td>{tf}</Td>
                   <Td className={scoreClass(Number(tfData.score))}>{fmtPct(Number(tfData.score))}</Td>
@@ -223,22 +247,85 @@ export function TickerInvestigationPanel({
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
 
+  const r = results[idx] ?? results[0]
+  const priceWindows = (r?.price_windows as Row[]) ?? []
+  const sr = r?.sr as Row | undefined
+  const srByTf = (sr?.by_tf as Record<string, Row>) ?? {}
+  const priceAction = r?.price_action as Row | undefined
+  const paByTf = (priceAction?.by_tf as Record<string, Row>) ?? {}
+  const strategies = (r?.strategies as Row[]) ?? []
+  const suggestedTrades = (r?.suggested_trades as Row[]) ?? []
+  const analystCalls = (r?.analyst_calls as Row[]) ?? []
+
+  const paByTfEntries = Object.entries(paByTf)
+  const { sorted: sortedPaByTf, sortKey: paTfSortKey, sortDir: paTfSortDir, handleSort: handlePaTfSort } = useSort(paByTfEntries, {
+    tf: ([tf]) => tf,
+    bias: ([, p]) => String(p.overall_bias ?? ''),
+    trend: ([, p]) => String(p.trend ?? ''),
+    rsi: ([, p]) => (p.rsi != null ? Number(p.rsi) : null),
+    ema_stack: ([, p]) => String(p.ema_stack ?? ''),
+    vwap: ([, p]) => String(p.vwap_position ?? ''),
+    rvol: ([, p]) => (p.volume_ratio != null ? Number(p.volume_ratio) : null),
+    verdict: ([, p]) => String(p.verdict ?? ''),
+  })
+
+  const { sorted: sortedPriceWindows, sortKey: pwSortKey, sortDir: pwSortDir, handleSort: handlePwSort } = useSort(priceWindows, {
+    window: (w) => String(w.window ?? ''),
+    change_pct: (w) => (w.change_pct != null ? Number(w.change_pct) : null),
+    rsi: (w) => (w.rsi != null ? Number(w.rsi) : null),
+    rsi_zone: (w) => String(w.rsi_zone ?? ''),
+  })
+
+  const srByTfEntries = Object.entries(srByTf)
+  const { sorted: sortedSrByTf, sortKey: srTfSortKey, sortDir: srTfSortDir, handleSort: handleSrTfSort } = useSort(srByTfEntries, {
+    tf: ([tf]) => tf,
+    support: ([, s]) => (s.support != null ? Number(s.support) : null),
+    resistance: ([, s]) => (s.resistance != null ? Number(s.resistance) : null),
+    breakout: ([, s]) => (s.breakout_chance_pct != null ? Number(s.breakout_chance_pct) : null),
+    breakdown: ([, s]) => (s.breakdown_chance_pct != null ? Number(s.breakdown_chance_pct) : null),
+    bias: ([, s]) => String(s.sr_bias ?? ''),
+  })
+
+  const analystCallsSlice = analystCalls.slice(0, 10)
+  const { sorted: sortedAnalystCalls, sortKey: acSortKey, sortDir: acSortDir, handleSort: handleAcSort } = useSort(analystCallsSlice, {
+    action: (c) => String(c.action ?? ''),
+    call_type: (c) => String(c.call_type ?? ''),
+    brokerage: (c) => String(c.brokerage ?? ''),
+    price_target: (c) => (c.price_target != null ? Number(c.price_target) : null),
+    title: (c) => String(c.title ?? ''),
+  })
+
+  const { sorted: sortedTrades, sortKey: tradeSortKey, sortDir: tradeSortDir, handleSort: handleTradeSort } = useSort(suggestedTrades, {
+    status: (t) => String(t.status ?? ''),
+    direction: (t) => String(t.direction ?? ''),
+    name: (t) => String(t.name ?? ''),
+    confidence_pct: (t) => (t.confidence_pct != null ? Number(t.confidence_pct) : null),
+    sl_pct: (t) => (t.sl_pct != null ? Number(t.sl_pct) : null),
+    tp_pct: (t) => (t.tp_pct != null ? Number(t.tp_pct) : null),
+    rr_ratio: (t) => (t.rr_ratio != null ? Number(t.rr_ratio) : null),
+    style: (t) => String(t.style ?? ''),
+    timeframe: (t) => String(t.timeframe ?? ''),
+  })
+
+  const strategiesSlice = strategies.slice(0, 12)
+  const { sorted: sortedStrategies, sortKey: stratSortKey, sortDir: stratSortDir, handleSort: handleStratSort } = useSort(strategiesSlice, {
+    flag: (s) => (s.take_trade ? 'TAKE' : s.forming ? 'FORMING' : 'watch'),
+    name: (s) => String(s.name ?? ''),
+    direction: (s) => String(s.direction ?? ''),
+    style: (s) => String(s.style ?? ''),
+    timeframe: (s) => String(s.timeframe ?? ''),
+    confidence_pct: (s) => (s.confidence_pct != null ? Number(s.confidence_pct) : null),
+    sl_pct: (s) => (s.sl_pct != null ? Number(s.sl_pct) : null),
+    tp_pct: (s) => (s.tp_pct != null ? Number(s.tp_pct) : null),
+  })
+
   if (data.error && !results.length) return <Alert type="error">{String(data.error)}</Alert>
   if (!results.length) return <p className="text-sm text-slate-500">No investigation results.</p>
 
-  const r = results[idx] ?? results[0]
   const news = (r.news as Row[]) ?? []
-  const priceWindows = (r.price_windows as Row[]) ?? []
-  const sr = r.sr as Row | undefined
   const srImmediate = (sr?.immediate as Row) ?? {}
-  const srByTf = (sr?.by_tf as Record<string, Row>) ?? {}
-  const priceAction = r.price_action as Row | undefined
   const paPrimary = (priceAction?.primary as Row) ?? undefined
-  const paByTf = (priceAction?.by_tf as Record<string, Row>) ?? {}
-  const strategies = (r.strategies as Row[]) ?? []
   const tradeSetup = r.trade_setup as Row | undefined
-  const suggestedTrades = (r.suggested_trades as Row[]) ?? []
-  const analystCalls = (r.analyst_calls as Row[]) ?? []
   const consensus = (r.analyst_consensus as Row) ?? {}
   const newsSentiment = r.news_sentiment as Row | undefined
   const analystSentiment = r.analyst_sentiment as Row | undefined
@@ -272,9 +359,20 @@ export function TickerInvestigationPanel({
             <details className="mt-2">
               <summary className="cursor-pointer text-xs text-slate-500">By timeframe ({Object.keys(paByTf).length})</summary>
               <DataTable minWidth={640}>
-                <thead><tr><Th>TF</Th><Th>Bias</Th><Th>Trend</Th><Th>RSI</Th><Th>EMA stack</Th><Th>VWAP</Th><Th>RVOL</Th><Th>Verdict</Th></tr></thead>
+                <thead>
+                  <tr>
+                    <SortableTh active={paTfSortKey === 'tf'} direction={paTfSortDir} onSort={() => handlePaTfSort('tf')}>TF</SortableTh>
+                    <SortableTh active={paTfSortKey === 'bias'} direction={paTfSortDir} onSort={() => handlePaTfSort('bias')}>Bias</SortableTh>
+                    <SortableTh active={paTfSortKey === 'trend'} direction={paTfSortDir} onSort={() => handlePaTfSort('trend')}>Trend</SortableTh>
+                    <SortableTh active={paTfSortKey === 'rsi'} direction={paTfSortDir} onSort={() => handlePaTfSort('rsi')}>RSI</SortableTh>
+                    <SortableTh active={paTfSortKey === 'ema_stack'} direction={paTfSortDir} onSort={() => handlePaTfSort('ema_stack')}>EMA stack</SortableTh>
+                    <SortableTh active={paTfSortKey === 'vwap'} direction={paTfSortDir} onSort={() => handlePaTfSort('vwap')}>VWAP</SortableTh>
+                    <SortableTh active={paTfSortKey === 'rvol'} direction={paTfSortDir} onSort={() => handlePaTfSort('rvol')}>RVOL</SortableTh>
+                    <SortableTh active={paTfSortKey === 'verdict'} direction={paTfSortDir} onSort={() => handlePaTfSort('verdict')}>Verdict</SortableTh>
+                  </tr>
+                </thead>
                 <tbody>
-                  {Object.entries(paByTf).map(([tf, p]) => (
+                  {sortedPaByTf.map(([tf, p]) => (
                     <tr key={tf}>
                       <Td>{tf}</Td>
                       <Td className={verdictTone(String(p.overall_bias ?? ''))}>{String(p.overall_bias ?? '—')}</Td>
@@ -318,9 +416,16 @@ export function TickerInvestigationPanel({
         <div>
           <h4 className="mb-2 text-sm font-medium text-slate-400">Price windows</h4>
           <DataTable>
-            <thead><tr><Th>Window</Th><Th>Change</Th><Th>RSI</Th><Th>Zone</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={pwSortKey === 'window'} direction={pwSortDir} onSort={() => handlePwSort('window')}>Window</SortableTh>
+                <SortableTh active={pwSortKey === 'change_pct'} direction={pwSortDir} onSort={() => handlePwSort('change_pct')}>Change</SortableTh>
+                <SortableTh active={pwSortKey === 'rsi'} direction={pwSortDir} onSort={() => handlePwSort('rsi')}>RSI</SortableTh>
+                <SortableTh active={pwSortKey === 'rsi_zone'} direction={pwSortDir} onSort={() => handlePwSort('rsi_zone')}>Zone</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {priceWindows.map((w) => (
+              {sortedPriceWindows.map((w) => (
                 <tr key={String(w.window)}>
                   <Td>{String(w.window)} ({String(w.timeframe)})</Td>
                   <Td className={Number(w.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
@@ -350,9 +455,18 @@ export function TickerInvestigationPanel({
             <details className="mt-2">
               <summary className="cursor-pointer text-xs text-slate-500">By timeframe ({Object.keys(srByTf).length})</summary>
               <DataTable minWidth={640}>
-                <thead><tr><Th>TF</Th><Th>Support</Th><Th>Resistance</Th><Th>Breakout %</Th><Th>Breakdown %</Th><Th>Bias</Th></tr></thead>
+                <thead>
+                  <tr>
+                    <SortableTh active={srTfSortKey === 'tf'} direction={srTfSortDir} onSort={() => handleSrTfSort('tf')}>TF</SortableTh>
+                    <SortableTh active={srTfSortKey === 'support'} direction={srTfSortDir} onSort={() => handleSrTfSort('support')}>Support</SortableTh>
+                    <SortableTh active={srTfSortKey === 'resistance'} direction={srTfSortDir} onSort={() => handleSrTfSort('resistance')}>Resistance</SortableTh>
+                    <SortableTh active={srTfSortKey === 'breakout'} direction={srTfSortDir} onSort={() => handleSrTfSort('breakout')}>Breakout %</SortableTh>
+                    <SortableTh active={srTfSortKey === 'breakdown'} direction={srTfSortDir} onSort={() => handleSrTfSort('breakdown')}>Breakdown %</SortableTh>
+                    <SortableTh active={srTfSortKey === 'bias'} direction={srTfSortDir} onSort={() => handleSrTfSort('bias')}>Bias</SortableTh>
+                  </tr>
+                </thead>
                 <tbody>
-                  {Object.entries(srByTf).map(([tf, s]) => (
+                  {sortedSrByTf.map(([tf, s]) => (
                     <tr key={tf}>
                       <Td>{tf}</Td>
                       <Td>{fmtN(s.support, 4)}</Td>
@@ -380,9 +494,17 @@ export function TickerInvestigationPanel({
           </div>
           {analystCalls.length > 0 && (
             <DataTable minWidth={640}>
-              <thead><tr><Th>Action</Th><Th>Type</Th><Th>Brokerage</Th><Th>Target</Th><Th>Title</Th></tr></thead>
+              <thead>
+                <tr>
+                  <SortableTh active={acSortKey === 'action'} direction={acSortDir} onSort={() => handleAcSort('action')}>Action</SortableTh>
+                  <SortableTh active={acSortKey === 'call_type'} direction={acSortDir} onSort={() => handleAcSort('call_type')}>Type</SortableTh>
+                  <SortableTh active={acSortKey === 'brokerage'} direction={acSortDir} onSort={() => handleAcSort('brokerage')}>Brokerage</SortableTh>
+                  <SortableTh active={acSortKey === 'price_target'} direction={acSortDir} onSort={() => handleAcSort('price_target')}>Target</SortableTh>
+                  <SortableTh active={acSortKey === 'title'} direction={acSortDir} onSort={() => handleAcSort('title')}>Title</SortableTh>
+                </tr>
+              </thead>
               <tbody>
-                {analystCalls.slice(0, 10).map((c, i) => (
+                {sortedAnalystCalls.map((c, i) => (
                   <tr key={i}>
                     <Td className={verdictTone(String(c.action ?? ''))}>{String(c.action ?? '—')}</Td>
                     <Td>{String(c.call_type ?? '—')}</Td>
@@ -407,9 +529,21 @@ export function TickerInvestigationPanel({
             </p>
           )}
           <DataTable minWidth={800}>
-            <thead><tr><Th>Status</Th><Th>Direction</Th><Th>Name</Th><Th>Conf %</Th><Th>SL %</Th><Th>TP %</Th><Th>R:R</Th><Th>Style</Th><Th>TF</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={tradeSortKey === 'status'} direction={tradeSortDir} onSort={() => handleTradeSort('status')}>Status</SortableTh>
+                <SortableTh active={tradeSortKey === 'direction'} direction={tradeSortDir} onSort={() => handleTradeSort('direction')}>Direction</SortableTh>
+                <SortableTh active={tradeSortKey === 'name'} direction={tradeSortDir} onSort={() => handleTradeSort('name')}>Name</SortableTh>
+                <SortableTh active={tradeSortKey === 'confidence_pct'} direction={tradeSortDir} onSort={() => handleTradeSort('confidence_pct')}>Conf %</SortableTh>
+                <SortableTh active={tradeSortKey === 'sl_pct'} direction={tradeSortDir} onSort={() => handleTradeSort('sl_pct')}>SL %</SortableTh>
+                <SortableTh active={tradeSortKey === 'tp_pct'} direction={tradeSortDir} onSort={() => handleTradeSort('tp_pct')}>TP %</SortableTh>
+                <SortableTh active={tradeSortKey === 'rr_ratio'} direction={tradeSortDir} onSort={() => handleTradeSort('rr_ratio')}>R:R</SortableTh>
+                <SortableTh active={tradeSortKey === 'style'} direction={tradeSortDir} onSort={() => handleTradeSort('style')}>Style</SortableTh>
+                <SortableTh active={tradeSortKey === 'timeframe'} direction={tradeSortDir} onSort={() => handleTradeSort('timeframe')}>TF</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {suggestedTrades.map((t, i) => (
+              {sortedTrades.map((t, i) => (
                 <tr key={i}>
                   <Td className={verdictTone(String(t.status ?? ''))}>{String(t.status ?? '—')}</Td>
                   <Td className={verdictTone(String(t.direction ?? ''))}>{String(t.direction ?? '—')}</Td>
@@ -454,9 +588,20 @@ export function TickerInvestigationPanel({
         <div>
           <h4 className="mb-2 text-sm font-medium text-slate-400">Ranked setups ({strategies.length})</h4>
           <DataTable minWidth={800}>
-            <thead><tr><Th>Flag</Th><Th>Name</Th><Th>Direction</Th><Th>Style</Th><Th>TF</Th><Th>Conf %</Th><Th>SL %</Th><Th>TP %</Th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh active={stratSortKey === 'flag'} direction={stratSortDir} onSort={() => handleStratSort('flag')}>Flag</SortableTh>
+                <SortableTh active={stratSortKey === 'name'} direction={stratSortDir} onSort={() => handleStratSort('name')}>Name</SortableTh>
+                <SortableTh active={stratSortKey === 'direction'} direction={stratSortDir} onSort={() => handleStratSort('direction')}>Direction</SortableTh>
+                <SortableTh active={stratSortKey === 'style'} direction={stratSortDir} onSort={() => handleStratSort('style')}>Style</SortableTh>
+                <SortableTh active={stratSortKey === 'timeframe'} direction={stratSortDir} onSort={() => handleStratSort('timeframe')}>TF</SortableTh>
+                <SortableTh active={stratSortKey === 'confidence_pct'} direction={stratSortDir} onSort={() => handleStratSort('confidence_pct')}>Conf %</SortableTh>
+                <SortableTh active={stratSortKey === 'sl_pct'} direction={stratSortDir} onSort={() => handleStratSort('sl_pct')}>SL %</SortableTh>
+                <SortableTh active={stratSortKey === 'tp_pct'} direction={stratSortDir} onSort={() => handleStratSort('tp_pct')}>TP %</SortableTh>
+              </tr>
+            </thead>
             <tbody>
-              {strategies.slice(0, 12).map((s, i) => (
+              {sortedStrategies.map((s, i) => (
                 <tr key={i}>
                   <Td>{s.take_trade ? 'TAKE' : s.forming ? 'FORMING' : 'watch'}</Td>
                   <Td className="max-w-xs truncate">{String(s.name ?? `Strategy ${i + 1}`)}</Td>

@@ -65,16 +65,38 @@ class WatchlistService:
         wl = await self._get_owned(user_id, watchlist_id)
         if not wl:
             raise ValueError("Watchlist not found.")
+        ticker = ticker.upper().strip()
+        if added_price is None:
+            added_price = await self._fetch_ltp(wl.market_type, ticker)
         item = WatchlistItem(
             watchlist_id=watchlist_id,
-            ticker=ticker.upper().strip(),
-            display_name=display_name or ticker.upper().strip(),
+            ticker=ticker,
+            display_name=display_name or ticker,
             added_price=added_price,
         )
         self.db.add(item)
         await self.db.commit()
         await self.db.refresh(item)
         return self._item_dict(item)
+
+    async def _fetch_ltp(self, market_type: str, ticker: str) -> float | None:
+        """Best-effort live LTP lookup — used to snapshot `added_price` when a
+        ticker is added without one explicitly supplied."""
+        market_label = _MARKET_LABELS.get(market_type, _MARKET_LABELS["india"])
+        token = await self.settings.get_groww_token() or ""
+        exchange = await self.settings.get_groww_exchange()
+
+        def _fetch() -> float | None:
+            from backtesting.data_fetcher import get_live_quote
+
+            try:
+                quote = get_live_quote(ticker, market_label, exchange=exchange, groww_token=token) or {}
+            except Exception:
+                quote = {}
+            ltp = quote.get("ltp")
+            return float(ltp) if ltp is not None else None
+
+        return await asyncio.to_thread(_fetch)
 
     async def remove_item(self, user_id: int, watchlist_id: int, item_id: int) -> bool:
         wl = await self._get_owned(user_id, watchlist_id)

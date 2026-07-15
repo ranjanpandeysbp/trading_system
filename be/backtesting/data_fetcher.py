@@ -192,7 +192,21 @@ def _live_quote_yfinance(yf_sym: str) -> dict:
 def _live_quote_india(symbol: str, exchange: str) -> dict:
     quote = fetch_groww_live_quote(symbol, exchange)
     if quote and quote.get("price"):
-        return {"ltp": float(quote["price"]), "change_pct": None}
+        ltp = float(quote["price"])
+        change_pct = None
+        try:
+            import yfinance as yf
+
+            fast = yf.Ticker(stock_symbol_to_yf(symbol)).fast_info
+            try:
+                prev_close = fast["previousClose"]
+            except Exception:
+                prev_close = getattr(fast, "previous_close", None)
+            if prev_close:
+                change_pct = (ltp - float(prev_close)) / float(prev_close) * 100
+        except Exception:
+            logger.debug("prevClose lookup failed for %s", symbol, exc_info=True)
+        return {"ltp": ltp, "change_pct": change_pct}
     return _live_quote_yfinance(stock_symbol_to_yf(symbol))
 
 
