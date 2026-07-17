@@ -39,6 +39,7 @@ __all__ = [
     "analyze_divergence_one",
     "analyze_stop_hunt_one",
     "analyze_take_profit_one",
+    "analyze_real_bottom_one",
 ]
 
 BUCKET_ORDER = ["Extended Overbought", "Overbought", "Neutral", "Oversold", "Extended Oversold"]
@@ -525,3 +526,15 @@ def analyze_take_profit_one(
     from app.market_pulse.take_profit_engine import analyze_ticker as take_profit_analyze_ticker
 
     return take_profit_analyze_ticker(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)
+
+
+def analyze_real_bottom_one(
+    ticker: str, timeframe: str, market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
+    """Real Bottom: the 5-step mechanical sequence (absorption → retest → trap →
+    displacement → entry) for identifying genuine market bottoms vs fake ones,
+    anchored on smc_liquidity_engine sweep/grab/FVG detection and a bullish
+    trigger-candle confirmation for the final entry."""
+    from app.market_pulse.real_bottom_engine import analyze_ticker as real_bottom_analyze_ticker
+
+    return real_bottom_analyze_ticker(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)

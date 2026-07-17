@@ -296,6 +296,19 @@ class CommandCenterService:
         )
         return json_safe(result)
 
+    async def trade_setup_real_bottom(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_real_bottom_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_real_bottom_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
     async def take_profit(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
     ) -> dict[str, Any]:

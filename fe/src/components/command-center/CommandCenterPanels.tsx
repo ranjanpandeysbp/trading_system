@@ -9,6 +9,7 @@ import {
   runQuickAnalyzer,
   runTradeSetupDivergence,
   runTradeSetupPatterns,
+  runTradeSetupRealBottom,
   runTradeSetupScalping,
   runTradeSetupSmartMoney,
   runTradeSetupStopHunt,
@@ -145,6 +146,14 @@ const HUNT_STATUS_BADGE: Record<string, string> = {
   ACTIVE_SWEEP: '🎣 Active Sweep Detected',
   HIGH_RISK: '⚠️ High Hunt-Risk Zone',
   LOW_RISK: '🟢 Low Hunt-Risk',
+}
+
+const REAL_BOTTOM_STATUS_BADGE: Record<string, string> = {
+  CONFIRMED_ENTRY: '🟢 Confirmed — Entry Zone Live',
+  PENDING_ENTRY: '🟡 Pending — Awaiting Pullback',
+  TRAP_CONFIRMED: '🟠 Trap Confirmed — Awaiting Displacement',
+  TRAP_UNCONFIRMED: '🔵 Trap Fired — Absorption/Retest Unconfirmed',
+  NO_SETUP: '⚪ No Setup',
 }
 
 function StopTierRow({ label, tier }: { label: string; tier: Row | undefined }) {
@@ -1117,13 +1126,13 @@ function isoDaysAgo(days: number): string {
 
 type DrillCheck =
   | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
-  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
 
 export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
   const isIndia = assetClass === 'india'
   const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
     momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,
-    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
+    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
   })
   const [ran, setRan] = useState(false)
 
@@ -1137,6 +1146,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const divMut = useMutation({ mutationFn: () => runTradeSetupDivergence({ ticker, asset_class: assetClass, timeframe }) })
   const stopHuntMut = useMutation({ mutationFn: () => runTradeSetupStopHunt({ ticker, asset_class: assetClass, timeframe }) })
   const takeProfitMut = useMutation({ mutationFn: () => runTradeSetupTakeProfit({ ticker, asset_class: assetClass, timeframe }) })
+  const realBottomMut = useMutation({ mutationFn: () => runTradeSetupRealBottom({ ticker, asset_class: assetClass, timeframe }) })
   const udMut = useMutation({ mutationFn: () => runUpgradeDowngradeScan({ tickers: [ticker], asset_class: assetClass }) })
   const faMut = useMutation({ mutationFn: () => runFundamentalAnalysis({ tickers: [ticker], asset_class: assetClass }) })
   const ocMut = useMutation({ mutationFn: () => runOptionChain({ symbol: ticker, is_index: false }) })
@@ -1155,6 +1165,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
     if (checked.divergence) divMut.mutate()
     if (checked.stop_hunt) stopHuntMut.mutate()
     if (checked.take_profit) takeProfitMut.mutate()
+    if (checked.real_bottom) realBottomMut.mutate()
     if (checked.upgrade_downgrade) udMut.mutate()
     if (checked.fundamentals && isIndia) faMut.mutate()
     if (checked.option_chain && isIndia) ocMut.mutate()
@@ -1196,6 +1207,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const divRes = divMut.data as Row | undefined
   const stopHuntRes = stopHuntMut.data as Row | undefined
   const takeProfitRes = takeProfitMut.data as Row | undefined
+  const realBottomRes = realBottomMut.data as Row | undefined
 
   const drillAiData: Row = { ticker, timeframe, asset_class: assetClass }
   if (checked.momentum && m) drillAiData.momentum = m
@@ -1209,6 +1221,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   if (checked.divergence && divRes) drillAiData.divergence = divRes
   if (checked.stop_hunt && stopHuntRes) drillAiData.stop_hunt = stopHuntRes
   if (checked.take_profit && takeProfitRes) drillAiData.take_profit = takeProfitRes
+  if (checked.real_bottom && realBottomRes) drillAiData.real_bottom = realBottomRes
   if (checked.upgrade_downgrade && ud) drillAiData.upgrade_downgrade = ud
   if (checked.fundamentals && fa) drillAiData.fundamentals = fa
   if (checked.option_chain && ocSignal) drillAiData.option_chain = { signal: ocSignal, chain: ocChain }
@@ -1249,6 +1262,9 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.take_profit} onChange={() => toggle('take_profit')} />🎯 Take Profit Targets
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.real_bottom} onChange={() => toggle('real_bottom')} />🔻 Real Bottom
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.upgrade_downgrade} onChange={() => toggle('upgrade_downgrade')} />🏷️ Stock Upgrade Downgrade
@@ -1486,6 +1502,40 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                   {((takeProfitRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
                   <TakeProfitScenario label="If LONG" targets={takeProfitRes.long_targets as Row} />
                   <TakeProfitScenario label="If SHORT" targets={takeProfitRes.short_targets as Row} />
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.real_bottom && (
+            realBottomMut.isPending ? <p className="text-xs text-slate-500">Checking the real-bottom sequence…</p> :
+            realBottomMut.isError ? <p className="text-xs text-rose-400">Real Bottom failed: {apiErrorMessage(realBottomMut.error)}</p> :
+            realBottomRes ? (
+              realBottomRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(realBottomRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">🔻 Real Bottom — Absorption → Retest → Trap → Displacement → Entry</p>
+                  <p className="text-xs text-slate-400">
+                    {REAL_BOTTOM_STATUS_BADGE[String(realBottomRes.status ?? 'NO_SETUP')] ?? String(realBottomRes.status ?? '—')}
+                    {realBottomRes.atr != null ? ` · ATR ${fmtNum(realBottomRes.atr, 4)}` : ''}
+                  </p>
+                  {((realBottomRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  {realBottomRes.entry_zone != null && (
+                    <p className="text-xs text-slate-400">
+                      Entry zone: <strong>{fmtNum((realBottomRes.entry_zone as Row).bottom, 4)}–{fmtNum((realBottomRes.entry_zone as Row).top, 4)}</strong>
+                    </p>
+                  )}
+                  {realBottomRes.stop_loss != null && (
+                    <p className="text-xs text-slate-400">
+                      Stop loss: <strong>{fmtNum((realBottomRes.stop_loss as Row).price, 4)}</strong> ({fmtNum((realBottomRes.stop_loss as Row).pct, 2)}%)
+                    </p>
+                  )}
+                  {realBottomRes.target != null && (
+                    <p className="text-xs text-slate-400">
+                      Target: <strong>{fmtNum((realBottomRes.target as Row).price, 4)}</strong> ({fmtNum((realBottomRes.target as Row).pct, 2)}%, {fmtNum((realBottomRes.target as Row).touches, 0)}x touched)
+                    </p>
+                  )}
                 </div>
               )
             ) : null

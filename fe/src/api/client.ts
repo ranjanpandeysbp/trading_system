@@ -513,6 +513,9 @@ export const runTradeSetupTakeProfit = (payload: TradeSetupDrillPayload) =>
 export const runTakeProfit = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/take-profit', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runTradeSetupRealBottom = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/real-bottom', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runTakeTrade = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/take-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
