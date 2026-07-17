@@ -576,7 +576,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

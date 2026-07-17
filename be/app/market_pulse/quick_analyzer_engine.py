@@ -563,8 +563,16 @@ def classify_quick_setup(
         direction = "NEUTRAL"
 
     confidence = round(min(95.0, max(30.0, 50.0 + abs(score) * 12.0)), 1)
+    breakout_up_pct = breakout_down_pct = None
     if direction == "NEUTRAL":
         confidence = round(min(confidence, 55.0), 1)
+        # No clean directional edge, but the underlying score still leans one way —
+        # surface that lean as a breakout-odds % instead of just "NEUTRAL".
+        up_pct = 50.0 + (score / _DIRECTION_THRESHOLD) * 40.0
+        up_pct = max(10.0, min(90.0, up_pct))
+        breakout_up_pct = round(up_pct, 1)
+        breakout_down_pct = round(100.0 - up_pct, 1)
+        reasons.insert(0, f"⚖️ Breakout lean: {breakout_up_pct:.0f}% chance of breaking UP vs {breakout_down_pct:.0f}% DOWN")
 
     sl_pct = tp_pct = None
     if direction in ("LONG", "SHORT") and entry_snapshot:
@@ -581,6 +589,8 @@ def classify_quick_setup(
         "score": round(score, 2),
         "sl_pct": sl_pct,
         "tp_pct": tp_pct,
+        "breakout_up_pct": breakout_up_pct,
+        "breakout_down_pct": breakout_down_pct,
         "ema_bullish": ema_bull, "ema_bearish": ema_bear, "ema_total": ema_total,
         "indicator_bullish": ind_bull, "indicator_bearish": ind_bear, "indicator_total": ind_total,
         "reasons": reasons,

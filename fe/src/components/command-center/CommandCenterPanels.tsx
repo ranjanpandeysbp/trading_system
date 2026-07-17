@@ -17,6 +17,7 @@ import {
   runTradeSetupTimeSeries,
   runUpgradeDowngradeScan,
 } from '../../api/client'
+import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
 import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysisPanels'
 import { Alert } from '../ui/Feedback'
@@ -845,6 +846,7 @@ function TakeTradePanel({ data }: { data: Row }) {
   const perTf = (r.per_tf as Record<string, Row>) ?? {}
   const tfEntries = Object.entries(perTf)
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+  const takeTradeAiContext = tfEntries.length ? buildAskContext(`Take Trade · ${String(r.ticker ?? '')}`, r) : ''
 
   return (
     <div className="space-y-4">
@@ -905,6 +907,10 @@ function TakeTradePanel({ data }: { data: Row }) {
             )
           })}
         </div>
+      )}
+
+      {takeTradeAiContext && (
+        <AskAIPanel context={takeTradeAiContext} section={`command-center/take_trade/${String(r.ticker ?? '')}`} />
       )}
     </div>
   )
@@ -1191,6 +1197,23 @@ function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string
   const stopHuntRes = stopHuntMut.data as Row | undefined
   const takeProfitRes = takeProfitMut.data as Row | undefined
 
+  const drillAiData: Row = { ticker, timeframe, asset_class: assetClass }
+  if (checked.momentum && m) drillAiData.momentum = m
+  if (checked.volume && mTf) drillAiData.volume = mTf
+  if (checked.quick_analyzer && qa) drillAiData.quick_analyzer = qa
+  if (checked.patterns && patData) drillAiData.patterns = patData
+  if (checked.smart_money && smCombo) drillAiData.smart_money = smCombo
+  if (checked.scalping && scalpCombo) drillAiData.scalping = scalpCombo
+  if (checked.support_resistance && srData) drillAiData.support_resistance = srData
+  if (checked.time_series && tsCombo) drillAiData.time_series = tsCombo
+  if (checked.divergence && divRes) drillAiData.divergence = divRes
+  if (checked.stop_hunt && stopHuntRes) drillAiData.stop_hunt = stopHuntRes
+  if (checked.take_profit && takeProfitRes) drillAiData.take_profit = takeProfitRes
+  if (checked.upgrade_downgrade && ud) drillAiData.upgrade_downgrade = ud
+  if (checked.fundamentals && fa) drillAiData.fundamentals = fa
+  if (checked.option_chain && ocSignal) drillAiData.option_chain = { signal: ocSignal, chain: ocChain }
+  const drillAiContext = ran && Object.keys(drillAiData).length > 3 ? buildAskContext(`Trade Setup · ${ticker} · ${timeframe}`, drillAiData) : ''
+
   return (
     <div className="space-y-3 border-t border-slate-800/60 pt-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -1272,7 +1295,7 @@ function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string
                       Volume vs 20-bar Avg: <strong>{vpa.ratioStr}</strong> · Participation: <strong>{vpa.tier}</strong> · Trend Context: <strong>{vpa.trend} · {vpa.momentumChange}</strong>
                     </p>
                     <p className="text-xs text-slate-500">{mdBold(vpa.read)}</p>
-                    {Boolean(mTf.is_consolidating) && mTf.breakout_up_pct != null && (
+                    {mTf.breakout_up_pct != null && (
                       <p className="text-xs text-amber-400">
                         ⚖️ Breakout lean: <strong>{fmtNum(mTf.breakout_up_pct, 0)}% chance of breaking UP</strong> vs <strong>{fmtNum(mTf.breakout_down_pct, 0)}% DOWN</strong>
                       </p>
@@ -1292,7 +1315,12 @@ function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string
               <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
                 <p><strong>⚡ Quick Analyzer:</strong> Setup <span className={verdictClass(String(qaSetup.direction ?? ''))}>{String(qaSetup.direction ?? '—')}</span> · {fmtNum(qaSetup.confidence_pct, 0)}% confidence
                   {qaSetup.sl_pct != null ? ` · SL ${fmtNum(qaSetup.sl_pct, 2)}% / TP ${fmtNum(qaSetup.tp_pct, 2)}%` : ''}</p>
-                {((qaSetup.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
+                {qaSetup.breakout_up_pct != null && (
+                  <p className="text-xs text-amber-400">
+                    ⚖️ Breakout lean: <strong>{fmtNum(qaSetup.breakout_up_pct, 0)}% chance of breaking UP</strong> vs <strong>{fmtNum(qaSetup.breakout_down_pct, 0)}% DOWN</strong>
+                  </p>
+                )}
+                {((qaSetup.reasons as string[]) ?? []).filter((rr) => !rr.startsWith('⚖️ Breakout lean')).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
               </div>
             ) : null
           )}
@@ -1501,6 +1529,10 @@ function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string
                 {((ocSignal.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
               </div>
             ) : ocMut.isSuccess ? <p className="text-xs text-slate-500">Could not fetch option chain — no listed F&amp;O contracts, or NSE is rate-limiting.</p> : null
+          )}
+
+          {drillAiContext && (
+            <AskAIPanel context={drillAiContext} section={`command-center/trade_setup/${ticker}`} className="mt-2" />
           )}
         </div>
       )}

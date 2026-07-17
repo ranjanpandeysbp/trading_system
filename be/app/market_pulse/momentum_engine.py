@@ -149,7 +149,12 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
     trend = _trend_direction(row)
     strength = _strength_label(adx)
     consolidating = _is_consolidating(work, adx)
-    if consolidating:
+    # A "FLAT" EMA-stack read (no BB-width squeeze, just no clean directional
+    # stack) is functionally the same no-clear-direction case as a BB-width
+    # CONSOLIDATING read — both should get the same breakout-lean odds below
+    # rather than leaving FLAT with no probability at all.
+    no_clear_direction = consolidating or trend == "FLAT"
+    if no_clear_direction:
         trend = "CONSOLIDATING"
 
     adx_delta = adx - adx_prior if not (pd.isna(adx) or pd.isna(adx_prior)) else 0.0
@@ -172,7 +177,7 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
     breakout_up_pct = breakout_down_pct = None
     confidence_continue_pct = None
 
-    if consolidating:
+    if no_clear_direction:
         bb_upper = float(row.get("bb_upper_20_2.0", np.nan))
         bb_lower = float(row.get("bb_lower_20_2.0", np.nan))
         pos = 0.5
@@ -219,10 +224,10 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
 
     # Fresh support/resistance break on a trending (non-consolidating) bar — flags when
     # price has just closed beyond its prior N-bar range, and scores how strongly that
-    # break is backed by trend strength, volume, and momentum. Consolidating bars already
-    # get their own range-resolution odds above, so this only fires outside that case.
-    breakout_event = "RANGE" if consolidating else "NONE"
-    if not consolidating:
+    # break is backed by trend strength, volume, and momentum. Consolidating/flat bars
+    # already get their own range-resolution odds above, so this only fires outside that case.
+    breakout_event = "RANGE" if no_clear_direction else "NONE"
+    if not no_clear_direction:
         prior_res = float(row.get("prior_res", np.nan))
         prior_sup = float(row.get("prior_sup", np.nan))
         breaking_resistance = not pd.isna(prior_res) and price > prior_res
