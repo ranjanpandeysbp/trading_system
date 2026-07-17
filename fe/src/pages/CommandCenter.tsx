@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Rocket, Search, Shuffle, Sparkles, Sun, Target, TrendingUp, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Rocket, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -26,6 +26,7 @@ import {
   runOptionChain,
   runPatterns,
   runQuickAnalyzer,
+  runRealBottom,
   runStopHunt,
   runTakeProfit,
   runTakeTrade,
@@ -60,6 +61,7 @@ const TABS = [
   { id: 'candlestick_chart_patterns', label: 'Candlestick & Chart Patterns', icon: CandlestickChart },
   { id: 'stop_hunt', label: 'Stoploss Hunting', icon: FishingHook },
   { id: 'take_profit', label: 'Take Profit Targets', icon: Crosshair },
+  { id: 'real_bottom', label: 'Real Bottom', icon: TrendingDown },
   { id: 'take_trade', label: 'Take Trade', icon: Rocket },
   { id: 'trade_setup', label: 'Trade Setup — Oversold/Overbought', icon: Target },
   { id: 'one_click_intraday', label: 'One-Click Intraday', icon: Zap },
@@ -236,6 +238,8 @@ export default function CommandCenter() {
           return runStopHunt({ tickers, asset_class: assetClass, timeframes: durations })
         case 'take_profit':
           return runTakeProfit({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'real_bottom':
+          return runRealBottom({ tickers, asset_class: assetClass, timeframes: durations })
         case 'take_trade':
           return runTakeTrade({ tickers, asset_class: assetClass, timeframes: durations })
         case 'ema_position':
@@ -490,7 +494,7 @@ export default function CommandCenter() {
             key={assetClass}
             assetClass={assetClass}
             single={tab === 'mega_analyser'}
-            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'take_trade'}
+            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'real_bottom' || tab === 'take_trade'}
             onChange={handlePickerChange}
           />
 

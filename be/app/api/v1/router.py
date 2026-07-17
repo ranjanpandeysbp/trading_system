@@ -834,6 +834,17 @@ async def command_center_trade_setup_real_bottom(
     )
 
 
+@router.post("/command-center/real-bottom")
+async def command_center_real_bottom(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).real_bottom(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
 @router.post("/command-center/take-profit")
 async def command_center_take_profit(
     payload: CommandCenterTradeSetupRequest,

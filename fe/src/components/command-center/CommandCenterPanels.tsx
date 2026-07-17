@@ -799,6 +799,118 @@ function TakeProfitPanel({ data }: { data: Row }) {
   )
 }
 
+const REAL_BOTTOM_STATUS_ORDER = ['CONFIRMED_ENTRY', 'PENDING_ENTRY', 'TRAP_CONFIRMED', 'TRAP_UNCONFIRMED', 'NO_SETUP']
+
+function RealBottomTickerRow({ res }: { res: Row }) {
+  const [open, setOpen] = useState(false)
+  const priceStr = res.price != null ? fmtNum(res.price, 4) : '—'
+  const entryZone = res.entry_zone as Row | undefined
+  const stopLoss = res.stop_loss as Row | undefined
+  const target = res.target as Row | undefined
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(res.ticker)}</span>
+        <span className="text-slate-500">· {priceStr}{res.atr != null ? ` · ATR ${fmtNum(res.atr, 4)}` : ''}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-3 py-2">
+          {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-300">Entry Zone</p>
+              {entryZone ? (
+                <p className="text-xs text-slate-400">{fmtNum(entryZone.bottom, 4)} – {fmtNum(entryZone.top, 4)}</p>
+              ) : (
+                <p className="text-xs text-slate-500">Not yet formed.</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-300">Stop-Loss</p>
+              {stopLoss ? (
+                <p className="text-xs text-slate-400">{fmtNum(stopLoss.price, 4)} ({fmtNum(stopLoss.pct, 2)}%) — below the trap low</p>
+              ) : (
+                <p className="text-xs text-slate-500">No trap detected yet.</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-300">Target</p>
+              {target ? (
+                <p className="text-xs text-slate-400">{fmtNum(target.price, 4)} ({fmtNum(target.pct, 2)}%) — next resistance</p>
+              ) : (
+                <p className="text-xs text-slate-500">No resistance level found.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RealBottomPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const timeframes = (data.timeframes as string[]) ?? []
+  const [tf, setTf] = useState(timeframes[0] ?? '')
+  const activeTf = timeframes.includes(tf) ? tf : timeframes[0] ?? ''
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  const tfResults = results.map((r) => {
+    const perTf = (r.per_tf as Record<string, Row>) ?? {}
+    return perTf[activeTf] ?? { ticker: r.ticker, error: 'No data for this timeframe.' }
+  })
+  const errored = tfResults.filter((r) => r.error != null)
+  const valid = tfResults.filter((r) => r.error == null)
+  const buckets: Record<string, Row[]> = { CONFIRMED_ENTRY: [], PENDING_ENTRY: [], TRAP_CONFIRMED: [], TRAP_UNCONFIRMED: [], NO_SETUP: [] }
+  for (const r of valid) {
+    const status = String(r.status ?? 'NO_SETUP')
+    ;(buckets[status] ?? buckets.NO_SETUP).push(r)
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">{results.length} ticker(s) analyzed across {timeframes.length} timeframe(s)</p>
+
+      <div className="flex flex-wrap gap-2">
+        {timeframes.map((t) => (
+          <Chip key={t} selected={activeTf === t} onClick={() => setTf(t)}>{t}</Chip>
+        ))}
+      </div>
+
+      {errored.length > 0 && (
+        <Alert type="error">
+          {errored.map((r) => `${String(r.ticker)}: ${String(r.error)}`).join(' · ')}
+        </Alert>
+      )}
+
+      <div className="grid gap-4">
+        {REAL_BOTTOM_STATUS_ORDER.map((status) => {
+          const items = buckets[status] ?? []
+          return (
+            <div key={status} className="min-w-0">
+              <p className="mb-2 text-sm font-semibold text-slate-300">
+                {REAL_BOTTOM_STATUS_BADGE[status] ?? status} — {items.length}
+              </p>
+              {items.length === 0 ? (
+                <p className="text-xs text-slate-500">None.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {items.map((r, i) => <RealBottomTickerRow key={i} res={r} />)}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function TakeTradeVotesTable({ votes }: { votes: Row[] }) {
   const { sorted, sortKey, sortDir, handleSort } = useSort(votes, {
     engine: (v) => String(v.engine ?? ''),
@@ -3369,6 +3481,8 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
       return <StopHuntPanel data={data} />
     case 'take_profit':
       return <TakeProfitPanel data={data} />
+    case 'real_bottom':
+      return <RealBottomPanel data={data} />
     case 'take_trade':
       return <TakeTradePanel data={data} />
     case 'ema_position':

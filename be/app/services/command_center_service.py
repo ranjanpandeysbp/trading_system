@@ -309,6 +309,21 @@ class CommandCenterService:
         )
         return json_safe(result)
 
+    async def real_bottom(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.real_bottom_engine import analyze_tickers_multi_tf as analyze_real_bottom_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_real_bottom_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
     async def take_profit(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
     ) -> dict[str, Any]:
