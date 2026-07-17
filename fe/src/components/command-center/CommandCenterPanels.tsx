@@ -1119,7 +1119,7 @@ type DrillCheck =
   | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
   | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
 
-function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
+export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
   const isIndia = assetClass === 'india'
   const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
     momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,

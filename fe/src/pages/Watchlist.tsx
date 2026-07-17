@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   addWatchlistItem,
   apiErrorMessage,
   createWatchlist,
   deleteWatchlist,
+  fetchTickerSuggestions,
   fetchWatchlistItems,
   fetchWatchlists,
   removeWatchlistItem,
 } from '../api/client'
+import { TradeSetupDrillDown } from '../components/command-center/CommandCenterPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -17,6 +19,8 @@ import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, Th, useSort } from '../components/ui/Table'
+
+const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
 
 const MARKETS: Array<{ value: 'india' | 'us' | 'crypto'; label: string }> = [
   { value: 'india', label: '🇮🇳 India (Groww)' },
@@ -41,9 +45,26 @@ export default function WatchlistPage() {
   const [newMarket, setNewMarket] = useState<'india' | 'us' | 'crypto'>('india')
   const [newName, setNewName] = useState('My Watchlist')
   const [ticker, setTicker] = useState('')
+  const [debouncedTicker, setDebouncedTicker] = useState('')
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [analyzeId, setAnalyzeId] = useState<number | null>(null)
+  const [timeframeByItem, setTimeframeByItem] = useState<Record<number, string>>({})
 
   const listsQ = useQuery({ queryKey: ['watchlists'], queryFn: fetchWatchlists })
   const lists = listsQ.data?.watchlists ?? []
+  const currentMarket = lists.find((l) => l.id === selectedId)?.market_type ?? newMarket
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedTicker(ticker.trim()), 200)
+    return () => clearTimeout(t)
+  }, [ticker])
+
+  const suggestQ = useQuery({
+    queryKey: ['ticker-suggest', currentMarket, debouncedTicker],
+    queryFn: () => fetchTickerSuggestions(currentMarket, debouncedTicker, 10),
+    enabled: debouncedTicker.length >= 1,
+  })
+  const suggestions = suggestQ.data?.tickers ?? []
 
   useEffect(() => {
     if (selectedId == null && lists.length > 0) setSelectedId(lists[0].id)
@@ -168,11 +189,35 @@ export default function WatchlistPage() {
 
               <div className="mb-4 flex flex-wrap items-end gap-2">
                 <FormField label="Add ticker">
-                  <Input
-                    value={ticker}
-                    onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                    placeholder="e.g. RELIANCE"
-                  />
+                  <div className="relative">
+                    <Input
+                      value={ticker}
+                      onChange={(e) => { setTicker(e.target.value.toUpperCase()); setSuggestOpen(true) }}
+                      onFocus={() => setSuggestOpen(true)}
+                      onBlur={() => setTimeout(() => setSuggestOpen(false), 120)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSuggestOpen(false); addItemMut.mutate() } }}
+                      placeholder="e.g. RELIANCE"
+                      autoComplete="off"
+                    />
+                    {suggestOpen && debouncedTicker.length >= 1 && (suggestions.length > 0 || suggestQ.isFetching) && (
+                      <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700/80 bg-slate-900 shadow-lg">
+                        {suggestQ.isFetching && suggestions.length === 0 && (
+                          <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>
+                        )}
+                        {suggestions.map((s) => (
+                          <li key={s}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => { e.preventDefault(); setTicker(s); setSuggestOpen(false) }}
+                              className="block w-full px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800"
+                            >
+                              {s}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </FormField>
                 <Button onClick={() => addItemMut.mutate()} disabled={!ticker.trim() || addItemMut.isPending}>
                   Add
@@ -189,6 +234,7 @@ export default function WatchlistPage() {
                 <DataTable>
                   <thead>
                     <tr>
+                      <Th />
                       <SortableTh active={itemsSortKey === 'ticker'} direction={itemsSortDir} onSort={() => handleItemsSort('ticker')}>Ticker</SortableTh>
                       <SortableTh active={itemsSortKey === 'ltp'} direction={itemsSortDir} onSort={() => handleItemsSort('ltp')}>LTP</SortableTh>
                       <SortableTh active={itemsSortKey === 'change_pct'} direction={itemsSortDir} onSort={() => handleItemsSort('change_pct')}>Change %</SortableTh>
@@ -197,24 +243,61 @@ export default function WatchlistPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedItems.map((it) => (
-                      <tr key={it.id}>
-                        <Td className="font-medium">{it.display_name || it.ticker}</Td>
-                        <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>
-                        <Td className={pctClass(it.change_pct)}>{fmtPct(it.change_pct)}</Td>
-                        <Td className={pctClass(it.change_since_added_pct)}>{fmtPct(it.change_since_added_pct)}</Td>
-                        <Td>
-                          <button
-                            type="button"
-                            aria-label="Remove ticker"
-                            onClick={() => removeItemMut.mutate(it.id)}
-                            className="text-slate-500 hover:text-rose-400"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </Td>
-                      </tr>
-                    ))}
+                    {sortedItems.map((it) => {
+                      const isOpen = analyzeId === it.id
+                      const tf = timeframeByItem[it.id] ?? '1d'
+                      return (
+                        <Fragment key={it.id}>
+                          <tr className="hover:bg-slate-800/20">
+                            <Td>
+                              <button
+                                type="button"
+                                aria-label={isOpen ? 'Collapse analysis' : 'Analyze ticker'}
+                                onClick={() => setAnalyzeId(isOpen ? null : it.id)}
+                                className="text-slate-500 hover:text-blue-400"
+                              >
+                                {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              </button>
+                            </Td>
+                            <Td className="font-medium">{it.display_name || it.ticker}</Td>
+                            <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>
+                            <Td className={pctClass(it.change_pct)}>{fmtPct(it.change_pct)}</Td>
+                            <Td className={pctClass(it.change_since_added_pct)}>{fmtPct(it.change_since_added_pct)}</Td>
+                            <Td>
+                              <button
+                                type="button"
+                                aria-label="Remove ticker"
+                                onClick={() => removeItemMut.mutate(it.id)}
+                                className="text-slate-500 hover:text-rose-400"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </Td>
+                          </tr>
+                          {isOpen && (
+                            <tr>
+                              <Td colSpan={6} className="whitespace-normal bg-slate-900/30">
+                                <div className="mb-3 flex items-center gap-2">
+                                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Timeframe</span>
+                                  <Select
+                                    className="!w-28 !py-1.5"
+                                    value={tf}
+                                    onChange={(e) => setTimeframeByItem((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                                  >
+                                    {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
+                                  </Select>
+                                </div>
+                                <TradeSetupDrillDown
+                                  ticker={it.ticker}
+                                  timeframe={tf}
+                                  assetClass={lists.find((l) => l.id === selectedId)?.market_type ?? 'india'}
+                                />
+                              </Td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </DataTable>
               )}
