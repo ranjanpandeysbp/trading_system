@@ -139,7 +139,7 @@ export function MtfScannerPanel({ data }: { data: Row }) {
         </div>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-slate-400">Per-timeframe components</h4>
           <DataTable>
             <thead>
@@ -413,7 +413,7 @@ export function TickerInvestigationPanel({
             {!news.length && <li className="text-slate-500">No recent headlines.</li>}
           </ul>
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-medium text-slate-400">Price windows</h4>
           <DataTable>
             <thead>

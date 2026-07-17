@@ -40,3 +40,15 @@ def _migrate_schema(conn) -> None:
         cols = {c["name"] for c in insp.get_columns("paper_accounts")}
         if "user_id" not in cols:
             conn.execute(sa.text("ALTER TABLE paper_accounts ADD COLUMN user_id INTEGER"))
+
+    if "paper_orders" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("paper_orders")}
+        for col_name, col_type in (
+            ("limit_price", "FLOAT"),
+            ("trigger_price", "FLOAT"),
+            ("filled_price", "FLOAT"),
+            ("filled_at", "DATETIME"),
+            ("cancelled_at", "DATETIME"),
+        ):
+            if col_name not in cols:
+                conn.execute(sa.text(f"ALTER TABLE paper_orders ADD COLUMN {col_name} {col_type}"))

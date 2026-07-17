@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, RotateCcw, ShoppingCart } from 'lucide-react'
-import { getAccount, placeOrder, resetAccount } from '../api/client'
+import { RefreshCw, RotateCcw, ShoppingCart, X, Pencil, Check } from 'lucide-react'
+import {
+  getAccount, placeOrder, resetAccount, cancelOrder, modifyOrder,
+  type PaperOrderRow, type PlaceOrderPayload,
+} from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -9,20 +12,68 @@ import { Badge } from '../components/ui/Badge'
 import { StatCard } from '../components/ui/StatCard'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
-import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
+import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
+
+type OrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
+
+const ORDER_TYPE_LABEL: Record<string, string> = {
+  market: 'Market', limit: 'Limit', stop: 'Stop', stop_limit: 'Stop-Limit',
+  auto_sl: 'Auto SL', auto_tp: 'Auto TP',
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  filled: 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30',
+  pending: 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30',
+  cancelled: 'bg-slate-500/15 text-slate-400 ring-1 ring-slate-500/30',
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span className={`inline-flex rounded-lg px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${STATUS_BADGE[status] ?? STATUS_BADGE.cancelled}`}>
+      {status}
+    </span>
+  )
+}
+
+function OrderTypeBadge({ orderType }: { orderType: string }) {
+  return <span className="text-xs text-slate-400">{ORDER_TYPE_LABEL[orderType] ?? orderType}</span>
+}
 
 export default function PaperTrading() {
   const qc = useQueryClient()
   const [ticker, setTicker] = useState('RELIANCE')
   const [quantity, setQuantity] = useState(10)
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
+  const [orderType, setOrderType] = useState<OrderType>('market')
+  const [limitPrice, setLimitPrice] = useState<number | ''>('')
+  const [triggerPrice, setTriggerPrice] = useState<number | ''>('')
+  const [slPct, setSlPct] = useState<number | ''>('')
+  const [tpPct, setTpPct] = useState<number | ''>('')
   const [msg, setMsg] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
   const { data: account, isLoading, isFetching, refetch } = useQuery({ queryKey: ['account'], queryFn: getAccount })
 
   const orderMutation = useMutation({
     mutationFn: placeOrder,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['account'] }); setMsg('Order placed successfully'); },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['account'] })
+      setMsg(res?.status === 'pending' ? 'Order placed — pending fill' : 'Order filled')
+      setConfirming(false)
+    },
+    onError: (e: Error) => { setMsg(e.message); setConfirming(false) },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: cancelOrder,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['account'] }); setMsg('Order cancelled') },
+    onError: (e: Error) => setMsg(e.message),
+  })
+
+  const modifyMutation = useMutation({
+    mutationFn: ({ orderId, payload }: { orderId: number; payload: { quantity?: number; limit_price?: number; trigger_price?: number } }) =>
+      modifyOrder(orderId, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['account'] }); setMsg('Order updated') },
     onError: (e: Error) => setMsg(e.message),
   })
 
@@ -61,7 +112,28 @@ export default function PaperTrading() {
 
   if (isLoading) return <Loading message="Loading account..." />
 
-  const isSuccess = msg.includes('reset') || msg.includes('placed')
+  const isSuccess = msg.includes('reset') || msg.includes('filled') || msg.includes('pending') || msg.includes('cancelled') || msg.includes('updated')
+
+  const needsLimitPrice = orderType === 'limit' || orderType === 'stop_limit'
+  const needsTriggerPrice = orderType === 'stop' || orderType === 'stop_limit'
+  const canSubmit =
+    quantity > 0 &&
+    ticker.trim().length > 0 &&
+    (!needsLimitPrice || limitPrice !== '') &&
+    (!needsTriggerPrice || triggerPrice !== '')
+
+  const buildPayload = (): PlaceOrderPayload => ({
+    ticker,
+    side,
+    quantity,
+    order_type: orderType,
+    ...(needsLimitPrice ? { limit_price: Number(limitPrice) } : {}),
+    ...(needsTriggerPrice ? { trigger_price: Number(triggerPrice) } : {}),
+    ...(slPct !== '' ? { sl_pct: Number(slPct) } : {}),
+    ...(tpPct !== '' ? { tp_pct: Number(tpPct) } : {}),
+  })
+
+  const pendingOrders = account?.pending_orders ?? []
 
   return (
     <div>
@@ -93,19 +165,59 @@ export default function PaperTrading() {
           <FormField label="Ticker">
             <Input value={ticker} onChange={(e) => setTicker(e.target.value)} />
           </FormField>
-          <FormField label="Side">
-            <Select value={side} onChange={(e) => setSide(e.target.value as 'buy' | 'sell')}>
-              <option value="buy">Buy</option>
-              <option value="sell">Sell</option>
-            </Select>
-          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Side">
+              <Select value={side} onChange={(e) => setSide(e.target.value as 'buy' | 'sell')}>
+                <option value="buy">Buy</option>
+                <option value="sell">Sell</option>
+              </Select>
+            </FormField>
+            <FormField label="Order Type">
+              <Select value={orderType} onChange={(e) => setOrderType(e.target.value as OrderType)}>
+                <option value="market">Market</option>
+                <option value="limit">Limit</option>
+                <option value="stop">Stop-Loss</option>
+                <option value="stop_limit">Stop-Limit</option>
+              </Select>
+            </FormField>
+          </div>
           <FormField label="Quantity">
             <Input type="number" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 1)} min={1} />
           </FormField>
 
+          {needsLimitPrice && (
+            <FormField label="Limit Price">
+              <Input
+                type="number"
+                value={limitPrice}
+                onChange={(e) => setLimitPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                placeholder={side === 'buy' ? 'Fill at or below this price' : 'Fill at or above this price'}
+              />
+            </FormField>
+          )}
+          {needsTriggerPrice && (
+            <FormField label={orderType === 'stop_limit' ? 'Stop (Trigger) Price' : 'Trigger Price'}>
+              <Input
+                type="number"
+                value={triggerPrice}
+                onChange={(e) => setTriggerPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                placeholder={side === 'buy' ? 'Triggers when price rises to this level' : 'Triggers when price falls to this level'}
+              />
+            </FormField>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Stop-Loss % (optional)">
+              <Input type="number" value={slPct} onChange={(e) => setSlPct(e.target.value === '' ? '' : parseFloat(e.target.value))} placeholder="e.g. 5" />
+            </FormField>
+            <FormField label="Take-Profit % (optional)">
+              <Input type="number" value={tpPct} onChange={(e) => setTpPct(e.target.value === '' ? '' : parseFloat(e.target.value))} placeholder="e.g. 10" />
+            </FormField>
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Button className="w-full sm:w-auto" onClick={() => orderMutation.mutate({ ticker, side, quantity })} disabled={orderMutation.isPending}>
-              Place Market Order
+            <Button className="w-full sm:w-auto" onClick={() => setConfirming(true)} disabled={!canSubmit || orderMutation.isPending}>
+              Review Order
             </Button>
             <Button className="w-full sm:w-auto" variant="danger" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending}>
               <RotateCcw size={16} />
@@ -154,6 +266,37 @@ export default function PaperTrading() {
         </Card>
       </div>
 
+      {pendingOrders.length > 0 && (
+        <Card className="mt-6">
+          <h3 className="mb-4 font-semibold text-white">Pending Orders</h3>
+          <DataTable>
+            <thead>
+              <tr>
+                <Th>Ticker</Th>
+                <Th>Side</Th>
+                <Th>Type</Th>
+                <Th>Qty</Th>
+                <Th>Limit</Th>
+                <Th>Trigger</Th>
+                <Th>Placed</Th>
+                <Th>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingOrders.map((o) => (
+                <PendingOrderRow
+                  key={o.id}
+                  order={o}
+                  onCancel={() => cancelMutation.mutate(o.id)}
+                  onModify={(payload) => modifyMutation.mutate({ orderId: o.id, payload })}
+                  busy={cancelMutation.isPending || modifyMutation.isPending}
+                />
+              ))}
+            </tbody>
+          </DataTable>
+        </Card>
+      )}
+
       {account && account.recent_orders.length > 0 && (
         <Card className="mt-6">
           <h3 className="mb-4 font-semibold text-white">Recent Orders</h3>
@@ -163,8 +306,10 @@ export default function PaperTrading() {
                 <SortableTh active={ordersSortKey === 'created_at'} direction={ordersSortDir} onSort={() => handleOrdersSort('created_at')}>Time</SortableTh>
                 <SortableTh active={ordersSortKey === 'ticker'} direction={ordersSortDir} onSort={() => handleOrdersSort('ticker')}>Ticker</SortableTh>
                 <SortableTh active={ordersSortKey === 'side'} direction={ordersSortDir} onSort={() => handleOrdersSort('side')}>Side</SortableTh>
+                <Th>Type</Th>
                 <SortableTh active={ordersSortKey === 'quantity'} direction={ordersSortDir} onSort={() => handleOrdersSort('quantity')}>Qty</SortableTh>
                 <SortableTh active={ordersSortKey === 'price'} direction={ordersSortDir} onSort={() => handleOrdersSort('price')}>Price</SortableTh>
+                <Th>Status</Th>
                 <SortableTh active={ordersSortKey === 'strategy'} direction={ordersSortDir} onSort={() => handleOrdersSort('strategy')}>Strategy</SortableTh>
               </tr>
             </thead>
@@ -174,8 +319,10 @@ export default function PaperTrading() {
                   <Td className="text-slate-400">{new Date(o.created_at).toLocaleString()}</Td>
                   <Td className="font-medium text-white">{o.ticker}</Td>
                   <Td><Badge action={o.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
+                  <Td><OrderTypeBadge orderType={o.order_type} /></Td>
                   <Td>{o.quantity}</Td>
-                  <Td className="tabular-nums">₹{o.price}</Td>
+                  <Td className="tabular-nums">₹{o.filled_price ?? o.price}</Td>
+                  <Td><StatusBadge status={o.status} /></Td>
                   <Td className="text-slate-500">{o.strategy ?? '—'}</Td>
                 </tr>
               ))}
@@ -183,6 +330,177 @@ export default function PaperTrading() {
           </DataTable>
         </Card>
       )}
+
+      {confirming && (
+        <OrderConfirmDialog
+          ticker={ticker}
+          side={side}
+          quantity={quantity}
+          orderType={orderType}
+          limitPrice={needsLimitPrice ? Number(limitPrice) : undefined}
+          triggerPrice={needsTriggerPrice ? Number(triggerPrice) : undefined}
+          slPct={slPct === '' ? undefined : Number(slPct)}
+          tpPct={tpPct === '' ? undefined : Number(tpPct)}
+          submitting={orderMutation.isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => orderMutation.mutate(buildPayload())}
+        />
+      )}
+    </div>
+  )
+}
+
+function PendingOrderRow({
+  order, onCancel, onModify, busy,
+}: {
+  order: PaperOrderRow
+  onCancel: () => void
+  onModify: (payload: { quantity?: number; limit_price?: number; trigger_price?: number }) => void
+  busy: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [qty, setQty] = useState(order.quantity)
+  const [limitPrice, setLimitPrice] = useState(order.limit_price ?? '')
+  const [triggerPrice, setTriggerPrice] = useState(order.trigger_price ?? '')
+
+  if (editing) {
+    return (
+      <tr className="bg-slate-800/30">
+        <Td className="font-medium text-white">{order.ticker}</Td>
+        <Td><Badge action={order.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
+        <Td><OrderTypeBadge orderType={order.order_type} /></Td>
+        <Td><Input type="number" className="!w-20 !py-1" value={qty} onChange={(e) => setQty(parseInt(e.target.value) || 1)} /></Td>
+        <Td>
+          {order.order_type !== 'stop' ? (
+            <Input type="number" className="!w-24 !py-1" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+          ) : '—'}
+        </Td>
+        <Td>
+          {order.order_type !== 'limit' ? (
+            <Input type="number" className="!w-24 !py-1" value={triggerPrice} onChange={(e) => setTriggerPrice(e.target.value === '' ? '' : parseFloat(e.target.value))} />
+          ) : '—'}
+        </Td>
+        <Td className="text-slate-400">{new Date(order.created_at).toLocaleString()}</Td>
+        <Td>
+          <div className="flex gap-1.5">
+            <Button
+              size="sm" variant="secondary" disabled={busy}
+              onClick={() => {
+                onModify({
+                  quantity: qty,
+                  ...(limitPrice !== '' ? { limit_price: Number(limitPrice) } : {}),
+                  ...(triggerPrice !== '' ? { trigger_price: Number(triggerPrice) } : {}),
+                })
+                setEditing(false)
+              }}
+            >
+              <Check size={14} />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              <X size={14} />
+            </Button>
+          </div>
+        </Td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="hover:bg-slate-800/20">
+      <Td className="font-medium text-white">{order.ticker}</Td>
+      <Td><Badge action={order.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
+      <Td><OrderTypeBadge orderType={order.order_type} /></Td>
+      <Td>{order.quantity}</Td>
+      <Td className="tabular-nums">{order.limit_price != null ? `₹${order.limit_price}` : '—'}</Td>
+      <Td className="tabular-nums">{order.trigger_price != null ? `₹${order.trigger_price}` : '—'}</Td>
+      <Td className="text-slate-400">{new Date(order.created_at).toLocaleString()}</Td>
+      <Td>
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setEditing(true)}>
+            <Pencil size={14} />
+          </Button>
+          <Button size="sm" variant="danger" disabled={busy} onClick={onCancel}>
+            <X size={14} />
+          </Button>
+        </div>
+      </Td>
+    </tr>
+  )
+}
+
+function OrderConfirmDialog({
+  ticker, side, quantity, orderType, limitPrice, triggerPrice, slPct, tpPct, submitting, onCancel, onConfirm,
+}: {
+  ticker: string
+  side: 'buy' | 'sell'
+  quantity: number
+  orderType: OrderType
+  limitPrice?: number
+  triggerPrice?: number
+  slPct?: number
+  tpPct?: number
+  submitting: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <Card className="w-full max-w-md">
+        <h3 className="mb-4 font-semibold text-white">Confirm Order</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-400">Action</span>
+            <span className="flex items-center gap-2 font-medium text-white">
+              <Badge action={side === 'buy' ? 'BUY' : 'SELL'} /> {ticker}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-400">Order Type</span>
+            <span className="text-white">{ORDER_TYPE_LABEL[orderType]}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-400">Quantity</span>
+            <span className="text-white">{quantity}</span>
+          </div>
+          {limitPrice != null && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Limit Price</span>
+              <span className="text-white">₹{limitPrice}</span>
+            </div>
+          )}
+          {triggerPrice != null && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Trigger Price</span>
+              <span className="text-white">₹{triggerPrice}</span>
+            </div>
+          )}
+          {slPct != null && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Stop-Loss</span>
+              <span className="text-rose-400">{slPct}%</span>
+            </div>
+          )}
+          {tpPct != null && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Take-Profit</span>
+              <span className="text-emerald-400">{tpPct}%</span>
+            </div>
+          )}
+        </div>
+        {orderType !== 'market' && (
+          <p className="mt-3 text-xs text-slate-500">
+            This order will stay pending until the trigger/limit condition is met on a future price refresh.
+          </p>
+        )}
+        <div className="mt-6 flex gap-3">
+          <Button className="flex-1" onClick={onConfirm} disabled={submitting}>
+            {submitting ? 'Placing…' : 'Confirm'}
+          </Button>
+          <Button className="flex-1" variant="secondary" onClick={onCancel} disabled={submitting}>
+            Cancel
+          </Button>
+        </div>
+      </Card>
     </div>
   )
 }

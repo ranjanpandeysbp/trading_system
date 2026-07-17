@@ -1,10 +1,12 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, Compass, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Search, Sparkles, Sun, TrendingUp, Zap } from 'lucide-react'
+import { BarChart3, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Rocket, Search, Shuffle, Sparkles, Sun, Target, TrendingUp, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
   fetchCommandCenterSections,
+  fetchFuturesIndices,
+  fetchGiftNifty,
   fetchGlobalIndices,
   fetchGlobalMarketMood,
   fetchIndiaMarketHeatmapIndices,
@@ -16,13 +18,19 @@ import {
   runFundamentalAnalysis,
   runIndiaMarketHeatmap,
   runInvestigationWithStrategies,
+  runDivergences,
   runMegaAnalyser,
   runMegaSetupAdvisor,
   runMomentumScan,
   runOneClick,
   runOptionChain,
+  runPatterns,
   runQuickAnalyzer,
+  runStopHunt,
+  runTakeProfit,
+  runTakeTrade,
   runTickerInvestigation,
+  runTradeSetup,
   runUpgradeDowngradeScan,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
@@ -46,6 +54,12 @@ const TABS = [
   { id: 'global_market_mood', label: 'Global Market Mood', icon: Globe2 },
   { id: 'momentum', label: 'Momentum Scanner', icon: TrendingUp },
   { id: 'ema_position', label: 'EMA Position', icon: LineChart },
+  { id: 'divergences', label: 'Divergences', icon: Shuffle },
+  { id: 'candlestick_chart_patterns', label: 'Candlestick & Chart Patterns', icon: CandlestickChart },
+  { id: 'stop_hunt', label: 'Stoploss Hunting', icon: FishingHook },
+  { id: 'take_profit', label: 'Take Profit Targets', icon: Crosshair },
+  { id: 'take_trade', label: 'Take Trade', icon: Rocket },
+  { id: 'trade_setup', label: 'Trade Setup — Oversold/Overbought', icon: Target },
   { id: 'one_click_intraday', label: 'One-Click Intraday', icon: Zap },
   { id: 'one_click_scalping', label: 'One-Click Scalping', icon: Zap },
   { id: 'one_click_swing', label: 'One-Click Swing', icon: Zap },
@@ -133,6 +147,18 @@ export default function CommandCenter() {
     enabled: false,
   })
 
+  const futuresIndicesQuery = useQuery({
+    queryKey: ['cc-futures-indices'],
+    queryFn: fetchFuturesIndices,
+    enabled: false,
+  })
+
+  const giftNiftyQuery = useQuery({
+    queryKey: ['cc-gift-nifty'],
+    queryFn: fetchGiftNifty,
+    enabled: false,
+  })
+
   const heatmapIndicesQuery = useQuery({
     queryKey: ['cc-heatmap-indices'],
     queryFn: fetchIndiaMarketHeatmapIndices,
@@ -200,8 +226,20 @@ export default function CommandCenter() {
           return runTickerInvestigation({ tickers, asset_class: assetClass })
         case 'momentum':
           return runMomentumScan({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'divergences':
+          return runDivergences({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'candlestick_chart_patterns':
+          return runPatterns({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'stop_hunt':
+          return runStopHunt({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'take_profit':
+          return runTakeProfit({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'take_trade':
+          return runTakeTrade({ tickers, asset_class: assetClass, timeframes: durations })
         case 'ema_position':
           return runEmaPositionScan({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'trade_setup':
+          return runTradeSetup({ tickers, asset_class: assetClass, timeframes: durations })
         case 'fundamental_analysis':
           return runFundamentalAnalysis({ tickers, asset_class: assetClass })
         case 'stock_upgrade_downgrade':
@@ -218,8 +256,11 @@ export default function CommandCenter() {
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const nseWorldIndicesData = (nseIndicesQuery.data || globalIndicesQuery.data)
-    ? { nse_rows: nseIndicesQuery.data?.rows, global_rows: globalIndicesQuery.data?.rows }
+  const nseWorldIndicesData = (nseIndicesQuery.data || globalIndicesQuery.data || futuresIndicesQuery.data || giftNiftyQuery.data)
+    ? {
+        nse_rows: nseIndicesQuery.data?.rows, global_rows: globalIndicesQuery.data?.rows,
+        futures_rows: futuresIndicesQuery.data?.rows, gift_nifty: giftNiftyQuery.data?.data,
+      }
     : null
 
   const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data
@@ -230,12 +271,12 @@ export default function CommandCenter() {
   const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading
     : tab === 'global_market_mood' ? moodQuery.isLoading
     : tab === 'coindcx_24h_volatility' ? coinDcxQuery.isLoading
-    : tab === 'nse_world_indices' ? (nseIndicesQuery.isFetching || globalIndicesQuery.isFetching)
+    : tab === 'nse_world_indices' ? (nseIndicesQuery.isFetching || globalIndicesQuery.isFetching || futuresIndicesQuery.isFetching || giftNiftyQuery.isFetching)
     : runMutation.isPending
   const queryError = tab === 'tomorrow_outlook' ? (tomorrowQuery.isError ? apiErrorMessage(tomorrowQuery.error) : '')
     : tab === 'global_market_mood' ? (moodQuery.isError ? apiErrorMessage(moodQuery.error) : '')
     : tab === 'coindcx_24h_volatility' ? (coinDcxQuery.isError ? apiErrorMessage(coinDcxQuery.error) : '')
-    : tab === 'nse_world_indices' ? (nseIndicesQuery.isError ? apiErrorMessage(nseIndicesQuery.error) : globalIndicesQuery.isError ? apiErrorMessage(globalIndicesQuery.error) : '')
+    : tab === 'nse_world_indices' ? (nseIndicesQuery.isError ? apiErrorMessage(nseIndicesQuery.error) : globalIndicesQuery.isError ? apiErrorMessage(globalIndicesQuery.error) : futuresIndicesQuery.isError ? apiErrorMessage(futuresIndicesQuery.error) : giftNiftyQuery.isError ? apiErrorMessage(giftNiftyQuery.error) : '')
     : ''
   const askContext = displayData ? buildAskContext(TABS.find((t) => t.id === tab)?.label ?? tab, displayData) : ''
 
@@ -325,6 +366,13 @@ export default function CommandCenter() {
               disabled={globalIndicesQuery.isFetching}
             >
               {globalIndicesQuery.isFetching ? 'Loading…' : '🌍 Load Global Indices'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => { futuresIndicesQuery.refetch(); giftNiftyQuery.refetch() }}
+              disabled={futuresIndicesQuery.isFetching || giftNiftyQuery.isFetching}
+            >
+              {(futuresIndicesQuery.isFetching || giftNiftyQuery.isFetching) ? 'Loading…' : '🚀 Load Futures'}
             </Button>
           </div>
           {(queryError || error) && (
@@ -438,7 +486,7 @@ export default function CommandCenter() {
             key={assetClass}
             assetClass={assetClass}
             single={tab === 'mega_analyser'}
-            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position'}
+            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'take_trade'}
             onChange={handlePickerChange}
           />
 
@@ -524,7 +572,7 @@ export default function CommandCenter() {
 
       {displayData && !loading && !queryError && (
         <Card>
-          <CommandCenterResults tab={tab} data={displayData as Record<string, unknown>} />
+          <CommandCenterResults tab={tab} data={displayData as Record<string, unknown>} assetClass={assetClass} />
         </Card>
       )}
 

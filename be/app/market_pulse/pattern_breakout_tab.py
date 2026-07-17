@@ -135,13 +135,16 @@ def detect_extended_chart_patterns(df: pd.DataFrame, window: int = 5) -> list[di
         flag_drift = (close[-1] - close[-flag_len]) / (close[-flag_len] + 1e-10) * 100
         if pole_rise >= 4 and flag_range < abs(pole_end - pole_start) * 0.55 and -3 < flag_drift < 2:
             target = current + abs(pole_end - pole_start)
+            flag_top = float(np.max(flag_highs))
+            breakout = current > flag_top
             patterns.append({
                 "name": "Bull Flag",
                 "bias": "BULLISH",
-                "reliability": "HIGH",
+                "reliability": "HIGH" if breakout else "MODERATE",
                 "neckline": round(float(np.min(flag_lows)), 4),
                 "target": round(float(target), 4),
-                "notes": f"Flagpole +{pole_rise:.1f}% then tight consolidation — breakout target ≈ {target:.2f}",
+                "notes": f"Flagpole +{pole_rise:.1f}% then tight consolidation — "
+                         f"{'breakout confirmed above ' + f'{flag_top:.2f}' if breakout else 'awaiting breakout above ' + f'{flag_top:.2f}'}, target ≈ {target:.2f}",
             })
 
     # ── Bear Flag ──
@@ -155,13 +158,16 @@ def detect_extended_chart_patterns(df: pd.DataFrame, window: int = 5) -> list[di
         flag_drift = (close[-1] - close[-flag_len]) / (close[-flag_len] + 1e-10) * 100
         if pole_drop >= 4 and flag_range < abs(pole_start - pole_end) * 0.55 and -2 < flag_drift < 3:
             target = current - abs(pole_start - pole_end)
+            flag_bottom = float(np.min(flag_lows))
+            breakdown = current < flag_bottom
             patterns.append({
                 "name": "Bear Flag",
                 "bias": "BEARISH",
-                "reliability": "HIGH",
+                "reliability": "HIGH" if breakdown else "MODERATE",
                 "neckline": round(float(np.max(flag_highs)), 4),
                 "target": round(float(target), 4),
-                "notes": f"Flagpole -{pole_drop:.1f}% then consolidation — breakdown target ≈ {target:.2f}",
+                "notes": f"Flagpole -{pole_drop:.1f}% then consolidation — "
+                         f"{'breakdown confirmed below ' + f'{flag_bottom:.2f}' if breakdown else 'awaiting breakdown below ' + f'{flag_bottom:.2f}'}, target ≈ {target:.2f}",
             })
 
     # ── Cup & Handle ──
@@ -178,13 +184,15 @@ def detect_extended_chart_patterns(df: pd.DataFrame, window: int = 5) -> list[di
         handle_pullback = (right_rim - float(np.min(seg_l[-cup_len // 8:]))) / (right_rim + 1e-10) * 100
         if 8 <= depth_pct <= 35 and rim_match < 4 and 2 <= handle_pullback <= 12:
             target = right_rim + (right_rim - cup_bottom)
+            breakout = current > right_rim
             patterns.append({
                 "name": "Cup & Handle",
                 "bias": "BULLISH",
-                "reliability": "VERY HIGH",
+                "reliability": "VERY HIGH" if breakout else "HIGH",
                 "neckline": round(right_rim, 4),
                 "target": round(float(target), 4),
-                "notes": f"U-shaped base depth {depth_pct:.1f}% — measured move target {target:.2f}",
+                "notes": f"U-shaped base depth {depth_pct:.1f}% — "
+                         f"{'breakout confirmed above rim ' + f'{right_rim:.2f}' if breakout else 'awaiting breakout above rim ' + f'{right_rim:.2f}'}, measured move target {target:.2f}",
             })
 
     # ── Triple Top (M) / Triple Bottom (W) ──

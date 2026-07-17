@@ -69,6 +69,11 @@ class PaperOrder(Base):
     strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     tp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trigger_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    filled_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

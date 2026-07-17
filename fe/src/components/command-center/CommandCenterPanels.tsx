@@ -1,8 +1,26 @@
 import { Fragment, useState } from 'react'
-import { TrendingDown, TrendingUp } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { ChevronDown, ChevronRight, TrendingDown, TrendingUp } from 'lucide-react'
+import {
+  apiErrorMessage,
+  runFundamentalAnalysis,
+  runMomentumScan,
+  runOptionChain,
+  runQuickAnalyzer,
+  runTradeSetupDivergence,
+  runTradeSetupPatterns,
+  runTradeSetupScalping,
+  runTradeSetupSmartMoney,
+  runTradeSetupStopHunt,
+  runTradeSetupSupportResistance,
+  runTradeSetupTakeProfit,
+  runTradeSetupTimeSeries,
+  runUpgradeDowngradeScan,
+} from '../../api/client'
 import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
 import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysisPanels'
 import { Alert } from '../ui/Feedback'
+import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
@@ -23,11 +41,163 @@ function fmtNum(v: unknown, digits = 2): string {
   return Number.isFinite(n) ? n.toFixed(digits) : String(v)
 }
 
+const VOLUME_TIERS: [number, string][] = [
+  [2.0, 'Very High'],
+  [1.5, 'High'],
+  [1.1, 'Above Average'],
+  [0.9, 'Average'],
+  [0.7, 'Below Average'],
+]
+
+function volumeTier(ratio: number | null | undefined): string {
+  if (ratio == null) return '—'
+  for (const [threshold, label] of VOLUME_TIERS) {
+    if (ratio >= threshold) return label
+  }
+  return 'Very Low'
+}
+
+function volumePriceAnalysis(tf0: Row) {
+  const ratio = tf0.volume_ratio as number | null | undefined
+  const roc = tf0.roc_pct as number | null | undefined
+  const trend = String(tf0.trend_direction ?? '—')
+  const momentumChange = String(tf0.momentum_change ?? '—')
+  const consolidating = Boolean(tf0.is_consolidating)
+  const event = tf0.breakout_event as string | null | undefined
+
+  const tier = volumeTier(ratio)
+  const tierLower = tier.toLowerCase()
+  const highVol = (ratio ?? 1.0) >= 1.5
+  const aboveAvg = (ratio ?? 1.0) >= 1.1
+  const belowAvg = (ratio ?? 1.0) <= 0.9
+  const priceUp = (roc ?? 0.0) > 0
+  const priceDown = (roc ?? 0.0) < 0
+  const ratioStr = ratio != null ? `${ratio}x` : '—'
+
+  let bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL'
+  let badge = '⚪'
+  let read = ''
+
+  if (consolidating && aboveAvg) {
+    bias = 'NEUTRAL'; badge = '⚪'
+    read = `Price is consolidating in a tight range, but volume is running **${tierLower}** (${ratioStr} of average) — classic **accumulation/distribution** behavior: large participants are building or unwinding a position quietly before the range resolves into a breakout or breakdown.`
+  } else if (consolidating) {
+    bias = 'NEUTRAL'; badge = '⚪'
+    read = `Price is consolidating with **${tierLower}** volume (${ratioStr} of average) — a quiet, low-conviction range with no large participants actively pressing a direction.`
+  } else if (priceUp && highVol) {
+    bias = 'BULLISH'; badge = '🟢'
+    read = `Price is rising on **${tierLower}** volume (${ratioStr} of average) — textbook **bullish confirmation**: genuine buying pressure/demand backs the move, not a thin drift up.`
+  } else if (priceUp && belowAvg) {
+    bias = 'NEUTRAL'; badge = '⚪'
+    read = `Price is rising but volume is **${tierLower}** (${ratioStr} of average) — a **low-conviction rally**. Without participation behind it, the advance is more vulnerable to a quick reversal; weight this weaker than a high-volume move.`
+  } else if (priceDown && highVol) {
+    bias = 'BEARISH'; badge = '🔴'
+    read = `Price is falling on **${tierLower}** volume (${ratioStr} of average) — textbook **bearish confirmation**: genuine selling pressure/distribution backs the decline.`
+  } else if (priceDown && belowAvg) {
+    bias = 'NEUTRAL'; badge = '⚪'
+    read = `Price is falling but volume is **${tierLower}** (${ratioStr} of average) — a **low-conviction sell-off**, more likely profit-taking/drift than committed distribution; a low-volume pullback often resolves back in the prior direction.`
+  } else {
+    bias = 'NEUTRAL'; badge = '⚪'
+    read = `Volume is running **${tierLower}** (${ratioStr} of average) with no strong directional bias from price right now.`
+  }
+
+  let divergenceCaption: string | null = null
+  if (!consolidating && momentumChange === 'INCREASING' && aboveAvg) {
+    divergenceCaption = '📶 Volume is expanding alongside a strengthening trend — a healthy sign for continuation.'
+  } else if (!consolidating && momentumChange === 'DECREASING' && aboveAvg) {
+    divergenceCaption = '⚠️ Volume is elevated even as trend strength fades — can flag exhaustion/climactic volume near a turning point rather than healthy continuation.'
+  }
+
+  let breakoutCaption: string | null = null
+  if (event != null && event !== 'NONE' && event !== 'RANGE') {
+    const confirmed = (ratio ?? 0) >= 1.15
+    const directionWord = event === 'RESISTANCE_BREAK' ? 'Breakout above resistance' : 'Breakdown below support'
+    breakoutCaption = `🚨 **${directionWord}** detected — ` + (
+      confirmed
+        ? 'volume-confirmed (≥1.15x average), the higher-probability read.'
+        : '**not yet volume-confirmed** — unconfirmed breaks fail more often; wait for participation before trusting it.'
+    )
+  }
+
+  return { tier, bias, badge, read, ratioStr, trend, momentumChange, divergenceCaption, breakoutCaption }
+}
+
+function mdBold(text: string) {
+  const parts = text.split('**')
+  return parts.map((p, i) => (i % 2 === 1 ? <strong key={i}>{p}</strong> : <Fragment key={i}>{p}</Fragment>))
+}
+
 const SR_EVENT_LABEL: Record<string, string> = {
   RESISTANCE_BREAK: '🚀 Breaking resistance',
   SUPPORT_BREAK: '🔻 Breaking support',
   RANGE: '↔️ In range',
   NONE: '—',
+}
+
+const DIVERGENCE_BADGE: Record<string, string> = {
+  BULLISH: '🟢 Positive (Bullish) Divergence',
+  BEARISH: '🔴 Negative (Bearish) Divergence',
+  NEUTRAL: '⚪ Neutral / No Divergence',
+}
+
+const HUNT_STATUS_BADGE: Record<string, string> = {
+  ACTIVE_SWEEP: '🎣 Active Sweep Detected',
+  HIGH_RISK: '⚠️ High Hunt-Risk Zone',
+  LOW_RISK: '🟢 Low Hunt-Risk',
+}
+
+function StopTierRow({ label, tier }: { label: string; tier: Row | undefined }) {
+  if (!tier) return null
+  return (
+    <p className="text-xs text-slate-400">
+      {label}: <strong>{fmtNum(tier.price, 4)}</strong> ({fmtNum(tier.pct, 2)}% from current price)
+      {tier.nudged_for_round_number ? ` · nudged off round number ${fmtNum(tier.round_number_avoided, 2)}` : ''}
+    </p>
+  )
+}
+
+function StopHuntScenario({ label, stops }: { label: string; stops: Row | undefined }) {
+  if (!stops) return null
+  const anchor = (stops.anchor as Row) ?? {}
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-xs text-slate-500">Anchored beyond {String(anchor.label ?? 'nearby structure')}.</p>
+      <StopTierRow label="🎯 Tight / Aggressive" tier={stops.tight as Row} />
+      <StopTierRow label="🛡️ Safe / Hunt-Resistant" tier={stops.safe as Row} />
+    </div>
+  )
+}
+
+const TP_STATUS_BADGE: Record<string, string> = {
+  HIGH_CONFLUENCE: '🎯 High-Confluence Target',
+  MODERATE_CONFLUENCE: '📍 Moderate-Confluence Target',
+  LOW_CONFLUENCE: '🌫️ Low-Confluence — Thin Structure',
+}
+
+function TargetTierRow({ label, tier }: { label: string; tier: Row | undefined }) {
+  if (!tier) return null
+  return (
+    <p className="text-xs text-slate-400">
+      {label}: <strong>{fmtNum(tier.price, 4)}</strong> ({fmtNum(tier.pct, 2)}% from current price)
+      {tier.near_round_number ? ` · near round number ${fmtNum(tier.round_number, 2)}` : ''}
+    </p>
+  )
+}
+
+function TakeProfitScenario({ label, targets }: { label: string; targets: Row | undefined }) {
+  if (!targets) return null
+  const tp1Anchor = (targets.tp1_anchor as Row) ?? {}
+  const tp2Anchor = (targets.tp2_anchor as Row) ?? {}
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <TargetTierRow label="TP1 (Conservative)" tier={targets.tp1 as Row} />
+      <p className="text-xs text-slate-500">Anchored on {String(tp1Anchor.label ?? 'nearby structure')}.</p>
+      <TargetTierRow label="TP2 (Extended)" tier={targets.tp2 as Row} />
+      <p className="text-xs text-slate-500">Anchored on {String(tp2Anchor.label ?? 'an extended projection')}.</p>
+    </div>
+  )
 }
 
 function SummaryCard({ title, row }: { title: string; row: Row }) {
@@ -233,11 +403,11 @@ function EngineSummaryTable({
         <thead>
           <tr>
             <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
-            <SortableTh active={sortKey === 'engine'} direction={sortDir} onSort={() => handleSort('engine')}>Engine</SortableTh>
-            <SortableTh active={sortKey === 'tf'} direction={sortDir} onSort={() => handleSort('tf')}>TF</SortableTh>
-            <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
             <SortableTh active={sortKey === 'verdict'} direction={sortDir} onSort={() => handleSort('verdict')}>Verdict</SortableTh>
+            <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
             <SortableTh active={sortKey === 'recommendation'} direction={sortDir} onSort={() => handleSort('recommendation')}>Recommendation</SortableTh>
+            <SortableTh active={sortKey === 'tf'} direction={sortDir} onSort={() => handleSort('tf')}>TF</SortableTh>
+            <SortableTh active={sortKey === 'engine'} direction={sortDir} onSort={() => handleSort('engine')}>Engine</SortableTh>
             <SortableTh active={sortKey === 'sl'} direction={sortDir} onSort={() => handleSort('sl')}>SL %</SortableTh>
             <SortableTh active={sortKey === 'tp'} direction={sortDir} onSort={() => handleSort('tp')}>TP %</SortableTh>
             <SortableTh active={sortKey === 'exp'} direction={sortDir} onSort={() => handleSort('exp')}>Exp %</SortableTh>
@@ -255,13 +425,13 @@ function EngineSummaryTable({
                   onClick={reasons.length ? () => setExpanded(expanded === i ? null : i) : undefined}
                 >
                   <Td>{String(s.ticker ?? '—')}</Td>
-                  <Td>{String(s.tab ?? '—')}</Td>
-                  <Td>{String(s.timeframe ?? '—')}</Td>
+                  <Td>{String(s.verdict ?? '—')}</Td>
                   <Td className={verdictClass(String(s.verdict ?? ''))}>
                     {s.score != null ? Number(s.score).toFixed(1) : '—'}
                   </Td>
-                  <Td>{String(s.verdict ?? '—')}</Td>
                   <Td className="max-w-xs truncate text-slate-400">{String(s.recommendation ?? s.summary ?? '—')}</Td>
+                  <Td>{String(s.timeframe ?? '—')}</Td>
+                  <Td>{String(s.tab ?? '—')}</Td>
                   <Td>{isTrade ? fmtNum(plan.stop_loss_pct) : '—'}</Td>
                   <Td>{isTrade ? fmtNum(plan.take_profit_pct) : '—'}</Td>
                   <Td>{isTrade ? fmtNum(plan.expected_profit_pct) : '—'}</Td>
@@ -484,6 +654,347 @@ function MomentumPanel({ data }: { data: Row }) {
   )
 }
 
+function DivergencesPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const perTf = (r.per_tf as Record<string, Row>) ?? {}
+  const tfEntries = Object.entries(perTf)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {results.map((res, i) => (
+          <Chip key={`${String(res.ticker)}-${i}`} selected={idx === i} onClick={() => setIdx(i)}>
+            {String(res.ticker)}
+          </Chip>
+        ))}
+      </div>
+
+      {!tfEntries.length ? (
+        <Alert type="error">{String(r.error ?? 'No results.')}</Alert>
+      ) : (
+        <div className="grid gap-3">
+          {tfEntries.map(([tf, res]) => (
+            <div key={tf} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{tf}{res.price != null ? ` · ${fmtNum(res.price, 4)}` : ''}</p>
+              {res.error != null ? (
+                <p className="mt-1 text-xs text-slate-500">Unavailable — {String(res.error)}</p>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {DIVERGENCE_BADGE[String(res.bias ?? 'NEUTRAL')] ?? String(res.bias ?? '—')} · {fmtNum(res.confidence_pct, 0)}% confidence
+                  </p>
+                  {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">· {mdBold(rr)}</p>)}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StopHuntPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const perTf = (r.per_tf as Record<string, Row>) ?? {}
+  const tfEntries = Object.entries(perTf)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {results.map((res, i) => (
+          <Chip key={`${String(res.ticker)}-${i}`} selected={idx === i} onClick={() => setIdx(i)}>
+            {String(res.ticker)}
+          </Chip>
+        ))}
+      </div>
+
+      {!tfEntries.length ? (
+        <Alert type="error">{String(r.error ?? 'No results.')}</Alert>
+      ) : (
+        <div className="grid gap-3">
+          {tfEntries.map(([tf, res]) => (
+            <div key={tf} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{tf}{res.price != null ? ` · ${fmtNum(res.price, 4)}` : ''}</p>
+              {res.error != null ? (
+                <p className="mt-1 text-xs text-slate-500">Unavailable — {String(res.error)}</p>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {HUNT_STATUS_BADGE[String(res.hunt_status ?? 'LOW_RISK')] ?? String(res.hunt_status ?? '—')}
+                    {res.atr != null ? ` · ATR ${fmtNum(res.atr, 4)}` : ''}
+                  </p>
+                  {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">· {mdBold(rr)}</p>)}
+                  <StopHuntScenario label="If LONG" stops={res.long_stops as Row} />
+                  <StopHuntScenario label="If SHORT" stops={res.short_stops as Row} />
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TakeProfitPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const perTf = (r.per_tf as Record<string, Row>) ?? {}
+  const tfEntries = Object.entries(perTf)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {results.map((res, i) => (
+          <Chip key={`${String(res.ticker)}-${i}`} selected={idx === i} onClick={() => setIdx(i)}>
+            {String(res.ticker)}
+          </Chip>
+        ))}
+      </div>
+
+      {!tfEntries.length ? (
+        <Alert type="error">{String(r.error ?? 'No results.')}</Alert>
+      ) : (
+        <div className="grid gap-3">
+          {tfEntries.map(([tf, res]) => (
+            <div key={tf} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{tf}{res.price != null ? ` · ${fmtNum(res.price, 4)}` : ''}</p>
+              {res.error != null ? (
+                <p className="mt-1 text-xs text-slate-500">Unavailable — {String(res.error)}</p>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {TP_STATUS_BADGE[String(res.tp_status ?? 'LOW_CONFLUENCE')] ?? String(res.tp_status ?? '—')}
+                    {res.atr != null ? ` · ATR ${fmtNum(res.atr, 4)}` : ''}
+                  </p>
+                  {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">· {rr}</p>)}
+                  <TakeProfitScenario label="If LONG" targets={res.long_targets as Row} />
+                  <TakeProfitScenario label="If SHORT" targets={res.short_targets as Row} />
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TakeTradeVotesTable({ votes }: { votes: Row[] }) {
+  const { sorted, sortKey, sortDir, handleSort } = useSort(votes, {
+    engine: (v) => String(v.engine ?? ''),
+    direction: (v) => String(v.direction ?? ''),
+    confidence: (v) => (v.confidence != null ? Number(v.confidence) : null),
+    take: (v) => (v.take ? 1 : 0),
+    agreed: (v) => (v.agreed ? 1 : v.direction === 'WAIT' ? 0 : -1),
+    note: (v) => (v.error != null ? String(v.error) : String(((v.reasons as string[]) ?? [])[0] ?? '')),
+  })
+  if (!votes.length) return null
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">📋 Per-analysis vote breakdown</h4>
+      <DataTable minWidth={720}>
+        <thead>
+          <tr>
+            <SortableTh active={sortKey === 'engine'} direction={sortDir} onSort={() => handleSort('engine')}>Engine</SortableTh>
+            <SortableTh active={sortKey === 'direction'} direction={sortDir} onSort={() => handleSort('direction')}>Direction</SortableTh>
+            <SortableTh active={sortKey === 'take'} direction={sortDir} onSort={() => handleSort('take')}>Take</SortableTh>
+            <SortableTh active={sortKey === 'agreed'} direction={sortDir} onSort={() => handleSort('agreed')}>Agreed</SortableTh>
+            <SortableTh active={sortKey === 'confidence'} direction={sortDir} onSort={() => handleSort('confidence')}>Confidence</SortableTh>
+            <SortableTh active={sortKey === 'note'} direction={sortDir} onSort={() => handleSort('note')}>Note</SortableTh>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((v, i) => (
+            <tr key={i}>
+              <Td>{String(v.engine ?? '—')}</Td>
+              <Td className={verdictClass(String(v.direction ?? ''))}>{String(v.direction ?? '—')}</Td>
+              <Td>{v.take ? '✅' : '—'}</Td>
+              <Td>{v.agreed ? '✅' : (v.direction === 'WAIT' ? '⚪' : '❌')}</Td>
+              <Td>{v.confidence != null ? `${fmtNum(v.confidence, 0)}%` : '—'}</Td>
+              <Td className="max-w-xs truncate text-slate-400">
+                {v.error != null ? String(v.error) : String(((v.reasons as string[]) ?? [])[0] ?? '')}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </div>
+  )
+}
+
+const TAKE_TRADE_DIRECTION_LABEL: Record<string, string> = {
+  LONG: '🟢 BUY',
+  SHORT: '🔴 SELL',
+  WAIT: '⚪ WAIT',
+}
+
+function TakeTradePanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [idx, setIdx] = useState(0)
+  const r = results[idx] ?? results[0] ?? {}
+  const perTf = (r.per_tf as Record<string, Row>) ?? {}
+  const tfEntries = Object.entries(perTf)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {results.map((res, i) => (
+          <Chip key={`${String(res.ticker)}-${i}`} selected={idx === i} onClick={() => setIdx(i)}>
+            {String(res.ticker)}
+          </Chip>
+        ))}
+      </div>
+
+      {!tfEntries.length ? (
+        <Alert type="error">{String(r.error ?? 'No results.')}</Alert>
+      ) : (
+        <div className="grid gap-4">
+          {tfEntries.map(([tf, res]) => {
+            const stop = res.stop as Row | undefined
+            const target = res.target as Row | undefined
+            return (
+              <div key={tf} className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{tf}{res.price != null ? ` · ${fmtNum(res.price, 4)}` : ''}</p>
+                {res.error != null ? (
+                  <p className="mt-1 text-xs text-slate-500">Unavailable — {String(res.error)}</p>
+                ) : (
+                  <>
+                    <p className={`mt-1 text-xl font-bold ${verdictClass(String(res.verdict ?? ''))}`}>
+                      {TAKE_TRADE_DIRECTION_LABEL[String(res.direction ?? 'WAIT')] ?? String(res.verdict ?? '—')} · {String(res.verdict ?? '—')}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      {fmtNum(res.confidence_pct, 0)}% confidence ({fmtNum(res.n_agree, 0)}/{fmtNum(res.n_total, 0)} agree, need {fmtNum(res.min_agree_required, 0)}+ at {fmtNum(res.take_threshold, 0)}%+)
+                    </p>
+                    {((res.context_notes as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">{rr}</p>)}
+                    {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">· {mdBold(rr)}</p>)}
+
+                    {stop && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">🛡️ Stop Loss{stop.hunt_status != null ? ` · ${HUNT_STATUS_BADGE[String(stop.hunt_status)] ?? String(stop.hunt_status)}` : ''}</p>
+                        <p className="text-xs text-slate-500">Anchored on {String(stop.anchor_label ?? 'nearby structure')}.</p>
+                        <StopTierRow label="🛡️ Recommended (Safe)" tier={stop.recommended as Row} />
+                        <StopTierRow label="🎯 Aggressive (Tight)" tier={stop.aggressive as Row} />
+                      </div>
+                    )}
+                    {target && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">🎯 Take Profit{target.tp_status != null ? ` · ${TP_STATUS_BADGE[String(target.tp_status)] ?? String(target.tp_status)}` : ''}</p>
+                        <p className="text-xs text-slate-500">Anchored on {String(target.anchor_label ?? 'nearby structure')}.</p>
+                        <TargetTierRow label="Recommended (TP1)" tier={target.recommended as Row} />
+                        <TargetTierRow label="Extended (TP2)" tier={target.extended as Row} />
+                      </div>
+                    )}
+
+                    <div className="mt-3">
+                      <TakeTradeVotesTable votes={(res.votes as Row[]) ?? []} />
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PATTERN_BIAS_ORDER = ['BULLISH', 'BEARISH', 'NEUTRAL']
+const PATTERN_BIAS_LABEL: Record<string, string> = {
+  BULLISH: '🟢 Bullish',
+  BEARISH: '🔴 Bearish',
+  NEUTRAL: '⚪ Neutral / Mixed',
+}
+
+function PatternTickerRow({ res }: { res: Row }) {
+  const [open, setOpen] = useState(false)
+  const nBull = ((res.bullish_patterns as Row[]) ?? []).length
+  const nBear = ((res.bearish_patterns as Row[]) ?? []).length
+  const priceStr = res.price != null ? fmtNum(res.price, 2) : '—'
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(res.ticker)}</span>
+        <span className="text-slate-500">· {priceStr} · {fmtNum(res.confidence_pct, 0)}% confidence · 🟢{nBull} / 🔴{nBear} pattern(s)</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-3 py-2">
+          {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {mdBold(rr)}</p>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PatternsPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const timeframes = (data.timeframes as string[]) ?? []
+  const [tf, setTf] = useState(timeframes[0] ?? '')
+  const activeTf = timeframes.includes(tf) ? tf : timeframes[0] ?? ''
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  const tfResults = results.map((r) => {
+    const perTf = (r.per_tf as Record<string, Row>) ?? {}
+    return perTf[activeTf] ?? { ticker: r.ticker, error: 'No data for this timeframe.' }
+  })
+  const errored = tfResults.filter((r) => r.error != null)
+  const valid = tfResults.filter((r) => r.error == null)
+  const buckets: Record<string, Row[]> = { BULLISH: [], BEARISH: [], NEUTRAL: [] }
+  for (const r of valid) {
+    const bias = String(r.bias ?? 'NEUTRAL')
+    ;(buckets[bias] ?? buckets.NEUTRAL).push(r)
+  }
+  for (const bias of PATTERN_BIAS_ORDER) buckets[bias].sort((a, b) => Number(b.confidence_pct ?? 0) - Number(a.confidence_pct ?? 0))
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+        {results.length} ticker(s) analyzed across {timeframes.length} timeframe(s)
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {timeframes.map((t) => (
+          <Chip key={t} selected={activeTf === t} onClick={() => setTf(t)}>{t}</Chip>
+        ))}
+      </div>
+
+      {errored.length > 0 && (
+        <Alert type="error">{errored.map((r) => `${String(r.ticker)}: ${String(r.error)}`).join(' · ')}</Alert>
+      )}
+
+      <div className="space-y-4">
+        {PATTERN_BIAS_ORDER.map((bias) => (
+          <div key={bias}>
+            <p className="mb-2 text-sm font-semibold text-white">{PATTERN_BIAS_LABEL[bias]} — {buckets[bias].length}</p>
+            {buckets[bias].length === 0 ? (
+              <p className="text-xs text-slate-500">None.</p>
+            ) : (
+              <div className="space-y-2">
+                {buckets[bias].map((r, i) => <PatternTickerRow key={`${String(r.ticker)}-${i}`} res={r} />)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function EmaPositionPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
@@ -552,24 +1063,24 @@ function EmaPositionPanel({ data }: { data: Row }) {
                 <thead>
                   <tr>
                     <SortableTh active={emaSortKey === 'ema'} direction={emaSortDir} onSort={() => handleEmaSort('ema')}>EMA</SortableTh>
+                    <SortableTh active={emaSortKey === 'verdict'} direction={emaSortDir} onSort={() => handleEmaSort('verdict')}>Verdict</SortableTh>
                     <SortableTh active={emaSortKey === 'status_from'} direction={emaSortDir} onSort={() => handleEmaSort('status_from')}>Status@From</SortableTh>
                     <SortableTh active={emaSortKey === 'status_to'} direction={emaSortDir} onSort={() => handleEmaSort('status_to')}>Status@To</SortableTh>
-                    <SortableTh active={emaSortKey === 'verdict'} direction={emaSortDir} onSort={() => handleEmaSort('verdict')}>Verdict</SortableTh>
+                    <SortableTh active={emaSortKey === 'dist'} direction={emaSortDir} onSort={() => handleEmaSort('dist')}>Dist %</SortableTh>
                     <SortableTh active={emaSortKey === 'crossings'} direction={emaSortDir} onSort={() => handleEmaSort('crossings')}># Crossings</SortableTh>
                     <SortableTh active={emaSortKey === 'ema_value'} direction={emaSortDir} onSort={() => handleEmaSort('ema_value')}>EMA value now</SortableTh>
-                    <SortableTh active={emaSortKey === 'dist'} direction={emaSortDir} onSort={() => handleEmaSort('dist')}>Dist %</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedEmaSummary.map((e, i) => (
                     <tr key={i}>
                       <Td>{String(e.ema_period)}</Td>
+                      <Td className={verdictClass(String(e.verdict ?? ''))}>{String(e.verdict_label ?? e.verdict ?? '—')}</Td>
                       <Td>{String(e.status_from ?? '—')}</Td>
                       <Td>{String(e.status_to ?? '—')}</Td>
-                      <Td className={verdictClass(String(e.verdict ?? ''))}>{String(e.verdict_label ?? e.verdict ?? '—')}</Td>
+                      <Td>{fmtNum(e.distance_pct)}</Td>
                       <Td>{String(e.crossover_count ?? 0)}</Td>
                       <Td>{fmtNum(e.ema_value_now, 4)}</Td>
-                      <Td>{fmtNum(e.distance_pct)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -578,6 +1089,519 @@ function EmaPositionPanel({ data }: { data: Row }) {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+const BUCKET_ORDER = ['Extended Overbought', 'Overbought', 'Neutral', 'Oversold', 'Extended Oversold']
+
+const BUCKET_CLASS: Record<string, string> = {
+  'Extended Overbought': 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+  Overbought: 'border-rose-500/25 bg-rose-500/5 text-rose-300',
+  Neutral: 'border-slate-700/60 bg-slate-800/30 text-slate-400',
+  Oversold: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-300',
+  'Extended Oversold': 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+}
+
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString().slice(0, 10)
+}
+
+type DrillCheck =
+  | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
+  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+
+function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
+  const isIndia = assetClass === 'india'
+  const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
+    momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,
+    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
+  })
+  const [ran, setRan] = useState(false)
+
+  const momentumMut = useMutation({ mutationFn: () => runMomentumScan({ tickers: [ticker], asset_class: assetClass, timeframes: [timeframe] }) })
+  const qaMut = useMutation({ mutationFn: () => runQuickAnalyzer({ tickers: [ticker], timeframes: [timeframe], asset_class: assetClass as 'india' | 'us' | 'crypto', from_date: isoDaysAgo(90), to_date: isoDaysAgo(0) }) })
+  const patternsMut = useMutation({ mutationFn: () => runTradeSetupPatterns({ ticker, asset_class: assetClass, timeframe }) })
+  const smartMoneyMut = useMutation({ mutationFn: () => runTradeSetupSmartMoney({ ticker, asset_class: assetClass, timeframe }) })
+  const scalpingMut = useMutation({ mutationFn: () => runTradeSetupScalping({ ticker, asset_class: assetClass, timeframe }) })
+  const srMut = useMutation({ mutationFn: () => runTradeSetupSupportResistance({ ticker, asset_class: assetClass, timeframe }) })
+  const tsMut = useMutation({ mutationFn: () => runTradeSetupTimeSeries({ ticker, asset_class: assetClass, timeframe }) })
+  const divMut = useMutation({ mutationFn: () => runTradeSetupDivergence({ ticker, asset_class: assetClass, timeframe }) })
+  const stopHuntMut = useMutation({ mutationFn: () => runTradeSetupStopHunt({ ticker, asset_class: assetClass, timeframe }) })
+  const takeProfitMut = useMutation({ mutationFn: () => runTradeSetupTakeProfit({ ticker, asset_class: assetClass, timeframe }) })
+  const udMut = useMutation({ mutationFn: () => runUpgradeDowngradeScan({ tickers: [ticker], asset_class: assetClass }) })
+  const faMut = useMutation({ mutationFn: () => runFundamentalAnalysis({ tickers: [ticker], asset_class: assetClass }) })
+  const ocMut = useMutation({ mutationFn: () => runOptionChain({ symbol: ticker, is_index: false }) })
+
+  const toggle = (key: DrillCheck) => setChecked((prev) => ({ ...prev, [key]: !prev[key] }))
+
+  const runAnalysis = () => {
+    setRan(true)
+    if (checked.momentum || checked.volume) momentumMut.mutate()
+    if (checked.quick_analyzer) qaMut.mutate()
+    if (checked.patterns) patternsMut.mutate()
+    if (checked.smart_money) smartMoneyMut.mutate()
+    if (checked.scalping) scalpingMut.mutate()
+    if (checked.support_resistance) srMut.mutate()
+    if (checked.time_series) tsMut.mutate()
+    if (checked.divergence) divMut.mutate()
+    if (checked.stop_hunt) stopHuntMut.mutate()
+    if (checked.take_profit) takeProfitMut.mutate()
+    if (checked.upgrade_downgrade) udMut.mutate()
+    if (checked.fundamentals && isIndia) faMut.mutate()
+    if (checked.option_chain && isIndia) ocMut.mutate()
+  }
+
+  const anyChecked = Object.values(checked).some(Boolean)
+  const momentumRow = (momentumMut.data as Row | undefined)?.results as Row[] | undefined
+  const m = momentumRow?.[0]
+  const qaRow = (qaMut.data as Row | undefined)?.results as Row[] | undefined
+  const qa = qaRow?.[0]
+  const qaSetup = (qa?.setup as Row) ?? {}
+  const udRow = (udMut.data as Row | undefined)?.results as Row[] | undefined
+  const ud = udRow?.[0]
+  const udConsensus = (ud?.consensus as Row) ?? {}
+  const faRow = (faMut.data as Row | undefined)?.results as Row[] | undefined
+  const fa = faRow?.[0]
+  const faOverall = (fa?.overall as Row) ?? {}
+  const faValuation = (fa?.valuation as Row) ?? {}
+  const ocSignal = (ocMut.data as Row | undefined)?.signal as Row | undefined
+  const ocChain = (ocMut.data as Row | undefined)?.chain as Row | undefined
+  const mPerTf = (m?.per_tf as Row[]) ?? []
+  const mTf = mPerTf[0]
+  const vpa = mTf ? volumePriceAnalysis(mTf) : null
+  const patData = patternsMut.data as Row | undefined
+  const patterns = [...((patData?.candles as Row[]) ?? []), ...((patData?.charts as Row[]) ?? [])]
+  const patBullish = patterns.filter((p) => p.bias === 'BULLISH')
+  const patBearish = patterns.filter((p) => p.bias === 'BEARISH')
+  const patNeutral = patterns.filter((p) => p.bias !== 'BULLISH' && p.bias !== 'BEARISH')
+  const smCombo = (smartMoneyMut.data as Row | undefined)?.combo as Row | undefined
+  const scalpCombo = (scalpingMut.data as Row | undefined)?.combo as Row | undefined
+  const srData = srMut.data as Row | undefined
+  const srSr = (srData?.sr as Row) ?? {}
+  const srBreakout = (srData?.breakout as Row) ?? {}
+  const srSupports = (srSr.supports as Row[]) ?? []
+  const srResistances = (srSr.resistances as Row[]) ?? []
+  const srPrice = srData?.price as number | undefined
+  const srLevel = (srBreakout.level as Row) ?? {}
+  const tsCombo = (tsMut.data as Row | undefined)?.combo as Row | undefined
+  const divRes = divMut.data as Row | undefined
+  const stopHuntRes = stopHuntMut.data as Row | undefined
+  const takeProfitRes = takeProfitMut.data as Row | undefined
+
+  return (
+    <div className="space-y-3 border-t border-slate-800/60 pt-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.momentum} onChange={() => toggle('momentum')} />📈 Momentum
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.volume} onChange={() => toggle('volume')} />📊 Volume
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.quick_analyzer} onChange={() => toggle('quick_analyzer')} />⚡ Quick Analyzer
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.patterns} onChange={() => toggle('patterns')} />🕯️ Candlestick/Chart Patterns
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.smart_money} onChange={() => toggle('smart_money')} />🧠 Smart Money
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.scalping} onChange={() => toggle('scalping')} />⚡ Scalping
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.support_resistance} onChange={() => toggle('support_resistance')} />🎯 Support/Resistance
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.time_series} onChange={() => toggle('time_series')} />📈 Time Series
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.divergence} onChange={() => toggle('divergence')} />🔀 Divergences
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.stop_hunt} onChange={() => toggle('stop_hunt')} />🎣 Stop Loss Hunting
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.take_profit} onChange={() => toggle('take_profit')} />🎯 Take Profit Targets
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.upgrade_downgrade} onChange={() => toggle('upgrade_downgrade')} />🏷️ Stock Upgrade Downgrade
+        </label>
+        <label className={`flex items-center gap-1.5 text-xs ${isIndia ? 'text-slate-300' : 'text-slate-600'}`}>
+          <input type="checkbox" checked={checked.fundamentals} disabled={!isIndia} onChange={() => toggle('fundamentals')} />📚 Fundamentals
+        </label>
+        <label className={`flex items-center gap-1.5 text-xs ${isIndia ? 'text-slate-300' : 'text-slate-600'}`}>
+          <input type="checkbox" checked={checked.option_chain} disabled={!isIndia} onChange={() => toggle('option_chain')} />⛓️ Option Chain
+        </label>
+      </div>
+      {!isIndia && <p className="text-xs text-slate-500">Fundamentals and Option Chain are Groww India (NSE) only.</p>}
+
+      <Button size="sm" variant="secondary" onClick={runAnalysis} disabled={!anyChecked}>
+        🔍 Run further analysis
+      </Button>
+
+      {ran && (
+        <div className="space-y-2 text-sm text-slate-300">
+          {(checked.momentum || checked.volume) && (
+            momentumMut.isPending ? <p className="text-xs text-slate-500">Loading momentum…</p> :
+            momentumMut.isError ? <p className="text-xs text-rose-400">Momentum failed: {apiErrorMessage(momentumMut.error)}</p> :
+            m ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                {checked.momentum && (
+                  <>
+                    <p><strong>📈 Momentum:</strong> <span className={verdictClass(String(m.overall_direction ?? ''))}>{String(m.overall_direction ?? '—')}</span> · {String(m.overall_strength ?? '—')}
+                      {m.overall_direction === 'CONSOLIDATING' ? '' : ` · ${fmtNum(m.confidence_continue_pct, 0)}% confidence`}
+                    </p>
+                    {m.overall_direction === 'CONSOLIDATING' && m.breakout_up_pct != null && (
+                      <p className="text-xs text-amber-400">
+                        ⚖️ Breakout lean: <strong>{fmtNum(m.breakout_up_pct, 0)}% chance of breaking UP</strong> vs <strong>{fmtNum(m.breakout_down_pct, 0)}% DOWN</strong>
+                      </p>
+                    )}
+                    {(m.actionability as Row)?.reason != null && <p className="text-xs text-slate-400">Verdict: {String((m.actionability as Row).reason)}</p>}
+                    {((m.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
+                  </>
+                )}
+                {checked.volume && mTf && vpa && (
+                  <div className={checked.momentum ? 'mt-2 border-t border-slate-800/60 pt-2' : ''}>
+                    <p className="font-semibold text-white">📊 Volume — Volume-Price Analysis</p>
+                    <p className="text-xs text-slate-300">{vpa.badge} <strong>Volume Bias: {vpa.bias}</strong></p>
+                    <p className="text-xs text-slate-400">
+                      Volume vs 20-bar Avg: <strong>{vpa.ratioStr}</strong> · Participation: <strong>{vpa.tier}</strong> · Trend Context: <strong>{vpa.trend} · {vpa.momentumChange}</strong>
+                    </p>
+                    <p className="text-xs text-slate-500">{mdBold(vpa.read)}</p>
+                    {Boolean(mTf.is_consolidating) && mTf.breakout_up_pct != null && (
+                      <p className="text-xs text-amber-400">
+                        ⚖️ Breakout lean: <strong>{fmtNum(mTf.breakout_up_pct, 0)}% chance of breaking UP</strong> vs <strong>{fmtNum(mTf.breakout_down_pct, 0)}% DOWN</strong>
+                      </p>
+                    )}
+                    {vpa.divergenceCaption && <p className="text-xs text-slate-500">{vpa.divergenceCaption}</p>}
+                    {vpa.breakoutCaption && <p className="text-xs text-slate-500">{mdBold(vpa.breakoutCaption)}</p>}
+                  </div>
+                )}
+              </div>
+            ) : null
+          )}
+
+          {checked.quick_analyzer && (
+            qaMut.isPending ? <p className="text-xs text-slate-500">Loading Quick Analyzer…</p> :
+            qaMut.isError ? <p className="text-xs text-rose-400">Quick Analyzer failed: {apiErrorMessage(qaMut.error)}</p> :
+            qa ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>⚡ Quick Analyzer:</strong> Setup <span className={verdictClass(String(qaSetup.direction ?? ''))}>{String(qaSetup.direction ?? '—')}</span> · {fmtNum(qaSetup.confidence_pct, 0)}% confidence
+                  {qaSetup.sl_pct != null ? ` · SL ${fmtNum(qaSetup.sl_pct, 2)}% / TP ${fmtNum(qaSetup.tp_pct, 2)}%` : ''}</p>
+                {((qaSetup.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
+              </div>
+            ) : null
+          )}
+
+          {checked.patterns && (
+            patternsMut.isPending ? <p className="text-xs text-slate-500">Scanning candlestick &amp; chart patterns…</p> :
+            patternsMut.isError ? <p className="text-xs text-rose-400">Patterns failed: {apiErrorMessage(patternsMut.error)}</p> :
+            patData ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p className="font-semibold text-white">🕯️ Candlestick / Chart Patterns</p>
+                {!patterns.length && <p className="text-xs text-slate-500">No notable bullish or bearish candlestick/chart pattern formed in the recent bars.</p>}
+                {patBullish.length > 0 && (
+                  <>
+                    <p className="mt-1 text-xs text-emerald-400">🟢 {patBullish.length} bullish pattern(s) formed:</p>
+                    {patBullish.map((p, i) => (
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                    ))}
+                  </>
+                )}
+                {patBearish.length > 0 && (
+                  <>
+                    <p className="mt-1 text-xs text-rose-400">🔴 {patBearish.length} bearish pattern(s) formed:</p>
+                    {patBearish.map((p, i) => (
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                    ))}
+                  </>
+                )}
+                {patNeutral.length > 0 && (
+                  <>
+                    <p className="mt-1 text-xs text-slate-400">⚪ {patNeutral.length} neutral/indecision pattern(s):</p>
+                    {patNeutral.map((p, i) => (
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : null
+          )}
+
+          {checked.smart_money && (
+            smartMoneyMut.isPending ? <p className="text-xs text-slate-500">Combining Smart Money strategies…</p> :
+            smartMoneyMut.isError ? <p className="text-xs text-rose-400">Smart Money failed: {apiErrorMessage(smartMoneyMut.error)}</p> :
+            smCombo ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p className="font-semibold text-white">🧠 Smart Money — TTG Sniper + CISD Entry + MTF Day Plan (combined)</p>
+                <p className="text-xs text-slate-400">
+                  Verdict: <strong className={verdictClass(String(smCombo.verdict ?? ''))}>{String(smCombo.verdict ?? '—')}</strong> · {fmtNum(smCombo.confidence_pct, 0)}% confidence
+                  {' '}({fmtNum(smCombo.n_agree, 0)}/{fmtNum(smCombo.n_total, 0)} strategies agree, need {fmtNum(smCombo.min_agree_required, 0)}+ at {fmtNum(smCombo.take_threshold, 0)}%+)
+                  {smCombo.entry_price != null ? ` · Entry ${fmtNum(smCombo.entry_price, 4)} · SL ${fmtNum(smCombo.stop_price, 4)} · TP1 ${fmtNum(smCombo.target1_price, 4)} · TP2 ${fmtNum(smCombo.target2_price, 4)}` : ''}
+                </p>
+                {((smCombo.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+              </div>
+            ) : null
+          )}
+
+          {checked.scalping && (
+            scalpingMut.isPending ? <p className="text-xs text-slate-500">Combining scalping strategies…</p> :
+            scalpingMut.isError ? <p className="text-xs text-rose-400">Scalping failed: {apiErrorMessage(scalpingMut.error)}</p> :
+            scalpCombo ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p className="font-semibold text-white">⚡ Scalping — Rectangle Setup + SMC Rule of Three (CRT-FVG) + ARC Method + A+ S/R MSS (combined)</p>
+                <p className="text-xs text-slate-400">
+                  Verdict: <strong className={verdictClass(String(scalpCombo.verdict ?? ''))}>{String(scalpCombo.verdict ?? '—')}</strong> · {fmtNum(scalpCombo.confidence_pct, 0)}% confidence
+                  {' '}({fmtNum(scalpCombo.n_agree, 0)}/{fmtNum(scalpCombo.n_total, 0)} strategies agree, need {fmtNum(scalpCombo.min_agree_required, 0)}+ at {fmtNum(scalpCombo.take_threshold, 0)}%+)
+                  {scalpCombo.entry_price != null ? ` · Entry ${fmtNum(scalpCombo.entry_price, 4)} · SL ${fmtNum(scalpCombo.stop_price, 4)} · TP1 ${fmtNum(scalpCombo.target1_price, 4)} · TP2 ${fmtNum(scalpCombo.target2_price, 4)}` : ''}
+                </p>
+                {((scalpCombo.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+              </div>
+            ) : null
+          )}
+
+          {checked.support_resistance && (
+            srMut.isPending ? <p className="text-xs text-slate-500">Scanning support/resistance…</p> :
+            srMut.isError ? <p className="text-xs text-rose-400">Support/Resistance failed: {apiErrorMessage(srMut.error)}</p> :
+            srData ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p className="font-semibold text-white">🎯 Support / Resistance — Approaching, Breakout &amp; Breakdown</p>
+                {srBreakout.event === 'RESISTANCE_BREAKOUT' && srPrice != null ? (
+                  <p className="text-xs text-emerald-400">🚀 Breakout — price ({fmtNum(srPrice, 2)}) has closed above prior resistance {fmtNum(srLevel.price, 2)} ({fmtNum(srLevel.touches, 0)} prior touch(es)) — {srBreakout.volume_confirmed ? 'volume confirms the move' : 'not yet volume-confirmed, watch for follow-through'}.</p>
+                ) : srBreakout.event === 'SUPPORT_BREAKDOWN' && srPrice != null ? (
+                  <p className="text-xs text-rose-400">🔻 Breakdown — price ({fmtNum(srPrice, 2)}) has closed below prior support {fmtNum(srLevel.price, 2)} ({fmtNum(srLevel.touches, 0)} prior touch(es)) — {srBreakout.volume_confirmed ? 'volume confirms the move' : 'not yet volume-confirmed, watch for follow-through'}.</p>
+                ) : (
+                  <p className="text-xs text-slate-500">No fresh breakout/breakdown on this timeframe — price is still inside its recent range.</p>
+                )}
+                {srResistances.length > 0 && (
+                  <p className="text-xs text-slate-500">Resistance levels: {srResistances.map((r) => `${fmtNum(r.price, 2)} (${fmtNum(r.touches, 0)}x)`).join(', ')}</p>
+                )}
+                {srSupports.length > 0 && (
+                  <p className="text-xs text-slate-500">Support levels: {srSupports.map((s) => `${fmtNum(s.price, 2)} (${fmtNum(s.touches, 0)}x)`).join(', ')}</p>
+                )}
+              </div>
+            ) : null
+          )}
+
+          {checked.time_series && (
+            tsMut.isPending ? <p className="text-xs text-slate-500">Combining time-series strategies…</p> :
+            tsMut.isError ? <p className="text-xs text-rose-400">Time Series failed: {apiErrorMessage(tsMut.error)}</p> :
+            tsCombo ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p className="font-semibold text-white">📈 Time Series — MA Crossover (Golden/Death Cross) + Bollinger Mean Reversion + Momentum Breakout (combined)</p>
+                <p className="text-xs text-slate-400">
+                  Verdict: <strong className={verdictClass(String(tsCombo.verdict ?? ''))}>{String(tsCombo.verdict ?? '—')}</strong> · {fmtNum(tsCombo.confidence_pct, 0)}% confidence
+                  {' '}({fmtNum(tsCombo.n_agree, 0)}/{fmtNum(tsCombo.n_total, 0)} strategies agree, need {fmtNum(tsCombo.min_agree_required, 0)}+ at {fmtNum(tsCombo.take_threshold, 0)}%+)
+                  {tsCombo.entry_price != null ? ` · Entry ${fmtNum(tsCombo.entry_price, 4)} · SL ${fmtNum(tsCombo.stop_price, 4)} · TP1 ${fmtNum(tsCombo.target1_price, 4)} · TP2 ${fmtNum(tsCombo.target2_price, 4)}` : ''}
+                </p>
+                {((tsCombo.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+              </div>
+            ) : null
+          )}
+
+          {checked.divergence && (
+            divMut.isPending ? <p className="text-xs text-slate-500">Scanning for divergences…</p> :
+            divMut.isError ? <p className="text-xs text-rose-400">Divergences failed: {apiErrorMessage(divMut.error)}</p> :
+            divRes ? (
+              divRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(divRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">🔀 Divergences — Price vs RSI · Price vs Volume (OBV)</p>
+                  <p className="text-xs text-slate-400">
+                    {DIVERGENCE_BADGE[String(divRes.bias ?? 'NEUTRAL')] ?? String(divRes.bias ?? '—')} · {fmtNum(divRes.confidence_pct, 0)}% confidence
+                  </p>
+                  {((divRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {mdBold(rr)}</p>)}
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.stop_hunt && (
+            stopHuntMut.isPending ? <p className="text-xs text-slate-500">Scanning for stop-loss hunting…</p> :
+            stopHuntMut.isError ? <p className="text-xs text-rose-400">Stop Loss Hunting failed: {apiErrorMessage(stopHuntMut.error)}</p> :
+            stopHuntRes ? (
+              stopHuntRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(stopHuntRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">🎣 Stop Loss Hunting — Liquidity Sweep Detection &amp; Hunt-Resistant Stops</p>
+                  <p className="text-xs text-slate-400">
+                    {HUNT_STATUS_BADGE[String(stopHuntRes.hunt_status ?? 'LOW_RISK')] ?? String(stopHuntRes.hunt_status ?? '—')}
+                    {stopHuntRes.atr != null ? ` · ATR ${fmtNum(stopHuntRes.atr, 4)}` : ''}
+                  </p>
+                  {((stopHuntRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {mdBold(rr)}</p>)}
+                  <StopHuntScenario label="If LONG" stops={stopHuntRes.long_stops as Row} />
+                  <StopHuntScenario label="If SHORT" stops={stopHuntRes.short_stops as Row} />
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.take_profit && (
+            takeProfitMut.isPending ? <p className="text-xs text-slate-500">Computing take-profit targets…</p> :
+            takeProfitMut.isError ? <p className="text-xs text-rose-400">Take Profit Targets failed: {apiErrorMessage(takeProfitMut.error)}</p> :
+            takeProfitRes ? (
+              takeProfitRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(takeProfitRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">🎯 Take Profit Targets — S/R · Pattern · Fibonacci · Liquidity Draw</p>
+                  <p className="text-xs text-slate-400">
+                    {TP_STATUS_BADGE[String(takeProfitRes.tp_status ?? 'LOW_CONFLUENCE')] ?? String(takeProfitRes.tp_status ?? '—')}
+                    {takeProfitRes.atr != null ? ` · ATR ${fmtNum(takeProfitRes.atr, 4)}` : ''}
+                  </p>
+                  {((takeProfitRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  <TakeProfitScenario label="If LONG" targets={takeProfitRes.long_targets as Row} />
+                  <TakeProfitScenario label="If SHORT" targets={takeProfitRes.short_targets as Row} />
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.upgrade_downgrade && (
+            udMut.isPending ? <p className="text-xs text-slate-500">Loading Upgrade/Downgrade…</p> :
+            udMut.isError ? <p className="text-xs text-rose-400">Upgrade/Downgrade failed: {apiErrorMessage(udMut.error)}</p> :
+            ud ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>🏷️ Stock Upgrade Downgrade:</strong> 🧱 Block deals: {fmtNum(ud.block_deal_or_ma_count, 0)} · ⬆️ Upgrades: {fmtNum(udConsensus.upgrades, 0)} · ⬇️ Downgrades: {fmtNum(udConsensus.downgrades, 0)}
+                  {udConsensus.consensus != null ? <> · Consensus: <strong className={verdictClass(String(udConsensus.consensus ?? ''))}>{String(udConsensus.consensus)}</strong></> : ''}
+                  {udConsensus.latest_target != null ? ` · Latest target: ${fmtNum(udConsensus.latest_target)}` : ''}</p>
+                {!((ud.items as Row[]) ?? []).length && <p className="text-xs text-slate-500">No block deals, M&A, or analyst coverage found in the lookback window.</p>}
+                {((ud.items as Row[]) ?? []).slice(0, 5).map((it, i) => (
+                  <p key={i} className="text-xs text-slate-500">· [{String(it.category_label ?? it.action ?? '—')}] {String(it.brokerage ?? it.source ?? '')} — {String(it.title ?? '').slice(0, 100)}</p>
+                ))}
+              </div>
+            ) : null
+          )}
+
+          {checked.fundamentals && isIndia && (
+            faMut.isPending ? <p className="text-xs text-slate-500">Loading Fundamentals…</p> :
+            faMut.isError ? <p className="text-xs text-rose-400">Fundamentals failed: {apiErrorMessage(faMut.error)}</p> :
+            fa ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>📚 Fundamentals:</strong> Signal: <span className={verdictClass(String(faOverall.signal ?? ''))}>{String(faOverall.signal ?? '—')}</span> ({fmtNum(faOverall.confidence_pct, 0)}% confidence) · Valuation: {String(faValuation.label ?? '—')}</p>
+                {((faOverall.factors as string[]) ?? []).slice(0, 4).map((f, i) => <p key={i} className="text-xs text-slate-500">• {f}</p>)}
+              </div>
+            ) : null
+          )}
+
+          {checked.option_chain && isIndia && (
+            ocMut.isPending ? <p className="text-xs text-slate-500">Loading Option Chain…</p> :
+            ocMut.isError ? <p className="text-xs text-rose-400">Option Chain failed: {apiErrorMessage(ocMut.error)}</p> :
+            ocSignal ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>⛓️ Option Chain:</strong> Bias: <span className={verdictClass(String(ocSignal.bias ?? ''))}>{String(ocSignal.bias ?? '—')}</span> · Trade signal: {String(ocSignal.trade_signal ?? '—')} · {fmtNum(ocSignal.confidence_pct, 0)}% confidence
+                  {ocChain?.pcr_oi != null ? ` · PCR: ${fmtNum(ocChain.pcr_oi, 2)}` : ''}
+                  {ocChain?.max_pain != null ? ` · Max Pain: ${fmtNum(ocChain.max_pain, 0)}` : ''}</p>
+                {((ocSignal.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
+              </div>
+            ) : ocMut.isSuccess ? <p className="text-xs text-slate-500">Could not fetch option chain — no listed F&amp;O contracts, or NSE is rate-limiting.</p> : null
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TradeSetupBucketTable({ items, timeframe, assetClass }: { items: Row[]; timeframe: string; assetClass: string }) {
+  const { sorted, sortKey, sortDir, handleSort } = useSort(items, {
+    ticker: (r) => String(r.ticker ?? ''),
+    price: (r) => (r.price != null ? Number(r.price) : null),
+    rsi: (r) => (r.rsi != null ? Number(r.rsi) : null),
+    trend: (r) => String(r.trend_direction ?? ''),
+    volume: (r) => (r.volume_ratio != null ? Number(r.volume_ratio) : null),
+  })
+  const [expanded, setExpanded] = useState<string | null>(null)
+  return (
+    <DataTable minWidth={480}>
+      <thead>
+        <tr>
+          <Th />
+          <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+          <SortableTh active={sortKey === 'price'} direction={sortDir} onSort={() => handleSort('price')}>Price</SortableTh>
+          <SortableTh active={sortKey === 'rsi'} direction={sortDir} onSort={() => handleSort('rsi')}>RSI(14)</SortableTh>
+          <SortableTh active={sortKey === 'trend'} direction={sortDir} onSort={() => handleSort('trend')}>Trend</SortableTh>
+          <SortableTh active={sortKey === 'volume'} direction={sortDir} onSort={() => handleSort('volume')}>Volume x</SortableTh>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((r, i) => {
+          const ticker = String(r.ticker)
+          const isOpen = expanded === ticker
+          return (
+            <Fragment key={`${ticker}-${i}`}>
+              <tr className="cursor-pointer hover:bg-slate-800/20" onClick={() => setExpanded(isOpen ? null : ticker)}>
+                <Td className="w-6 text-slate-500">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</Td>
+                <Td className="font-medium text-white">{ticker}</Td>
+                <Td>{fmtNum(r.price, 4)}</Td>
+                <Td className={verdictClass(String(r.bucket ?? ''))}>{fmtNum(r.rsi, 1)}</Td>
+                <Td>{String(r.trend_direction ?? '—')}</Td>
+                <Td>{fmtNum(r.volume_ratio)}</Td>
+              </tr>
+              {isOpen && (
+                <tr>
+                  <Td colSpan={6} className="whitespace-normal bg-slate-900/30">
+                    <TradeSetupDrillDown ticker={ticker} timeframe={timeframe} assetClass={assetClass} />
+                  </Td>
+                </tr>
+              )}
+            </Fragment>
+          )
+        })}
+      </tbody>
+    </DataTable>
+  )
+}
+
+function TradeSetupPanel({ data, assetClass }: { data: Row; assetClass: string }) {
+  const timeframes = (data.timeframes as string[]) ?? []
+  const grouped = (data.grouped as Record<string, Record<string, Row[]>>) ?? {}
+  const results = (data.results as Row[]) ?? []
+  const [activeTf, setActiveTf] = useState<string | null>(null)
+  const tf = activeTf && timeframes.includes(activeTf) ? activeTf : timeframes[0]
+
+  if (!timeframes.length) return <p className="text-sm text-slate-500">No results.</p>
+  const errored = results.filter((r) => r.error)
+  const buckets = (tf && grouped[tf]) || {}
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">{results.length - errored.length} of {results.length} tickers analyzed · {String(data.market ?? '')}</p>
+
+      <div className="flex flex-wrap gap-2">
+        {timeframes.map((t) => (
+          <Chip key={t} selected={tf === t} onClick={() => setActiveTf(t)}>{t}</Chip>
+        ))}
+      </div>
+
+      {errored.length > 0 && (
+        <Alert type="error">
+          {errored.map((r) => `${String(r.ticker)}: ${String(r.error)}`).join(' · ')}
+        </Alert>
+      )}
+
+      <div className="grid gap-4">
+        {BUCKET_ORDER.map((bucket) => {
+          const items = buckets[bucket] ?? []
+          return (
+            <div key={bucket} className="min-w-0">
+              <div className={`mb-2 inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${BUCKET_CLASS[bucket] ?? ''}`}>
+                {bucket} <span className="opacity-70">({items.length})</span>
+              </div>
+              {items.length > 0 && tf ? (
+                <TradeSetupBucketTable items={items} timeframe={tf} assetClass={assetClass} />
+              ) : (
+                <p className="text-xs text-slate-500">No tickers in this zone on {tf}.</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -686,20 +1710,20 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
                 <thead>
                   <tr>
                     <SortableTh active={holdingSortKey === 'category'} direction={holdingSortDir} onSort={() => handleHoldingSort('category')}>Category</SortableTh>
+                    <SortableTh active={holdingSortKey === 'implication'} direction={holdingSortDir} onSort={() => handleHoldingSort('implication')}>Implication</SortableTh>
+                    <SortableTh active={holdingSortKey === 'trend'} direction={holdingSortDir} onSort={() => handleHoldingSort('trend')}>Trend</SortableTh>
                     <SortableTh active={holdingSortKey === 'latest'} direction={holdingSortDir} onSort={() => handleHoldingSort('latest')}>Latest %</SortableTh>
                     <SortableTh active={holdingSortKey === 'delta'} direction={holdingSortDir} onSort={() => handleHoldingSort('delta')}>Δ 12m (pp)</SortableTh>
-                    <SortableTh active={holdingSortKey === 'trend'} direction={holdingSortDir} onSort={() => handleHoldingSort('trend')}>Trend</SortableTh>
-                    <SortableTh active={holdingSortKey === 'implication'} direction={holdingSortDir} onSort={() => handleHoldingSort('implication')}>Implication</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedHolding.map((info) => (
                     <tr key={String(info.label)}>
                       <Td>{String(info.label)}</Td>
+                      <Td className="max-w-xs truncate">{String(info.implication ?? '—')}</Td>
+                      <Td>{String(info.trend ?? '—')}</Td>
                       <Td>{fmtNum(info.latest_pct, 1)}</Td>
                       <Td>{fmtNum(info.delta_pp_12m, 1)}</Td>
-                      <Td>{String(info.trend ?? '—')}</Td>
-                      <Td className="max-w-xs truncate">{String(info.implication ?? '—')}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -731,7 +1755,7 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
           </div>
 
           {(pros.length > 0 || cons.length > 0) && (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4">
               <div>
                 <h4 className="mb-2 text-sm font-semibold text-emerald-400">✅ Pros (screener.in)</h4>
                 {pros.length > 0 ? (
@@ -996,9 +2020,9 @@ function OneClickPanel({ data, style }: { data: Row; style: 'intraday' | 'scalpi
                   <tr>
                     <SortableTh active={votesSortKey === 'engine'} direction={votesSortDir} onSort={() => handleVotesSort('engine')}>Engine</SortableTh>
                     <SortableTh active={votesSortKey === 'direction'} direction={votesSortDir} onSort={() => handleVotesSort('direction')}>Direction</SortableTh>
-                    <SortableTh active={votesSortKey === 'confidence'} direction={votesSortDir} onSort={() => handleVotesSort('confidence')}>Confidence</SortableTh>
                     <SortableTh active={votesSortKey === 'take'} direction={votesSortDir} onSort={() => handleVotesSort('take')}>Take</SortableTh>
                     <SortableTh active={votesSortKey === 'agreed'} direction={votesSortDir} onSort={() => handleVotesSort('agreed')}>Agreed</SortableTh>
+                    <SortableTh active={votesSortKey === 'confidence'} direction={votesSortDir} onSort={() => handleVotesSort('confidence')}>Confidence</SortableTh>
                     <SortableTh active={votesSortKey === 'note'} direction={votesSortDir} onSort={() => handleVotesSort('note')}>Note</SortableTh>
                   </tr>
                 </thead>
@@ -1007,9 +2031,9 @@ function OneClickPanel({ data, style }: { data: Row; style: 'intraday' | 'scalpi
                     <tr key={i}>
                       <Td>{String(v.engine ?? '—')}</Td>
                       <Td className={verdictClass(String(v.direction ?? ''))}>{String(v.direction ?? '—')}</Td>
-                      <Td>{v.confidence != null ? `${fmtNum(v.confidence, 0)}%` : '—'}</Td>
                       <Td>{v.take ? '✅' : '—'}</Td>
                       <Td>{v.agreed ? '✅' : (v.direction === 'WAIT' ? '⚪' : '❌')}</Td>
+                      <Td>{v.confidence != null ? `${fmtNum(v.confidence, 0)}%` : '—'}</Td>
                       <Td className="max-w-xs truncate text-slate-400">
                         {v.error != null ? String(v.error) : String(((v.reasons as string[]) ?? [])[0] ?? '')}
                       </Td>
@@ -1054,7 +2078,7 @@ function MoversTable({ label, bundle }: { label: string; bundle: Row | undefined
       <h5 className="mb-2 text-sm font-semibold text-white">
         {label}{bundle.source != null ? <span className="ml-2 text-xs font-normal text-slate-500">({String(bundle.source)})</span> : null}
       </h5>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4">
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wider text-emerald-400">Gainers</p>
           <ul className="space-y-1 text-sm text-slate-300">
@@ -1146,8 +2170,8 @@ function GlobalMarketMoodPanel({ data }: { data: Row }) {
 
       {((sectors.leading as Row[]) ?? []).length > 0 && (
         <div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
+          <div className="grid gap-4">
+            <div className="min-w-0">
               <h4 className="mb-2 text-sm font-semibold text-emerald-400">Leading sectors</h4>
               <DataTable minWidth={360}>
                 <thead>
@@ -1170,7 +2194,7 @@ function GlobalMarketMoodPanel({ data }: { data: Row }) {
                 </tbody>
               </DataTable>
             </div>
-            <div>
+            <div className="min-w-0">
               <h4 className="mb-2 text-sm font-semibold text-rose-400">Lagging sectors</h4>
               <DataTable minWidth={360}>
                 <thead>
@@ -1516,9 +2540,98 @@ function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
   )
 }
 
+const FUTURES_REGION_EMOJI: Record<string, string> = {
+  US: '🇺🇸', Europe: '🇪🇺', Asia: '🌏', Commodities: '🛢️', Crypto: '₿', Currency: '💵',
+}
+const FUTURES_REGION_KIND: Record<string, string> = {
+  US: 'Futures', Europe: 'Indices', Asia: 'Futures & Indices',
+  Commodities: 'Futures', Crypto: 'Futures', Currency: 'Index',
+}
+
+function FuturesTable({ rows, region }: { rows: Row[]; region: string }) {
+  const filtered = rows.filter((r) => r.region === region)
+  const { sorted, sortKey, sortDir, handleSort } = useSort(filtered, {
+    name: (r) => String(r.name ?? ''),
+    change_pct: (r) => (r.change_pct != null ? Number(r.change_pct) : null),
+    last: (r) => (r.last != null ? Number(r.last) : null),
+    high: (r) => (r.high != null ? Number(r.high) : null),
+    low: (r) => (r.low != null ? Number(r.low) : null),
+  })
+  const kind = FUTURES_REGION_KIND[region] ?? 'Data'
+  const allFutures = filtered.length > 0 && filtered.every((r) => Boolean(r.is_future))
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-semibold text-white">{FUTURES_REGION_EMOJI[region] ?? '🌐'} {region} {kind} — {filtered.length}</h4>
+      {filtered.length > 0 && !allFutures && (
+        <p className="mb-2 text-xs text-slate-500">
+          Yahoo Finance has no free continuous futures contract for one or more of these — shown as the underlying cash index instead, still a genuine overnight pre-market read.
+        </p>
+      )}
+      {!filtered.length ? (
+        <p className="text-xs text-slate-500">No {region} data returned right now.</p>
+      ) : (
+        <DataTable minWidth={720}>
+          <thead>
+            <tr>
+              <SortableTh active={sortKey === 'name'} direction={sortDir} onSort={() => handleSort('name')}>Name</SortableTh>
+              <SortableTh active={sortKey === 'change_pct'} direction={sortDir} onSort={() => handleSort('change_pct')}>Change %</SortableTh>
+              <SortableTh active={sortKey === 'last'} direction={sortDir} onSort={() => handleSort('last')}>LTP</SortableTh>
+              <SortableTh active={sortKey === 'high'} direction={sortDir} onSort={() => handleSort('high')}>Day High</SortableTh>
+              <SortableTh active={sortKey === 'low'} direction={sortDir} onSort={() => handleSort('low')}>Day Low</SortableTh>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r, i) => (
+              <tr key={i}>
+                <Td className="font-medium">{String(r.name ?? '—')}{r.country ? <span className="ml-1 text-xs text-slate-500">({String(r.country)})</span> : null}</Td>
+                <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change_pct)}</Td>
+                <Td>{fmtNum(r.last)}</Td>
+                <Td>{fmtNum(r.high)}</Td>
+                <Td>{fmtNum(r.low)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+    </div>
+  )
+}
+
+function GiftNiftyCard({ gn }: { gn: Row | undefined | null }) {
+  if (!gn || gn.ltp == null) {
+    return (
+      <div>
+        <h4 className="mb-2 text-sm font-semibold text-white">🇮🇳 GIFT Nifty (formerly SGX Nifty)</h4>
+        <p className="text-xs text-slate-500">GIFT Nifty data unavailable right now.</p>
+      </div>
+    )
+  }
+  const r1w = (gn.return_1w as Row) ?? {}
+  const r1m = (gn.return_1m as Row) ?? {}
+  const r1y = (gn.return_1y as Row) ?? {}
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-semibold text-white">🇮🇳 GIFT Nifty (formerly SGX Nifty)</h4>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="LTP" value={fmtNum(gn.ltp, 2)} trend={Number(gn.change ?? 0) >= 0 ? 'up' : 'down'} />
+        <StatCard label="Open" value={gn.open != null ? fmtNum(gn.open, 2) : '—'} />
+        <StatCard label="Prev. Close" value={gn.prev_close != null ? fmtNum(gn.prev_close, 2) : '—'} />
+        <StatCard label="Day Range" value={gn.day_low != null ? `${fmtNum(gn.day_low, 0)} – ${fmtNum(gn.day_high, 0)}` : '—'} />
+        <StatCard label="52W Range" value={gn.week52_low != null ? `${fmtNum(gn.week52_low, 0)} – ${fmtNum(gn.week52_high, 0)}` : '—'} />
+        <StatCard label="1W Return" value={r1w.pct != null ? `${fmtNum(r1w.pct, 2)}%` : '—'} trend={Number(r1w.pct ?? 0) >= 0 ? 'up' : 'down'} />
+        <StatCard label="1M Return" value={r1m.pct != null ? `${fmtNum(r1m.pct, 2)}%` : '—'} trend={Number(r1m.pct ?? 0) >= 0 ? 'up' : 'down'} />
+        <StatCard label="1Y Return" value={r1y.pct != null ? `${fmtNum(r1y.pct, 2)}%` : '—'} trend={Number(r1y.pct ?? 0) >= 0 ? 'up' : 'down'} />
+      </div>
+      {gn.as_of != null && <p className="mt-1 text-xs text-slate-500">As on {String(gn.as_of)}</p>}
+    </div>
+  )
+}
+
 function NseWorldIndicesPanel({ data }: { data: Row }) {
   const nseRows = (data.nse_rows as Row[] | undefined) ?? []
   const globalRows = (data.global_rows as Row[] | undefined) ?? []
+  const futuresRows = (data.futures_rows as Row[] | undefined) ?? []
+  const giftNifty = data.gift_nifty as Row | undefined | null
   const { sorted: sortedNseRows, sortKey: nseSortKey, sortDir: nseSortDir, handleSort: handleNseSort } = useSort(nseRows, {
     name: (r) => String(r.name ?? ''),
     ltp: (r) => (r.ltp != null ? Number(r.ltp) : null),
@@ -1553,7 +2666,7 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
     )
   }
 
-  if (!nseRows.length && !globalRows.length) {
+  if (!nseRows.length && !globalRows.length && !futuresRows.length && !giftNifty) {
     return <p className="text-sm text-slate-500">Click a button above to load live index data.</p>
   }
 
@@ -1566,9 +2679,9 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
             <thead>
               <tr>
                 <SortableTh active={nseSortKey === 'name'} direction={nseSortDir} onSort={() => handleNseSort('name')}>Index Name</SortableTh>
-                <SortableTh active={nseSortKey === 'ltp'} direction={nseSortDir} onSort={() => handleNseSort('ltp')}>LTP</SortableTh>
-                <SortableTh active={nseSortKey === 'trend'} direction={nseSortDir} onSort={() => handleNseSort('trend')}>Trend</SortableTh>
                 <SortableTh active={nseSortKey === 'change_pct'} direction={nseSortDir} onSort={() => handleNseSort('change_pct')}>Change %</SortableTh>
+                <SortableTh active={nseSortKey === 'trend'} direction={nseSortDir} onSort={() => handleNseSort('trend')}>Trend</SortableTh>
+                <SortableTh active={nseSortKey === 'ltp'} direction={nseSortDir} onSort={() => handleNseSort('ltp')}>LTP</SortableTh>
                 <SortableTh active={nseSortKey === 'open'} direction={nseSortDir} onSort={() => handleNseSort('open')}>Open</SortableTh>
                 <SortableTh active={nseSortKey === 'prev_close'} direction={nseSortDir} onSort={() => handleNseSort('prev_close')}>Prev. Close</SortableTh>
                 <SortableTh active={nseSortKey === 'high_52w'} direction={nseSortDir} onSort={() => handleNseSort('high_52w')}>52W High</SortableTh>
@@ -1582,9 +2695,9 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
               {sortedNseRows.map((r, i) => (
                 <tr key={i}>
                   <Td className="font-medium">{String(r.name ?? '—')}</Td>
-                  <Td>{fmtNum(r.ltp)}</Td>
-                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{arrow(r.change_pct)}</Td>
                   <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change_pct)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{arrow(r.change_pct)}</Td>
+                  <Td>{fmtNum(r.ltp)}</Td>
                   <Td>{fmtNum(r.open)}</Td>
                   <Td>{fmtNum(r.prev_close)}</Td>
                   <Td>{fmtNum(r.high_52w)}</Td>
@@ -1605,10 +2718,10 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
             <thead>
               <tr>
                 <SortableTh active={globalSortKey === 'name'} direction={globalSortDir} onSort={() => handleGlobalSort('name')}>Index Name</SortableTh>
-                <SortableTh active={globalSortKey === 'ltp'} direction={globalSortDir} onSort={() => handleGlobalSort('ltp')}>LTP</SortableTh>
-                <SortableTh active={globalSortKey === 'change'} direction={globalSortDir} onSort={() => handleGlobalSort('change')}>Change</SortableTh>
                 <SortableTh active={globalSortKey === 'change_pct'} direction={globalSortDir} onSort={() => handleGlobalSort('change_pct')}>Change %</SortableTh>
                 <SortableTh active={globalSortKey === 'trend'} direction={globalSortDir} onSort={() => handleGlobalSort('trend')}>Trend</SortableTh>
+                <SortableTh active={globalSortKey === 'change'} direction={globalSortDir} onSort={() => handleGlobalSort('change')}>Change</SortableTh>
+                <SortableTh active={globalSortKey === 'ltp'} direction={globalSortDir} onSort={() => handleGlobalSort('ltp')}>LTP</SortableTh>
                 <SortableTh active={globalSortKey === 'open'} direction={globalSortDir} onSort={() => handleGlobalSort('open')}>Open</SortableTh>
                 <SortableTh active={globalSortKey === 'prev_close'} direction={globalSortDir} onSort={() => handleGlobalSort('prev_close')}>Prev. Close</SortableTh>
                 <SortableTh active={globalSortKey === 'day_high'} direction={globalSortDir} onSort={() => handleGlobalSort('day_high')}>Day High</SortableTh>
@@ -1619,10 +2732,10 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
               {sortedGlobalRows.map((r, i) => (
                 <tr key={i}>
                   <Td className="font-medium">{String(r.name ?? '—')}{r.country ? <span className="ml-1 text-xs text-slate-500">({String(r.country)})</span> : null}</Td>
-                  <Td>{fmtNum(r.ltp)}</Td>
-                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change)}</Td>
                   <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change_pct)}</Td>
                   <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{arrow(r.change_pct)}</Td>
+                  <Td className={Number(r.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtNum(r.change)}</Td>
+                  <Td>{fmtNum(r.ltp)}</Td>
                   <Td>{fmtNum(r.open)}</Td>
                   <Td>{fmtNum(r.prev_close)}</Td>
                   <Td>{fmtNum(r.day_high)}</Td>
@@ -1631,6 +2744,17 @@ function NseWorldIndicesPanel({ data }: { data: Row }) {
               ))}
             </tbody>
           </DataTable>
+        </div>
+      )}
+      {(giftNifty || futuresRows.length > 0) && (
+        <div className="space-y-6">
+          <GiftNiftyCard gn={giftNifty} />
+          <FuturesTable rows={futuresRows} region="US" />
+          <FuturesTable rows={futuresRows} region="Europe" />
+          <FuturesTable rows={futuresRows} region="Asia" />
+          <FuturesTable rows={futuresRows} region="Commodities" />
+          <FuturesTable rows={futuresRows} region="Crypto" />
+          <FuturesTable rows={futuresRows} region="Currency" />
         </div>
       )}
     </div>
@@ -1701,8 +2825,8 @@ function OptionChainPanel({ data }: { data: Row }) {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
+      <div className="grid gap-4">
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Call OI (resistance zones)</h4>
           <DataTable minWidth={320}>
             <thead>
@@ -1719,7 +2843,7 @@ function OptionChainPanel({ data }: { data: Row }) {
             </tbody>
           </DataTable>
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-2 text-sm font-semibold text-white">Top 5 Put OI (support zones)</h4>
           <DataTable minWidth={320}>
             <thead>
@@ -1803,8 +2927,8 @@ function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
     description: (e) => String(e.description ?? ''),
   })
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div>
+    <div className="grid gap-4">
+      <div className="min-w-0">
         <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
           EMA/SMA {snap.price != null ? `· price ${fmtNum(snap.price, 4)}` : ''}
         </h5>
@@ -1813,31 +2937,31 @@ function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
             <thead>
               <tr>
                 <SortableTh active={emaSmaSortKey === 'indicator'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('indicator')}>Indicator</SortableTh>
-                <SortableTh active={emaSmaSortKey === 'value'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('value')}>Value</SortableTh>
                 <SortableTh active={emaSmaSortKey === 'action'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('action')}>Action</SortableTh>
+                <SortableTh active={emaSmaSortKey === 'value'} direction={emaSmaSortDir} onSort={() => handleEmaSmaSort('value')}>Value</SortableTh>
               </tr>
             </thead>
             <tbody>
               {sortedEmaSma.map((e, i) => (
                 <tr key={i}>
                   <Td>{String(e.indicator ?? '—')}</Td>
-                  <Td>{fmtNum(e.value, 4)}</Td>
                   <Td className={verdictClass(String(e.action ?? ''))}>{String(e.action ?? '—')}</Td>
+                  <Td>{fmtNum(e.value, 4)}</Td>
                 </tr>
               ))}
             </tbody>
           </DataTable>
         ) : <p className="text-xs text-slate-500">—</p>}
       </div>
-      <div>
+      <div className="min-w-0">
         <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Technical Indicators</h5>
         {indicators.length > 0 ? (
           <DataTable minWidth={480}>
             <thead>
               <tr>
                 <SortableTh active={indicatorsSortKey === 'indicator'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('indicator')}>Indicator</SortableTh>
-                <SortableTh active={indicatorsSortKey === 'value'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('value')}>Value</SortableTh>
                 <SortableTh active={indicatorsSortKey === 'action'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('action')}>Action</SortableTh>
+                <SortableTh active={indicatorsSortKey === 'value'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('value')}>Value</SortableTh>
                 <SortableTh active={indicatorsSortKey === 'description'} direction={indicatorsSortDir} onSort={() => handleIndicatorsSort('description')}>Description</SortableTh>
               </tr>
             </thead>
@@ -1845,8 +2969,8 @@ function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
               {sortedIndicators.map((e, i) => (
                 <tr key={i}>
                   <Td>{String(e.indicator ?? '—')}</Td>
-                  <Td>{e.value == null ? '—' : String(e.value)}</Td>
                   <Td className={verdictClass(String(e.action ?? ''))}>{String(e.action ?? '—')}</Td>
+                  <Td>{e.value == null ? '—' : String(e.value)}</Td>
                   <Td className="max-w-sm !whitespace-normal text-slate-400">{String(e.description ?? '—')}</Td>
                 </tr>
               ))}
@@ -2125,7 +3249,7 @@ function StrategyRunsTable({ runs }: { runs: Row[] }) {
   )
 }
 
-export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) {
+export function CommandCenterResults({ tab, data, assetClass }: { tab: string; data: Row; assetClass?: string }) {
   if (data.error && tab !== 'investigation' && tab !== 'investigation_strategies') {
     return <Alert type="error">{String(data.error)}</Alert>
   }
@@ -2155,8 +3279,20 @@ export function CommandCenterResults({ tab, data }: { tab: string; data: Row }) 
       return <QuickAnalyzerPanel data={data} />
     case 'momentum':
       return <MomentumPanel data={data} />
+    case 'divergences':
+      return <DivergencesPanel data={data} />
+    case 'candlestick_chart_patterns':
+      return <PatternsPanel data={data} />
+    case 'stop_hunt':
+      return <StopHuntPanel data={data} />
+    case 'take_profit':
+      return <TakeProfitPanel data={data} />
+    case 'take_trade':
+      return <TakeTradePanel data={data} />
     case 'ema_position':
       return <EmaPositionPanel data={data} />
+    case 'trade_setup':
+      return <TradeSetupPanel data={data} assetClass={assetClass ?? 'india'} />
     case 'fundamental_analysis':
       return <FundamentalAnalysisPanel data={data} />
     case 'stock_upgrade_downgrade':

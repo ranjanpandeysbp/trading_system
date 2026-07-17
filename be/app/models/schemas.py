@@ -185,6 +185,15 @@ class PlaceOrderRequest(BaseModel):
     strategy: str | None = None
     sl_pct: float | None = None
     tp_pct: float | None = None
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
+    limit_price: float | None = None
+    trigger_price: float | None = None
+
+
+class ModifyOrderRequest(BaseModel):
+    quantity: int | None = Field(None, gt=0)
+    limit_price: float | None = None
+    trigger_price: float | None = None
 
 
 class AccountSummary(BaseModel):
@@ -197,6 +206,7 @@ class AccountSummary(BaseModel):
     total_pnl_pct: float
     positions: list[dict]
     recent_orders: list[dict]
+    pending_orders: list[dict]
 
 
 class MarketPulseIndexRequest(BaseModel):
@@ -248,6 +258,18 @@ class CommandCenterTickerScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
     timeframes: list[str] | None = None
+
+
+class CommandCenterTradeSetupRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframes: list[str] | None = None
+
+
+class CommandCenterTradeSetupDrillRequest(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    timeframe: str = "15m"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class CommandCenterOneClickRequest(BaseModel):

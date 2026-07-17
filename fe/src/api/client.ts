@@ -141,16 +141,44 @@ export interface AccountSummary {
     tp_pct?: number
     strategy?: string
   }>
-  recent_orders: Array<{
-    id: number
-    ticker: string
-    side: string
-    quantity: number
-    price: number
-    status: string
-    strategy?: string
-    created_at: string
-  }>
+  recent_orders: Array<PaperOrderRow>
+  pending_orders: Array<PaperOrderRow>
+}
+
+export interface PaperOrderRow {
+  id: number
+  ticker: string
+  side: string
+  quantity: number
+  price: number
+  order_type: 'market' | 'limit' | 'stop' | 'stop_limit' | string
+  status: 'filled' | 'pending' | 'cancelled' | string
+  limit_price?: number | null
+  trigger_price?: number | null
+  filled_price?: number | null
+  strategy?: string
+  created_at: string
+  filled_at?: string | null
+  cancelled_at?: string | null
+}
+
+export interface PlaceOrderPayload {
+  ticker: string
+  side: 'buy' | 'sell'
+  quantity: number
+  price?: number
+  strategy?: string
+  sl_pct?: number
+  tp_pct?: number
+  order_type?: 'market' | 'limit' | 'stop' | 'stop_limit'
+  limit_price?: number
+  trigger_price?: number
+}
+
+export interface ModifyOrderPayload {
+  quantity?: number
+  limit_price?: number
+  trigger_price?: number
 }
 
 export const fetchStrategies = () => api.get<StrategyInfo[]>('/strategies').then((r) => r.data)
@@ -202,7 +230,10 @@ export const askAI = (payload: {
   error: boolean
 }>('/ai/ask', payload, { timeout: 120_000 }).then((r) => r.data)
 export const getAccount = () => api.get<AccountSummary>('/paper/account').then((r) => r.data)
-export const placeOrder = (payload: Record<string, unknown>) => api.post('/paper/orders', payload).then((r) => r.data)
+export const placeOrder = (payload: PlaceOrderPayload) => api.post('/paper/orders', payload).then((r) => r.data)
+export const cancelOrder = (orderId: number) => api.post(`/paper/orders/${orderId}/cancel`).then((r) => r.data)
+export const modifyOrder = (orderId: number, payload: ModifyOrderPayload) =>
+  api.post(`/paper/orders/${orderId}/modify`, payload).then((r) => r.data)
 export const executeSignal = (signal: ScanSignal) => api.post('/paper/execute-signal', signal).then((r) => r.data)
 export const resetAccount = () => api.post('/paper/reset').then((r) => r.data)
 
@@ -438,6 +469,50 @@ export const runMomentumScan = (payload: { tickers: string[]; asset_class: strin
 export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runTradeSetup = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/trade-setup', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+type TradeSetupDrillPayload = { ticker: string; asset_class: string; timeframe: string }
+
+export const runTradeSetupPatterns = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/patterns', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupSupportResistance = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/support-resistance', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupSmartMoney = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/smart-money', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupScalping = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/scalping', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupTimeSeries = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/time-series', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupDivergence = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/divergence', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runDivergences = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/divergences', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runPatterns = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/patterns', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupStopHunt = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/stop-hunt', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runStopHunt = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/stop-hunt', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupTakeProfit = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/take-profit', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTakeProfit = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/take-profit', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTakeTrade = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/take-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runOneClick = (payload: { style: 'intraday' | 'scalping' | 'swing'; tickers: string[]; asset_class: string }) =>
   api.post('/command-center/one-click', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
@@ -474,6 +549,12 @@ export const fetchNseIndices = () =>
 
 export const fetchGlobalIndices = () =>
   api.get('/command-center/global-indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchFuturesIndices = () =>
+  api.get('/command-center/futures-indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchGiftNifty = () =>
+  api.get('/command-center/gift-nifty', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchIndiaMarketHeatmapIndices = () =>
   api.get<{ index_names: string[] }>('/command-center/india-market-heatmap/indices', { timeout: MP_TIMEOUT }).then((r) => r.data)

@@ -125,6 +125,207 @@ class CommandCenterService:
         results = await asyncio.to_thread(_run)
         return json_safe({"market": market, "results": results})
 
+    async def trade_setup(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import (
+            DEFAULT_TIMEFRAMES,
+            analyze_trade_setup_many,
+            group_by_timeframe_bucket,
+        )
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+
+        def _run():
+            results = analyze_trade_setup_many(resolved, tfs, market, groww_token=token, exchange=exchange)
+            grouped = group_by_timeframe_bucket(results, tfs)
+            return results, grouped
+
+        results, grouped = await asyncio.to_thread(_run)
+        return json_safe({"market": market, "timeframes": tfs, "results": results, "grouped": grouped})
+
+    async def trade_setup_patterns(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_patterns_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_patterns_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_support_resistance(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_support_resistance_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_support_resistance_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_smart_money(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_smart_money_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_smart_money_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_scalping(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_scalping_confluence_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_scalping_confluence_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_time_series(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_time_series_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_time_series_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_divergence(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_divergence_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_divergence_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def divergences(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.divergence_engine import analyze_tickers_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_tickers_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
+    async def patterns(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.pattern_engine import analyze_tickers_multi_tf as analyze_patterns_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_patterns_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
+    async def trade_setup_stop_hunt(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_stop_hunt_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_stop_hunt_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def stop_hunt(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.stop_hunt_engine import analyze_tickers_multi_tf as analyze_stop_hunt_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_stop_hunt_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
+    async def trade_setup_take_profit(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_take_profit_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_take_profit_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def take_profit(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.take_profit_engine import analyze_tickers_multi_tf as analyze_take_profit_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_take_profit_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
+    async def take_trade(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.take_trade_engine import analyze_tickers_multi_tf as analyze_take_trade_multi_tf
+        from app.market_pulse.trade_setup_engine import DEFAULT_TIMEFRAMES
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        results = await asyncio.to_thread(
+            analyze_take_trade_multi_tf, resolved, tfs, asset_class, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe({"results": results, "timeframes": tfs, "market": market})
+
     async def ema_position(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -282,6 +483,16 @@ class CommandCenterService:
         from app.market_pulse.dhan_indices_engine import fetch_global_indices
 
         return json_safe({"rows": await asyncio.to_thread(fetch_global_indices)})
+
+    async def futures_indices(self) -> dict[str, Any]:
+        from app.market_pulse.futures_indices_engine import fetch_futures_indices
+
+        return json_safe({"rows": await asyncio.to_thread(fetch_futures_indices)})
+
+    async def gift_nifty(self) -> dict[str, Any]:
+        from app.market_pulse.futures_indices_engine import fetch_gift_nifty
+
+        return json_safe({"data": await asyncio.to_thread(fetch_gift_nifty)})
 
     async def india_market_heatmap_indices(self) -> dict[str, Any]:
         from app.market_pulse.india_market_heatmap_engine import INDEX_NAMES

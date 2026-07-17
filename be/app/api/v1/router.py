@@ -34,10 +34,13 @@ from app.models.schemas import (
     CommandCenterOptionChainRequest,
     CommandCenterQuickAnalyzerRequest,
     CommandCenterTickerScanRequest,
+    CommandCenterTradeSetupDrillRequest,
+    CommandCenterTradeSetupRequest,
     WatchlistCreate,
     WatchlistItemCreate,
     MarketPulseTickerInvestigationRequest,
     MessageResponse,
+    ModifyOrderRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -279,6 +282,35 @@ async def place_order(
     service = PaperTradingService(db, settings, user_id=current_user.id)
     try:
         return await service.place_order(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/paper/orders/{order_id}/cancel")
+async def cancel_order(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = PaperTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.cancel_order(order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/paper/orders/{order_id}/modify")
+async def modify_order(
+    order_id: int,
+    request: ModifyOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = PaperTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.modify_order(order_id, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -659,6 +691,160 @@ async def command_center_ema_position(
     )
 
 
+@router.post("/command-center/trade-setup")
+async def command_center_trade_setup(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/trade-setup/patterns")
+async def command_center_trade_setup_patterns(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_patterns(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/support-resistance")
+async def command_center_trade_setup_support_resistance(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_support_resistance(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/smart-money")
+async def command_center_trade_setup_smart_money(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_smart_money(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/scalping")
+async def command_center_trade_setup_scalping(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_scalping(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/time-series")
+async def command_center_trade_setup_time_series(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_time_series(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/divergence")
+async def command_center_trade_setup_divergence(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_divergence(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/divergences")
+async def command_center_divergences(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).divergences(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/patterns")
+async def command_center_patterns(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).patterns(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/trade-setup/stop-hunt")
+async def command_center_trade_setup_stop_hunt(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_stop_hunt(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/stop-hunt")
+async def command_center_stop_hunt(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).stop_hunt(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/trade-setup/take-profit")
+async def command_center_trade_setup_take_profit(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_take_profit(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/take-profit")
+async def command_center_take_profit(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).take_profit(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/take-trade")
+async def command_center_take_trade(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).take_trade(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
 @router.post("/command-center/one-click")
 async def command_center_one_click(
     payload: CommandCenterOneClickRequest,
@@ -774,6 +960,22 @@ async def command_center_global_indices(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).global_indices()
+
+
+@router.get("/command-center/futures-indices")
+async def command_center_futures_indices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).futures_indices()
+
+
+@router.get("/command-center/gift-nifty")
+async def command_center_gift_nifty(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).gift_nifty()
 
 
 @router.get("/command-center/india-market-heatmap/indices")
