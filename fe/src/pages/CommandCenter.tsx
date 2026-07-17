@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Rocket, Search, Shuffle, Sparkles, Sun, Target, TrendingUp, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Rocket, Search, Shuffle, Sparkles, Sun, Target, TrendingUp, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -39,6 +39,7 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { CommandCenterResults } from '../components/command-center/CommandCenterPanels'
+import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -47,6 +48,7 @@ import { FormField, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
 const TABS = [
+  { id: 'playbook', label: 'Trading Playbook', icon: BookOpen },
   { id: 'tomorrow_outlook', label: 'Tomorrow Outlook', icon: Sun },
   { id: 'mega_analyser', label: 'Mega Analyser', icon: Radar },
   { id: 'buy_sell', label: 'Buy or Sell', icon: Compass },
@@ -305,7 +307,9 @@ export default function CommandCenter() {
         ))}
       </div>
 
-      {tab === 'tomorrow_outlook' ? (
+      {tab === 'playbook' ? (
+        <PlaybookPanel />
+      ) : tab === 'tomorrow_outlook' ? (
         <Card className="mb-6">
           <Button
             variant="secondary"
