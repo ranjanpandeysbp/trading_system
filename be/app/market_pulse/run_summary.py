@@ -2173,6 +2173,76 @@ def summarize_mtf_intraday_bias(analysis: dict, symbol: str) -> dict:
     )
 
 
+def summarize_intra_hwp(analysis: dict, symbol: str) -> dict:
+    """Score card for Intra HWP — Two-Sided Gap Fill + 21 EMA (always fixed 5m)."""
+    if analysis.get("error"):
+        return summarize_error(symbol, "5m", str(analysis["error"])[:120], tab="Intra HWP")
+
+    live = analysis.get("live") or {}
+    direction = live.get("direction", "WAIT")
+    confidence = float(live.get("confidence_pct", 0) or 0)
+    take = bool(live.get("take_trade"))
+    verdict_raw = str(live.get("verdict", "WAIT"))
+    phase = analysis.get("phase", "—")
+
+    if take and direction == "LONG":
+        verdict = "BUY"
+    elif take and direction == "SHORT":
+        verdict = "SELL"
+    elif direction in ("LONG", "SHORT"):
+        verdict = "WATCHLIST"
+    else:
+        verdict = "WAIT"
+
+    score = _clamp(4.5 + confidence / 100 * 4.5)
+    action = f"{verdict_raw} · phase {phase} · gap {float(analysis.get('gap_pct', 0) or 0):+.2f}%"
+    trade_plan = live.get("trade_plan") if take else None
+    reasons = list(live.get("reasons") or [])
+
+    return make_summary(
+        ticker=symbol, timeframe="5m", tab="Intra HWP",
+        score=score, verdict=verdict, action=action, trade_plan=trade_plan,
+        summary=f"{verdict_raw} · {phase}", reasons=reasons,
+    )
+
+
+def summarize_weak_strong_rs(analysis: dict, symbol: str, *, timeframe: str = "") -> dict:
+    """Score card for Weak / Strong — Relative Strength & Trend Classifier."""
+    if analysis.get("error"):
+        return summarize_error(symbol, timeframe, str(analysis["error"])[:120], tab="Weak / Strong")
+
+    verdict_label = str(analysis.get("verdict", "NEUTRAL"))
+    score_raw = float(analysis.get("score", 0) or 0)
+    live = analysis.get("live") or {}
+    take = bool(live.get("take_trade"))
+    rel_pct = analysis.get("rel_pct")
+    vol_ratio = analysis.get("vol_ratio")
+
+    if take and verdict_label == "STRONG":
+        verdict = "BUY"
+    elif take and verdict_label == "WEAK":
+        verdict = "SELL"
+    elif verdict_label in ("STRONG", "WEAK"):
+        verdict = "WATCHLIST"
+    else:
+        verdict = "WAIT"
+
+    score = _clamp(5.0 + score_raw / 100 * 5.0)
+    trade_plan = live.get("trade_plan") if take else None
+    reasons = list(analysis.get("reasons") or [])
+    summary = (
+        f"{verdict_label} · score {score_raw:+.0f}"
+        + (f" · RS {rel_pct:+.1f}%" if rel_pct is not None else "")
+        + (f" · vol {vol_ratio:.1f}x" if vol_ratio is not None else "")
+    )
+
+    return make_summary(
+        ticker=symbol, timeframe=timeframe, tab="Weak / Strong",
+        score=score, verdict=verdict, action=str(live.get("verdict", verdict_label)),
+        trade_plan=trade_plan, summary=summary, reasons=reasons,
+    )
+
+
 def summarize_pattern_breakout(analysis: dict, symbol: str, timeframe: str) -> dict:
     """Score card for Pattern & Breakout analyzer tab."""
     sr_ev = analysis.get("sr_breakout") or {}

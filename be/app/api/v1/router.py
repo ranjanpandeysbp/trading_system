@@ -834,6 +834,39 @@ async def command_center_trade_setup_real_bottom(
     )
 
 
+@router.post("/command-center/trade-setup/intra-hwp")
+async def command_center_trade_setup_intra_hwp(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_intra_hwp(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/weak-strong")
+async def command_center_trade_setup_weak_strong(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_weak_strong(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
+@router.post("/command-center/trade-setup/copy-trade")
+async def command_center_trade_setup_copy_trade(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_copy_trade(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
 @router.post("/command-center/real-bottom")
 async def command_center_real_bottom(
     payload: CommandCenterTradeSetupRequest,
@@ -842,6 +875,28 @@ async def command_center_real_bottom(
 ):
     return await CommandCenterService(SettingsService(db)).real_bottom(
         payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/weak-strong")
+async def command_center_weak_strong(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).weak_strong(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.post("/command-center/copy-trade")
+async def command_center_copy_trade(
+    payload: CommandCenterTradeSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).copy_trade(
+        payload.tickers, asset_class=payload.asset_class,
     )
 
 
@@ -1294,6 +1349,7 @@ async def trading_hubs_scan(
     return await service.scan(
         payload.section_id,
         payload.tickers,
+        asset_class=payload.asset_class,
         config=payload.config,
         run_bt=payload.run_backtest,
     )

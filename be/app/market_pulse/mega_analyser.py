@@ -27,6 +27,7 @@ from app.market_pulse.ai_view import (
 )
 from app.market_pulse.database import get_strategies_by_mobile
 from app.market_pulse.engine import run_true_backtest
+from app.market_pulse.serialize import json_safe
 from app.market_pulse.fundamentals_combine import combine_with_fundamentals
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan, generate_gap_trade_setups
 from app.market_pulse.groww_auth import get_active_groww_token
@@ -88,6 +89,8 @@ from app.market_pulse.run_summary import (
     summarize_top_down_mtf,
     summarize_velez_retracement,
     summarize_weak_strong_sr,
+    summarize_weak_strong_rs,
+    summarize_intra_hwp,
     summarize_smart_wave_crypto,
     summarize_mtf_intraday_bias,
     summarize_weekly_stoch_sweet_spot,
@@ -173,6 +176,7 @@ MEGA_TICKER_SCANNER_MODULES = (
     "smart_wave_crypto",
     "crypto_scalping",
     "smc_fake_market_shift",
+    "intra_hwp",
 )
 
 MEGA_BATCH_SIZE = 20
@@ -213,7 +217,7 @@ MEGA_SCENARIOS: dict[str, dict] = {
         "timeframes": ["1h", "1d"],
         "modules": {
             "backtest": True, "saved_strategies": True, "sentiment": True,
-            "price_action": True, "find_sr": True, "weak_strong_sr": True,
+            "price_action": True, "find_sr": True, "weak_strong_sr": True, "weak_strong_rs": True,
             "pattern_breakout": True,
             "confluence": True, "elliott_wave": True, "top_bottom": True,
             "tb_forecast": True, "smc_flow": True, "gap": True,
@@ -221,14 +225,14 @@ MEGA_SCENARIOS: dict[str, dict] = {
             "fakeout_15m": False, "fakeout_4h": False, "mtf_scanner": True,
             "top_down_mtf": True, "weekly_stoch": True, "kn_smart_rsi": False,
             "velez_retracement": True, "mtf_intraday_bias": True, "smart_wave_crypto": False,
-            "crypto_scalping": False, "smc_fake_market_shift": False,
+            "crypto_scalping": False, "smc_fake_market_shift": False, "intra_hwp": True,
         },
     },
     "Pump & Dump pre-move": {
         "timeframes": ["5m", "15m"],
         "modules": {
             "backtest": False, "saved_strategies": False, "sentiment": True,
-            "price_action": True, "find_sr": True, "weak_strong_sr": True,
+            "price_action": True, "find_sr": True, "weak_strong_sr": True, "weak_strong_rs": True,
             "pattern_breakout": False,
             "confluence": True, "elliott_wave": False, "top_bottom": False,
             "tb_forecast": False, "smc_flow": False, "gap": False,
@@ -236,14 +240,14 @@ MEGA_SCENARIOS: dict[str, dict] = {
             "fakeout_15m": False, "fakeout_4h": False, "mtf_scanner": True,
             "top_down_mtf": False, "weekly_stoch": False, "kn_smart_rsi": False,
             "velez_retracement": False, "mtf_intraday_bias": True, "smart_wave_crypto": False,
-            "crypto_scalping": False, "smc_fake_market_shift": False,
+            "crypto_scalping": False, "smc_fake_market_shift": False, "intra_hwp": False,
         },
     },
     "India intraday scalp (expert)": {
         "timeframes": ["5m", "15m"],
         "modules": {
             "backtest": False, "saved_strategies": False, "sentiment": True,
-            "price_action": True, "find_sr": True, "weak_strong_sr": True,
+            "price_action": True, "find_sr": True, "weak_strong_sr": True, "weak_strong_rs": True,
             "pattern_breakout": True,
             "confluence": True, "elliott_wave": False, "top_bottom": True,
             "tb_forecast": False, "smc_flow": True, "gap": True,
@@ -251,14 +255,14 @@ MEGA_SCENARIOS: dict[str, dict] = {
             "fakeout_15m": True, "fakeout_4h": True, "mtf_scanner": True,
             "top_down_mtf": True, "weekly_stoch": False, "kn_smart_rsi": True,
             "velez_retracement": True, "mtf_intraday_bias": True, "smart_wave_crypto": False,
-            "crypto_scalping": False, "smc_fake_market_shift": True,
+            "crypto_scalping": False, "smc_fake_market_shift": True, "intra_hwp": True,
         },
     },
     "Crypto momentum": {
         "timeframes": ["15m", "1h", "4h"],
         "modules": {
             "backtest": False, "saved_strategies": False, "sentiment": True,
-            "price_action": True, "find_sr": True, "weak_strong_sr": True,
+            "price_action": True, "find_sr": True, "weak_strong_sr": True, "weak_strong_rs": True,
             "pattern_breakout": True,
             "confluence": True, "elliott_wave": True, "top_bottom": True,
             "tb_forecast": True, "smc_flow": False, "gap": False,
@@ -266,14 +270,14 @@ MEGA_SCENARIOS: dict[str, dict] = {
             "fakeout_15m": True, "fakeout_4h": True, "mtf_scanner": True,
             "top_down_mtf": True, "weekly_stoch": False, "kn_smart_rsi": True,
             "velez_retracement": True, "mtf_intraday_bias": True, "smart_wave_crypto": True,
-            "crypto_scalping": True, "smc_fake_market_shift": True,
+            "crypto_scalping": True, "smc_fake_market_shift": True, "intra_hwp": False,
         },
     },
     "Swing / positional": {
         "timeframes": ["4h", "1d", "1w"],
         "modules": {
             "backtest": True, "saved_strategies": True, "sentiment": True,
-            "price_action": True, "find_sr": True, "weak_strong_sr": True,
+            "price_action": True, "find_sr": True, "weak_strong_sr": True, "weak_strong_rs": True,
             "pattern_breakout": True,
             "confluence": True, "elliott_wave": True, "top_bottom": True,
             "tb_forecast": True, "smc_flow": False, "gap": False,
@@ -281,7 +285,7 @@ MEGA_SCENARIOS: dict[str, dict] = {
             "fakeout_15m": False, "fakeout_4h": False, "mtf_scanner": True,
             "top_down_mtf": True, "weekly_stoch": True, "kn_smart_rsi": False,
             "velez_retracement": False, "mtf_intraday_bias": False, "smart_wave_crypto": False,
-            "crypto_scalping": False, "smc_fake_market_shift": False,
+            "crypto_scalping": False, "smc_fake_market_shift": False, "intra_hwp": False,
         },
     },
 }
@@ -713,6 +717,20 @@ def _run_per_ticker_ta_scanners(
         except Exception as ex:
             _store(summarize_error(ticker, "Session", str(ex)[:80], tab="MTF Intraday Bias"))
 
+    if modules.get("intra_hwp"):
+        _tick(f"Intra HWP: {ticker}")
+        try:
+            from app.trading_hubs.intra_hwp_engine import analyze_ticker as analyze_intra_hwp
+
+            analysis = analyze_intra_hwp(ticker, market, groww_token=groww_token, exchange=exchange)
+            if analysis.get("error"):
+                _store(summarize_error(ticker, "5m", analysis["error"], tab="Intra HWP"))
+            else:
+                summ = summarize_intra_hwp(analysis, ticker)
+                _store(summ, "intra_hwp", analysis)
+        except Exception as ex:
+            _store(summarize_error(ticker, "5m", str(ex)[:80], tab="Intra HWP"))
+
     if modules.get("smart_wave_crypto") and is_crypto_market(market):
         _tick(f"Smart Wave Crypto: {ticker}")
         try:
@@ -792,7 +810,11 @@ def _run_per_ticker_ta_scanners(
             else:
                 summ = summarize_smc_fake_market_shift(analysis, ticker)
                 summ["tab"] = "SMC Fake Market Shift"
-                _store(summ, "smc_fake_market_shift", analysis)
+                # analysis carries dataclass/DataFrame-typed sweep & signal objects
+                # (LiquiditySweepEvent, TradeSignal, result_df) that aren't JSON
+                # serializable as-is — json_safe stringifies anything it doesn't
+                # recognize instead of crashing the whole Mega Analyser response.
+                _store(summ, "smc_fake_market_shift", json_safe(analysis))
         except Exception as ex:
             _store(summarize_error(ticker, "15m", str(ex)[:80], tab="SMC Fake Market Shift"))
 
@@ -1082,6 +1104,26 @@ def _run_mega_scan(
                     by_ticker[ticker]["summaries"].append(summ)
                 except Exception as ex:
                     err = summarize_error(ticker, tf, str(ex)[:80], tab="Weak Strong S-R")
+                    all_summaries.append(err)
+                    tf_block["summaries"].append(err)
+
+            if modules.get("weak_strong_rs"):
+                try:
+                    from app.market_pulse.weak_strong_engine import analyze_ticker as analyze_weak_strong
+
+                    ws_res = analyze_weak_strong(ticker, market, tf, groww_token=groww_token, exchange=exchange)
+                    if ws_res.get("error"):
+                        err = summarize_error(ticker, tf, ws_res["error"], tab="Weak / Strong")
+                        all_summaries.append(err)
+                        tf_block["summaries"].append(err)
+                    else:
+                        summ = summarize_weak_strong_rs(ws_res, ticker, timeframe=tf)
+                        tf_block["weak_strong_rs"] = ws_res
+                        all_summaries.append(summ)
+                        tf_block["summaries"].append(summ)
+                        by_ticker[ticker]["summaries"].append(summ)
+                except Exception as ex:
+                    err = summarize_error(ticker, tf, str(ex)[:80], tab="Weak / Strong")
                     all_summaries.append(err)
                     tf_block["summaries"].append(err)
 

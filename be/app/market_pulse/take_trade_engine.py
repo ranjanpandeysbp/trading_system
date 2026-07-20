@@ -41,9 +41,11 @@ from app.market_pulse.stop_hunt_engine import analyze_ticker as stop_hunt_analyz
 from app.market_pulse.take_profit_engine import analyze_ticker as take_profit_analyze_ticker
 from app.market_pulse.trade_setup_engine import _fetch_ohlcv as _sr_fetch_ohlcv
 from app.market_pulse.trade_setup_engine import (
+    analyze_intra_hwp_one,
     analyze_scalping_confluence_one,
     analyze_smart_money_one,
     analyze_time_series_one,
+    analyze_weak_strong_one,
 )
 
 logger = logging.getLogger(__name__)
@@ -259,6 +261,14 @@ def analyze_ticker(
     votes.append(_vote_from_divergence(div_res))
 
     votes.append(_sr_vote(ticker, market, timeframe, groww_token, exchange))
+
+    # Fixed 5m strategy per its own definition — ignores the row's selected
+    # timeframe, same convention as other fixed-TF composites in this engine.
+    hwp_res = analyze_intra_hwp_one(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)
+    votes.append(vote_from_live_schema("Intra HWP", hwp_res))
+
+    ws_res = analyze_weak_strong_one(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)
+    votes.append(vote_from_live_schema("Weak / Strong", ws_res))
 
     ud_res = scan_upgrade_downgrade_ticker(ticker, market, max_items=8)
     votes.append(_vote_from_upgrade_downgrade(ud_res))

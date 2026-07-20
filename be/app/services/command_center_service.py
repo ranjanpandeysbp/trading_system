@@ -67,7 +67,11 @@ class CommandCenterService:
         result = await asyncio.to_thread(_run)
         if not result:
             return {"error": "Buy/Sell advisor returned no results.", "recommendations": []}
-        return result
+        # by_ticker carries each hub engine's raw analysis payload (DataFrames,
+        # pandas Timestamps, dataclass instances) for AI-context use — none of
+        # that is JSON-serializable as-is, so normalize the whole tree once
+        # here rather than special-casing every individual engine.
+        return json_safe(result)
 
     async def mega_analyser(
         self,
@@ -309,6 +313,45 @@ class CommandCenterService:
         )
         return json_safe(result)
 
+    async def trade_setup_intra_hwp(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_intra_hwp_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_intra_hwp_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_weak_strong(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_weak_strong_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_weak_strong_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def trade_setup_copy_trade(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_copy_trade_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_copy_trade_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
     async def real_bottom(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -323,6 +366,33 @@ class CommandCenterService:
             analyze_real_bottom_multi_tf, resolved, tfs, market, groww_token=token, exchange=exchange,
         )
         return json_safe({"results": results, "timeframes": tfs, "market": market})
+
+    async def weak_strong(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.weak_strong_engine import WeakStrongConfig, scan_universe
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or ["5m", "15m", "1h", "1d"]
+        result = await asyncio.to_thread(
+            scan_universe, resolved, tfs, market, cfg=WeakStrongConfig(), groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
+    async def copy_trade(
+        self, tickers: list[str], *, asset_class: str = "india",
+    ) -> dict[str, Any]:
+        from app.market_pulse.copy_trade_engine import CopyTradeConfig, scan_universe
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        result = await asyncio.to_thread(
+            scan_universe, resolved, market, cfg=CopyTradeConfig(), groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
 
     async def take_profit(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,

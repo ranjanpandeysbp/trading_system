@@ -325,6 +325,7 @@ class CommandCenterQuickAnalyzerRequest(BaseModel):
 class TradingHubScanRequest(BaseModel):
     section_id: str
     tickers: list[str] = Field(..., min_length=1, max_length=20)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     config: dict[str, Any] | None = None
     run_backtest: bool = False
 

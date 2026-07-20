@@ -407,6 +407,7 @@ export const fetchTradingHubs = () =>
 export const runTradingHubScan = (payload: {
   section_id: string
   tickers: string[]
+  asset_class?: string
   config?: Record<string, unknown>
   run_backtest?: boolean
 }) => api.post('/trading-hubs/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
@@ -516,8 +517,23 @@ export const runTakeProfit = (payload: { tickers: string[]; asset_class: string;
 export const runTradeSetupRealBottom = (payload: TradeSetupDrillPayload) =>
   api.post('/command-center/trade-setup/real-bottom', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runTradeSetupIntraHwp = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/intra-hwp', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupWeakStrong = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/weak-strong', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runRealBottom = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/real-bottom', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runWeakStrong = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/weak-strong', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupCopyTrade = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/copy-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runCopyTrade = (payload: { tickers: string[]; asset_class: string }) =>
+  api.post('/command-center/copy-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runTakeTrade = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/take-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

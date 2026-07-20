@@ -49,7 +49,7 @@ from app.trading_hubs.smc_liquidity_engine import LiquidityConfig, implement_liq
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["analyze_ticker", "analyze_ticker_multi_tf", "analyze_tickers_multi_tf"]
+__all__ = ["analyze_ticker", "analyze_ticker_multi_tf", "analyze_tickers_multi_tf", "STATUS_ACTION"]
 
 YOUTUBE_URL = "https://www.youtube.com/watch?v=nkkchMHCHDo"
 
@@ -66,6 +66,29 @@ _STATUS_LABEL = {
     "TRAP_CONFIRMED": "🟠 Trap Confirmed — Awaiting Displacement",
     "TRAP_UNCONFIRMED": "🔵 Trap Fired — Absorption/Retest Unconfirmed",
     "NO_SETUP": "⚪ No Setup",
+}
+
+# What to actually do for each status — shown directly next to results so a
+# bucket label never has to be interpreted from memory.
+STATUS_ACTION = {
+    "CONFIRMED_ENTRY": (
+        "Actionable now — price is inside the entry zone with a confirmed trigger candle. Enter near "
+        "current price, stop below the trap low, target the next resistance shown per ticker."
+    ),
+    "PENDING_ENTRY": (
+        "Not tradeable yet — set an alert at the entry zone shown per ticker and wait for price to pull "
+        "back into it with a bullish trigger candle before entering. Don't buy the displacement candle itself."
+    ),
+    "TRAP_CONFIRMED": (
+        "Watchlist only, not an entry — absorption, retest, and the liquidity trap are all validated, but "
+        "price hasn't broken structure yet. Watch for a strong bullish candle to close above the recent "
+        "swing high; that promotes it to Pending. If price rolls back below the trap low instead, drop it."
+    ),
+    "TRAP_UNCONFIRMED": (
+        "Lowest-confidence bucket — generally skip. A liquidity sweep fired, but the volume evidence for "
+        "genuine institutional absorption/retest didn't hold up, so this is likely just noise."
+    ),
+    "NO_SETUP": "Nothing in progress — no sell-side liquidity sweep detected recently.",
 }
 
 

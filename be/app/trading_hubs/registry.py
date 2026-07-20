@@ -7,6 +7,7 @@ import inspect
 from typing import Any
 
 from app.trading_hubs import (
+    intra_hwp_engine,
     intraday_7_wasted_engine,
     intraday_alpha_945_engine,
     intraday_fib945_engine,
@@ -16,8 +17,10 @@ from app.trading_hubs import (
     scalp_crt_fvg_engine,
     scalp_multi_indicator_engine,
     scalp_rectangle_engine,
+    scalp_heikin_ashi_engine,
     scalp_smc_engine,
     scalp_sr_mss_engine,
+    sc_fvg_engine,
     smb_snp_engine,
     smc_cisd_engine,
     smc_golden_bullet_engine,
@@ -292,6 +295,30 @@ HUB_SECTIONS: list[HubSection] = [
         description="5-minute opening-range breakout with daily-bullish-bias gate and retest-of-OR-high entry at 2:1 R:R.",
         module=intraday_7_wasted_engine,
         config_cls=intraday_7_wasted_engine.Intra7WastedConfig,
+    ),
+    _section(
+        id="intra_hwp",
+        hub="intraday",
+        label="Intra HWP - Two-Sided Gap Fill + 21 EMA",
+        description="Fixed 5m/21 EMA gap-tag-and-reverse strategy — target Today's Open, stop beyond the swing extreme since the tag.",
+        module=intra_hwp_engine,
+        config_cls=intra_hwp_engine.HwpConfig,
+    ),
+    _section(
+        id="scalp_heikin_ashi",
+        hub="scalping",
+        label="Scalp - Heikin Ashi",
+        description="100 EMA trend filter + two-candle flat Heikin Ashi pullback confirmed by a high-volume Doji, strict 1:1 R:R, market-specific morning session window.",
+        module=scalp_heikin_ashi_engine,
+        config_cls=scalp_heikin_ashi_engine.HeikinAshiScalpConfig,
+    ),
+    _section(
+        id="sc_fvg",
+        hub="smart_money",
+        label="SC - FVG (Reversal at Key Levels)",
+        description="15m HTF resistance/support zone + 5m Fair Value Gap exhaustion + 1m rejection candle & structure shift entry, fixed 3:1 R:R.",
+        module=sc_fvg_engine,
+        config_cls=sc_fvg_engine.ScFvgConfig,
     ),
 ]
 

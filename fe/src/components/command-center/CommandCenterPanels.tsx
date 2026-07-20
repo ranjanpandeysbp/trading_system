@@ -7,7 +7,9 @@ import {
   runMomentumScan,
   runOptionChain,
   runQuickAnalyzer,
+  runTradeSetupCopyTrade,
   runTradeSetupDivergence,
+  runTradeSetupIntraHwp,
   runTradeSetupPatterns,
   runTradeSetupRealBottom,
   runTradeSetupScalping,
@@ -16,6 +18,7 @@ import {
   runTradeSetupSupportResistance,
   runTradeSetupTakeProfit,
   runTradeSetupTimeSeries,
+  runTradeSetupWeakStrong,
   runUpgradeDowngradeScan,
 } from '../../api/client'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
@@ -154,6 +157,30 @@ const REAL_BOTTOM_STATUS_BADGE: Record<string, string> = {
   TRAP_CONFIRMED: '🟠 Trap Confirmed — Awaiting Displacement',
   TRAP_UNCONFIRMED: '🔵 Trap Fired — Absorption/Retest Unconfirmed',
   NO_SETUP: '⚪ No Setup',
+}
+
+// What to actually do for each status — shown directly next to results so a
+// bucket label never has to be interpreted from memory.
+const REAL_BOTTOM_STATUS_ACTION: Record<string, string> = {
+  CONFIRMED_ENTRY: 'Actionable now — price is inside the entry zone with a confirmed trigger candle. Enter near current price, stop below the trap low, target the next resistance shown per ticker.',
+  PENDING_ENTRY: "Not tradeable yet — set an alert at the entry zone shown per ticker and wait for price to pull back into it with a bullish trigger candle before entering. Don't buy the displacement candle itself.",
+  TRAP_CONFIRMED: 'Watchlist only, not an entry — absorption, retest, and the liquidity trap are all validated, but price hasn\'t broken structure yet. Watch for a strong bullish candle to close above the recent swing high; that promotes it to Pending. If price rolls back below the trap low instead, drop it.',
+  TRAP_UNCONFIRMED: "Lowest-confidence bucket — generally skip. A liquidity sweep fired, but the volume evidence for genuine institutional absorption/retest didn't hold up, so this is likely just noise.",
+  NO_SETUP: 'Nothing in progress — no sell-side liquidity sweep detected recently.',
+}
+
+const INTRA_HWP_PHASE_BADGE: Record<string, string> = {
+  NO_GAP: '⚪ No Gap',
+  AWAITING_GAP_TAG: '🔵 Awaiting Gap Tag',
+  AWAITING_EMA_CROSS: '🟠 Awaiting EMA Cross',
+  ENTRY_TRIGGERED: '🟢 Entry Triggered',
+}
+
+const COPY_TRADE_PHASE_BADGE: Record<string, string> = {
+  NO_SETUP: '⚪ No Setup',
+  WATCHING_ZONE: '🔵 Watching Zone',
+  EXIT_SIGNAL: '🚪 Exit Signal',
+  ENTRY_TRIGGERED: '🟢 Entry Triggered',
 }
 
 function StopTierRow({ label, tier }: { label: string; tier: Row | undefined }) {
@@ -893,9 +920,10 @@ function RealBottomPanel({ data }: { data: Row }) {
           const items = buckets[status] ?? []
           return (
             <div key={status} className="min-w-0">
-              <p className="mb-2 text-sm font-semibold text-slate-300">
+              <p className="text-sm font-semibold text-slate-300">
                 {REAL_BOTTOM_STATUS_BADGE[status] ?? status} — {items.length}
               </p>
+              <p className="mb-2 text-xs text-slate-500">👉 {REAL_BOTTOM_STATUS_ACTION[status] ?? ''}</p>
               {items.length === 0 ? (
                 <p className="text-xs text-slate-500">None.</p>
               ) : (
@@ -906,6 +934,190 @@ function RealBottomPanel({ data }: { data: Row }) {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+const WEAK_STRONG_BADGE: Record<string, string> = {
+  STRONG: '🟢 Strong',
+  WEAK: '🔴 Weak',
+  NEUTRAL: '⚪ Neutral',
+}
+
+function WeakStrongPlaybookCard({ label, plan }: { label: string; plan: Row | undefined }) {
+  if (!plan) return null
+  const take = Boolean(plan.take_trade)
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-2.5">
+      <p className="text-xs font-semibold text-slate-300">{label}</p>
+      <p className={`text-xs ${verdictClass(String(plan.verdict ?? ''))}`}>
+        {String(plan.verdict ?? '—')} · {fmtNum(plan.confidence_pct, 0)}% confidence
+      </p>
+      {take ? (
+        <p className="mt-1 text-xs text-slate-400">
+          Entry: <strong>{fmtNum(plan.entry_price, 4)}</strong>
+          {' · '}Stop: <strong>{fmtNum(plan.stop_price, 4)}</strong>
+          {' · '}Target: <strong>{fmtNum(plan.target_price, 4)}</strong>
+          {plan.rr_ratio != null ? ` · R:R ${fmtNum(plan.rr_ratio, 2)}` : ''}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-500">
+          {String(plan.hold_duration ?? '')}
+          {((plan.reasons as string[]) ?? []).slice(-1).map((rr, i) => <span key={i}> — {rr}</span>)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function WeakStrongResultRow({ res }: { res: Row }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(res.ticker)}</span>
+        <span className="text-slate-500">
+          · {String(res.timeframe)} · {WEAK_STRONG_BADGE[String(res.verdict ?? 'NEUTRAL')] ?? String(res.verdict ?? '—')}
+          {' · score '}{fmtNum(res.score, 0)}{' · '}{fmtNum(res.confidence_pct, 0)}% confidence
+          {res.rel_pct != null ? ` · RS ${fmtNum(res.rel_pct, 1)}%` : ''}
+          {res.vol_ratio != null ? ` · vol ${fmtNum(res.vol_ratio, 1)}x` : ''}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-3 py-2">
+          {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <WeakStrongPlaybookCard label="🎯 Scalping" plan={res.scalp_plan as Row | undefined} />
+            <WeakStrongPlaybookCard label="📈 Swing" plan={res.swing_plan as Row | undefined} />
+          </div>
+          <AskAIPanel
+            context={buildAskContext(`Weak / Strong · ${String(res.ticker ?? '')} · ${String(res.timeframe ?? '')}`, res)}
+            section={`command-center/weak_strong/${String(res.ticker ?? '')}`}
+            className="mt-3"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WeakStrongPanel({ data }: { data: Row }) {
+  const strong = (data.strong as Row[]) ?? []
+  const weak = (data.weak as Row[]) ?? []
+  const neutral = (data.neutral as Row[]) ?? []
+  const errors = (data.errors as Row[]) ?? []
+  if (!strong.length && !weak.length && !neutral.length && !errors.length) {
+    return <p className="text-sm text-slate-500">No results.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {errors.length > 0 && (
+        <Alert type="error">
+          {errors.map((e) => `${String(e.ticker)} · ${String(e.timeframe)}: ${String(e.error)}`).join(' · ')}
+        </Alert>
+      )}
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">🟢 Strong — {strong.length}</p>
+        {strong.length === 0 ? <p className="text-xs text-slate-500">None.</p> : (
+          <div className="space-y-1.5">{strong.map((r, i) => <WeakStrongResultRow key={i} res={r} />)}</div>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">🔴 Weak — {weak.length}</p>
+        {weak.length === 0 ? <p className="text-xs text-slate-500">None.</p> : (
+          <div className="space-y-1.5">{weak.map((r, i) => <WeakStrongResultRow key={i} res={r} />)}</div>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">⚪ Neutral / mixed — {neutral.length}</p>
+        {neutral.length === 0 ? <p className="text-xs text-slate-500">None.</p> : (
+          <div className="space-y-1.5">{neutral.map((r, i) => <WeakStrongResultRow key={i} res={r} />)}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CopyTradeResultRow({ res }: { res: Row }) {
+  const [open, setOpen] = useState(false)
+  const live = (res.live as Row) ?? {}
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(res.ticker)}</span>
+        <span className="text-slate-500">
+          · {COPY_TRADE_PHASE_BADGE[String(res.phase ?? 'NO_SETUP')] ?? String(res.phase ?? '—')}
+          {' · '}{String(live.verdict ?? 'WAIT')}
+          {' · '}{fmtNum(live.confidence_pct, 0)}% confidence
+          {' · %K '}{fmtNum(res.stoch_k, 1)}
+          {' · vol '}{fmtNum(res.vol_ratio, 1)}x
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-3 py-2">
+          {((live.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+          {live.entry_price != null && (
+            <p className="mt-1 text-xs text-slate-400">
+              Entry: <strong>{fmtNum(live.entry_price, 4)}</strong>
+              {' · '}Stop: <strong>{fmtNum(live.stop_price, 4)}</strong> ({fmtNum(live.sl_pct, 2)}%)
+              {' · '}Target: <strong>{fmtNum(live.target_price, 4)}</strong> ({fmtNum(live.tp_pct, 2)}%)
+            </p>
+          )}
+          <AskAIPanel
+            context={buildAskContext(`Copy Trade · ${String(res.ticker ?? '')}`, res)}
+            section={`command-center/copy_trade/${String(res.ticker ?? '')}`}
+            className="mt-3"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CopyTradePanel({ data }: { data: Row }) {
+  const entries = (data.entries as Row[]) ?? []
+  const watches = (data.watchlist as Row[]) ?? []
+  const results = (data.results as Row[]) ?? []
+  const errors = results.filter((r) => r.error != null)
+  if (!entries.length && !watches.length && !errors.length) {
+    return <p className="text-sm text-slate-500">No results.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {errors.length > 0 && (
+        <Alert type="error">
+          {errors.map((e) => `${String(e.ticker)}: ${String(e.error)}`).join(' · ')}
+        </Alert>
+      )}
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">🎯 Fresh momentum entries — {entries.length}</p>
+        {entries.length === 0 ? <p className="text-xs text-slate-500">None.</p> : (
+          <div className="space-y-1.5">{entries.map((r, i) => <CopyTradeResultRow key={i} res={r} />)}</div>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">👁️ Watching zone / exit cues — {watches.length}</p>
+        {watches.length === 0 ? <p className="text-xs text-slate-500">None.</p> : (
+          <div className="space-y-1.5">{watches.map((r, i) => <CopyTradeResultRow key={i} res={r} />)}</div>
+        )}
       </div>
     </div>
   )
@@ -1238,13 +1450,18 @@ function isoDaysAgo(days: number): string {
 
 type DrillCheck =
   | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
-  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'intra_hwp' | 'weak_strong' | 'copy_trade' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+
+const DRILL_CHECK_KEYS: DrillCheck[] = [
+  'momentum', 'volume', 'quick_analyzer', 'patterns', 'smart_money',
+  'scalping', 'support_resistance', 'time_series', 'divergence', 'stop_hunt', 'take_profit', 'real_bottom', 'intra_hwp', 'weak_strong', 'copy_trade', 'upgrade_downgrade', 'fundamentals', 'option_chain',
+]
 
 export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
   const isIndia = assetClass === 'india'
   const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
     momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,
-    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
+    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, intra_hwp: false, weak_strong: false, copy_trade: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
   })
   const [ran, setRan] = useState(false)
 
@@ -1259,11 +1476,19 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const stopHuntMut = useMutation({ mutationFn: () => runTradeSetupStopHunt({ ticker, asset_class: assetClass, timeframe }) })
   const takeProfitMut = useMutation({ mutationFn: () => runTradeSetupTakeProfit({ ticker, asset_class: assetClass, timeframe }) })
   const realBottomMut = useMutation({ mutationFn: () => runTradeSetupRealBottom({ ticker, asset_class: assetClass, timeframe }) })
+  const intraHwpMut = useMutation({ mutationFn: () => runTradeSetupIntraHwp({ ticker, asset_class: assetClass, timeframe }) })
+  const weakStrongMut = useMutation({ mutationFn: () => runTradeSetupWeakStrong({ ticker, asset_class: assetClass, timeframe }) })
+  const copyTradeMut = useMutation({ mutationFn: () => runTradeSetupCopyTrade({ ticker, asset_class: assetClass, timeframe }) })
   const udMut = useMutation({ mutationFn: () => runUpgradeDowngradeScan({ tickers: [ticker], asset_class: assetClass }) })
   const faMut = useMutation({ mutationFn: () => runFundamentalAnalysis({ tickers: [ticker], asset_class: assetClass }) })
   const ocMut = useMutation({ mutationFn: () => runOptionChain({ symbol: ticker, is_index: false }) })
 
   const toggle = (key: DrillCheck) => setChecked((prev) => ({ ...prev, [key]: !prev[key] }))
+  const allSelected = DRILL_CHECK_KEYS.every((k) => checked[k])
+  const toggleAll = () => {
+    const next = !allSelected
+    setChecked(Object.fromEntries(DRILL_CHECK_KEYS.map((k) => [k, next])) as Record<DrillCheck, boolean>)
+  }
 
   const runAnalysis = () => {
     setRan(true)
@@ -1278,6 +1503,9 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
     if (checked.stop_hunt) stopHuntMut.mutate()
     if (checked.take_profit) takeProfitMut.mutate()
     if (checked.real_bottom) realBottomMut.mutate()
+    if (checked.intra_hwp) intraHwpMut.mutate()
+    if (checked.weak_strong) weakStrongMut.mutate()
+    if (checked.copy_trade) copyTradeMut.mutate()
     if (checked.upgrade_downgrade) udMut.mutate()
     if (checked.fundamentals && isIndia) faMut.mutate()
     if (checked.option_chain && isIndia) ocMut.mutate()
@@ -1320,6 +1548,9 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const stopHuntRes = stopHuntMut.data as Row | undefined
   const takeProfitRes = takeProfitMut.data as Row | undefined
   const realBottomRes = realBottomMut.data as Row | undefined
+  const intraHwpRes = intraHwpMut.data as Row | undefined
+  const weakStrongRes = weakStrongMut.data as Row | undefined
+  const copyTradeRes = copyTradeMut.data as Row | undefined
 
   const drillAiData: Row = { ticker, timeframe, asset_class: assetClass }
   if (checked.momentum && m) drillAiData.momentum = m
@@ -1334,6 +1565,9 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   if (checked.stop_hunt && stopHuntRes) drillAiData.stop_hunt = stopHuntRes
   if (checked.take_profit && takeProfitRes) drillAiData.take_profit = takeProfitRes
   if (checked.real_bottom && realBottomRes) drillAiData.real_bottom = realBottomRes
+  if (checked.intra_hwp && intraHwpRes) drillAiData.intra_hwp = intraHwpRes
+  if (checked.weak_strong && weakStrongRes) drillAiData.weak_strong = weakStrongRes
+  if (checked.copy_trade && copyTradeRes) drillAiData.copy_trade = copyTradeRes
   if (checked.upgrade_downgrade && ud) drillAiData.upgrade_downgrade = ud
   if (checked.fundamentals && fa) drillAiData.fundamentals = fa
   if (checked.option_chain && ocSignal) drillAiData.option_chain = { signal: ocSignal, chain: ocChain }
@@ -1341,6 +1575,10 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
 
   return (
     <div className="space-y-3 border-t border-slate-800/60 pt-3">
+      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+        <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+        {allSelected ? '☑️ Unselect all' : '✅ Select all'}
+      </label>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.momentum} onChange={() => toggle('momentum')} />📈 Momentum
@@ -1377,6 +1615,15 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.real_bottom} onChange={() => toggle('real_bottom')} />🔻 Real Bottom
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.intra_hwp} onChange={() => toggle('intra_hwp')} />↔️ Intra HWP
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.weak_strong} onChange={() => toggle('weak_strong')} />↔️ Weak / Strong
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.copy_trade} onChange={() => toggle('copy_trade')} />🚀 Copy Trade
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.upgrade_downgrade} onChange={() => toggle('upgrade_downgrade')} />🏷️ Stock Upgrade Downgrade
@@ -1632,6 +1879,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                     {REAL_BOTTOM_STATUS_BADGE[String(realBottomRes.status ?? 'NO_SETUP')] ?? String(realBottomRes.status ?? '—')}
                     {realBottomRes.atr != null ? ` · ATR ${fmtNum(realBottomRes.atr, 4)}` : ''}
                   </p>
+                  <p className="text-xs text-slate-500">👉 {REAL_BOTTOM_STATUS_ACTION[String(realBottomRes.status ?? 'NO_SETUP')] ?? ''}</p>
                   {((realBottomRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
                   {realBottomRes.entry_zone != null && (
                     <p className="text-xs text-slate-400">
@@ -1646,6 +1894,92 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                   {realBottomRes.target != null && (
                     <p className="text-xs text-slate-400">
                       Target: <strong>{fmtNum((realBottomRes.target as Row).price, 4)}</strong> ({fmtNum((realBottomRes.target as Row).pct, 2)}%, {fmtNum((realBottomRes.target as Row).touches, 0)}x touched)
+                    </p>
+                  )}
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.intra_hwp && (
+            intraHwpMut.isPending ? <p className="text-xs text-slate-500">Checking the two-sided gap fill…</p> :
+            intraHwpMut.isError ? <p className="text-xs text-rose-400">Intra HWP failed: {apiErrorMessage(intraHwpMut.error)}</p> :
+            intraHwpRes ? (
+              intraHwpRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(intraHwpRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">↔️ Intra HWP — Two-Sided Gap Fill + 21 EMA</p>
+                  <p className="text-xs text-slate-400">
+                    {INTRA_HWP_PHASE_BADGE[String(intraHwpRes.phase ?? 'NO_GAP')] ?? String(intraHwpRes.phase ?? '—')}
+                    {' · '}{String(((intraHwpRes.live as Row)?.verdict) ?? 'WAIT')}
+                    {' · '}{fmtNum(((intraHwpRes.live as Row)?.confidence_pct), 0)}% confidence
+                    {intraHwpRes.atr != null ? ` · ATR ${fmtNum(intraHwpRes.atr, 4)}` : ''}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Gap {fmtNum(intraHwpRes.gap_pct, 2)}% · Today's open {fmtNum(intraHwpRes.today_open, 4)} · Prior close {fmtNum(intraHwpRes.prior_close, 4)}
+                  </p>
+                  {(((intraHwpRes.live as Row)?.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  {(intraHwpRes.live as Row)?.entry_price != null && (
+                    <p className="text-xs text-slate-400">
+                      Entry: <strong>{fmtNum((intraHwpRes.live as Row).entry_price, 4)}</strong>
+                      {' · '}Stop: <strong>{fmtNum((intraHwpRes.live as Row).stop_price, 4)}</strong> ({fmtNum((intraHwpRes.live as Row).sl_pct, 2)}%)
+                      {' · '}Target: <strong>{fmtNum((intraHwpRes.live as Row).target_price, 4)}</strong> ({fmtNum((intraHwpRes.live as Row).tp_pct, 2)}%)
+                    </p>
+                  )}
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.weak_strong && (
+            weakStrongMut.isPending ? <p className="text-xs text-slate-500">Scoring relative strength…</p> :
+            weakStrongMut.isError ? <p className="text-xs text-rose-400">Weak / Strong failed: {apiErrorMessage(weakStrongMut.error)}</p> :
+            weakStrongRes ? (
+              weakStrongRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(weakStrongRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">↔️ Weak / Strong — Relative Strength & Trend Classifier</p>
+                  <p className="text-xs text-slate-400">
+                    {WEAK_STRONG_BADGE[String(weakStrongRes.verdict ?? 'NEUTRAL')] ?? String(weakStrongRes.verdict ?? '—')}
+                    {' · score '}{fmtNum(weakStrongRes.score, 0)}{' · '}{fmtNum(weakStrongRes.confidence_pct, 0)}% confidence
+                    {weakStrongRes.rel_pct != null ? ` · RS ${fmtNum(weakStrongRes.rel_pct, 1)}%` : ''}
+                    {weakStrongRes.vol_ratio != null ? ` · vol ${fmtNum(weakStrongRes.vol_ratio, 1)}x` : ''}
+                  </p>
+                  {((weakStrongRes.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <WeakStrongPlaybookCard label="🎯 Scalping" plan={weakStrongRes.scalp_plan as Row | undefined} />
+                    <WeakStrongPlaybookCard label="📈 Swing" plan={weakStrongRes.swing_plan as Row | undefined} />
+                  </div>
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.copy_trade && (
+            copyTradeMut.isPending ? <p className="text-xs text-slate-500">Checking Stochastic 80/20 + Engulfing + volume…</p> :
+            copyTradeMut.isError ? <p className="text-xs text-rose-400">Copy Trade failed: {apiErrorMessage(copyTradeMut.error)}</p> :
+            copyTradeRes ? (
+              copyTradeRes.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(copyTradeRes.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">🚀 Copy Trade — High-Beta / 3x Leveraged ETF Momentum Scalp</p>
+                  <p className="text-xs text-slate-400">
+                    {COPY_TRADE_PHASE_BADGE[String(copyTradeRes.phase ?? 'NO_SETUP')] ?? String(copyTradeRes.phase ?? '—')}
+                    {' · '}{String(((copyTradeRes.live as Row)?.verdict) ?? 'WAIT')}
+                    {' · '}{fmtNum(((copyTradeRes.live as Row)?.confidence_pct), 0)}% confidence
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Stochastic %K {fmtNum(copyTradeRes.stoch_k, 1)} (prev {fmtNum(copyTradeRes.stoch_k_prev, 1)}) · Volume {fmtNum(copyTradeRes.vol_ratio, 1)}x average
+                  </p>
+                  {(((copyTradeRes.live as Row)?.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  {(copyTradeRes.live as Row)?.entry_price != null && (
+                    <p className="text-xs text-slate-400">
+                      Entry: <strong>{fmtNum((copyTradeRes.live as Row).entry_price, 4)}</strong>
+                      {' · '}Stop: <strong>{fmtNum((copyTradeRes.live as Row).stop_price, 4)}</strong> ({fmtNum((copyTradeRes.live as Row).sl_pct, 2)}%)
+                      {' · '}Target: <strong>{fmtNum((copyTradeRes.live as Row).target_price, 4)}</strong> ({fmtNum((copyTradeRes.live as Row).tp_pct, 2)}%)
                     </p>
                   )}
                 </div>
@@ -3483,6 +3817,10 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
       return <TakeProfitPanel data={data} />
     case 'real_bottom':
       return <RealBottomPanel data={data} />
+    case 'weak_strong':
+      return <WeakStrongPanel data={data} />
+    case 'copy_trade':
+      return <CopyTradePanel data={data} />
     case 'take_trade':
       return <TakeTradePanel data={data} />
     case 'ema_position':

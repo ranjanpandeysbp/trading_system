@@ -40,6 +40,9 @@ __all__ = [
     "analyze_stop_hunt_one",
     "analyze_take_profit_one",
     "analyze_real_bottom_one",
+    "analyze_intra_hwp_one",
+    "analyze_weak_strong_one",
+    "analyze_copy_trade_one",
 ]
 
 BUCKET_ORDER = ["Extended Overbought", "Overbought", "Neutral", "Oversold", "Extended Oversold"]
@@ -538,3 +541,46 @@ def analyze_real_bottom_one(
     from app.market_pulse.real_bottom_engine import analyze_ticker as real_bottom_analyze_ticker
 
     return real_bottom_analyze_ticker(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)
+
+
+def analyze_intra_hwp_one(
+    ticker: str, timeframe: str, market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
+    """Intra HWP — Two-Sided Gap Fill + 21 EMA: waits for price to tag the
+    previous day's close (Side 1 of the gap), then enters on the 5m 21-EMA
+    cross-back toward today's open (Side 2). Always evaluated on a fixed 5m
+    timeframe regardless of the passed-in timeframe — per the strategy's own
+    definition, the same convention used elsewhere in this app for fixed-TF
+    composites."""
+    from app.trading_hubs.intra_hwp_engine import HwpConfig
+    from app.trading_hubs.intra_hwp_engine import analyze_ticker as hwp_analyze_ticker
+
+    return hwp_analyze_ticker(ticker, market, cfg=HwpConfig(), groww_token=groww_token, exchange=exchange)
+
+
+def analyze_weak_strong_one(
+    ticker: str, timeframe: str, market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
+    """Weak / Strong: six-factor relative-strength & trend-confluence
+    classifier (trend structure, EMA stack, ADX/DI, RSI, MACD histogram, and
+    relative strength vs. a market benchmark) — buckets the ticker as STRONG,
+    WEAK, or NEUTRAL with paired scalping and swing playbooks."""
+    from app.market_pulse.weak_strong_engine import WeakStrongConfig
+    from app.market_pulse.weak_strong_engine import analyze_ticker as weak_strong_analyze_ticker
+
+    return weak_strong_analyze_ticker(ticker, market, timeframe, cfg=WeakStrongConfig(), groww_token=groww_token, exchange=exchange)
+
+
+def analyze_copy_trade_one(
+    ticker: str, timeframe: str, market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
+    """Copy Trade — high-beta / 3x leveraged ETF momentum scalp: Stochastic
+    %K 80/20 'sweet spot' confirmed by a fresh Engulfing candle on
+    above-average volume, exiting the instant momentum pulls back. Always
+    evaluated on a fixed 15m timeframe regardless of the passed-in
+    timeframe — per the strategy's own definition, the same convention used
+    elsewhere in this app for fixed-TF composites."""
+    from app.market_pulse.copy_trade_engine import CopyTradeConfig
+    from app.market_pulse.copy_trade_engine import analyze_ticker as copy_trade_analyze_ticker
+
+    return copy_trade_analyze_ticker(ticker, market, cfg=CopyTradeConfig(), groww_token=groww_token, exchange=exchange)

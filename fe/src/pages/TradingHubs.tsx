@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BarChart2, Clock, Crosshair, TrendingUp } from 'lucide-react'
 import {
@@ -8,12 +8,17 @@ import {
   type TradingHub,
   type TradingHubSection,
 } from '../api/client'
+import {
+  AssetClassTickerPicker,
+  type AssetClass,
+  type TickerPickerValue,
+} from '../components/command-center/AssetClassTickerPicker'
 import { TradingHubResultsPanel } from '../components/trading-hubs/TradingHubPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
-import { FormField, Select, Textarea } from '../components/ui/Form'
+import { FormField, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
 const HUB_ICONS: Record<string, typeof TrendingUp> = {
@@ -23,11 +28,40 @@ const HUB_ICONS: Record<string, typeof TrendingUp> = {
   smart_money: BarChart2,
 }
 
-const DEFAULT_TICKERS = 'RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK'
-
-function parseTickers(raw: string) {
-  return raw.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
+// Every Trading Hubs strategy trades a fixed timeframe (or fixed combination of
+// timeframes) per its own strategy definition — there is no adjustable timeframe
+// selector here on purpose. This is display-only context next to each section.
+const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
+  swing_trading_st: 'Daily',
+  swing_trading_st_mtf_mss: 'Weekly + Daily bias + 15m MSS execution',
+  swing_trading_st_supertrend: 'Daily (Swing mode) / Weekly (Pyramid mode)',
+  swing_trading_st_kiss: 'Weekly bias + 1h execution',
+  swing_trading_st_ha_ema: 'Daily bias + 5m execution',
+  swing_trading_st_simple_steal: 'Daily',
+  intraday_alpha_945: '30m opening range + Daily trend filter',
+  intraday_7_wasted: 'Daily bias + 5m opening range + 1m execution',
+  intraday_fib945: '30m opening-range bias + 5m execution',
+  intra_hwp: '5m',
+  intraday_vwap_fade: '15m HTF + 5m execution',
+  intraday_mtf_breakout_retest: 'Daily bias + 30m/1h/4h HTF + 15m execution',
+  scalp_arc: '5m',
+  scalp_crt_fvg: '1h HTF sweep + 5m LTF FVG entry',
+  scalp_multi_indicator: '1m',
+  scalp_rectangle: '1m',
+  scalp_heikin_ashi: '1m (India 09:45-11:45 IST / US 10:00-12:00 ET session window; crypto unrestricted)',
+  scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
+  scalp_sr_mss: '1h HTF zone + 1m MSS entry',
+  smc_cisd: '1h bias + 15m execution',
+  smc_weekly_sweep_cisd: 'Weekly HTF sweep + 15m execution',
+  smc_mtf_day_plan: '4h HTF + 1h MTF + 15m LTF day plan',
+  smc_golden_bullet: '1h HTF + 15m NY kill-zone execution',
+  smc_liquidity: '1h bias + 15m execution',
+  smc_ttg_sniper: 'Configurable (LTF/HTF selectable below)',
+  smb_snp: 'Daily HTF + 5m session-window execution',
+  sc_fvg: '15m zone + 5m FVG + 1m entry',
 }
+
+const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: [] }
 
 function defaultConfig(section: TradingHubSection | undefined): Record<string, string> {
   if (!section?.config_options) return {}
@@ -39,9 +73,10 @@ function defaultConfig(section: TradingHubSection | undefined): Record<string, s
 }
 
 export default function TradingHubs() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [hubId, setHubId] = useState('swing')
   const [sectionId, setSectionId] = useState('')
-  const [tickers, setTickers] = useState(DEFAULT_TICKERS)
+  const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [config, setConfig] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
 
@@ -68,14 +103,24 @@ export default function TradingHubs() {
     setConfig(defaultConfig(activeSection))
   }, [activeSection?.id])
 
+  const handleAssetClassChange = (next: AssetClass) => {
+    setAssetClass(next)
+    setPicker(DEFAULT_PICKER)
+    setError('')
+  }
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => {
+    setPicker(v)
+  }, [])
+
   const scanMutation = useMutation({
     mutationFn: () => {
-      const list = parseTickers(tickers)
-      if (!list.length) throw new Error('Enter at least one ticker')
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
       if (!sectionId) throw new Error('Select a section')
       return runTradingHubScan({
         section_id: sectionId,
-        tickers: list,
+        tickers: picker.tickers,
+        asset_class: assetClass,
         config: Object.keys(config).length ? config : undefined,
       })
     },
@@ -87,7 +132,7 @@ export default function TradingHubs() {
     <div>
       <PageHeader
         title="Trading Hubs"
-        description="Swing Trading · Intraday · Scalping · Smart Money — India (Groww/NSE)"
+        description="Swing Trading · Intraday · Scalping · Smart Money — India · US · Crypto · Commodities"
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -118,12 +163,32 @@ export default function TradingHubs() {
 
       <Card className="mb-4">
         {activeSection && (
-          <p className="mb-4 text-sm text-slate-400">{activeSection.description}</p>
+          <div className="mb-4">
+            <p className="text-sm text-slate-400">{activeSection.description}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              🕒 Fixed timeframe: <span className="text-slate-300">{SECTION_TIMEFRAME_LABEL[activeSection.id] ?? 'Per strategy definition'}</span>
+              {' — not user-adjustable, this strategy always trades this timeframe.'}
+            </p>
+          </div>
         )}
 
-        <FormField label="Tickers (comma-separated)">
-          <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
+        <FormField label="Asset class">
+          <Select value={assetClass} onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}>
+            <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+            <option value="us">🇺🇸 US stocks (Yahoo)</option>
+            <option value="crypto">₿ Crypto (CoinDCX)</option>
+            <option value="commodity">🛢️ Commodity futures</option>
+          </Select>
         </FormField>
+
+        <div className="mt-4">
+          <AssetClassTickerPicker
+            key={assetClass}
+            assetClass={assetClass}
+            showDurations={false}
+            onChange={handlePickerChange}
+          />
+        </div>
 
         {activeSection && Object.entries(activeSection.config_options ?? {}).map(([key, opt]) => (
           <div key={key} className="mt-4">
