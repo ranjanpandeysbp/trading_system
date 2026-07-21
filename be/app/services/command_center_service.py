@@ -131,6 +131,7 @@ class CommandCenterService:
 
     async def trade_setup(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+        exchange: str | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.trade_setup_engine import (
             DEFAULT_TIMEFRAMES,
@@ -138,13 +139,14 @@ class CommandCenterService:
             group_by_timeframe_bucket,
         )
 
-        market, exchange = await self._asset_ctx(asset_class)
+        market, default_exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
         tfs = timeframes or list(DEFAULT_TIMEFRAMES)
+        resolved_exchange = exchange or default_exchange
 
         def _run():
-            results = analyze_trade_setup_many(resolved, tfs, market, groww_token=token, exchange=exchange)
+            results = analyze_trade_setup_many(resolved, tfs, market, groww_token=token, exchange=resolved_exchange)
             grouped = group_by_timeframe_bucket(results, tfs)
             return results, grouped
 
@@ -369,15 +371,17 @@ class CommandCenterService:
 
     async def weak_strong(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+        exchange: str | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.weak_strong_engine import WeakStrongConfig, scan_universe
 
-        market, exchange = await self._asset_ctx(asset_class)
+        market, default_exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
         tfs = timeframes or ["5m", "15m", "1h", "1d"]
         result = await asyncio.to_thread(
-            scan_universe, resolved, tfs, market, cfg=WeakStrongConfig(), groww_token=token, exchange=exchange,
+            scan_universe, resolved, tfs, market, cfg=WeakStrongConfig(), groww_token=token,
+            exchange=exchange or default_exchange,
         )
         return json_safe(result)
 
@@ -599,13 +603,15 @@ class CommandCenterService:
 
     async def india_market_heatmap(self, index_name: str) -> dict[str, Any]:
         from app.market_pulse.india_market_heatmap_engine import (
+            INDEX_NAME_TO_EXCHANGE,
             INDEX_NAME_TO_SYMBOL,
             fetch_heatmap,
         )
 
         symbol = INDEX_NAME_TO_SYMBOL.get(index_name, index_name)
+        exchange = INDEX_NAME_TO_EXCHANGE.get(index_name, "NSE")
         rows = await asyncio.to_thread(fetch_heatmap, symbol)
-        return json_safe({"index_name": index_name, "symbol": symbol, "rows": rows})
+        return json_safe({"index_name": index_name, "symbol": symbol, "exchange": exchange, "rows": rows})
 
     async def quick_analyzer(
         self,

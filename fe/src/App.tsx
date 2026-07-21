@@ -14,6 +14,7 @@ import MarketPulse from './pages/MarketPulse'
 import TechnicalAnalysis from './pages/TechnicalAnalysis'
 import EtfTaIn from './pages/EtfTaIn'
 import TradingHubs from './pages/TradingHubs'
+import Options from './pages/Options'
 import PaperTrading from './pages/PaperTrading'
 import ManageSettings from './pages/ManageSettings'
 import Login from './pages/Login'
@@ -82,6 +83,7 @@ export default function App() {
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
+                <Route path="/options" element={<Options />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/backtester" element={<Backtester />} />

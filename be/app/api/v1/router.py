@@ -41,6 +41,10 @@ from app.models.schemas import (
     MarketPulseTickerInvestigationRequest,
     MessageResponse,
     ModifyOrderRequest,
+    OptionsDeltaNeutralPnlRequest,
+    OptionsDeltaNeutralRequest,
+    OptionsDoubleCalendarPnlRequest,
+    OptionsDoubleCalendarRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -61,6 +65,7 @@ from app.models.schemas import (
     UserRegister,
 )
 from app.services.command_center_service import CommandCenterService
+from app.services.options_service import OptionsService
 from app.services.ticker_universe_service import TickerUniverseService
 from app.services.alerts_service import AlertsService
 from app.services.watchlist_service import WatchlistService
@@ -699,6 +704,7 @@ async def command_center_trade_setup(
 ):
     return await CommandCenterService(SettingsService(db)).trade_setup(
         payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        exchange=payload.exchange,
     )
 
 
@@ -886,6 +892,7 @@ async def command_center_weak_strong(
 ):
     return await CommandCenterService(SettingsService(db)).weak_strong(
         payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        exchange=payload.exchange,
     )
 
 
@@ -1382,3 +1389,88 @@ async def etf_ta_stf_recommend(
 ):
     service = EtfTaService(SettingsService(db))
     return await service.recommend(payload.model_dump())
+
+
+@router.get("/options/sections")
+async def options_sections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).sections()
+
+
+@router.post("/options/double-calendar")
+async def options_double_calendar(
+    payload: OptionsDoubleCalendarRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).double_calendar(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "short_dte": payload.short_dte,
+            "long_dte": payload.long_dte,
+            "otm_offset_pct": payload.otm_offset_pct,
+            "diagonal_widen_pct": payload.diagonal_widen_pct,
+            "take_profit_start": payload.take_profit_start,
+            "take_profit_max": payload.take_profit_max,
+            "stop_loss": payload.stop_loss,
+            "vix_max_threshold": payload.vix_max_threshold,
+            "vol_percentile_max": payload.vol_percentile_max,
+        },
+    )
+
+
+@router.post("/options/double-calendar/pnl")
+async def options_double_calendar_pnl(
+    payload: OptionsDoubleCalendarPnlRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).double_calendar_pnl(
+        payload.net_debit, payload.current_mark,
+        cfg_overrides={
+            "stop_loss": payload.stop_loss,
+            "take_profit_start": payload.take_profit_start,
+            "take_profit_max": payload.take_profit_max,
+        },
+    )
+
+
+@router.post("/options/delta-neutral")
+async def options_delta_neutral(
+    payload: OptionsDeltaNeutralRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).delta_neutral(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "dte": payload.dte,
+            "short_delta_target": payload.short_delta_target,
+            "wing_width_pct": payload.wing_width_pct,
+            "iron_fly": payload.iron_fly,
+            "profit_target_pct": payload.profit_target_pct,
+            "stop_loss_multiple": payload.stop_loss_multiple,
+            "vix_max_threshold": payload.vix_max_threshold,
+            "vol_percentile_max": payload.vol_percentile_max,
+            "adx_trend_max": payload.adx_trend_max,
+        },
+    )
+
+
+@router.post("/options/delta-neutral/pnl")
+async def options_delta_neutral_pnl(
+    payload: OptionsDeltaNeutralPnlRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).delta_neutral_pnl(
+        payload.net_credit, payload.current_cost_to_close,
+        cfg_overrides={
+            "profit_target_pct": payload.profit_target_pct,
+            "stop_loss_multiple": payload.stop_loss_multiple,
+        },
+    )

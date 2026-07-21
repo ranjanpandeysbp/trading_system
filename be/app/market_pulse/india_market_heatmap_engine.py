@@ -136,6 +136,7 @@ INDEX_LIST: list[dict[str, str]] = [
 ]
 
 INDEX_NAME_TO_SYMBOL: dict[str, str] = {row["name"]: row["symbol"] for row in INDEX_LIST}
+INDEX_NAME_TO_EXCHANGE: dict[str, str] = {row["name"]: row["exchange"] for row in INDEX_LIST}
 INDEX_NAMES: list[str] = [row["name"] for row in INDEX_LIST]
 
 

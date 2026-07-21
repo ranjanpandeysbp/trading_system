@@ -7,6 +7,7 @@ import {
   runMomentumScan,
   runOptionChain,
   runQuickAnalyzer,
+  runTradeSetup,
   runTradeSetupCopyTrade,
   runTradeSetupDivergence,
   runTradeSetupIntraHwp,
@@ -20,6 +21,7 @@ import {
   runTradeSetupTimeSeries,
   runTradeSetupWeakStrong,
   runUpgradeDowngradeScan,
+  runWeakStrong,
 } from '../../api/client'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
@@ -971,28 +973,45 @@ function WeakStrongPlaybookCard({ label, plan }: { label: string; plan: Row | un
   )
 }
 
-function WeakStrongResultRow({ res }: { res: Row }) {
+function WeakStrongResultRow({ res, compact = false }: { res: Row; compact?: boolean }) {
   const [open, setOpen] = useState(false)
+  const meta = (
+    <>
+      {String(res.timeframe)} · {WEAK_STRONG_BADGE[String(res.verdict ?? 'NEUTRAL')] ?? String(res.verdict ?? '—')}
+      {' · score '}{fmtNum(res.score, 0)}{' · '}{fmtNum(res.confidence_pct, 0)}% confidence
+      {res.rel_pct != null ? ` · RS ${fmtNum(res.rel_pct, 1)}%` : ''}
+      {res.vol_ratio != null ? ` · vol ${fmtNum(res.vol_ratio, 1)}x` : ''}
+    </>
+  )
   return (
     <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
         onClick={() => setOpen((o) => !o)}
+        className={compact
+          ? 'flex w-full flex-col gap-1 px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800/30'
+          : 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30'}
       >
-        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
-        <span className="font-semibold text-white">{String(res.ticker)}</span>
-        <span className="text-slate-500">
-          · {String(res.timeframe)} · {WEAK_STRONG_BADGE[String(res.verdict ?? 'NEUTRAL')] ?? String(res.verdict ?? '—')}
-          {' · score '}{fmtNum(res.score, 0)}{' · '}{fmtNum(res.confidence_pct, 0)}% confidence
-          {res.rel_pct != null ? ` · RS ${fmtNum(res.rel_pct, 1)}%` : ''}
-          {res.vol_ratio != null ? ` · vol ${fmtNum(res.vol_ratio, 1)}x` : ''}
-        </span>
+        {compact ? (
+          <>
+            <span className="flex items-center gap-1.5">
+              {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+              <span className="font-semibold text-white">{String(res.ticker)}</span>
+            </span>
+            <span className="text-slate-500 leading-snug">{meta}</span>
+          </>
+        ) : (
+          <>
+            {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+            <span className="font-semibold text-white">{String(res.ticker)}</span>
+            <span className="text-slate-500">· {meta}</span>
+          </>
+        )}
       </button>
       {open && (
         <div className="border-t border-slate-800/60 px-3 py-2">
           {((res.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className={compact ? 'mt-2 space-y-2' : 'mt-2 grid gap-2 sm:grid-cols-2'}>
             <WeakStrongPlaybookCard label="🎯 Scalping" plan={res.scalp_plan as Row | undefined} />
             <WeakStrongPlaybookCard label="📈 Swing" plan={res.swing_plan as Row | undefined} />
           </div>
@@ -2980,6 +2999,123 @@ function AdvanceDecline({ rows, pctKey }: { rows: Row[]; pctKey: string }) {
   )
 }
 
+function fmtVol(v: unknown): string {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  for (const [suffix, threshold] of [['B', 1e9], ['M', 1e6], ['K', 1e3]] as const) {
+    if (Math.abs(n) >= threshold) return `${(n / threshold).toFixed(2)}${suffix}`
+  }
+  return n.toFixed(0)
+}
+
+function QuickAnalyzerMiniResult({ result }: { result: Row }) {
+  if (result.error) return <p className="text-xs text-slate-500">⚠️ {String(result.error)}</p>
+  const setup = (result.setup as Row) ?? {}
+  const direction = String(setup.direction ?? '—')
+  const cls = direction === 'LONG' ? 'text-emerald-400' : direction === 'SHORT' ? 'text-rose-400' : 'text-amber-400'
+  return (
+    <div className="text-xs">
+      <p className={cls}>
+        {_SETUP_BADGE[direction] ?? direction} · {fmtNum(setup.confidence_pct, 0)}% conf
+        {setup.sl_pct != null ? ` · SL ${fmtNum(setup.sl_pct, 2)}% / TP ${fmtNum(setup.tp_pct, 2)}%` : ''}
+      </p>
+      {((setup.reasons as string[]) ?? []).slice(0, 2).map((r, i) => <p key={i} className="text-slate-500">· {r}</p>)}
+    </div>
+  )
+}
+
+const RSI_BUCKET_TEXT: Record<string, string> = {
+  'Extended Overbought': 'text-rose-400',
+  Overbought: 'text-rose-300',
+  Neutral: 'text-slate-400',
+  Oversold: 'text-emerald-300',
+  'Extended Oversold': 'text-emerald-400',
+}
+
+function TradeSetupMiniResult({ result }: { result: Row }) {
+  if (result.error) return <p className="text-xs text-slate-500">⚠️ {String(result.error)}</p>
+  const entries = Object.values((result.per_tf as Record<string, Row>) ?? {})
+  if (!entries.length) return null
+  return (
+    <div className="space-y-0.5">
+      {entries.map((e, i) => (
+        <p key={i} className={`text-xs ${RSI_BUCKET_TEXT[String(e.bucket ?? '')] ?? 'text-slate-400'}`}>
+          {String(e.timeframe)} · RSI {fmtNum(e.rsi, 1)} · {String(e.bucket ?? '—')}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function CoinDcxTile({ row }: { row: Row }) {
+  const apiSymbol = String(row.pair ?? row.ticker ?? '')
+  const { bg, fg } = heatmapTileStyle(row.percent_change as number | null, 15)
+  const pct = row.percent_change as number | null
+  const [timeframes, setTimeframes] = useState<string[]>(['1d'])
+
+  const wsMut = useMutation({ mutationFn: () => runWeakStrong({ tickers: [apiSymbol], asset_class: 'crypto', timeframes }) })
+  const qaMut = useMutation({ mutationFn: () => runQuickAnalyzer({ tickers: [apiSymbol], timeframes, asset_class: 'crypto' }) })
+  const tsMut = useMutation({ mutationFn: () => runTradeSetup({ tickers: [apiSymbol], asset_class: 'crypto', timeframes }) })
+
+  const wsResult = wsMut.data as Row | undefined
+  const strong = (wsResult?.strong as Row[]) ?? []
+  const weak = (wsResult?.weak as Row[]) ?? []
+  const neutral = (wsResult?.neutral as Row[]) ?? []
+  const wsErrors = (wsResult?.errors as Row[]) ?? []
+  const qaResult = ((qaMut.data as Row | undefined)?.results as Row[] | undefined)?.[0]
+  const tsResult = ((tsMut.data as Row | undefined)?.results as Row[] | undefined)?.[0]
+
+  const toggleTf = (tf: string) => {
+    setTimeframes((prev) => (prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]))
+  }
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800/60 bg-slate-900/40 shadow-sm">
+      <div className="flex min-h-[112px] flex-col justify-between p-2.5" style={{ background: bg, color: fg }}>
+        <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+        <div>
+          <div className="text-[10px] opacity-85">Ticker name</div>
+          <div className="text-sm font-bold leading-tight">{String(row.ticker ?? '—')}</div>
+        </div>
+        <div className="text-[10px] leading-relaxed">
+          High {fmtNum(row.high, 4)}<br />Low {fmtNum(row.low, 4)}<br />Vol {fmtVol(row.vol)}
+        </div>
+      </div>
+      <div className="space-y-1.5 p-2">
+        <div className="flex flex-wrap gap-1">
+          {HEATMAP_TIMEFRAME_OPTIONS.map((tf) => (
+            <Chip key={tf} selected={timeframes.includes(tf)} onClick={() => toggleTf(tf)}>{tf}</Chip>
+          ))}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Button size="sm" variant="secondary" disabled={!apiSymbol || !timeframes.length || wsMut.isPending} onClick={() => wsMut.mutate()}>
+            {wsMut.isPending ? '…' : '↔️ Weak/Strong'}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={!apiSymbol || !timeframes.length || qaMut.isPending} onClick={() => qaMut.mutate()}>
+            {qaMut.isPending ? '…' : '⚡ Quick Analyzer'}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={!apiSymbol || !timeframes.length || tsMut.isPending} onClick={() => tsMut.mutate()}>
+            {tsMut.isPending ? '…' : '📊 Overbought/Oversold'}
+          </Button>
+        </div>
+        {wsMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(wsMut.error)}</p> : null}
+        {wsResult ? (
+          <div className="space-y-1">
+            {strong.map((r, i) => <WeakStrongResultRow key={`s${i}`} res={r} compact />)}
+            {weak.map((r, i) => <WeakStrongResultRow key={`w${i}`} res={r} compact />)}
+            {neutral.map((r, i) => <WeakStrongResultRow key={`n${i}`} res={r} compact />)}
+            {wsErrors.map((e, i) => <p key={`e${i}`} className="text-xs text-slate-500">⚠️ {String(e.timeframe)}: {String(e.error)}</p>)}
+          </div>
+        ) : null}
+        {qaMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(qaMut.error)}</p> : null}
+        {qaResult ? <QuickAnalyzerMiniResult result={qaResult} /> : null}
+        {tsMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(tsMut.error)}</p> : null}
+        {tsResult ? <TradeSetupMiniResult result={tsResult} /> : null}
+      </div>
+    </div>
+  )
+}
+
 function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
   const rows = (data.rows as Row[]) ?? []
   const [direction, setDirection] = useState<'gainers' | 'losers'>('gainers')
@@ -2990,15 +3126,6 @@ function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
   const shown = direction === 'losers'
     ? [...rows].reverse().slice(0, topN === 'all' ? undefined : topN)
     : rows.slice(0, topN === 'all' ? undefined : topN)
-
-  const fmtVol = (v: unknown) => {
-    const n = Number(v)
-    if (!Number.isFinite(n)) return '—'
-    for (const [suffix, threshold] of [['B', 1e9], ['M', 1e6], ['K', 1e3]] as const) {
-      if (Math.abs(n) >= threshold) return `${(n / threshold).toFixed(2)}${suffix}`
-    }
-    return n.toFixed(0)
-  }
 
   return (
     <div className="space-y-4">
@@ -3016,23 +3143,84 @@ function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
       </div>
       <p className="text-sm text-slate-400">{shown.length} of {rows.length} pairs shown ({direction})</p>
       <AdvanceDecline rows={rows} pctKey="percent_change" />
-      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
-        {shown.map((r, i) => {
-          const { bg, fg } = heatmapTileStyle(r.percent_change as number | null, 15)
-          const pct = r.percent_change as number | null
-          return (
-            <div key={i} className="flex min-h-[112px] flex-col justify-between rounded-lg p-2.5 shadow-sm" style={{ background: bg, color: fg }}>
-              <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
-              <div>
-                <div className="text-[10px] opacity-85">Ticker name</div>
-                <div className="text-sm font-bold leading-tight">{String(r.ticker ?? '—')}</div>
-              </div>
-              <div className="text-[10px] leading-relaxed">
-                High {fmtNum(r.high, 4)}<br />Low {fmtNum(r.low, 4)}<br />Vol {fmtVol(r.vol)}
-              </div>
-            </div>
-          )
-        })}
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+        {shown.map((r, i) => <CoinDcxTile key={i} row={r} />)}
+      </div>
+    </div>
+  )
+}
+
+const HEATMAP_TIMEFRAME_OPTIONS = ['5m', '15m', '1h', '4h', '1d', '1w']
+
+function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string }) {
+  const ticker = String(row.ticker ?? '—')
+  const { bg, fg } = heatmapTileStyle(row.change_pct as number | null, 6)
+  const pct = row.change_pct as number | null
+  const price = row.price as number | null
+  const [timeframes, setTimeframes] = useState<string[]>(['1d'])
+  const mut = useMutation({
+    mutationFn: () => runWeakStrong({ tickers: [ticker], asset_class: 'india', timeframes, exchange }),
+  })
+  const tsMut = useMutation({
+    mutationFn: () => runTradeSetup({ tickers: [ticker], asset_class: 'india', timeframes, exchange }),
+  })
+  const result = mut.data as Row | undefined
+  const strong = (result?.strong as Row[]) ?? []
+  const weak = (result?.weak as Row[]) ?? []
+  const neutral = (result?.neutral as Row[]) ?? []
+  const errors = (result?.errors as Row[]) ?? []
+  const tsResult = ((tsMut.data as Row | undefined)?.results as Row[] | undefined)?.[0]
+
+  const toggleTf = (tf: string) => {
+    setTimeframes((prev) => (prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]))
+  }
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800/60 bg-slate-900/40 shadow-sm">
+      <div className="flex min-h-[96px] flex-col justify-between p-2.5" style={{ background: bg, color: fg }}>
+        <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+        <div>
+          <div className="text-[10px] opacity-85">Ticker name</div>
+          <div className="text-sm font-bold leading-tight">{ticker}</div>
+          <div className="truncate text-[10px] opacity-85" title={String(row.company ?? '')}>{String(row.company ?? '')}</div>
+        </div>
+        <div className="text-sm font-semibold">{price != null ? `₹ ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</div>
+      </div>
+      <div className="space-y-1.5 p-2">
+        <div className="flex flex-wrap gap-1">
+          {HEATMAP_TIMEFRAME_OPTIONS.map((tf) => (
+            <Chip key={tf} selected={timeframes.includes(tf)} onClick={() => toggleTf(tf)}>{tf}</Chip>
+          ))}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={ticker === '—' || !timeframes.length || mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending ? 'Scanning…' : '↔️ Check Weak / Strong'}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={ticker === '—' || !timeframes.length || tsMut.isPending}
+            onClick={() => tsMut.mutate()}
+          >
+            {tsMut.isPending ? 'Scanning…' : '📊 Overbought/Oversold'}
+          </Button>
+        </div>
+        {mut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(mut.error)}</p> : null}
+        {result ? (
+          <div className="space-y-1">
+            {strong.map((r, i) => <WeakStrongResultRow key={`s${i}`} res={r} compact />)}
+            {weak.map((r, i) => <WeakStrongResultRow key={`w${i}`} res={r} compact />)}
+            {neutral.map((r, i) => <WeakStrongResultRow key={`n${i}`} res={r} compact />)}
+            {errors.map((e, i) => <p key={`e${i}`} className="text-xs text-slate-500">⚠️ {String(e.timeframe)}: {String(e.error)}</p>)}
+          </div>
+        ) : null}
+        {tsMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(tsMut.error)}</p> : null}
+        {tsResult ? <TradeSetupMiniResult result={tsResult} /> : null}
       </div>
     </div>
   )
@@ -3040,29 +3228,15 @@ function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
 
 function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
   const rows = (data.rows as Row[]) ?? []
+  const exchange = String(data.exchange ?? 'NSE')
   if (!rows.length) return <p className="text-sm text-slate-500">No data returned for this index right now.</p>
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">{String(data.index_name ?? '—')} — {rows.length} stocks</p>
       <AdvanceDecline rows={rows} pctKey="change_pct" />
-      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
-        {rows.map((r, i) => {
-          const { bg, fg } = heatmapTileStyle(r.change_pct as number | null, 6)
-          const pct = r.change_pct as number | null
-          const price = r.price as number | null
-          return (
-            <div key={i} className="flex min-h-[96px] flex-col justify-between rounded-lg p-2.5 shadow-sm" style={{ background: bg, color: fg }}>
-              <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
-              <div>
-                <div className="text-[10px] opacity-85">Ticker name</div>
-                <div className="text-sm font-bold leading-tight">{String(r.ticker ?? '—')}</div>
-                <div className="truncate text-[10px] opacity-85" title={String(r.company ?? '')}>{String(r.company ?? '')}</div>
-              </div>
-              <div className="text-sm font-semibold">{price != null ? `₹ ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</div>
-            </div>
-          )
-        })}
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+        {rows.map((r, i) => <IndiaMarketHeatmapTile key={i} row={r} exchange={exchange} />)}
       </div>
     </div>
   )

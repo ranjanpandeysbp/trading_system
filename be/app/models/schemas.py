@@ -264,6 +264,7 @@ class CommandCenterTradeSetupRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     timeframes: list[str] | None = None
+    exchange: str | None = None
 
 
 class CommandCenterTradeSetupDrillRequest(BaseModel):
@@ -439,3 +440,50 @@ class WatchlistItemCreate(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=32)
     display_name: str = ""
     added_price: float | None = None
+
+
+class OptionsDoubleCalendarRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframes: list[str] | None = None
+    exchange: str | None = None
+    short_dte: int = 14
+    long_dte: int = 21
+    otm_offset_pct: float = 1.5
+    diagonal_widen_pct: float = 0.0
+    take_profit_start: float = 0.20
+    take_profit_max: float = 0.40
+    stop_loss: float = -0.30
+    vix_max_threshold: float = 20.0
+    vol_percentile_max: float = 40.0
+
+
+class OptionsDoubleCalendarPnlRequest(BaseModel):
+    net_debit: float
+    current_mark: float
+    stop_loss: float = -0.30
+    take_profit_start: float = 0.20
+    take_profit_max: float = 0.40
+
+
+class OptionsDeltaNeutralRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframes: list[str] | None = None
+    exchange: str | None = None
+    dte: int = 30
+    short_delta_target: float = 0.20
+    wing_width_pct: float = 5.0
+    iron_fly: bool = False
+    profit_target_pct: float = 0.50
+    stop_loss_multiple: float = 1.0
+    vix_max_threshold: float = 20.0
+    vol_percentile_max: float = 40.0
+    adx_trend_max: float = 25.0
+
+
+class OptionsDeltaNeutralPnlRequest(BaseModel):
+    net_credit: float
+    current_cost_to_close: float
+    profit_target_pct: float = 0.50
+    stop_loss_multiple: float = 1.0

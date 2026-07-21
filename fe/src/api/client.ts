@@ -473,7 +473,7 @@ export const runMomentumScan = (payload: { tickers: string[]; asset_class: strin
 export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runTradeSetup = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+export const runTradeSetup = (payload: { tickers: string[]; asset_class: string; timeframes?: string[]; exchange?: string }) =>
   api.post('/command-center/trade-setup', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 type TradeSetupDrillPayload = { ticker: string; asset_class: string; timeframe: string }
@@ -526,7 +526,7 @@ export const runTradeSetupWeakStrong = (payload: TradeSetupDrillPayload) =>
 export const runRealBottom = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/real-bottom', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runWeakStrong = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+export const runWeakStrong = (payload: { tickers: string[]; asset_class: string; timeframes?: string[]; exchange?: string }) =>
   api.post('/command-center/weak-strong', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runTradeSetupCopyTrade = (payload: TradeSetupDrillPayload) =>
@@ -615,3 +615,53 @@ export const runMutualFundHoldingsChange = (payload: {
   from_date: string
   to_date: string
 }) => api.post('/command-center/mutual-fund/holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchOptionsSections = () =>
+  api.get<{ sections: Array<{ id: string; label: string }> }>('/options/sections', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsDoubleCalendar = (payload: {
+  tickers: string[]
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  timeframes?: string[]
+  exchange?: string
+  short_dte?: number
+  long_dte?: number
+  otm_offset_pct?: number
+  diagonal_widen_pct?: number
+  take_profit_start?: number
+  take_profit_max?: number
+  stop_loss?: number
+  vix_max_threshold?: number
+  vol_percentile_max?: number
+}) => api.post('/options/double-calendar', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsDoubleCalendarPnl = (payload: {
+  net_debit: number
+  current_mark: number
+  stop_loss?: number
+  take_profit_start?: number
+  take_profit_max?: number
+}) => api.post('/options/double-calendar/pnl', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsDeltaNeutral = (payload: {
+  tickers: string[]
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  timeframes?: string[]
+  exchange?: string
+  dte?: number
+  short_delta_target?: number
+  wing_width_pct?: number
+  iron_fly?: boolean
+  profit_target_pct?: number
+  stop_loss_multiple?: number
+  vix_max_threshold?: number
+  vol_percentile_max?: number
+  adx_trend_max?: number
+}) => api.post('/options/delta-neutral', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsDeltaNeutralPnl = (payload: {
+  net_credit: number
+  current_cost_to_close: number
+  profit_target_pct?: number
+  stop_loss_multiple?: number
+}) => api.post('/options/delta-neutral/pnl', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
