@@ -43,6 +43,7 @@ __all__ = [
     "analyze_intra_hwp_one",
     "analyze_weak_strong_one",
     "analyze_copy_trade_one",
+    "analyze_sma_20_200_one",
 ]
 
 BUCKET_ORDER = ["Extended Overbought", "Overbought", "Neutral", "Oversold", "Extended Oversold"]
@@ -569,6 +570,19 @@ def analyze_weak_strong_one(
     from app.market_pulse.weak_strong_engine import analyze_ticker as weak_strong_analyze_ticker
 
     return weak_strong_analyze_ticker(ticker, market, timeframe, cfg=WeakStrongConfig(), groww_token=groww_token, exchange=exchange)
+
+
+def analyze_sma_20_200_one(
+    ticker: str, timeframe: str, market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
+    """200SMA-20SMA — Bounce & Rejection: mechanical trend-following strategy —
+    price above/below the 200 SMA sets the trend bias, and a bounce (long) or
+    rejection (short) off the 20 SMA (wick through, close back on the trend
+    side) triggers entry with a fixed 1:2 stop/target."""
+    from app.market_pulse.sma_20_200_engine import Sma20200Config
+    from app.market_pulse.sma_20_200_engine import analyze_ticker as sma_20_200_analyze_ticker
+
+    return sma_20_200_analyze_ticker(ticker, market, timeframe, cfg=Sma20200Config(), groww_token=groww_token, exchange=exchange)
 
 
 def analyze_copy_trade_one(

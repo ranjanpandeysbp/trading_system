@@ -13,6 +13,11 @@ function fmtNum(v: unknown, digits = 2): string {
   return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
 }
 
+function ltpStr(ltp: Row | undefined, currency: string): string {
+  const price = ltp?.price
+  return price != null ? `${currency}${fmtNum(price, 4)}` : '—'
+}
+
 const DOUBLE_CALENDAR_LEG_ORDER: Array<[string, string]> = [
   ['short_call', 'Short Call'],
   ['short_put', 'Short Put'],
@@ -90,6 +95,7 @@ function DoubleCalendarResultCard({
   const trendContext = (result.trend_context as Row[]) ?? []
   const reasons = (result.reasons as string[]) ?? []
   const netDebit = Number(result.net_debit ?? 0)
+  const ltp = result.ltp as Row | undefined
 
   const [mark, setMark] = useState(netDebit)
   const pnlMut = useMutation({
@@ -110,14 +116,15 @@ function DoubleCalendarResultCard({
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{ticker}</span>
         <span className="text-slate-500">
-          · {isDiagonal ? 'Double Diagonal' : 'Double Calendar'} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} IV/vol ·
+          · LTP {ltpStr(ltp, currency)} · {isDiagonal ? 'Double Diagonal' : 'Double Calendar'} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} IV/vol ·
           {' '}Net debit {currency}{fmtNum(netDebit, 4)}
         </span>
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
           <p className="text-slate-300">
-            Spot <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
+            <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
+            Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
           </p>
           <div>
             <p className="text-slate-300">
@@ -253,6 +260,7 @@ function DeltaNeutralResultCard({
   const reasons = (result.reasons as string[]) ?? []
   const netCredit = Number(result.net_credit ?? 0)
   const defensiveClose = result.defensive_close_price as number | null
+  const ltp = result.ltp as Row | undefined
 
   const [mark, setMark] = useState(netCredit)
   const pnlMut = useMutation({
@@ -273,14 +281,15 @@ function DeltaNeutralResultCard({
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{ticker}</span>
         <span className="text-slate-500">
-          · {String(result.structure ?? '—')} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} ·
+          · LTP {ltpStr(ltp, currency)} · {String(result.structure ?? '—')} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} ·
           {' '}Net credit {currency}{fmtNum(netCredit, 4)} · POP ~{fmtNum(result.pop_pct, 0)}%
         </span>
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
           <p className="text-slate-300">
-            Spot <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
+            <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
+            Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
           </p>
           <div>
             <p className="text-slate-300">

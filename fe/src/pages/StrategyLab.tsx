@@ -43,6 +43,9 @@ export default function StrategyLab() {
   const [preset, setPreset] = useState('')
   const [strategies, setStrategies] = useState('')
   const [error, setError] = useState('')
+  const [directionMode, setDirectionMode] = useState<'long_only' | 'short_only' | 'long_short'>('long_only')
+  const [positionSizing, setPositionSizing] = useState<'pct_of_capital' | 'risk_pct'>('pct_of_capital')
+  const [riskPct, setRiskPct] = useState(1.0)
 
   useQuery({ queryKey: ['sl-sections'], queryFn: fetchStrategyLabSections })
   const presetsQuery = useQuery({ queryKey: ['sl-presets'], queryFn: () => fetchStrategyLabPresets() })
@@ -58,6 +61,9 @@ export default function StrategyLab() {
             timeframe,
             preset_name: preset || undefined,
             capital: 100_000,
+            direction_mode: directionMode,
+            position_sizing: positionSizing,
+            risk_pct: riskPct,
           })
         case 'multi_combo': {
           const list = parseTickers(tickers)
@@ -133,6 +139,32 @@ export default function StrategyLab() {
             </div>
           )}
 
+          {tab === 'builder' && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <FormField label="Trade direction">
+                <Select value={directionMode} onChange={(e) => setDirectionMode(e.target.value as typeof directionMode)}>
+                  <option value="long_only">Long Only</option>
+                  <option value="short_only">Short Only</option>
+                  <option value="long_short">Long &amp; Short</option>
+                </Select>
+              </FormField>
+              <FormField label="Position sizing">
+                <Select value={positionSizing} onChange={(e) => setPositionSizing(e.target.value as typeof positionSizing)}>
+                  <option value="pct_of_capital">% of Capital (simple)</option>
+                  <option value="risk_pct">Risk % per Trade (professional)</option>
+                </Select>
+              </FormField>
+              {positionSizing === 'risk_pct' && (
+                <FormField label="Risk % per trade">
+                  <Input
+                    type="number" step={0.25} min={0.25} max={10}
+                    value={riskPct} onChange={(e) => setRiskPct(Number(e.target.value))}
+                  />
+                </FormField>
+              )}
+            </div>
+          )}
+
           {(tab === 'multi_combo' || tab === 'screener') && (
             <>
               <FormField label="Tickers (comma-separated)">
@@ -205,6 +237,56 @@ export default function StrategyLab() {
   )
 }
 
+function fmtPct(v: unknown, digits = 2): string {
+  return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(digits)}%` : '—'
+}
+
+function ProfessionalMetrics({ metrics }: { metrics: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const hasDirectionSplit = metrics.long_trades != null && metrics.short_trades != null
+  const buyHold = metrics.buy_hold_return_pct
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800/30"
+      >
+        📊 Professional Metrics {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-slate-800/60 p-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Sortino Ratio" value={typeof metrics.sortino_ratio === 'number' ? metrics.sortino_ratio.toFixed(3) : '—'} />
+            <StatCard label="Annual Volatility" value={fmtPct(metrics.annual_volatility_pct)} />
+            <StatCard label="Max DD Duration" value={`${metrics.max_drawdown_duration_days ?? '—'}d`} />
+            <StatCard label="Market Exposure" value={fmtPct(metrics.exposure_pct)} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Expectancy / Trade" value={fmtPct(metrics.expectancy_pct, 3)} />
+            <StatCard label="Max Win Streak" value={String(metrics.max_consecutive_wins ?? '—')} />
+            <StatCard label="Max Loss Streak" value={String(metrics.max_consecutive_losses ?? '—')} />
+            <StatCard label="Alpha vs Buy&Hold" value={buyHold != null ? fmtPct(metrics.alpha_pct) : '—'} />
+          </div>
+          {hasDirectionSplit && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Long Trades" value={String(metrics.long_trades)} />
+              <StatCard label="Long Win Rate" value={fmtPct(metrics.long_win_rate_pct)} />
+              <StatCard label="Short Trades" value={String(metrics.short_trades)} />
+              <StatCard label="Short Win Rate" value={fmtPct(metrics.short_win_rate_pct)} />
+            </div>
+          )}
+          {buyHold != null && (
+            <p className="text-xs text-slate-500">
+              Buy &amp; Hold over the same window: <strong>{fmtPct(buyHold)}</strong> · Strategy alpha: <strong>{fmtPct(metrics.alpha_pct)}</strong>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BuilderResults({ data }: { data: Record<string, unknown> }) {
   const metrics = (data.metrics as Record<string, number>) ?? {}
   return (
@@ -218,6 +300,7 @@ function BuilderResults({ data }: { data: Record<string, unknown> }) {
         <StatCard label="Max DD" value={`${metrics.max_drawdown_pct?.toFixed(2) ?? '—'}%`} />
         <StatCard label="Trades" value={String(data.trade_count ?? metrics.n_trades ?? '—')} />
       </div>
+      <ProfessionalMetrics metrics={metrics} />
     </div>
   )
 }

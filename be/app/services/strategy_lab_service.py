@@ -82,17 +82,44 @@ class StrategyLabService:
                 raise ValueError(f"Insufficient data for {ticker} ({tf})")
 
             df = calculate_dynamic_indicators(df, indicators)
+            entry_mode = payload.get("entry_mode", "AND")
+            exit_mode = payload.get("exit_mode", "AND")
+
+            # "short_only" trades the same rules built above, just betting the other
+            # way; "long_short" mirrors them (entry rules go long, exit rules go
+            # short/cover) — no separate short rule-builder needed either way.
+            direction_mode = payload.get("direction_mode", "long_only")
+            if direction_mode == "short_only":
+                long_entry, long_exit = [], []
+                short_entry, short_exit = entry_rules, exit_rules
+                short_entry_mode, short_exit_mode = entry_mode, exit_mode
+            elif direction_mode == "long_short":
+                long_entry, long_exit = entry_rules, exit_rules
+                short_entry, short_exit = exit_rules, entry_rules
+                short_entry_mode, short_exit_mode = exit_mode, entry_mode
+            else:
+                long_entry, long_exit = entry_rules, exit_rules
+                short_entry, short_exit = None, None
+                short_entry_mode, short_exit_mode = "AND", "AND"
+
             result = run_true_backtest(
                 df,
-                entry_rules,
-                exit_rules,
-                entry_mode=payload.get("entry_mode", "AND"),
-                exit_mode=payload.get("exit_mode", "AND"),
+                long_entry,
+                long_exit,
+                entry_mode=entry_mode,
+                exit_mode=exit_mode,
                 initial_capital=float(payload.get("capital", 100_000)),
                 commission=float(payload.get("commission", 0.001)),
                 slippage=float(payload.get("slippage", 0.0005)),
                 sl_pct=float(payload.get("sl_pct") or 0),
                 tp_pct=float(payload.get("tp_pct") or 0),
+                short_entry_rules=short_entry,
+                short_exit_rules=short_exit,
+                short_entry_mode=short_entry_mode,
+                short_exit_mode=short_exit_mode,
+                position_sizing=payload.get("position_sizing", "pct_of_capital"),
+                capital_allocation_pct=float(payload.get("capital_allocation_pct") or 95.0),
+                risk_pct=float(payload.get("risk_pct") or 1.0),
             )
             metrics = result.get("metrics") or {}
             trades = result.get("trades")

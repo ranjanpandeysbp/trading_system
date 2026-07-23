@@ -53,6 +53,15 @@ class PaperTradingService:
     def _limit_fillable(side: str, price: float, limit_price: float) -> bool:
         return price <= limit_price if side == "buy" else price >= limit_price
 
+    @staticmethod
+    def _merge_notes(existing: str | None, new: str | None) -> str | None:
+        """Averaging into a position layers a new note under the original rather
+        than overwriting it, so the reasoning behind each add is preserved."""
+        new = (new or "").strip()
+        if not new:
+            return existing
+        return f"{existing}\n---\n{new}" if existing else new
+
     async def _apply_fill(
         self,
         account: PaperAccount,
@@ -64,6 +73,7 @@ class PaperTradingService:
         strategy: str | None,
         sl_pct: float | None,
         tp_pct: float | None,
+        notes: str | None = None,
     ) -> int:
         """Mutates cash balance + position for a fill. Returns actual filled quantity."""
         cost = price * quantity
@@ -96,6 +106,7 @@ class PaperTradingService:
                     position.quantity = total_qty
                     position.sl_pct = sl_pct or position.sl_pct
                     position.tp_pct = tp_pct or position.tp_pct
+                    position.notes = self._merge_notes(position.notes, notes)
                 else:
                     self.db.add(
                         PaperPosition(
@@ -107,6 +118,7 @@ class PaperTradingService:
                             sl_pct=sl_pct,
                             tp_pct=tp_pct,
                             strategy=strategy,
+                            notes=(notes or "").strip() or None,
                         )
                     )
         else:
@@ -123,6 +135,7 @@ class PaperTradingService:
                 total_qty = position.quantity + quantity
                 position.avg_price = (position.avg_price * position.quantity + price * quantity) / total_qty
                 position.quantity = total_qty
+                position.notes = self._merge_notes(position.notes, notes)
             else:
                 account.cash_balance += cost
                 self.db.add(
@@ -135,6 +148,7 @@ class PaperTradingService:
                         sl_pct=sl_pct,
                         tp_pct=tp_pct,
                         strategy=strategy,
+                        notes=(notes or "").strip() or None,
                     )
                 )
         return filled_qty
@@ -165,7 +179,7 @@ class PaperTradingService:
             try:
                 filled_qty = await self._apply_fill(
                     account, o.ticker, o.side, o.quantity, fill_price,
-                    strategy=o.strategy, sl_pct=o.sl_pct, tp_pct=o.tp_pct,
+                    strategy=o.strategy, sl_pct=o.sl_pct, tp_pct=o.tp_pct, notes=o.notes,
                 )
             except ValueError:
                 o.status = "cancelled"
@@ -218,6 +232,7 @@ class PaperTradingService:
                     order_type=f"auto_{hit}",
                     status="filled",
                     strategy=strategy,
+                    notes=f"Auto {'stop-loss' if hit == 'sl' else 'take-profit'} exit.",
                     filled_price=price,
                     filled_at=datetime.utcnow(),
                 )
@@ -267,6 +282,7 @@ class PaperTradingService:
                 "sl_pct": p.sl_pct,
                 "tp_pct": p.tp_pct,
                 "strategy": p.strategy,
+                "notes": p.notes,
             })
 
         portfolio_value = account.cash_balance + position_value
@@ -286,6 +302,7 @@ class PaperTradingService:
                 "trigger_price": o.trigger_price,
                 "filled_price": round(o.filled_price, 2) if o.filled_price is not None else None,
                 "strategy": o.strategy,
+                "notes": o.notes,
                 "created_at": o.created_at.isoformat(),
                 "filled_at": o.filled_at.isoformat() if o.filled_at else None,
                 "cancelled_at": o.cancelled_at.isoformat() if o.cancelled_at else None,
@@ -314,7 +331,7 @@ class PaperTradingService:
                 price = await self._get_market_price(ticker)
             filled_qty = await self._apply_fill(
                 account, ticker, req.side, req.quantity, price,
-                strategy=req.strategy, sl_pct=req.sl_pct, tp_pct=req.tp_pct,
+                strategy=req.strategy, sl_pct=req.sl_pct, tp_pct=req.tp_pct, notes=req.notes,
             )
             order = PaperOrder(
                 account_id=account.id,
@@ -325,6 +342,7 @@ class PaperTradingService:
                 order_type="market",
                 status="filled",
                 strategy=req.strategy,
+                notes=(req.notes or "").strip() or None,
                 sl_pct=req.sl_pct,
                 tp_pct=req.tp_pct,
                 filled_price=price,
@@ -355,6 +373,7 @@ class PaperTradingService:
             order_type=req.order_type,
             status="pending",
             strategy=req.strategy,
+            notes=(req.notes or "").strip() or None,
             sl_pct=req.sl_pct,
             tp_pct=req.tp_pct,
             limit_price=req.limit_price,

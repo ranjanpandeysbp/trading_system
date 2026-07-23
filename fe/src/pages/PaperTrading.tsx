@@ -10,7 +10,7 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { StatCard } from '../components/ui/StatCard'
-import { FormField, Input, Select } from '../components/ui/Form'
+import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
 
@@ -49,6 +49,7 @@ export default function PaperTrading() {
   const [triggerPrice, setTriggerPrice] = useState<number | ''>('')
   const [slPct, setSlPct] = useState<number | ''>('')
   const [tpPct, setTpPct] = useState<number | ''>('')
+  const [notes, setNotes] = useState('')
   const [msg, setMsg] = useState('')
   const [confirming, setConfirming] = useState(false)
 
@@ -131,6 +132,7 @@ export default function PaperTrading() {
     ...(needsTriggerPrice ? { trigger_price: Number(triggerPrice) } : {}),
     ...(slPct !== '' ? { sl_pct: Number(slPct) } : {}),
     ...(tpPct !== '' ? { tp_pct: Number(tpPct) } : {}),
+    ...(notes.trim() ? { notes: notes.trim() } : {}),
   })
 
   const pendingOrders = account?.pending_orders ?? []
@@ -215,6 +217,15 @@ export default function PaperTrading() {
             </FormField>
           </div>
 
+          <FormField label="Notes (optional)">
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Why this trade? e.g. thesis, setup, target"
+              rows={2}
+            />
+          </FormField>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <Button className="w-full sm:w-auto" onClick={() => setConfirming(true)} disabled={!canSubmit || orderMutation.isPending}>
               Review Order
@@ -245,6 +256,7 @@ export default function PaperTrading() {
                   <SortableTh active={positionsSortKey === 'ltp'} direction={positionsSortDir} onSort={() => handlePositionsSort('ltp')}>LTP</SortableTh>
                   <SortableTh active={positionsSortKey === 'pnl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('pnl_pct')}>P&L</SortableTh>
                   <SortableTh active={positionsSortKey === 'sl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('sl_pct')}>SL/TP</SortableTh>
+                  <Th>Notes</Th>
                 </tr>
               </thead>
               <tbody>
@@ -256,6 +268,9 @@ export default function PaperTrading() {
                     <Td>₹{p.ltp}</Td>
                     <Td className={p.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{p.pnl_pct}%</Td>
                     <Td className="text-slate-500">{p.sl_pct ? `${p.sl_pct}/${p.tp_pct}%` : '—'}</Td>
+                    <Td className="max-w-[200px] truncate text-slate-400">
+                      <span title={p.notes ?? ''}>{p.notes || '—'}</span>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -311,6 +326,7 @@ export default function PaperTrading() {
                 <SortableTh active={ordersSortKey === 'price'} direction={ordersSortDir} onSort={() => handleOrdersSort('price')}>Price</SortableTh>
                 <Th>Status</Th>
                 <SortableTh active={ordersSortKey === 'strategy'} direction={ordersSortDir} onSort={() => handleOrdersSort('strategy')}>Strategy</SortableTh>
+                <Th>Notes</Th>
               </tr>
             </thead>
             <tbody>
@@ -324,6 +340,9 @@ export default function PaperTrading() {
                   <Td className="tabular-nums">₹{o.filled_price ?? o.price}</Td>
                   <Td><StatusBadge status={o.status} /></Td>
                   <Td className="text-slate-500">{o.strategy ?? '—'}</Td>
+                  <Td className="max-w-[200px] truncate text-slate-400">
+                    <span title={o.notes ?? ''}>{o.notes || '—'}</span>
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -341,6 +360,7 @@ export default function PaperTrading() {
           triggerPrice={needsTriggerPrice ? Number(triggerPrice) : undefined}
           slPct={slPct === '' ? undefined : Number(slPct)}
           tpPct={tpPct === '' ? undefined : Number(tpPct)}
+          notes={notes.trim() || undefined}
           submitting={orderMutation.isPending}
           onCancel={() => setConfirming(false)}
           onConfirm={() => orderMutation.mutate(buildPayload())}
@@ -429,7 +449,7 @@ function PendingOrderRow({
 }
 
 function OrderConfirmDialog({
-  ticker, side, quantity, orderType, limitPrice, triggerPrice, slPct, tpPct, submitting, onCancel, onConfirm,
+  ticker, side, quantity, orderType, limitPrice, triggerPrice, slPct, tpPct, notes, submitting, onCancel, onConfirm,
 }: {
   ticker: string
   side: 'buy' | 'sell'
@@ -439,6 +459,7 @@ function OrderConfirmDialog({
   triggerPrice?: number
   slPct?: number
   tpPct?: number
+  notes?: string
   submitting: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -484,6 +505,12 @@ function OrderConfirmDialog({
             <div className="flex justify-between">
               <span className="text-slate-400">Take-Profit</span>
               <span className="text-emerald-400">{tpPct}%</span>
+            </div>
+          )}
+          {notes && (
+            <div className="flex flex-col gap-1">
+              <span className="text-slate-400">Notes</span>
+              <span className="whitespace-pre-wrap text-white">{notes}</span>
             </div>
           )}
         </div>

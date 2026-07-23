@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -27,6 +27,7 @@ import {
   runPatterns,
   runQuickAnalyzer,
   runRealBottom,
+  runSma20200,
   runWeakStrong,
   runCopyTrade,
   runStopHunt,
@@ -65,6 +66,7 @@ const TABS = [
   { id: 'take_profit', label: 'Take Profit Targets', icon: Crosshair },
   { id: 'real_bottom', label: 'Real Bottom', icon: TrendingDown },
   { id: 'weak_strong', label: 'Weak / Strong', icon: Scale },
+  { id: 'sma_20_200', label: '200SMA-20SMA — Bounce & Rejection', icon: Waves },
   { id: 'copy_trade', label: 'Copy Trade', icon: Repeat },
   { id: 'take_trade', label: 'Take Trade', icon: Rocket },
   { id: 'trade_setup', label: 'Trade Setup — Oversold/Overbought', icon: Target },
@@ -109,6 +111,7 @@ export default function CommandCenter() {
   const [useAi, setUseAi] = useState(false)
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [heatmapIndex, setHeatmapIndex] = useState('Nifty 50')
+  const [heatmapCustomTickers, setHeatmapCustomTickers] = useState('')
   const [optionInstrumentType, setOptionInstrumentType] = useState<'Index' | 'Stock'>('Index')
   const [optionSymbol, setOptionSymbol] = useState('NIFTY')
   const [qaTimeframes, setQaTimeframes] = useState('15m,1h,4h,1d')
@@ -167,11 +170,20 @@ export default function CommandCenter() {
     enabled: false,
   })
 
+  const heatmapAssetClass: 'india' | 'us' | 'crypto' = assetClass === 'us' || assetClass === 'crypto' ? assetClass : 'india'
   const heatmapIndicesQuery = useQuery({
-    queryKey: ['cc-heatmap-indices'],
-    queryFn: fetchIndiaMarketHeatmapIndices,
+    queryKey: ['cc-heatmap-indices', heatmapAssetClass],
+    queryFn: () => fetchIndiaMarketHeatmapIndices(heatmapAssetClass),
     enabled: tab === 'india_market_heatmap',
   })
+
+  useEffect(() => {
+    const names = heatmapIndicesQuery.data?.index_names
+    if (names?.length && !names.includes(heatmapIndex)) {
+      setHeatmapIndex(names[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heatmapIndicesQuery.data])
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => {
     setPicker(v)
@@ -199,7 +211,12 @@ export default function CommandCenter() {
 
       if (tab === 'india_market_heatmap') {
         if (!heatmapIndex) throw new Error('Choose an index/sector')
-        return runIndiaMarketHeatmap({ index_name: heatmapIndex })
+        if (heatmapIndex === 'Custom') {
+          const customTickers = heatmapCustomTickers.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean)
+          if (!customTickers.length) throw new Error('Enter at least one custom ticker')
+          return runIndiaMarketHeatmap({ index_name: heatmapIndex, asset_class: heatmapAssetClass, tickers: customTickers })
+        }
+        return runIndiaMarketHeatmap({ index_name: heatmapIndex, asset_class: heatmapAssetClass })
       }
 
       if (tab === 'option_chain') {
@@ -246,6 +263,8 @@ export default function CommandCenter() {
           return runRealBottom({ tickers, asset_class: assetClass, timeframes: durations })
         case 'weak_strong':
           return runWeakStrong({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'sma_20_200':
+          return runSma20200({ tickers, asset_class: assetClass, timeframes: durations })
         case 'copy_trade':
           return runCopyTrade({ tickers, asset_class: assetClass })
         case 'take_trade':
@@ -397,8 +416,15 @@ export default function CommandCenter() {
         </Card>
       ) : tab === 'india_market_heatmap' ? (
         <Card className="mb-6">
-          <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
-            <FormField label="Index / Sector">
+          <div className="grid gap-4 sm:grid-cols-[1fr_2fr_1fr]">
+            <FormField label="Asset class">
+              <Select value={heatmapAssetClass} onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}>
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+              </Select>
+            </FormField>
+            <FormField label={heatmapAssetClass === 'india' ? 'Index / Sector' : 'Index / Group'}>
               <Select value={heatmapIndex} onChange={(e) => setHeatmapIndex(e.target.value)}>
                 {(heatmapIndicesQuery.data?.index_names ?? [heatmapIndex]).map((name) => (
                   <option key={name} value={name}>{name}</option>
@@ -411,6 +437,19 @@ export default function CommandCenter() {
               </Button>
             </div>
           </div>
+          {heatmapIndex === 'Custom' && (
+            <div className="mt-3">
+              <FormField label={`Custom ${heatmapAssetClass === 'crypto' ? 'crypto pairs' : 'tickers'} (comma-separated)`}>
+                <textarea
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  rows={2}
+                  placeholder={heatmapAssetClass === 'crypto' ? 'BTC-USDT, ETH-USDT' : heatmapAssetClass === 'us' ? 'AAPL, MSFT, NVDA' : 'RELIANCE, TCS, INFY'}
+                  value={heatmapCustomTickers}
+                  onChange={(e) => setHeatmapCustomTickers(e.target.value)}
+                />
+              </FormField>
+            </div>
+          )}
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
         </Card>
       ) : tab === 'option_chain' ? (
@@ -502,7 +541,7 @@ export default function CommandCenter() {
             key={assetClass}
             assetClass={assetClass}
             single={tab === 'mega_analyser'}
-            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'real_bottom' || tab === 'weak_strong' || tab === 'take_trade'}
+            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'real_bottom' || tab === 'weak_strong' || tab === 'take_trade' || tab === 'sma_20_200'}
             onChange={handlePickerChange}
           />
 

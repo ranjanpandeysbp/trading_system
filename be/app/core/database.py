@@ -49,6 +49,17 @@ def _migrate_schema(conn) -> None:
             ("filled_price", "FLOAT"),
             ("filled_at", "DATETIME"),
             ("cancelled_at", "DATETIME"),
+            ("notes", "TEXT"),
         ):
             if col_name not in cols:
                 conn.execute(sa.text(f"ALTER TABLE paper_orders ADD COLUMN {col_name} {col_type}"))
+
+    if "paper_positions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("paper_positions")}
+        if "notes" not in cols:
+            conn.execute(sa.text("ALTER TABLE paper_positions ADD COLUMN notes TEXT"))
+
+    if "watchlist_items" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("watchlist_items")}
+        if "notes" not in cols:
+            conn.execute(sa.text("ALTER TABLE watchlist_items ADD COLUMN notes TEXT"))

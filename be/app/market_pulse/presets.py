@@ -523,6 +523,29 @@ GROWW_SWING = {
             {"left": "roc_14", "op": "crosses below", "right_type": "value", "right_val": "0"},
         ],
     },
+    "🇮🇳 [SWING] EMA 5/9/20/50/200 Full Stack Alignment": {
+        "description": "Enters when EMA 5 > 9 > 20 > 50 > 200 (full bullish stack, mirrors EMA Position hub) and price closes above EMA 5. Strong-trend continuation hold.",
+        "recommended_timeframe": "1d",
+        "recommended_sl": 3.0,
+        "recommended_tp": 8.0,
+        "indicators": [
+            {"type": "ema", "period": 5},
+            {"type": "ema", "period": 9},
+            {"type": "ema", "period": 20},
+            {"type": "ema", "period": 50},
+            {"type": "ema", "period": 200},
+        ],
+        "entry_rules": [
+            {"left": "ema_5", "op": ">", "right_type": "indicator", "right_val": "ema_9"},
+            {"left": "ema_9", "op": ">", "right_type": "indicator", "right_val": "ema_20"},
+            {"left": "ema_20", "op": ">", "right_type": "indicator", "right_val": "ema_50"},
+            {"left": "ema_50", "op": ">", "right_type": "indicator", "right_val": "ema_200"},
+            {"left": "close", "op": "crosses above", "right_type": "indicator", "right_val": "ema_5"},
+        ],
+        "exit_rules": [
+            {"left": "close", "op": "crosses below", "right_type": "indicator", "right_val": "ema_20"},
+        ],
+    },
 }
 
 # ===========================================================================
@@ -1017,6 +1040,29 @@ CRYPTO_SWING = {
         ],
         "exit_rules": [
             {"left": "plus_di_14", "op": "crosses below", "right_type": "indicator", "right_val": "minus_di_14"},
+        ],
+    },
+    "₿ [SWING] EMA 5/9/20/50/200 Full Stack Alignment": {
+        "description": "Enters when EMA 5 > 9 > 20 > 50 > 200 (full bullish stack, mirrors EMA Position hub) and price closes above EMA 5. Strong-trend continuation hold for BTC/majors.",
+        "recommended_timeframe": "1d",
+        "recommended_sl": 5.0,
+        "recommended_tp": 15.0,
+        "indicators": [
+            {"type": "ema", "period": 5},
+            {"type": "ema", "period": 9},
+            {"type": "ema", "period": 20},
+            {"type": "ema", "period": 50},
+            {"type": "ema", "period": 200},
+        ],
+        "entry_rules": [
+            {"left": "ema_5", "op": ">", "right_type": "indicator", "right_val": "ema_9"},
+            {"left": "ema_9", "op": ">", "right_type": "indicator", "right_val": "ema_20"},
+            {"left": "ema_20", "op": ">", "right_type": "indicator", "right_val": "ema_50"},
+            {"left": "ema_50", "op": ">", "right_type": "indicator", "right_val": "ema_200"},
+            {"left": "close", "op": "crosses above", "right_type": "indicator", "right_val": "ema_5"},
+        ],
+        "exit_rules": [
+            {"left": "close", "op": "crosses below", "right_type": "indicator", "right_val": "ema_20"},
         ],
     },
 }

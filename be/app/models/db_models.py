@@ -52,6 +52,7 @@ class PaperPosition(Base):
     sl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     tp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -67,6 +68,7 @@ class PaperOrder(Base):
     order_type: Mapped[str] = mapped_column(String(16), default="market")
     status: Mapped[str] = mapped_column(String(16), default="filled")
     strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     sl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     tp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -119,4 +121,5 @@ class WatchlistItem(Base):
     ticker: Mapped[str] = mapped_column(String(32))
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     added_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

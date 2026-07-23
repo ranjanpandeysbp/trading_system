@@ -129,6 +129,20 @@ def _is_consolidating(work: pd.DataFrame, adx: float) -> bool:
     return pctile <= _BB_WIDTH_CONSOLIDATION_PCTILE
 
 
+def _pro_breakout_signals(df: pd.DataFrame, price: float) -> dict[str, Any]:
+    """Smart-money structure bias, weak/strong support-resistance pressure, and an
+    independent swing-based breakout/breakdown check — shared with day_bias.py's
+    `ohlcv_bias` (the day-high/day-low "chance of moving toward high vs low" read)
+    so both breakout-lean scores are built from the same professional signal set."""
+    from app.market_pulse.day_bias import pro_signals
+
+    try:
+        return pro_signals(df, price)
+    except Exception:
+        logger.debug("Pro breakout signals failed", exc_info=True)
+        return {"up_adj": 0.0, "reasons": []}
+
+
 def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig) -> dict[str, Any] | None:
     df = normalize_ohlcv(df_raw)
     if df.empty or len(df) < cfg.min_bars:
@@ -184,10 +198,22 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
         if not (pd.isna(bb_upper) or pd.isna(bb_lower)) and bb_upper > bb_lower:
             pos = (price - bb_lower) / (bb_upper - bb_lower)
         up_score = 50.0
-        up_score += (pos - 0.5) * 60
-        up_score += (rsi - 50.0) * 0.4 if not pd.isna(rsi) else 0
-        up_score += np.sign(macd_hist) * min(abs(macd_hist), 3.0) * 3
-        up_score += (vol_ratio - 1.0) * 5 * (1 if pos >= 0.5 else -1)
+        up_score += (pos - 0.5) * 50
+        up_score += (rsi - 50.0) * 0.3 if not pd.isna(rsi) else 0
+        up_score += np.sign(macd_hist) * min(abs(macd_hist), 3.0) * 2.5
+
+        pro = _pro_breakout_signals(df, price)
+        up_score += pro["up_adj"]
+        reasons.extend(pro["reasons"])
+
+        # ADX and volume don't set direction on their own — a professional reads them
+        # as CONVICTION: a low-ADX, thin-volume tape should stay close to 50/50 even
+        # if the signals above lean one way; a high-ADX, above-average-volume tape is
+        # allowed to swing further from the middle on the same signals.
+        adx_conviction = 0.7 + (adx if not pd.isna(adx) else 0.0) / 100.0
+        vol_conviction = 0.6 + 0.5 * vol_ratio
+        conviction = max(0.6, min(1.4, (adx_conviction + vol_conviction) / 2.0))
+        up_score = 50.0 + (up_score - 50.0) * conviction
         up_score = max(10.0, min(90.0, up_score))
         breakout_up_pct = round(up_score, 1)
         breakout_down_pct = round(100.0 - up_score, 1)
@@ -237,9 +263,13 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
             breakout_event = "RESISTANCE_BREAK"
             up = 50.0
             up += min(22.0, max(0.0, adx - _ADX_MEDIUM) * 1.1)
-            up += min(15.0, max(0.0, vol_ratio - 1.0) * 15)
             up += 8 if macd_hist > 0 else -8
             up += 6 if roc > 0 else -6
+            pro = _pro_breakout_signals(df, price)
+            up += pro["up_adj"]
+            reasons.extend(pro["reasons"])
+            vol_conviction = max(0.6, min(1.4, 0.6 + 0.5 * vol_ratio))
+            up = 50.0 + (up - 50.0) * vol_conviction
             up = max(15.0, min(95.0, up))
             breakout_up_pct = round(up, 1)
             breakout_down_pct = round(100.0 - up, 1)
@@ -252,9 +282,13 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
             breakout_event = "SUPPORT_BREAK"
             down = 50.0
             down += min(22.0, max(0.0, adx - _ADX_MEDIUM) * 1.1)
-            down += min(15.0, max(0.0, vol_ratio - 1.0) * 15)
             down += 8 if macd_hist < 0 else -8
             down += 6 if roc < 0 else -6
+            pro = _pro_breakout_signals(df, price)
+            down -= pro["up_adj"]
+            reasons.extend(pro["reasons"])
+            vol_conviction = max(0.6, min(1.4, 0.6 + 0.5 * vol_ratio))
+            down = 50.0 + (down - 50.0) * vol_conviction
             down = max(15.0, min(95.0, down))
             breakout_down_pct = round(down, 1)
             breakout_up_pct = round(100.0 - down, 1)

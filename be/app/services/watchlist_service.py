@@ -60,7 +60,8 @@ class WatchlistService:
         return True
 
     async def add_item(
-        self, user_id: int, watchlist_id: int, ticker: str, display_name: str = "", added_price: float | None = None
+        self, user_id: int, watchlist_id: int, ticker: str, display_name: str = "", added_price: float | None = None,
+        notes: str | None = None,
     ) -> dict[str, Any]:
         wl = await self._get_owned(user_id, watchlist_id)
         if not wl:
@@ -73,6 +74,7 @@ class WatchlistService:
             ticker=ticker,
             display_name=display_name or ticker,
             added_price=added_price,
+            notes=(notes or "").strip() or None,
         )
         self.db.add(item)
         await self.db.commit()
@@ -176,5 +178,6 @@ class WatchlistService:
             "ticker": i.ticker,
             "display_name": i.display_name,
             "added_price": i.added_price,
+            "notes": i.notes,
             "added_at": i.added_at.isoformat() if i.added_at else None,
         }

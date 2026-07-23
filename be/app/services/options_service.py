@@ -10,6 +10,14 @@ from app.services.settings_service import SettingsService
 from app.services.ticker_universe_service import TickerUniverseService
 
 
+def _attach_ltp(results: list[dict[str, Any]], market: str, *, groww_token: str = "", exchange: str = "NSE") -> None:
+    from app.market_pulse.live_price import get_last_traded_price
+
+    for res in results:
+        if not res.get("error"):
+            res["ltp"] = get_last_traded_price(res["ticker"], market, groww_token=groww_token, exchange=exchange)
+
+
 class OptionsService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
@@ -48,10 +56,17 @@ class OptionsService:
         tfs = timeframes or ["1d"]
         cfg = DoubleCalendarConfig(**(cfg_overrides or {}))
 
-        results = await asyncio.to_thread(
-            build_double_calendar_many, resolved, asset_class, market, tfs,
-            cfg=cfg, groww_token=token, exchange=exchange or default_exchange,
-        )
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            results = build_double_calendar_many(
+                resolved, asset_class, market, tfs,
+                cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+            _attach_ltp(results, market, groww_token=token, exchange=resolved_exchange)
+            return results
+
+        results = await asyncio.to_thread(_run)
         return json_safe({
             "results": results, "asset_class": asset_class, "market": market,
             "currency": market_currency(market),
@@ -78,10 +93,17 @@ class OptionsService:
         tfs = timeframes or ["1d"]
         cfg = DeltaNeutralConfig(**(cfg_overrides or {}))
 
-        results = await asyncio.to_thread(
-            build_delta_neutral_many, resolved, asset_class, market, tfs,
-            cfg=cfg, groww_token=token, exchange=exchange or default_exchange,
-        )
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            results = build_delta_neutral_many(
+                resolved, asset_class, market, tfs,
+                cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+            _attach_ltp(results, market, groww_token=token, exchange=resolved_exchange)
+            return results
+
+        results = await asyncio.to_thread(_run)
         return json_safe({
             "results": results, "asset_class": asset_class, "market": market,
             "currency": market_currency(market),

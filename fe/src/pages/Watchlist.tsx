@@ -45,6 +45,7 @@ export default function WatchlistPage() {
   const [newMarket, setNewMarket] = useState<'india' | 'us' | 'crypto'>('india')
   const [newName, setNewName] = useState('My Watchlist')
   const [ticker, setTicker] = useState('')
+  const [notes, setNotes] = useState('')
   const [debouncedTicker, setDebouncedTicker] = useState('')
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [analyzeId, setAnalyzeId] = useState<number | null>(null)
@@ -100,10 +101,13 @@ export default function WatchlistPage() {
 
   const addItemMut = useMutation({
     mutationFn: () =>
-      addWatchlistItem(selectedId as number, { ticker: ticker.toUpperCase(), display_name: ticker.toUpperCase() }),
+      addWatchlistItem(selectedId as number, {
+        ticker: ticker.toUpperCase(), display_name: ticker.toUpperCase(), notes: notes.trim() || undefined,
+      }),
     onSuccess: () => {
       setError('')
       setTicker('')
+      setNotes('')
       qc.invalidateQueries({ queryKey: ['watchlist-items', selectedId] })
     },
     onError: (e) => setError(apiErrorMessage(e)),
@@ -219,6 +223,15 @@ export default function WatchlistPage() {
                     )}
                   </div>
                 </FormField>
+                <FormField label="Notes (optional)">
+                  <Input
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addItemMut.mutate() } }}
+                    placeholder="Why this ticker?"
+                    className="min-w-[220px]"
+                  />
+                </FormField>
                 <Button onClick={() => addItemMut.mutate()} disabled={!ticker.trim() || addItemMut.isPending}>
                   Add
                 </Button>
@@ -239,6 +252,7 @@ export default function WatchlistPage() {
                       <SortableTh active={itemsSortKey === 'ltp'} direction={itemsSortDir} onSort={() => handleItemsSort('ltp')}>LTP</SortableTh>
                       <SortableTh active={itemsSortKey === 'change_pct'} direction={itemsSortDir} onSort={() => handleItemsSort('change_pct')}>Change %</SortableTh>
                       <SortableTh active={itemsSortKey === 'change_since_added_pct'} direction={itemsSortDir} onSort={() => handleItemsSort('change_since_added_pct')}>Since added</SortableTh>
+                      <Th>Notes</Th>
                       <Th />
                     </tr>
                   </thead>
@@ -263,6 +277,9 @@ export default function WatchlistPage() {
                             <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>
                             <Td className={pctClass(it.change_pct)}>{fmtPct(it.change_pct)}</Td>
                             <Td className={pctClass(it.change_since_added_pct)}>{fmtPct(it.change_since_added_pct)}</Td>
+                            <Td className="max-w-[220px] truncate text-slate-400">
+                              <span title={it.notes ?? ''}>{it.notes || '—'}</span>
+                            </Td>
                             <Td>
                               <button
                                 type="button"
@@ -276,7 +293,7 @@ export default function WatchlistPage() {
                           </tr>
                           {isOpen && (
                             <tr>
-                              <Td colSpan={6} className="whitespace-normal bg-slate-900/30">
+                              <Td colSpan={7} className="whitespace-normal bg-slate-900/30">
                                 <div className="mb-3 flex items-center gap-2">
                                   <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Timeframe</span>
                                   <Select

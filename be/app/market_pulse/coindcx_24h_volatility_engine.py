@@ -16,6 +16,8 @@ from typing import Any
 
 import requests
 
+from app.market_pulse.heatmap import fetch_coindcx_futures_snapshot
+
 logger = logging.getLogger(__name__)
 
 _URL = "https://api.coindcx.com/api/v1/derivatives/futures/data/instrument"
@@ -54,17 +56,33 @@ def fetch_change_24h() -> list[dict[str, Any]]:
         logger.warning("CoinDCX change_24_hour fetch failed: %s", exc)
         return []
 
+    try:
+        rt_prices = {row["sym"]: row["price"] for row in fetch_coindcx_futures_snapshot()}
+    except Exception as exc:
+        logger.debug("CoinDCX realtime price snapshot failed: %s", exc)
+        rt_prices = {}
+
+    from app.market_pulse.day_bias import quote_bias
+
     out: list[dict[str, Any]] = []
     for pair, item in change_map.items():
         if not pair or not isinstance(item, dict):
             continue
+        price = rt_prices.get(pair)
+        pct_change = _to_float(item.get("percent_change"))
+        high = _to_float(item.get("high"))
+        low = _to_float(item.get("low"))
+        vol = _to_float(item.get("vol"))
+        prev_close = price / (1 + pct_change / 100) if price and pct_change is not None and pct_change != -100 else None
         out.append({
             "pair": pair,
             "ticker": _pair_to_display(pair),
-            "percent_change": _to_float(item.get("percent_change")),
-            "high": _to_float(item.get("high")),
-            "low": _to_float(item.get("low")),
-            "vol": _to_float(item.get("vol")),
+            "price": price,
+            "percent_change": pct_change,
+            "high": high,
+            "low": low,
+            "vol": vol,
+            "day_bias": quote_bias(price, high, low, prev_close=prev_close, volume=vol),
         })
     out.sort(key=lambda r: (r["percent_change"] if r["percent_change"] is not None else -1e18), reverse=True)
     return out

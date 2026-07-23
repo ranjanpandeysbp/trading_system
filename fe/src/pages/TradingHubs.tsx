@@ -51,6 +51,7 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_heikin_ashi: '1m (India 09:45-11:45 IST / US 10:00-12:00 ET session window; crypto unrestricted)',
   scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
   scalp_sr_mss: '1h HTF zone + 1m MSS entry',
+  scalp_2min: '2m (1m resampled) — always scans Nifty 50 / Bank Nifty / Sensex',
   smc_cisd: '1h bias + 15m execution',
   smc_weekly_sweep_cisd: 'Weekly HTF sweep + 15m execution',
   smc_mtf_day_plan: '4h HTF + 1h MTF + 15m LTF day plan',
@@ -59,6 +60,8 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   smc_ttg_sniper: 'Configurable (LTF/HTF selectable below)',
   smb_snp: 'Daily HTF + 5m session-window execution',
   sc_fvg: '15m zone + 5m FVG + 1m entry',
+  smc_sc_best: 'Configurable (LTF selectable below) + auto HTF resample for context',
+  smc_lewiskelly: 'Configurable (Direction/POI TF selectable below) + fixed 1m confirmation entry',
 }
 
 const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: [] }

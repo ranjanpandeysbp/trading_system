@@ -26,6 +26,7 @@ from app.models.schemas import (
     MarketPulseRotationRequest,
     MarketPulseSentimentRequest,
     MarketPulseStockRotationMarketRequest,
+    CommandCenterDayBiasRequest,
     CommandCenterInvestigateStrategiesRequest,
     CommandCenterMegaAdviceRequest,
     CommandCenterMfHoldingsRequest,
@@ -33,6 +34,7 @@ from app.models.schemas import (
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
     CommandCenterQuickAnalyzerRequest,
+    CommandCenterSma20200Request,
     CommandCenterTickerScanRequest,
     CommandCenterTradeSetupDrillRequest,
     CommandCenterTradeSetupRequest,
@@ -873,6 +875,17 @@ async def command_center_trade_setup_copy_trade(
     )
 
 
+@router.post("/command-center/trade-setup/sma-20-200")
+async def command_center_trade_setup_sma_20_200(
+    payload: CommandCenterTradeSetupDrillRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).trade_setup_sma_20_200(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe,
+    )
+
+
 @router.post("/command-center/real-bottom")
 async def command_center_real_bottom(
     payload: CommandCenterTradeSetupRequest,
@@ -893,6 +906,25 @@ async def command_center_weak_strong(
     return await CommandCenterService(SettingsService(db)).weak_strong(
         payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
         exchange=payload.exchange,
+    )
+
+
+@router.post("/command-center/sma-20-200")
+async def command_center_sma_20_200(
+    payload: CommandCenterSma20200Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).sma_20_200(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "fast_period": payload.fast_period,
+            "slow_period": payload.slow_period,
+            "rr_ratio": payload.rr_ratio,
+            "sl_buffer_pct": payload.sl_buffer_pct,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+        },
     )
 
 
@@ -1064,10 +1096,11 @@ async def command_center_gift_nifty(
 
 @router.get("/command-center/india-market-heatmap/indices")
 async def command_center_india_market_heatmap_indices(
+    asset_class: str = "india",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await CommandCenterService(SettingsService(db)).india_market_heatmap_indices()
+    return await CommandCenterService(SettingsService(db)).india_market_heatmap_indices(asset_class)
 
 
 @router.post("/command-center/india-market-heatmap")
@@ -1076,7 +1109,20 @@ async def command_center_india_market_heatmap(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await CommandCenterService(SettingsService(db)).india_market_heatmap(payload.index_name)
+    return await CommandCenterService(SettingsService(db)).india_market_heatmap(
+        payload.index_name, asset_class=payload.asset_class, tickers=payload.tickers,
+    )
+
+
+@router.post("/command-center/day-bias")
+async def command_center_day_bias(
+    payload: CommandCenterDayBiasRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).day_bias(
+        payload.ticker, asset_class=payload.asset_class, timeframe=payload.timeframe, exchange=payload.exchange,
+    )
 
 
 @router.post("/command-center/option-chain")
@@ -1309,6 +1355,7 @@ async def watchlists_add_item(
     try:
         return await WatchlistService(db, SettingsService(db)).add_item(
             current_user.id, watchlist_id, payload.ticker, payload.display_name, payload.added_price,
+            notes=payload.notes,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

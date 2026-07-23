@@ -221,7 +221,10 @@ def fetch_groww_live_quote(
     *,
     prefer_index: bool = False,
 ) -> dict[str, float] | None:
-    """Current market quote from Groww public live feed (price, day high/low)."""
+    """Current market quote from Groww public live feed — price, day high/low,
+    plus (best-effort, when the feed populates them) open, previous close,
+    volume, order-book buy/sell quantity, and the day's exchange circuit
+    band."""
     sym = symbol.upper()
     exch = exchange.upper()
     endpoints: list[tuple[str, str]] = []
@@ -254,6 +257,25 @@ def fetch_groww_live_quote(
                 quote["day_high"] = float(high)
             if low is not None and float(low) > 0:
                 quote["day_low"] = float(low)
+            open_ = body.get("open")
+            if open_ is not None and float(open_) > 0:
+                quote["open"] = float(open_)
+            prev_close = body.get("close")
+            if prev_close is not None and float(prev_close) > 0:
+                quote["prev_close"] = float(prev_close)
+            volume = body.get("volume")
+            if volume is not None and float(volume) > 0:
+                quote["volume"] = float(volume)
+            buy_qty = body.get("totalBuyQty")
+            sell_qty = body.get("totalSellQty")
+            if buy_qty is not None and sell_qty is not None and (float(buy_qty) + float(sell_qty)) > 0:
+                quote["buy_qty"] = float(buy_qty)
+                quote["sell_qty"] = float(sell_qty)
+            circuit_high = body.get("highPriceRange")
+            circuit_low = body.get("lowPriceRange")
+            if circuit_high is not None and circuit_low is not None and float(circuit_high) > float(circuit_low) > 0:
+                quote["circuit_high"] = float(circuit_high)
+                quote["circuit_low"] = float(circuit_low)
             return quote
         except Exception as exc:
             logger.debug("Groww live quote failed %s (%s): %s", sym, url, exc)

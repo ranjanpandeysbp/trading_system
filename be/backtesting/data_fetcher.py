@@ -166,14 +166,22 @@ def _live_quote_yfinance(yf_sym: str) -> dict:
         fast = ticker.fast_info
         price = None
         prev_close = None
-        try:
-            price = fast["lastPrice"]
-        except Exception:
-            price = getattr(fast, "last_price", None)
-        try:
-            prev_close = fast["previousClose"]
-        except Exception:
-            prev_close = getattr(fast, "previous_close", None)
+        day_high = day_low = None
+        open_ = volume = avg_volume = None
+
+        def _get(key: str, attr: str):
+            try:
+                return fast[key]
+            except Exception:
+                return getattr(fast, attr, None)
+
+        price = _get("lastPrice", "last_price")
+        prev_close = _get("previousClose", "previous_close")
+        day_high = _get("dayHigh", "day_high")
+        day_low = _get("dayLow", "day_low")
+        open_ = _get("open", "open")
+        volume = _get("lastVolume", "last_volume")
+        avg_volume = _get("tenDayAverageVolume", "ten_day_average_volume")
 
         if not price:
             hist = ticker.history(period="5d", interval="1d", auto_adjust=True)
@@ -181,9 +189,25 @@ def _live_quote_yfinance(yf_sym: str) -> dict:
                 return {}
             price = float(hist["Close"].iloc[-1])
             prev_close = float(hist["Close"].iloc[-2]) if len(hist) > 1 else None
+            if day_high is None:
+                day_high = float(hist["High"].iloc[-1])
+            if day_low is None:
+                day_low = float(hist["Low"].iloc[-1])
+            if open_ is None:
+                open_ = float(hist["Open"].iloc[-1])
+            if volume is None:
+                volume = float(hist["Volume"].iloc[-1])
 
         change_pct = ((price - prev_close) / prev_close * 100) if prev_close else None
-        return {"ltp": float(price), "change_pct": change_pct}
+        return {
+            "ltp": float(price), "change_pct": change_pct,
+            "day_high": float(day_high) if day_high else None,
+            "day_low": float(day_low) if day_low else None,
+            "open": float(open_) if open_ else None,
+            "prev_close": float(prev_close) if prev_close else None,
+            "volume": float(volume) if volume else None,
+            "avg_volume": float(avg_volume) if avg_volume else None,
+        }
     except Exception:
         logger.debug("yfinance live quote failed for %s", yf_sym, exc_info=True)
         return {}
@@ -193,20 +217,27 @@ def _live_quote_india(symbol: str, exchange: str) -> dict:
     quote = fetch_groww_live_quote(symbol, exchange)
     if quote and quote.get("price"):
         ltp = float(quote["price"])
-        change_pct = None
-        try:
-            import yfinance as yf
-
-            fast = yf.Ticker(stock_symbol_to_yf(symbol)).fast_info
+        prev_close = quote.get("prev_close")
+        if prev_close is None:
             try:
-                prev_close = fast["previousClose"]
+                import yfinance as yf
+
+                fast = yf.Ticker(stock_symbol_to_yf(symbol)).fast_info
+                try:
+                    prev_close = fast["previousClose"]
+                except Exception:
+                    prev_close = getattr(fast, "previous_close", None)
             except Exception:
-                prev_close = getattr(fast, "previous_close", None)
-            if prev_close:
-                change_pct = (ltp - float(prev_close)) / float(prev_close) * 100
-        except Exception:
-            logger.debug("prevClose lookup failed for %s", symbol, exc_info=True)
-        return {"ltp": ltp, "change_pct": change_pct}
+                logger.debug("prevClose lookup failed for %s", symbol, exc_info=True)
+        change_pct = (ltp - float(prev_close)) / float(prev_close) * 100 if prev_close else None
+        return {
+            "ltp": ltp, "change_pct": change_pct,
+            "day_high": quote.get("day_high"), "day_low": quote.get("day_low"),
+            "open": quote.get("open"), "prev_close": prev_close,
+            "volume": quote.get("volume"), "avg_volume": None,
+            "buy_qty": quote.get("buy_qty"), "sell_qty": quote.get("sell_qty"),
+            "circuit_high": quote.get("circuit_high"), "circuit_low": quote.get("circuit_low"),
+        }
     return _live_quote_yfinance(stock_symbol_to_yf(symbol))
 
 
@@ -218,12 +249,19 @@ def _live_quote_crypto(symbol: str) -> dict:
         snapshot = []
     for row in snapshot:
         if _crypto_key(row.get("sym", "")) == key:
-            return {"ltp": row["price"], "change_pct": row.get("change")}
+            return {
+                "ltp": row["price"], "change_pct": row.get("change"),
+                "day_high": row.get("high"), "day_low": row.get("low"),
+                "volume": row.get("volume"),
+            }
     return _live_quote_yfinance(_crypto_symbol_to_yf(symbol))
 
 
 def get_live_quote(symbol: str, market: str = "", *, exchange: str = "NSE", groww_token: str = "") -> dict:
-    """Return {"ltp": float, "change_pct": float|None} for symbol/market, or {} if unavailable."""
+    """Return {"ltp", "change_pct", "day_high", "day_low", "open", "prev_close",
+    "volume", "avg_volume", "buy_qty", "sell_qty", "circuit_high", "circuit_low"}
+    for symbol/market (fields beyond ltp/day_high/day_low are best-effort and may
+    be absent), or {} if unavailable."""
     if not symbol:
         return {}
     try:

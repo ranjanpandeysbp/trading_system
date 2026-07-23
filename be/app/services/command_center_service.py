@@ -16,6 +16,35 @@ _ONE_CLICK_MODULES = {
     "swing": "app.market_pulse.one_click_swing_engine",
 }
 
+_DAY_RANGE_CONCURRENCY = 20
+
+
+async def _attach_day_range(
+    rows: list[dict[str, Any]], market: str, *, groww_token: str = "", exchange: str = "NSE",
+    ticker_key: str = "ticker",
+) -> None:
+    """Concurrently enrich rows (mutated in place) with day_high/day_low plus a
+    multi-factor directional bias/confidence toward the day's high or low
+    (see app.market_pulse.day_bias.quote_bias), capped to avoid hammering
+    upstream quote sources when the row count is large."""
+    from app.market_pulse.live_price import get_last_traded_price
+
+    sem = asyncio.Semaphore(_DAY_RANGE_CONCURRENCY)
+
+    async def _fill(row: dict[str, Any]) -> None:
+        ticker = row.get(ticker_key)
+        if not ticker:
+            return
+        async with sem:
+            quote = await asyncio.to_thread(
+                get_last_traded_price, str(ticker), market, groww_token=groww_token, exchange=exchange,
+            )
+        row["day_high"] = quote.get("day_high")
+        row["day_low"] = quote.get("day_low")
+        row["day_bias"] = quote.get("day_bias")
+
+    await asyncio.gather(*(_fill(r) for r in rows))
+
 
 class CommandCenterService:
     def __init__(self, settings: SettingsService):
@@ -354,6 +383,19 @@ class CommandCenterService:
         )
         return json_safe(result)
 
+    async def trade_setup_sma_20_200(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "15m",
+    ) -> dict[str, Any]:
+        from app.market_pulse.trade_setup_engine import analyze_sma_20_200_one
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            analyze_sma_20_200_one, resolved, timeframe, market, groww_token=token, exchange=exchange,
+        )
+        return json_safe(result)
+
     async def real_bottom(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -381,6 +423,23 @@ class CommandCenterService:
         tfs = timeframes or ["5m", "15m", "1h", "1d"]
         result = await asyncio.to_thread(
             scan_universe, resolved, tfs, market, cfg=WeakStrongConfig(), groww_token=token,
+            exchange=exchange or default_exchange,
+        )
+        return json_safe(result)
+
+    async def sma_20_200(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+        exchange: str | None = None, cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.sma_20_200_engine import Sma20200Config, scan_universe
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or ["1d"]
+        cfg = Sma20200Config(**(cfg_overrides or {}))
+        result = await asyncio.to_thread(
+            scan_universe, resolved, tfs, market, cfg=cfg, groww_token=token,
             exchange=exchange or default_exchange,
         )
         return json_safe(result)
@@ -596,22 +655,82 @@ class CommandCenterService:
 
         return json_safe({"data": await asyncio.to_thread(fetch_gift_nifty)})
 
-    async def india_market_heatmap_indices(self) -> dict[str, Any]:
+    async def india_market_heatmap_indices(self, asset_class: str = "india") -> dict[str, Any]:
+        if asset_class == "us":
+            return json_safe({"index_names": ["Dow 30", "US Index ETFs (SPY/QQQ/DIA/IWM)", "Custom"]})
+        if asset_class == "crypto":
+            return json_safe({"index_names": ["All CoinDCX Pairs", "Custom"]})
+
         from app.market_pulse.india_market_heatmap_engine import INDEX_NAMES
 
-        return json_safe({"index_names": INDEX_NAMES})
+        return json_safe({"index_names": ["High Vol ETF", *INDEX_NAMES, "Custom"]})
 
-    async def india_market_heatmap(self, index_name: str) -> dict[str, Any]:
+    async def india_market_heatmap(
+        self, index_name: str, *, asset_class: str = "india", tickers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        _, token, _ = await self._ctx()
+
+        if asset_class == "us":
+            from app.market_pulse.india_market_heatmap_engine import fetch_heatmap_for_tickers
+            from app.market_pulse.us_index_constituents import DOW_30_STATIC, US_INDEX_ETFS
+
+            market, _ = await self._asset_ctx("us")
+            if index_name == "Custom":
+                universe = self.universe.resolve("us", tickers or [])
+            elif index_name.startswith("US Index ETFs"):
+                universe = US_INDEX_ETFS
+            else:
+                universe = DOW_30_STATIC
+            rows = await asyncio.to_thread(fetch_heatmap_for_tickers, universe, market, groww_token=token)
+            return json_safe({"index_name": index_name, "symbol": index_name, "exchange": "", "rows": rows})
+
+        if asset_class == "crypto":
+            from app.market_pulse.india_market_heatmap_engine import fetch_heatmap_all_crypto, fetch_heatmap_for_tickers
+
+            market, _ = await self._asset_ctx("crypto")
+            if index_name == "Custom":
+                universe = self.universe.resolve("crypto", tickers or [])
+                rows = await asyncio.to_thread(fetch_heatmap_for_tickers, universe, market, groww_token=token)
+            else:
+                rows = await asyncio.to_thread(fetch_heatmap_all_crypto)
+            return json_safe({"index_name": index_name, "symbol": index_name, "exchange": "", "rows": rows})
+
         from app.market_pulse.india_market_heatmap_engine import (
             INDEX_NAME_TO_EXCHANGE,
             INDEX_NAME_TO_SYMBOL,
             fetch_heatmap,
+            fetch_heatmap_for_tickers,
         )
+        from app.market_pulse.ticker_utils import HIGH_VOL_ETF
+
+        market, _ = await self._asset_ctx("india")
+
+        if index_name in ("Custom", "High Vol ETF"):
+            exchange = "NSE"
+            universe = self.universe.resolve("india", tickers or []) if index_name == "Custom" else HIGH_VOL_ETF
+            rows = await asyncio.to_thread(
+                fetch_heatmap_for_tickers, universe, market, groww_token=token, exchange=exchange,
+            )
+            return json_safe({"index_name": index_name, "symbol": index_name, "exchange": exchange, "rows": rows})
 
         symbol = INDEX_NAME_TO_SYMBOL.get(index_name, index_name)
         exchange = INDEX_NAME_TO_EXCHANGE.get(index_name, "NSE")
         rows = await asyncio.to_thread(fetch_heatmap, symbol)
+        await _attach_day_range(rows, market, groww_token=token, exchange=exchange)
         return json_safe({"index_name": index_name, "symbol": symbol, "exchange": exchange, "rows": rows})
+
+    async def day_bias(
+        self, ticker: str, *, asset_class: str = "india", timeframe: str = "1d", exchange: str | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.day_bias import fetch_and_compute
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, [ticker])[0]
+        result = await asyncio.to_thread(
+            fetch_and_compute, resolved, market, timeframe, groww_token=token, exchange=exchange or default_exchange,
+        )
+        return json_safe(result)
 
     async def quick_analyzer(
         self,

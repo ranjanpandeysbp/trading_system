@@ -140,6 +140,7 @@ export interface AccountSummary {
     sl_pct?: number
     tp_pct?: number
     strategy?: string
+    notes?: string | null
   }>
   recent_orders: Array<PaperOrderRow>
   pending_orders: Array<PaperOrderRow>
@@ -157,6 +158,7 @@ export interface PaperOrderRow {
   trigger_price?: number | null
   filled_price?: number | null
   strategy?: string
+  notes?: string | null
   created_at: string
   filled_at?: string | null
   cancelled_at?: string | null
@@ -168,6 +170,7 @@ export interface PlaceOrderPayload {
   quantity: number
   price?: number
   strategy?: string
+  notes?: string
   sl_pct?: number
   tp_pct?: number
   order_type?: 'market' | 'limit' | 'stop' | 'stop_limit'
@@ -437,6 +440,7 @@ export interface WatchlistItemInfo {
   ticker: string
   display_name: string
   added_price: number | null
+  notes?: string | null
   added_at: string
   ltp?: number | null
   change_pct?: number | null
@@ -457,7 +461,7 @@ export const fetchWatchlistItems = (id: number) =>
 
 export const addWatchlistItem = (
   watchlistId: number,
-  payload: { ticker: string; display_name?: string; added_price?: number | null },
+  payload: { ticker: string; display_name?: string; added_price?: number | null; notes?: string },
 ) => api.post<WatchlistItemInfo>(`/watchlists/${watchlistId}/items`, payload).then((r) => r.data)
 
 export const removeWatchlistItem = (watchlistId: number, itemId: number) =>
@@ -529,8 +533,23 @@ export const runRealBottom = (payload: { tickers: string[]; asset_class: string;
 export const runWeakStrong = (payload: { tickers: string[]; asset_class: string; timeframes?: string[]; exchange?: string }) =>
   api.post('/command-center/weak-strong', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runSma20200 = (payload: {
+  tickers: string[]
+  asset_class: string
+  timeframes?: string[]
+  exchange?: string
+  fast_period?: number
+  slow_period?: number
+  rr_ratio?: number
+  sl_buffer_pct?: number
+  take_confidence_threshold?: number
+}) => api.post('/command-center/sma-20-200', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runTradeSetupCopyTrade = (payload: TradeSetupDrillPayload) =>
   api.post('/command-center/trade-setup/copy-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runTradeSetupSma20200 = (payload: TradeSetupDrillPayload) =>
+  api.post('/command-center/trade-setup/sma-20-200', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runCopyTrade = (payload: { tickers: string[]; asset_class: string }) =>
   api.post('/command-center/copy-trade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
@@ -581,11 +600,16 @@ export const fetchFuturesIndices = () =>
 export const fetchGiftNifty = () =>
   api.get('/command-center/gift-nifty', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const fetchIndiaMarketHeatmapIndices = () =>
-  api.get<{ index_names: string[] }>('/command-center/india-market-heatmap/indices', { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const fetchIndiaMarketHeatmapIndices = (assetClass: string = 'india') =>
+  api.get<{ index_names: string[] }>('/command-center/india-market-heatmap/indices', {
+    params: { asset_class: assetClass }, timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
 
-export const runIndiaMarketHeatmap = (payload: { index_name: string }) =>
+export const runIndiaMarketHeatmap = (payload: { index_name: string; asset_class?: string; tickers?: string[] }) =>
   api.post('/command-center/india-market-heatmap', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runDayBias = (payload: { ticker: string; asset_class: string; timeframe: string; exchange?: string }) =>
+  api.post('/command-center/day-bias', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOptionChain = (payload: { symbol: string; is_index: boolean }) =>
   api.post('/command-center/option-chain', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

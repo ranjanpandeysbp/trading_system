@@ -183,6 +183,7 @@ class PlaceOrderRequest(BaseModel):
     quantity: int = Field(..., gt=0)
     price: float | None = None
     strategy: str | None = None
+    notes: str | None = None
     sl_pct: float | None = None
     tp_pct: float | None = None
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
@@ -249,7 +250,7 @@ class CommandCenterBuySellRequest(BaseModel):
 
 
 class CommandCenterMegaRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=5)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     durations: list[str] | None = None
 
@@ -273,6 +274,13 @@ class CommandCenterTradeSetupDrillRequest(BaseModel):
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
+class CommandCenterDayBiasRequest(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    timeframe: str = "1d"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    exchange: str | None = None
+
+
 class CommandCenterOneClickRequest(BaseModel):
     style: Literal["intraday", "scalping", "swing"]
     tickers: list[str] = Field(..., min_length=1)
@@ -291,7 +299,7 @@ class CommandCenterMfHoldingsRequest(BaseModel):
 
 
 class CommandCenterInvestigateStrategiesRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=5)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
     strategy_ids: list[str] = Field(default_factory=list)
 
@@ -306,6 +314,20 @@ class CommandCenterMegaAdviceRequest(BaseModel):
 
 class CommandCenterHeatmapRequest(BaseModel):
     index_name: str
+    asset_class: Literal["india", "us", "crypto"] = "india"
+    tickers: list[str] | None = None
+
+
+class CommandCenterSma20200Request(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframes: list[str] | None = None
+    exchange: str | None = None
+    fast_period: int = 20
+    slow_period: int = 200
+    rr_ratio: float = 2.0
+    sl_buffer_pct: float = 0.1
+    take_confidence_threshold: float = 55.0
 
 
 class CommandCenterOptionChainRequest(BaseModel):
@@ -315,7 +337,7 @@ class CommandCenterOptionChainRequest(BaseModel):
 
 class CommandCenterQuickAnalyzerRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
-    timeframes: list[str] = Field(..., min_length=1, max_length=6)
+    timeframes: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
     from_date: str | None = None
     to_date: str | None = None
@@ -325,7 +347,7 @@ class CommandCenterQuickAnalyzerRequest(BaseModel):
 
 class TradingHubScanRequest(BaseModel):
     section_id: str
-    tickers: list[str] = Field(..., min_length=1, max_length=20)
+    tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     config: dict[str, Any] | None = None
     run_backtest: bool = False
@@ -385,6 +407,10 @@ class StrategyLabBacktestRequest(BaseModel):
     sl_pct: float = 0.0
     tp_pct: float = 0.0
     days: int | None = None
+    direction_mode: Literal["long_only", "short_only", "long_short"] = "long_only"
+    position_sizing: Literal["pct_of_capital", "risk_pct"] = "pct_of_capital"
+    capital_allocation_pct: float = 95.0
+    risk_pct: float = 1.0
 
 
 class StrategyLabMultiComboRequest(BaseModel):
@@ -440,6 +466,7 @@ class WatchlistItemCreate(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=32)
     display_name: str = ""
     added_price: float | None = None
+    notes: str | None = None
 
 
 class OptionsDoubleCalendarRequest(BaseModel):

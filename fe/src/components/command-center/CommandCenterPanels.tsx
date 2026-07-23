@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, TrendingDown, TrendingUp } from 'lucide-react'
 import {
   apiErrorMessage,
+  runDayBias,
   runFundamentalAnalysis,
   runMomentumScan,
   runOptionChain,
@@ -14,6 +15,7 @@ import {
   runTradeSetupPatterns,
   runTradeSetupRealBottom,
   runTradeSetupScalping,
+  runTradeSetupSma20200,
   runTradeSetupSmartMoney,
   runTradeSetupStopHunt,
   runTradeSetupSupportResistance,
@@ -46,6 +48,52 @@ function fmtNum(v: unknown, digits = 2): string {
   if (v == null || v === '') return '—'
   const n = Number(v)
   return Number.isFinite(n) ? n.toFixed(digits) : String(v)
+}
+
+function DayBiasNote({ bias, className, showReasons }: { bias: Row | undefined; className?: string; showReasons?: boolean }) {
+  if (!bias || bias.up_pct == null || bias.down_pct == null) return null
+  const up = Number(bias.up_pct)
+  const down = Number(bias.down_pct)
+  const reasons = (bias.reasons as string[]) ?? []
+  return (
+    <div>
+      <p className={className ?? 'text-[11px] text-slate-400'}>
+        <span className={up >= down ? 'font-semibold text-emerald-400' : 'text-slate-500'}>⬆ {up.toFixed(0)}% toward Day High</span>
+        {' · '}
+        <span className={down > up ? 'font-semibold text-rose-400' : 'text-slate-500'}>⬇ {down.toFixed(0)}% toward Day Low</span>
+      </p>
+      {showReasons && reasons.map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+    </div>
+  )
+}
+
+const DAY_BIAS_TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d', '1w']
+
+function DayBiasRecalculator({
+  ticker, assetClass, exchange, defaultTimeframe = '1d', showReasons,
+}: { ticker: string; assetClass: string; exchange?: string; defaultTimeframe?: string; showReasons?: boolean }) {
+  const [tf, setTf] = useState(defaultTimeframe)
+  const mut = useMutation({
+    mutationFn: () => runDayBias({ ticker, asset_class: assetClass, timeframe: tf, exchange }),
+  })
+  const result = mut.data as Row | undefined
+  const bias = result?.day_bias as Row | undefined
+
+  return (
+    <div className="mt-1 space-y-1">
+      <div className="flex flex-wrap items-center gap-1">
+        {DAY_BIAS_TIMEFRAMES.map((t) => (
+          <Chip key={t} selected={tf === t} onClick={() => setTf(t)}>{t}</Chip>
+        ))}
+        <Button size="sm" variant="secondary" disabled={mut.isPending} onClick={() => mut.mutate()}>
+          {mut.isPending ? 'Recalculating…' : `🔄 Recalculate @ ${tf}`}
+        </Button>
+      </div>
+      {mut.isError && <p className="text-xs text-rose-400">{apiErrorMessage(mut.error)}</p>}
+      {result?.error != null && <p className="text-xs text-slate-500">Unavailable — {String(result.error)}</p>}
+      {bias && <DayBiasNote bias={bias} showReasons={showReasons} />}
+    </div>
+  )
 }
 
 const VOLUME_TIERS: [number, string][] = [
@@ -1142,6 +1190,101 @@ function CopyTradePanel({ data }: { data: Row }) {
   )
 }
 
+function Sma20200ResultRow({ res, assetClass }: { res: Row; assetClass: string }) {
+  const [open, setOpen] = useState(false)
+  const live = (res.live as Row) ?? {}
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(res.ticker)}</span>
+        <span className="text-slate-500">
+          · {String(res.timeframe)}
+          {' · '}{String(live.verdict ?? 'WAIT')}
+          {' · '}{fmtNum(live.confidence_pct, 0)}% confidence
+          {' · price '}{fmtNum(res.price, 4)}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-3 py-2">
+          <p className="text-xs text-slate-400">
+            Price <strong>{fmtNum(res.price, 4)}</strong> · 20 SMA <strong>{fmtNum(live.sma_fast, 4)}</strong> ·{' '}
+            200 SMA <strong>{fmtNum(live.sma_slow, 4)}</strong> · signals in window: <strong>{String(res.signal_count ?? 0)}</strong>
+          </p>
+          {(res.day_high != null || res.day_low != null) && (
+            <p className="mt-1 text-xs text-slate-400">
+              Day High <strong>{fmtNum(res.day_high, 4)}</strong> · Day Low <strong>{fmtNum(res.day_low, 4)}</strong>
+            </p>
+          )}
+          <DayBiasNote bias={res.day_bias as Row | undefined} className="mt-1 text-xs text-slate-400" showReasons />
+          <DayBiasRecalculator
+            ticker={String(res.ticker ?? '')} assetClass={assetClass}
+            defaultTimeframe={String(res.timeframe ?? '1d')} showReasons
+          />
+          {((live.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="mt-1 text-xs text-slate-500">· {rr}</p>)}
+          {live.entry_price != null && (
+            <p className="mt-1 text-xs text-slate-400">
+              Entry: <strong>{fmtNum(live.entry_price, 4)}</strong>
+              {' · '}Stop: <strong>{fmtNum(live.stop_price, 4)}</strong> ({fmtNum(live.sl_pct, 2)}%)
+              {' · '}Target: <strong>{fmtNum(live.target_price, 4)}</strong> ({fmtNum(live.tp_pct, 2)}%)
+            </p>
+          )}
+          <AskAIPanel
+            context={buildAskContext(`200SMA-20SMA · ${String(res.ticker ?? '')} · ${String(res.timeframe ?? '')}`, res)}
+            section={`command-center/sma_20_200/${String(res.ticker ?? '')}`}
+            className="mt-3"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Sma20200Panel({ data, assetClass }: { data: Row; assetClass: string }) {
+  const long = (data.long as Row[]) ?? []
+  const short = (data.short as Row[]) ?? []
+  const wait = (data.wait as Row[]) ?? []
+  const errors = (data.errors as Row[]) ?? []
+  if (!long.length && !short.length && !wait.length && !errors.length) {
+    return <p className="text-sm text-slate-500">No results.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {errors.length > 0 && (
+        <Alert type="error">
+          {errors.map((e) => `${String(e.ticker)} · ${String(e.timeframe)}: ${String(e.error)}`).join(' · ')}
+        </Alert>
+      )}
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">🟢 Long — {long.length}</p>
+        {long.length === 0 ? <p className="text-xs text-slate-500">Nothing on a live bounce right now.</p> : (
+          <div className="space-y-1.5">{long.map((r, i) => <Sma20200ResultRow key={i} res={r} assetClass={assetClass} />)}</div>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold text-slate-300">🔴 Short — {short.length}</p>
+        {short.length === 0 ? <p className="text-xs text-slate-500">Nothing on a live rejection right now.</p> : (
+          <div className="space-y-1.5">{short.map((r, i) => <Sma20200ResultRow key={i} res={r} assetClass={assetClass} />)}</div>
+        )}
+      </div>
+
+      {wait.length > 0 && (
+        <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-300">⚪ No fresh trigger — {wait.length}</summary>
+          <div className="mt-2 space-y-1.5">{wait.map((r, i) => <Sma20200ResultRow key={i} res={r} assetClass={assetClass} />)}</div>
+        </details>
+      )}
+    </div>
+  )
+}
+
 function TakeTradeVotesTable({ votes }: { votes: Row[] }) {
   const { sorted, sortKey, sortDir, handleSort } = useSort(votes, {
     engine: (v) => String(v.engine ?? ''),
@@ -1469,18 +1612,18 @@ function isoDaysAgo(days: number): string {
 
 type DrillCheck =
   | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
-  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'intra_hwp' | 'weak_strong' | 'copy_trade' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+  | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'intra_hwp' | 'weak_strong' | 'sma_20_200' | 'copy_trade' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
 
 const DRILL_CHECK_KEYS: DrillCheck[] = [
   'momentum', 'volume', 'quick_analyzer', 'patterns', 'smart_money',
-  'scalping', 'support_resistance', 'time_series', 'divergence', 'stop_hunt', 'take_profit', 'real_bottom', 'intra_hwp', 'weak_strong', 'copy_trade', 'upgrade_downgrade', 'fundamentals', 'option_chain',
+  'scalping', 'support_resistance', 'time_series', 'divergence', 'stop_hunt', 'take_profit', 'real_bottom', 'intra_hwp', 'weak_strong', 'sma_20_200', 'copy_trade', 'upgrade_downgrade', 'fundamentals', 'option_chain',
 ]
 
 export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
   const isIndia = assetClass === 'india'
   const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
     momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,
-    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, intra_hwp: false, weak_strong: false, copy_trade: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
+    scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, intra_hwp: false, weak_strong: false, sma_20_200: false, copy_trade: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
   })
   const [ran, setRan] = useState(false)
 
@@ -1497,6 +1640,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const realBottomMut = useMutation({ mutationFn: () => runTradeSetupRealBottom({ ticker, asset_class: assetClass, timeframe }) })
   const intraHwpMut = useMutation({ mutationFn: () => runTradeSetupIntraHwp({ ticker, asset_class: assetClass, timeframe }) })
   const weakStrongMut = useMutation({ mutationFn: () => runTradeSetupWeakStrong({ ticker, asset_class: assetClass, timeframe }) })
+  const sma20200Mut = useMutation({ mutationFn: () => runTradeSetupSma20200({ ticker, asset_class: assetClass, timeframe }) })
   const copyTradeMut = useMutation({ mutationFn: () => runTradeSetupCopyTrade({ ticker, asset_class: assetClass, timeframe }) })
   const udMut = useMutation({ mutationFn: () => runUpgradeDowngradeScan({ tickers: [ticker], asset_class: assetClass }) })
   const faMut = useMutation({ mutationFn: () => runFundamentalAnalysis({ tickers: [ticker], asset_class: assetClass }) })
@@ -1524,6 +1668,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
     if (checked.real_bottom) realBottomMut.mutate()
     if (checked.intra_hwp) intraHwpMut.mutate()
     if (checked.weak_strong) weakStrongMut.mutate()
+    if (checked.sma_20_200) sma20200Mut.mutate()
     if (checked.copy_trade) copyTradeMut.mutate()
     if (checked.upgrade_downgrade) udMut.mutate()
     if (checked.fundamentals && isIndia) faMut.mutate()
@@ -1569,6 +1714,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const realBottomRes = realBottomMut.data as Row | undefined
   const intraHwpRes = intraHwpMut.data as Row | undefined
   const weakStrongRes = weakStrongMut.data as Row | undefined
+  const sma20200Res = sma20200Mut.data as Row | undefined
   const copyTradeRes = copyTradeMut.data as Row | undefined
 
   const drillAiData: Row = { ticker, timeframe, asset_class: assetClass }
@@ -1586,6 +1732,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   if (checked.real_bottom && realBottomRes) drillAiData.real_bottom = realBottomRes
   if (checked.intra_hwp && intraHwpRes) drillAiData.intra_hwp = intraHwpRes
   if (checked.weak_strong && weakStrongRes) drillAiData.weak_strong = weakStrongRes
+  if (checked.sma_20_200 && sma20200Res) drillAiData.sma_20_200 = sma20200Res
   if (checked.copy_trade && copyTradeRes) drillAiData.copy_trade = copyTradeRes
   if (checked.upgrade_downgrade && ud) drillAiData.upgrade_downgrade = ud
   if (checked.fundamentals && fa) drillAiData.fundamentals = fa
@@ -1640,6 +1787,9 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.weak_strong} onChange={() => toggle('weak_strong')} />↔️ Weak / Strong
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.sma_20_200} onChange={() => toggle('sma_20_200')} />📉 200SMA-20SMA
         </label>
         <label className="flex items-center gap-1.5 text-xs text-slate-300">
           <input type="checkbox" checked={checked.copy_trade} onChange={() => toggle('copy_trade')} />🚀 Copy Trade
@@ -1971,6 +2121,36 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                     <WeakStrongPlaybookCard label="🎯 Scalping" plan={weakStrongRes.scalp_plan as Row | undefined} />
                     <WeakStrongPlaybookCard label="📈 Swing" plan={weakStrongRes.swing_plan as Row | undefined} />
                   </div>
+                </div>
+              )
+            ) : null
+          )}
+
+          {checked.sma_20_200 && (
+            sma20200Mut.isPending ? <p className="text-xs text-slate-500">Checking 200 SMA trend filter + 20 SMA bounce/rejection…</p> :
+            sma20200Mut.isError ? <p className="text-xs text-rose-400">200SMA-20SMA failed: {apiErrorMessage(sma20200Mut.error)}</p> :
+            sma20200Res ? (
+              sma20200Res.error != null ? (
+                <p className="text-xs text-slate-500">Unavailable — {String(sma20200Res.error)}</p>
+              ) : (
+                <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                  <p className="font-semibold text-white">📉 200SMA-20SMA — Bounce &amp; Rejection</p>
+                  <p className="text-xs text-slate-400">
+                    {String(((sma20200Res.live as Row)?.verdict) ?? 'WAIT')}
+                    {' · '}{fmtNum(((sma20200Res.live as Row)?.confidence_pct), 0)}% confidence
+                    {' · price '}{fmtNum(sma20200Res.price, 4)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    20 SMA <strong>{fmtNum((sma20200Res.live as Row)?.sma_fast, 4)}</strong> · 200 SMA <strong>{fmtNum((sma20200Res.live as Row)?.sma_slow, 4)}</strong> · signals in window: <strong>{String(sma20200Res.signal_count ?? 0)}</strong>
+                  </p>
+                  {(((sma20200Res.live as Row)?.reasons as string[]) ?? []).map((rr, i) => <p key={i} className="text-xs text-slate-500">· {rr}</p>)}
+                  {(sma20200Res.live as Row)?.entry_price != null && (
+                    <p className="text-xs text-slate-400">
+                      Entry: <strong>{fmtNum((sma20200Res.live as Row).entry_price, 4)}</strong>
+                      {' · '}Stop: <strong>{fmtNum((sma20200Res.live as Row).stop_price, 4)}</strong> ({fmtNum((sma20200Res.live as Row).sl_pct, 2)}%)
+                      {' · '}Target: <strong>{fmtNum((sma20200Res.live as Row).target_price, 4)}</strong> ({fmtNum((sma20200Res.live as Row).tp_pct, 2)}%)
+                    </p>
+                  )}
                 </div>
               )
             ) : null
@@ -3071,17 +3251,20 @@ function CoinDcxTile({ row }: { row: Row }) {
 
   return (
     <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800/60 bg-slate-900/40 shadow-sm">
-      <div className="flex min-h-[112px] flex-col justify-between p-2.5" style={{ background: bg, color: fg }}>
+      <div className="flex min-h-[128px] flex-col justify-between p-2.5" style={{ background: bg, color: fg }}>
         <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
         <div>
           <div className="text-[10px] opacity-85">Ticker name</div>
           <div className="text-sm font-bold leading-tight">{String(row.ticker ?? '—')}</div>
+          <div className="text-sm font-semibold">LTP {fmtNum(row.price, 4)}</div>
         </div>
         <div className="text-[10px] leading-relaxed">
           High {fmtNum(row.high, 4)}<br />Low {fmtNum(row.low, 4)}<br />Vol {fmtVol(row.vol)}
         </div>
       </div>
       <div className="space-y-1.5 p-2">
+        <DayBiasNote bias={row.day_bias as Row | undefined} />
+        <DayBiasRecalculator ticker={apiSymbol} assetClass="crypto" defaultTimeframe="1h" />
         <div className="flex flex-wrap gap-1">
           {HEATMAP_TIMEFRAME_OPTIONS.map((tf) => (
             <Chip key={tf} selected={timeframes.includes(tf)} onClick={() => toggleTf(tf)}>{tf}</Chip>
@@ -3152,17 +3335,24 @@ function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
 
 const HEATMAP_TIMEFRAME_OPTIONS = ['5m', '15m', '1h', '4h', '1d', '1w']
 
-function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string }) {
+const HEATMAP_CURRENCY_PREFIX: Record<string, string> = { india: '₹ ', us: '$ ', crypto: '' }
+
+function IndiaMarketHeatmapTile({ row, exchange, assetClass }: { row: Row; exchange: string; assetClass: 'india' | 'us' | 'crypto' }) {
   const ticker = String(row.ticker ?? '—')
   const { bg, fg } = heatmapTileStyle(row.change_pct as number | null, 6)
   const pct = row.change_pct as number | null
   const price = row.price as number | null
+  const dayHigh = row.day_high as number | null
+  const dayLow = row.day_low as number | null
   const [timeframes, setTimeframes] = useState<string[]>(['1d'])
   const mut = useMutation({
-    mutationFn: () => runWeakStrong({ tickers: [ticker], asset_class: 'india', timeframes, exchange }),
+    mutationFn: () => runWeakStrong({ tickers: [ticker], asset_class: assetClass, timeframes, exchange }),
   })
   const tsMut = useMutation({
-    mutationFn: () => runTradeSetup({ tickers: [ticker], asset_class: 'india', timeframes, exchange }),
+    mutationFn: () => runTradeSetup({ tickers: [ticker], asset_class: assetClass, timeframes, exchange }),
+  })
+  const qaMut = useMutation({
+    mutationFn: () => runQuickAnalyzer({ tickers: [ticker], timeframes, asset_class: assetClass }),
   })
   const result = mut.data as Row | undefined
   const strong = (result?.strong as Row[]) ?? []
@@ -3170,6 +3360,7 @@ function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string 
   const neutral = (result?.neutral as Row[]) ?? []
   const errors = (result?.errors as Row[]) ?? []
   const tsResult = ((tsMut.data as Row | undefined)?.results as Row[] | undefined)?.[0]
+  const qaResult = ((qaMut.data as Row | undefined)?.results as Row[] | undefined)?.[0]
 
   const toggleTf = (tf: string) => {
     setTimeframes((prev) => (prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]))
@@ -3184,9 +3375,17 @@ function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string 
           <div className="text-sm font-bold leading-tight">{ticker}</div>
           <div className="truncate text-[10px] opacity-85" title={String(row.company ?? '')}>{String(row.company ?? '')}</div>
         </div>
-        <div className="text-sm font-semibold">{price != null ? `₹ ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</div>
+        <div className="text-sm font-semibold">{price != null ? `${HEATMAP_CURRENCY_PREFIX[assetClass] ?? ''}${Number(price).toLocaleString(undefined, { maximumFractionDigits: 4 })}` : '—'}</div>
+        {(dayHigh != null || dayLow != null) && (
+          <div className="text-[10px] opacity-85">
+            H {dayHigh != null ? Number(dayHigh).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
+            {' · '}L {dayLow != null ? Number(dayLow).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
+          </div>
+        )}
       </div>
       <div className="space-y-1.5 p-2">
+        <DayBiasNote bias={row.day_bias as Row | undefined} />
+        <DayBiasRecalculator ticker={ticker} assetClass={assetClass} exchange={exchange} defaultTimeframe="1d" />
         <div className="flex flex-wrap gap-1">
           {HEATMAP_TIMEFRAME_OPTIONS.map((tf) => (
             <Chip key={tf} selected={timeframes.includes(tf)} onClick={() => toggleTf(tf)}>{tf}</Chip>
@@ -3209,6 +3408,14 @@ function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string 
           >
             {tsMut.isPending ? 'Scanning…' : '📊 Overbought/Oversold'}
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={ticker === '—' || !timeframes.length || qaMut.isPending}
+            onClick={() => qaMut.mutate()}
+          >
+            {qaMut.isPending ? 'Scanning…' : '⚡ Quick Analyzer'}
+          </Button>
         </div>
         {mut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(mut.error)}</p> : null}
         {result ? (
@@ -3221,12 +3428,14 @@ function IndiaMarketHeatmapTile({ row, exchange }: { row: Row; exchange: string 
         ) : null}
         {tsMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(tsMut.error)}</p> : null}
         {tsResult ? <TradeSetupMiniResult result={tsResult} /> : null}
+        {qaMut.isError ? <p className="text-xs text-rose-400">{apiErrorMessage(qaMut.error)}</p> : null}
+        {qaResult ? <QuickAnalyzerMiniResult result={qaResult} /> : null}
       </div>
     </div>
   )
 }
 
-function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
+function IndiaMarketHeatmapPanel({ data, assetClass }: { data: Row; assetClass: 'india' | 'us' | 'crypto' }) {
   const rows = (data.rows as Row[]) ?? []
   const exchange = String(data.exchange ?? 'NSE')
   if (!rows.length) return <p className="text-sm text-slate-500">No data returned for this index right now.</p>
@@ -3236,7 +3445,7 @@ function IndiaMarketHeatmapPanel({ data }: { data: Row }) {
       <p className="text-sm text-slate-400">{String(data.index_name ?? '—')} — {rows.length} stocks</p>
       <AdvanceDecline rows={rows} pctKey="change_pct" />
       <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
-        {rows.map((r, i) => <IndiaMarketHeatmapTile key={i} row={r} exchange={exchange} />)}
+        {rows.map((r, i) => <IndiaMarketHeatmapTile key={i} row={r} exchange={exchange} assetClass={assetClass} />)}
       </div>
     </div>
   )
@@ -3972,7 +4181,7 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
     case 'option_chain':
       return <OptionChainPanel data={data} />
     case 'india_market_heatmap':
-      return <IndiaMarketHeatmapPanel data={data} />
+      return <IndiaMarketHeatmapPanel data={data} assetClass={assetClass === 'us' || assetClass === 'crypto' ? assetClass : 'india'} />
     case 'nse_world_indices':
       return <NseWorldIndicesPanel data={data} />
     case 'coindcx_24h_volatility':
@@ -3995,6 +4204,8 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
       return <WeakStrongPanel data={data} />
     case 'copy_trade':
       return <CopyTradePanel data={data} />
+    case 'sma_20_200':
+      return <Sma20200Panel data={data} assetClass={assetClass ?? 'india'} />
     case 'take_trade':
       return <TakeTradePanel data={data} />
     case 'ema_position':

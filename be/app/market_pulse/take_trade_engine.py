@@ -36,6 +36,8 @@ from app.market_pulse.one_click_common import (
 from app.market_pulse.option_chain_engine import classify_option_chain_signal, fetch_option_chain
 from app.market_pulse.pattern_engine import analyze_ticker as pattern_analyze_ticker
 from app.market_pulse.quick_analyzer_engine import analyze_quick, detect_breakout_breakdown
+from app.market_pulse.sma_20_200_engine import Sma20200Config
+from app.market_pulse.sma_20_200_engine import analyze_ticker as sma_20_200_analyze_ticker
 from app.market_pulse.stock_upgrade_downgrade_engine import scan_ticker as scan_upgrade_downgrade_ticker
 from app.market_pulse.stop_hunt_engine import analyze_ticker as stop_hunt_analyze_ticker
 from app.market_pulse.take_profit_engine import analyze_ticker as take_profit_analyze_ticker
@@ -269,6 +271,11 @@ def analyze_ticker(
 
     ws_res = analyze_weak_strong_one(ticker, timeframe, market, groww_token=groww_token, exchange=exchange)
     votes.append(vote_from_live_schema("Weak / Strong", ws_res))
+
+    sma_res = sma_20_200_analyze_ticker(
+        ticker, market, timeframe, cfg=Sma20200Config(), groww_token=groww_token, exchange=exchange,
+    )
+    votes.append(vote_from_live_schema("200SMA-20SMA", sma_res))
 
     ud_res = scan_upgrade_downgrade_ticker(ticker, market, max_items=8)
     votes.append(_vote_from_upgrade_downgrade(ud_res))

@@ -177,3 +177,66 @@ def fetch_heatmap(symbol: str, filter_period: str = "1D") -> list[dict[str, Any]
         })
     out.sort(key=lambda r: (r.get("change_pct") if r.get("change_pct") is not None else -999), reverse=True)
     return out
+
+
+def fetch_heatmap_for_tickers(
+    tickers: list[str], market: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> list[dict[str, Any]]:
+    """Heatmap-shaped rows for an arbitrary ticker list ("High Vol ETF", "Custom")
+    that has no tradebrains index/sector code of its own — each ticker's live
+    quote (fetched concurrently) already carries price, change_pct, day_high/
+    day_low, and a multi-factor day_bias, so no separate enrichment pass is
+    needed afterward."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from app.market_pulse.live_price import get_last_traded_price
+
+    out: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=15) as pool:
+        futures = {
+            pool.submit(get_last_traded_price, t, market, groww_token=groww_token, exchange=exchange): t
+            for t in tickers
+        }
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                quote = future.result()
+            except Exception as exc:
+                logger.debug("Heatmap quote failed for %s: %s", ticker, exc)
+                continue
+            price = quote.get("price")
+            if not price:
+                continue
+            change_pct = quote.get("change_pct")
+            change_abs = None
+            if change_pct is not None and (1 + change_pct / 100) != 0:
+                change_abs = price - price / (1 + change_pct / 100)
+            out.append({
+                "ticker": ticker,
+                "company": ticker,
+                "price": price,
+                "change_abs": round(change_abs, 4) if change_abs is not None else None,
+                "change_pct": change_pct,
+                "day_high": quote.get("day_high"),
+                "day_low": quote.get("day_low"),
+                "day_bias": quote.get("day_bias"),
+            })
+
+    out.sort(key=lambda r: (r.get("change_pct") if r.get("change_pct") is not None else -999), reverse=True)
+    return out
+
+
+def fetch_heatmap_all_crypto() -> list[dict[str, Any]]:
+    """Heatmap-shaped rows for every CoinDCX USDT-margined pair, reusing the
+    same single bulk call (and its already-computed day_bias) that "24Hrs
+    Volatile Crypto" is built on — no per-ticker fetches needed."""
+    from app.market_pulse.coindcx_24h_volatility_engine import fetch_change_24h
+
+    return [
+        {
+            "ticker": r["ticker"], "company": r["ticker"], "price": r.get("price"),
+            "change_abs": None, "change_pct": r.get("percent_change"),
+            "day_high": r.get("high"), "day_low": r.get("low"), "day_bias": r.get("day_bias"),
+        }
+        for r in fetch_change_24h()
+    ]

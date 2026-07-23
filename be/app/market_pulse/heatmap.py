@@ -431,6 +431,8 @@ def fetch_coindcx_futures_snapshot() -> list[dict]:
                 "change": change,
                 "volume": volume,
                 "range_pct": range_pct,
+                "high": hi if hi > 0 else None,
+                "low": lo if lo > 0 else None,
             })
         return rows
     except Exception as exc:
