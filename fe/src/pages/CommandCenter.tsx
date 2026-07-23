@@ -78,7 +78,7 @@ const TABS = [
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
   { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
   { id: 'option_chain', label: 'Option Chain', icon: Link2 },
-  { id: 'india_market_heatmap', label: 'Indian Market Heatmap', icon: Grid3x3 },
+  { id: 'india_market_heatmap', label: 'IN-US-Crypto Market Heatmap', icon: Grid3x3 },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
   { id: 'quick_analyzer', label: 'Quick Analyzer', icon: Zap },
