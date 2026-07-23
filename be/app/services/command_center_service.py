@@ -810,7 +810,7 @@ class CommandCenterService:
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},
                 {"id": "mega_setup_advisor", "label": "Mega Setup Advisor"},
                 {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
-                {"id": "india_market_heatmap", "label": "Indian Market Heatmap"},
+                {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
                 {"id": "quick_analyzer", "label": "Quick Analyzer (India · US · Crypto)"},
