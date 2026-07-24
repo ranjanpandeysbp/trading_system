@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, TrendingDown, TrendingUp } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   apiErrorMessage,
   runDayBias,
@@ -3817,6 +3818,370 @@ function OptionChainPanel({ data }: { data: Row }) {
   )
 }
 
+const OSL_DIRECTION_BADGE: Record<string, string> = { UP: '🟢 UP', DOWN: '🔴 DOWN', NEUTRAL: '🟡 NEUTRAL' }
+const OSL_ACTION_BADGE: Record<string, string> = {
+  BUY_CALL: '🟢 BUY CALL', BUY_PUT: '🔴 BUY PUT', SELL_CALL: '🟠 SELL CALL', SELL_PUT: '🟠 SELL PUT',
+}
+const OSL_RISK_DISCLAIMER = (
+  'This is a heuristic confluence read across options positioning and price action — it is NOT a statistical '
+  + 'probability of profit and there is NO such thing as a zero-risk options trade. Buying a call/put has a '
+  + 'defined max loss (the premium paid); selling a call/put carries open-ended risk beyond the stated stop '
+  + 'unless you also buy a further OTM option to cap it (turning it into a credit spread). Always size positions '
+  + 'so the stated stop-loss is a loss you can absorb. Research / education only — NOT FINANCIAL ADVICE.'
+)
+
+/** Payoff P&L chart with collision-avoiding marker labels: nearby Spot/Strike/
+ * Stop/Target/Breakeven lines get stacked into different vertical lanes
+ * instead of rendering their text at the same height (which is what made the
+ * source Streamlit/Plotly version unreadable when levels sit close together). */
+function PayoffChart({ payoff, plan, spot }: { payoff: Row; plan: Row; spot: number | null }) {
+  const xs = (payoff.x as number[]) ?? []
+  const expiryPnl = (payoff.expiry_pnl as number[]) ?? []
+  const nowPnl = (payoff.now_pnl as number[]) ?? []
+  const breakeven = payoff.breakeven as number | null
+  if (!xs.length || xs.length !== expiryPnl.length) return null
+
+  const width = 700
+  const height = 360
+  const padL = 52
+  const padR = 16
+  const padT = 94
+  const padB = 28
+  const chartW = width - padL - padR
+  const chartH = height - padT - padB
+
+  const xMin = xs[0]
+  const xMax = xs[xs.length - 1]
+  const allPnl = [...expiryPnl, ...nowPnl, 0]
+  const yMinRaw = Math.min(...allPnl)
+  const yMaxRaw = Math.max(...allPnl)
+  const yPad = (yMaxRaw - yMinRaw) * 0.1 || 1
+  const yLo = yMinRaw - yPad
+  const yHi = yMaxRaw + yPad
+
+  const xScale = (v: number) => padL + ((v - xMin) / (xMax - xMin || 1)) * chartW
+  const yScale = (v: number) => padT + chartH - ((v - yLo) / (yHi - yLo || 1)) * chartH
+  const pathFor = (values: number[]) => values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xScale(xs[i]).toFixed(1)} ${yScale(v).toFixed(1)}`).join(' ')
+  const zeroY = yScale(0)
+
+  const isBuy = Boolean(plan.is_buy)
+  const lineColor = isBuy ? '#22c55e' : '#f97316'
+  const fillColor = isBuy ? 'rgba(34,197,94,0.10)' : 'rgba(249,115,22,0.10)'
+  const areaPath = `${pathFor(expiryPnl)} L ${xScale(xMax).toFixed(1)} ${zeroY.toFixed(1)} L ${xScale(xMin).toFixed(1)} ${zeroY.toFixed(1)} Z`
+
+  type Marker = { key: string; label: string; price: number; color: string }
+  const rawMarkers: Marker[] = []
+  if (spot != null) rawMarkers.push({ key: 'spot', label: 'Spot', price: spot, color: '#e2e8f0' })
+  if (plan.strike != null) rawMarkers.push({ key: 'strike', label: 'Strike', price: Number(plan.strike), color: '#a78bfa' })
+  if (plan.stop_underlying != null) rawMarkers.push({ key: 'stop', label: 'Stop', price: Number(plan.stop_underlying), color: '#ef4444' })
+  if (plan.target_underlying != null) rawMarkers.push({ key: 'target', label: 'Target', price: Number(plan.target_underlying), color: '#22c55e' })
+  if (breakeven != null) rawMarkers.push({ key: 'breakeven', label: 'Breakeven', price: breakeven, color: '#facc15' })
+
+  const sortedMarkers = [...rawMarkers].sort((a, b) => a.price - b.price)
+  // One lane per marker (≤5 here) guarantees every label gets its own row —
+  // with a lane count below the marker count, tightly clustered levels (e.g.
+  // a near-ATM low-premium trade where Spot/Strike/Stop/Target/Breakeven all
+  // sit within a hair of each other) could still be forced to share a lane
+  // and collide; sizing lanes to the marker count rules that out entirely.
+  const numLanes = Math.max(1, sortedMarkers.length)
+  const laneLastPx = new Array(numLanes).fill(-Infinity)
+  const minGapPx = 56
+  const placed = sortedMarkers.map((m) => {
+    const px = xScale(m.price)
+    let lane = laneLastPx.findIndex((lastPx) => px - lastPx >= minGapPx)
+    if (lane === -1) lane = laneLastPx.indexOf(Math.min(...laneLastPx))
+    laneLastPx[lane] = px
+    return { ...m, px, lane }
+  })
+  const laneY = Array.from({ length: numLanes }, (_, i) => (padT - 8) - (numLanes - 1 - i) * 15)
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+      <p className="mb-1 text-sm font-semibold text-white">
+        Payoff — {String(plan.action ?? '').replace(/_/g, ' ')} {fmtNum(plan.strike, 0)} ({String(plan.expiry ?? '')})
+      </p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ maxHeight: height }}>
+        <line x1={padL} y1={zeroY} x2={width - padR} y2={zeroY} stroke="#475569" strokeWidth={1} />
+        <path d={areaPath} fill={fillColor} stroke="none" />
+        <path d={pathFor(expiryPnl)} fill="none" stroke={lineColor} strokeWidth={2.5} />
+        <path d={pathFor(nowPnl)} fill="none" stroke="#38bdf8" strokeWidth={1.75} strokeDasharray="3,3" />
+
+        {placed.map((m) => (
+          <g key={m.key}>
+            <line x1={m.px} y1={padT - 4} x2={m.px} y2={height - padB} stroke={m.color} strokeWidth={1} strokeDasharray="4,3" opacity={0.85} />
+            <text x={m.px} y={laneY[m.lane]} fill={m.color} fontSize={10.5} textAnchor="middle" fontWeight={600}>{m.label}</text>
+          </g>
+        ))}
+
+        <text x={padL - 8} y={yScale(yHi) + 4} fill="#94a3b8" fontSize={10} textAnchor="end">{yHi.toFixed(0)}</text>
+        <text x={padL - 8} y={zeroY + 4} fill="#94a3b8" fontSize={10} textAnchor="end">0</text>
+        <text x={padL - 8} y={yScale(yLo) + 4} fill="#94a3b8" fontSize={10} textAnchor="end">{yLo.toFixed(0)}</text>
+        <text x={padL} y={height - 8} fill="#94a3b8" fontSize={10} textAnchor="start">{xMin.toFixed(0)}</text>
+        <text x={width - padR} y={height - 8} fill="#94a3b8" fontSize={10} textAnchor="end">{xMax.toFixed(0)}</text>
+      </svg>
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-slate-400">
+        <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-3" style={{ background: '#38bdf8' }} />P&amp;L right now</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-3" style={{ background: lineColor }} />P&amp;L at expiry</span>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">
+        Dotted blue = mark-to-market P&amp;L if price moves right now (time value intact). Solid line = P&amp;L if held to
+        expiry (pure intrinsic value). Model estimate, not a live quote.
+      </p>
+    </div>
+  )
+}
+
+function OiByStrikeBars({ rows }: { rows: Row[] }) {
+  if (!rows.length) return null
+  const data = rows.map((r) => ({
+    strike: String(r.strike ?? ''),
+    callOi: Number(r.ce_oi ?? 0),
+    putOi: -(Number(r.pe_oi ?? 0)),
+  }))
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+      <p className="mb-2 text-sm font-semibold text-white">Open Interest by strike — Call OI (resistance) vs Put OI (support)</p>
+      <div style={{ width: '100%', height: 280 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="strike" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} />
+            <Bar dataKey="callOi" name="Call OI" fill="#ef4444" />
+            <Bar dataKey="putOi" name="Put OI" fill="#22c55e" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+function OslActionCard({ result }: { result: Row }) {
+  const direction = String(result.direction ?? 'NEUTRAL')
+  const action = result.action as string | undefined
+  const plan = result.trade_plan as Row | undefined
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-4">
+      <p className="text-lg font-bold">
+        <span className={verdictClass(direction)}>{OSL_DIRECTION_BADGE[direction] ?? direction}</span>
+        {' · '}{fmtNum(result.confidence_pct, 1)}% confidence
+      </p>
+
+      {!action || !plan ? (
+        <p className="mt-2 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-300">
+          🟡 WAIT — no clear confluence either way today. No trade suggested for this symbol.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-lg font-bold text-white sm:text-xl">
+            {OSL_ACTION_BADGE[action] ?? action} — {String(result.symbol ?? '')} {fmtNum(plan.strike, 0)} {String(plan.side ?? '').toUpperCase()}
+            {' · Expiry '}<span className="text-blue-300">{String(plan.expiry ?? '')}</span>
+          </p>
+          {result.switched_expiry ? (
+            <p className="text-xs text-slate-500">⏭️ Nearest expiry had &lt;2 trading days left — automatically rolled to the next listed expiry.</p>
+          ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Entry premium" value={`₹${fmtNum(plan.premium, 2)}`} />
+            <StatCard label="Stop-loss (premium)" value={`₹${fmtNum(plan.stop_premium, 2)}`} />
+            <StatCard label="Take-profit (premium)" value={`₹${fmtNum(plan.target_premium, 2)}`} />
+            <StatCard label="Reward : Risk" value={`${fmtNum(plan.reward_risk_ratio, 2)} : 1`} />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Spot" value={fmtNum(result.spot, 2)} />
+            <StatCard label="Stop ~ underlying" value={fmtNum(plan.stop_underlying, 1)} />
+            <StatCard label="Target ~ underlying" value={fmtNum(plan.target_underlying, 1)} />
+            <StatCard label="Days to expiry" value={String(plan.days_to_expiry ?? '—')} />
+          </div>
+          <p className={`mt-3 rounded-lg p-3 text-xs ${plan.is_buy ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
+            {plan.is_buy ? '✅ ' : '⚠️ '}{String(plan.max_loss_note ?? '')}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function OslSupportingMetrics({ result }: { result: Row }) {
+  const buildup = (result.buildup as Row) ?? {}
+  const premium = (result.premium as Row) ?? {}
+  const skew = (result.skew as Row) ?? {}
+  const volEnv = (result.vol_environment as Row) ?? {}
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Price chg (1d)" value={result.price_chg_pct != null ? `${fmtNum(result.price_chg_pct, 2)}%` : '—'} />
+        <StatCard label="PCR (OI)" value={fmtNum(result.pcr_oi, 2)} />
+        <StatCard label="Max Pain" value={fmtNum(result.max_pain, 0)} />
+        <StatCard label="OI Buildup" value={String(buildup.label ?? '—')} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Support" value={fmtNum(result.support, 0)} />
+        <StatCard label="Resistance" value={fmtNum(result.resistance, 0)} />
+        <StatCard label="Synthetic Fut Premium" value={premium.available ? `${fmtNum(premium.premium_pct, 2)}%` : '—'} />
+        <StatCard label="IV Skew (Put−Call)" value={skew.available ? `${fmtNum(skew.skew, 1)}pt` : '—'} />
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        <strong className="text-slate-400">IV environment:</strong> {String(volEnv.label ?? '—')} ({String(volEnv.source ?? '—')}) — {String(volEnv.reason ?? '')}
+      </p>
+    </div>
+  )
+}
+
+function OslReasons({ result }: { result: Row }) {
+  const [open, setOpen] = useState(false)
+  const reasons = (result.reasons as string[]) ?? []
+  if (!reasons.length) return null
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-white">
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} 🔍 Why this signal — every contributing factor
+      </button>
+      {open && (
+        <div className="space-y-1 border-t border-slate-800/60 px-3 py-2">
+          {reasons.map((r, i) => (
+            <p key={i} className={r.startsWith('  ') ? 'pl-4 text-xs text-slate-500' : 'text-xs text-slate-300'}>
+              {r.startsWith('  ') ? r.trim() : `• ${r}`}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OptionShortLongStrategyExplainer() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-white">
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} 📖 What this shows
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-slate-800/60 px-3 py-3 text-xs text-slate-300">
+          <p>Pick one or more indices or stocks, hit Analyze, and get one combined options-trade recommendation per symbol built from six independent reads:</p>
+          <ul className="list-disc space-y-1 pl-4">
+            <li><strong className="text-white">Options chain bias</strong> — PCR, fresh OI tilt, OI-wall support/resistance, max-pain pull (Bullish/Bearish/Neutral)</li>
+            <li><strong className="text-white">OI Buildup</strong> — Long Buildup / Short Buildup / Short Covering / Long Unwinding — price change × OI change (an options-OI proxy — no separate NSE futures-OI feed is wired into this app)</li>
+            <li><strong className="text-white">Premium / Discount</strong> — synthetic futures price via Put-Call Parity (Spot + ATM Call − ATM Put) — contango (premium) = bullish carry, backwardation (discount) = bearish carry</li>
+            <li><strong className="text-white">IV Skew</strong> — ATM Put IV vs Call IV — an outsized gap flags elevated hedging demand (or unusual melt-up speculation)</li>
+            <li><strong className="text-white">Momentum &amp; structure</strong> — trend/ADX/breakout (momentum engine) + Smart Money BOS/CHoCH structure bias</li>
+            <li><strong className="text-white">IV environment</strong> — real India VIX / realized-vol percentile — decides whether to buy premium (cheap) or sell premium (rich)</li>
+          </ul>
+          <p>These combine into a signed confluence score → <strong className="text-white">UP / DOWN / NEUTRAL</strong> direction with a confidence %, then a specific action:</p>
+          <ul className="list-disc space-y-1 pl-4">
+            <li><strong className="text-emerald-400">Direction UP + IV cheap</strong> → BUY CALL (defined risk: max loss = premium paid)</li>
+            <li><strong className="text-amber-400">Direction UP + IV rich</strong> → SELL PUT (collects rich premium; undefined risk below the strike unless capped with a further OTM put)</li>
+            <li><strong className="text-rose-400">Direction DOWN + IV cheap</strong> → BUY PUT</li>
+            <li><strong className="text-amber-400">Direction DOWN + IV rich</strong> → SELL CALL (same undefined-risk caveat)</li>
+            <li><strong className="text-slate-400">NEUTRAL</strong> → WAIT, no trade suggested</li>
+          </ul>
+          <p>
+            Expiry is the nearest listed one unless fewer than 2 trading days remain (gamma/theta/spread risk near expiry),
+            in which case it automatically rolls to the next listed expiry. Strike is chosen by target delta (~0.40 when
+            buying, ~0.20 when selling). Stop-loss and take-profit are given both as an option-premium level and an
+            approximate underlying level (Black-Scholes-implied, assuming roughly half the remaining time has passed).
+          </p>
+          <p className="text-amber-400">
+            No confidence % here is a guarantee, and no options trade — bought or sold — has zero risk. Buying options caps
+            risk at the premium paid; selling options is open-ended unless converted to a spread. Live snapshot.
+            Research / education only — NOT FINANCIAL ADVICE.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OptionShortLongExpirySection({ merged, defaultOpen }: { merged: Row; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  if (!merged.ok) {
+    return (
+      <Alert type="error">
+        ⚠️ {String(merged.expiry ?? 'This expiry')}: {String(merged.error ?? "Could not fetch this expiry's option chain.")}
+      </Alert>
+    )
+  }
+  const plan = merged.trade_plan as Row | undefined
+  const payoff = merged.payoff as Row | undefined
+  const action = merged.action as string | undefined
+  const direction = String(merged.direction ?? 'NEUTRAL')
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-800/30"
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{String(merged.expiry ?? '—')}</span>
+        <span className="text-sm text-slate-400">
+          <span className={verdictClass(direction)}>{OSL_DIRECTION_BADGE[direction] ?? direction}</span>
+          {' · '}{fmtNum(merged.confidence_pct, 0)}% confidence
+          {action ? <> · <span className="font-medium text-white">{OSL_ACTION_BADGE[action] ?? action}</span>{plan ? ` ${fmtNum(plan.strike, 0)} ${String(plan.side ?? '').toUpperCase()}` : ''}</> : ' · WAIT'}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-slate-800/60 p-3">
+          <OslActionCard result={merged} />
+          {plan && payoff ? <PayoffChart payoff={payoff} plan={plan} spot={merged.spot as number | null} /> : null}
+          <OslSupportingMetrics result={merged} />
+          <OiByStrikeBars rows={(merged.oi_strikes as Row[]) ?? []} />
+          <OslReasons result={merged} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OptionShortLongResult({ result }: { result: Row }) {
+  if (!result.ok) {
+    return (
+      <Alert type="error">
+        ⚠️ Could not fetch full option-chain/price data for <strong>{String(result.symbol ?? '')}</strong> right now —
+        NSE may be rate-limiting or the symbol may not have listed F&amp;O contracts. Try again in a moment.
+      </Alert>
+    )
+  }
+  const byExpiry = (result.by_expiry as Row[]) ?? []
+  return (
+    <div className="space-y-3">
+      {byExpiry.length === 0 ? (
+        <p className="text-sm text-slate-500">No expiry data returned for this symbol.</p>
+      ) : (
+        byExpiry.map((e, i) => (
+          <OptionShortLongExpirySection key={i} merged={{ ...result, ...e }} defaultOpen={i === 0} />
+        ))
+      )}
+      <p className="text-xs text-slate-600">{OSL_RISK_DISCLAIMER}</p>
+    </div>
+  )
+}
+
+function OptionShortLongPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const [activeIdx, setActiveIdx] = useState(0)
+  if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
+  const active = results[Math.min(activeIdx, results.length - 1)]
+
+  return (
+    <div className="space-y-4">
+      <OptionShortLongStrategyExplainer />
+      {results.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {results.map((r, i) => (
+            <Chip key={i} selected={activeIdx === i} onClick={() => setActiveIdx(i)}>{String(r.symbol ?? `#${i + 1}`)}</Chip>
+          ))}
+        </div>
+      )}
+      <h4 className="text-sm font-semibold text-white">{String(active?.symbol ?? '—')}</h4>
+      <OptionShortLongResult result={active} />
+    </div>
+  )
+}
+
 const _SETUP_BADGE: Record<string, string> = { LONG: '🟢 LONG', SHORT: '🔴 SHORT', NEUTRAL: '🟡 NEUTRAL' }
 
 function EmaSmaIndicatorTables({ snap }: { snap: Row }) {
@@ -4180,6 +4545,8 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
       return <MegaSetupAdvisorPanel data={data} />
     case 'option_chain':
       return <OptionChainPanel data={data} />
+    case 'option_short_long':
+      return <OptionShortLongPanel data={data} />
     case 'india_market_heatmap':
       return <IndiaMarketHeatmapPanel data={data} assetClass={assetClass === 'us' || assetClass === 'crypto' ? assetClass : 'india'} />
     case 'nse_world_indices':

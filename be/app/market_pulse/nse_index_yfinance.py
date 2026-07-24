@@ -32,6 +32,9 @@ BROKEN_YF_INDEX_TICKERS: frozenset[str] = frozenset({
     "^CNXMOBILITY",
     "^CNXHOUSING",
     "^CNXOILGAS",
+    "NIFTYMSL.NS",
+    # Only ~1 row of history on Yahoo regardless of period requested
+    "^CNXFIN",
     # Invented heuristics — never valid on Yahoo
     "^NIFTYCEMENT",
     "^CNXNIFTYCEMENT",
@@ -112,11 +115,13 @@ NSE_INDEX_YF_TICKERS: dict[str, str] = {
     "NIFTY 50 EQUAL WEIGHT": "50EQUAL.NS",
     "NIFTY DIVIDEND OPPORTUNITIES 50": "DIVOPPBEES.NS",
     # --- Additional indices (ETF / alternate Yahoo symbols) ---
-    "NIFTY FINANCIAL SERVICES": "^CNXFIN",
-    "NIFTY FIN SERVICE": "^CNXFIN",
+    "NIFTY FINANCIAL SERVICES": "NIFTY_FIN_SERVICE.NS",
+    "NIFTY FIN SERVICE": "NIFTY_FIN_SERVICE.NS",
     "NIFTY MIDCAP 150": "NIFTYMIDCAP150.NS",
-    "NIFTY MIDCAP SELECT": "NIFTYMSL.NS",
-    "NIFTY MID SELECT": "NIFTYMSL.NS",
+    # NIFTYMSL.NS 404s on Yahoo (delisted/never existed there) — ^NSEMDCP50
+    # (Nifty Midcap 50) is the closest liquid, verified proxy with real volume.
+    "NIFTY MIDCAP SELECT": "^NSEMDCP50",
+    "NIFTY MID SELECT": "^NSEMDCP50",
     "NIFTY SMALLCAP 50": "NIFTYSMLCAP50.NS",
     "NIFTY SMALLCAP 250": "NIFTYSMALLCAP250.NS",
     "NIFTY LARGEMIDCAP 250": "NIFTYLARGEMID250.NS",
@@ -218,9 +223,9 @@ GROWW_INDEX_SYMBOL_TO_YF: dict[str, str] = {
     "NIFTYJR": "^NSMIDCP",
     "NIFTYNEXT50": "^NSMIDCP",
     "NIFTYIT": "^CNXIT",
-    "FINNIFTY": "^CNXFIN",
-    "NIFTYFIN": "^CNXFIN",
-    "NIFTYFINSERVICE": "^CNXFIN",
+    "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
+    "NIFTYFIN": "NIFTY_FIN_SERVICE.NS",
+    "NIFTYFINSERVICE": "NIFTY_FIN_SERVICE.NS",
     "NIFTYAUTO": "^CNXAUTO",
     "NIFTYFMCG": "^CNXFMCG",
     "NIFTYMETAL": "^CNXMETAL",
@@ -242,8 +247,8 @@ GROWW_INDEX_SYMBOL_TO_YF: dict[str, str] = {
     "NIFTYSMALLCAP250": "NIFTYSMALLCAP250.NS",
     "NIFTYSML250": "NIFTYSMALLCAP250.NS",
     "NIFTYSMLCAP250": "NIFTYSMALLCAP250.NS",
-    "MIDCPNIFTY": "NIFTYMSL.NS",
-    "MIDCP": "NIFTYMSL.NS",
+    "MIDCPNIFTY": "^NSEMDCP50",
+    "MIDCP": "^NSEMDCP50",
 }
 
 # Human-readable labels for live market ticker strip (news scanner)
@@ -408,7 +413,7 @@ def index_yf_candidates(index_name: str) -> list[str]:
     key = (index_name or "").strip().upper().removesuffix(".NS")
     if key in GROWW_INDEX_SYMBOL_TO_YF:
         sym = GROWW_INDEX_SYMBOL_TO_YF[key]
-        if sym:
+        if sym and sym not in BROKEN_YF_INDEX_TICKERS:
             return [sym]
 
     if index_requires_constituent_proxy(name):

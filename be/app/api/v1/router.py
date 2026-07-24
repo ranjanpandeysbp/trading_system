@@ -33,6 +33,7 @@ from app.models.schemas import (
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
+    CommandCenterOptionShortLongRequest,
     CommandCenterQuickAnalyzerRequest,
     CommandCenterSma20200Request,
     CommandCenterTickerScanRequest,
@@ -1132,6 +1133,27 @@ async def command_center_option_chain(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).option_chain(payload.symbol, payload.is_index)
+
+
+@router.post("/command-center/option-short-long")
+async def command_center_option_short_long(
+    payload: CommandCenterOptionShortLongRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).option_short_long(
+        payload.symbols, payload.is_index, expiries=payload.expiries,
+    )
+
+
+@router.get("/command-center/option-short-long/expiries")
+async def command_center_option_short_long_expiries(
+    symbol: str,
+    is_index: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).option_short_long_expiries(symbol, is_index)
 
 
 @router.post("/command-center/quick-analyzer")

@@ -614,6 +614,14 @@ export const runDayBias = (payload: { ticker: string; asset_class: string; timef
 export const runOptionChain = (payload: { symbol: string; is_index: boolean }) =>
   api.post('/command-center/option-chain', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runOptionShortLong = (payload: { symbols: string[]; is_index: boolean; expiries?: string[] }) =>
+  api.post('/command-center/option-short-long', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchOptionShortLongExpiries = (symbol: string, isIndex: boolean) =>
+  api.get<{ expiries: string[] }>('/command-center/option-short-long/expiries', {
+    params: { symbol, is_index: isIndex },
+  }).then((r) => r.data)
+
 export const runQuickAnalyzer = (payload: {
   tickers: string[]
   timeframes: string[]

@@ -12,6 +12,8 @@ import {
   fetchIndiaMarketHeatmapIndices,
   fetchInvestigationStrategyCatalog,
   fetchNseIndices,
+  fetchOptionShortLongExpiries,
+  fetchTickerSuggestions,
   fetchTomorrowOutlook,
   runBuySellAdvisor,
   runEmaPositionScan,
@@ -24,6 +26,7 @@ import {
   runMomentumScan,
   runOneClick,
   runOptionChain,
+  runOptionShortLong,
   runPatterns,
   runQuickAnalyzer,
   runRealBottom,
@@ -78,6 +81,7 @@ const TABS = [
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
   { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
   { id: 'option_chain', label: 'Option Chain', icon: Link2 },
+  { id: 'option_short_long', label: 'Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)', icon: Target },
   { id: 'india_market_heatmap', label: 'IN-US-Crypto Market Heatmap', icon: Grid3x3 },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
@@ -114,6 +118,13 @@ export default function CommandCenter() {
   const [heatmapCustomTickers, setHeatmapCustomTickers] = useState('')
   const [optionInstrumentType, setOptionInstrumentType] = useState<'Index' | 'Stock'>('Index')
   const [optionSymbol, setOptionSymbol] = useState('NIFTY')
+  const [oslInstrumentType, setOslInstrumentType] = useState<'Index' | 'Stock'>('Index')
+  const [oslIndices, setOslIndices] = useState<string[]>(['NIFTY'])
+  const [oslStockSymbols, setOslStockSymbols] = useState<string[]>([])
+  const [oslStockInput, setOslStockInput] = useState('')
+  const [oslDebouncedInput, setOslDebouncedInput] = useState('')
+  const [oslSuggestOpen, setOslSuggestOpen] = useState(false)
+  const [oslSelectedExpiries, setOslSelectedExpiries] = useState<string[]>([])
   const [qaTimeframes, setQaTimeframes] = useState('15m,1h,4h,1d')
   const [qaFromDate, setQaFromDate] = useState(() => isoDaysAgo(90))
   const [qaToDate, setQaToDate] = useState(() => isoDaysAgo(0))
@@ -185,6 +196,31 @@ export default function CommandCenter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatmapIndicesQuery.data])
 
+  useEffect(() => {
+    const t = setTimeout(() => setOslDebouncedInput(oslStockInput.trim()), 200)
+    return () => clearTimeout(t)
+  }, [oslStockInput])
+
+  const oslSuggestQuery = useQuery({
+    queryKey: ['osl-ticker-suggest', oslDebouncedInput],
+    queryFn: () => fetchTickerSuggestions('india', oslDebouncedInput, 10),
+    enabled: tab === 'option_short_long' && oslInstrumentType === 'Stock' && oslDebouncedInput.length >= 1,
+  })
+  const oslSuggestions = (oslSuggestQuery.data?.tickers ?? []).filter((s) => !oslStockSymbols.includes(s))
+
+  const oslPrimarySymbol = oslInstrumentType === 'Index' ? oslIndices[0] : oslStockSymbols[0]
+  const oslExpiriesQuery = useQuery({
+    queryKey: ['osl-expiries', oslInstrumentType, oslPrimarySymbol],
+    queryFn: () => fetchOptionShortLongExpiries(oslPrimarySymbol as string, oslInstrumentType === 'Index'),
+    enabled: tab === 'option_short_long' && !!oslPrimarySymbol,
+  })
+  const oslAvailableExpiries = oslExpiriesQuery.data?.expiries ?? []
+
+  useEffect(() => {
+    if (oslAvailableExpiries.length) setOslSelectedExpiries(oslAvailableExpiries)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oslExpiriesQuery.data])
+
   const handlePickerChange = useCallback((v: TickerPickerValue) => {
     setPicker(v)
   }, [])
@@ -222,6 +258,13 @@ export default function CommandCenter() {
       if (tab === 'option_chain') {
         if (!optionSymbol.trim()) throw new Error('Enter or select a symbol')
         return runOptionChain({ symbol: optionSymbol.trim().toUpperCase(), is_index: optionInstrumentType === 'Index' })
+      }
+
+      if (tab === 'option_short_long') {
+        const symbols = oslInstrumentType === 'Index' ? oslIndices : oslStockSymbols
+        if (!symbols.length) throw new Error('Pick at least one index, or add a stock symbol')
+        if (!oslSelectedExpiries.length) throw new Error('Select at least one expiry')
+        return runOptionShortLong({ symbols, is_index: oslInstrumentType === 'Index', expiries: oslSelectedExpiries })
       }
 
       if (tab === 'quick_analyzer') {
@@ -493,6 +536,122 @@ export default function CommandCenter() {
               </Button>
             </div>
           </div>
+          {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+        </Card>
+      ) : tab === 'option_short_long' ? (
+        <Card className="mb-6">
+          <div className="grid gap-4 sm:grid-cols-[1fr_2fr_1fr]">
+            <FormField label="Instrument type">
+              <Select
+                value={oslInstrumentType}
+                onChange={(e) => setOslInstrumentType(e.target.value as 'Index' | 'Stock')}
+              >
+                <option value="Index">Index</option>
+                <option value="Stock">Stock</option>
+              </Select>
+            </FormField>
+            {oslInstrumentType === 'Index' ? (
+              <FormField label="Index(es) — NSE F&O only (BSE Sensex/Bankex options aren't wired into this app)">
+                <div className="flex flex-wrap gap-1.5">
+                  {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'].map((idx) => (
+                    <Chip
+                      key={idx}
+                      selected={oslIndices.includes(idx)}
+                      onClick={() => setOslIndices((prev) => (prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]))}
+                    >
+                      {idx}
+                    </Chip>
+                  ))}
+                </div>
+              </FormField>
+            ) : (
+              <FormField label="Stock symbol(s)">
+                <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">
+                  {oslStockSymbols.map((s) => (
+                    <span key={s} className="flex items-center gap-1 rounded-md bg-slate-700/60 px-2 py-0.5 text-xs text-slate-100">
+                      {s}
+                      <button
+                        type="button"
+                        className="text-slate-400 hover:text-rose-400"
+                        onClick={() => setOslStockSymbols((prev) => prev.filter((t) => t !== s))}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <div className="relative flex-1 min-w-[120px]">
+                    <input
+                      className="w-full bg-transparent px-1 py-0.5 text-sm text-slate-100 outline-none"
+                      value={oslStockInput}
+                      onChange={(e) => { setOslStockInput(e.target.value.toUpperCase()); setOslSuggestOpen(true) }}
+                      onFocus={() => setOslSuggestOpen(true)}
+                      onBlur={() => setTimeout(() => setOslSuggestOpen(false), 120)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && oslStockInput.trim()) {
+                          e.preventDefault()
+                          const sym = oslStockInput.trim().toUpperCase()
+                          setOslStockSymbols((prev) => (prev.includes(sym) ? prev : [...prev, sym]))
+                          setOslStockInput('')
+                          setOslSuggestOpen(false)
+                        }
+                      }}
+                      placeholder={oslStockSymbols.length ? 'Add another…' : 'e.g. RELIANCE'}
+                      autoComplete="off"
+                    />
+                    {oslSuggestOpen && oslDebouncedInput.length >= 1 && (oslSuggestions.length > 0 || oslSuggestQuery.isFetching) && (
+                      <ul className="absolute z-10 mt-1 max-h-56 w-48 overflow-y-auto rounded-lg border border-slate-700/80 bg-slate-900 shadow-lg">
+                        {oslSuggestQuery.isFetching && oslSuggestions.length === 0 && (
+                          <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>
+                        )}
+                        {oslSuggestions.map((s) => (
+                          <li key={s}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                setOslStockSymbols((prev) => (prev.includes(s) ? prev : [...prev, s]))
+                                setOslStockInput('')
+                                setOslSuggestOpen(false)
+                              }}
+                              className="block w-full px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800"
+                            >
+                              {s}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </FormField>
+            )}
+            <div className="flex items-end">
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+                {runMutation.isPending ? 'Analyzing…' : '🎯 Analyze'}
+              </Button>
+            </div>
+          </div>
+          {oslPrimarySymbol && (
+            <div className="mt-4">
+              <FormField label={`Expiries to analyze${oslExpiriesQuery.isFetching ? ' (loading…)' : ''}`}>
+                {oslAvailableExpiries.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {oslAvailableExpiries.map((exp) => (
+                      <Chip
+                        key={exp}
+                        selected={oslSelectedExpiries.includes(exp)}
+                        onClick={() => setOslSelectedExpiries((prev) => (prev.includes(exp) ? prev.filter((e) => e !== exp) : [...prev, exp]))}
+                      >
+                        {exp}
+                      </Chip>
+                    ))}
+                  </div>
+                ) : !oslExpiriesQuery.isFetching ? (
+                  <p className="text-xs text-slate-500">No listed expiries found for {oslPrimarySymbol}.</p>
+                ) : null}
+              </FormField>
+            </div>
+          )}
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
         </Card>
       ) : tab === 'mega_setup_advisor' ? (

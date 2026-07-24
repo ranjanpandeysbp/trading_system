@@ -791,6 +791,23 @@ class CommandCenterService:
         result = await asyncio.to_thread(_run)
         return json_safe(result or {"error": f"Could not fetch the option chain for {symbol} right now."})
 
+    async def option_short_long(
+        self, symbols: list[str], is_index: bool, *, expiries: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.option_short_long_engine import OptionShortLongConfig, scan_universe_expiries
+
+        _, token, _ = await self._ctx()
+        results = await asyncio.to_thread(
+            scan_universe_expiries, symbols, is_index, expiries, groww_token=token, cfg=OptionShortLongConfig(),
+        )
+        return json_safe({"results": results})
+
+    async def option_short_long_expiries(self, symbol: str, is_index: bool) -> dict[str, Any]:
+        from app.market_pulse.option_short_long_engine import list_expiries
+
+        expiries = await asyncio.to_thread(list_expiries, symbol, is_index)
+        return json_safe({"expiries": expiries})
+
     def sections(self) -> dict[str, Any]:
         return {
             "sections": [
@@ -810,6 +827,7 @@ class CommandCenterService:
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},
                 {"id": "mega_setup_advisor", "label": "Mega Setup Advisor"},
                 {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
+                {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)"},
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},

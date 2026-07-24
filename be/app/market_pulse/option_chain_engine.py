@@ -130,28 +130,45 @@ def classify_option_chain_signal(chain: dict[str, Any]) -> dict[str, Any]:
     max_pain = chain.get("max_pain")
     strikes = chain.get("strikes") or []
 
-    # 1. PCR read
+    # 1. PCR read — who's "short" in size, and are they comfortable or squeeze-prone?
     if pcr_oi >= 1.3:
         score += 2
         reasons.append(
             f"PCR (OI) is {pcr_oi:.2f} — put open interest exceeds call OI by "
-            f"{(pcr_oi - 1) * 100:.0f}%, a classic bullish tilt since put writers are "
-            "confident price holds above their strikes."
+            f"{(pcr_oi - 1) * 100:.0f}%, a classic bullish tilt: far more traders are short puts "
+            "(sold puts, betting price holds up) than short calls. As long as price stays above "
+            "their strikes, those put-writers just sit in profit while time decay eats the premium "
+            "in their favor — no reason to cover, so they're unlikely to unwind soon. But a sharp "
+            "drop toward their strikes would force them to buy back / hedge fast, which can add fuel "
+            "to a decline."
         )
     elif pcr_oi >= 1.05:
         score += 1
-        reasons.append(f"PCR (OI) is {pcr_oi:.2f} — mildly more puts than calls, a soft bullish lean.")
+        reasons.append(
+            f"PCR (OI) is {pcr_oi:.2f} — mildly more puts than calls short, a soft bullish lean; "
+            "not crowded enough on either side to call it a squeeze setup."
+        )
     elif pcr_oi <= 0.7:
         score -= 2
         reasons.append(
-            f"PCR (OI) is {pcr_oi:.2f} — call open interest dominates puts, a classic bearish "
-            "tilt since call writers expect price to stay capped below their strikes."
+            f"PCR (OI) is {pcr_oi:.2f} — call open interest dominates puts, a classic bearish tilt: "
+            "far more traders are short calls (sold calls, betting price stays capped) than short "
+            "puts. As long as price stays below their strikes, those call-writers sit comfortably in "
+            "profit with time decay working for them, so they're likely to just hold to expiry rather "
+            "than cover. But if price breaks above their strike, they're forced to buy back in a hurry "
+            "— that rush of short-covering is exactly what fuels a sharp squeeze rally."
         )
     elif pcr_oi <= 0.95:
         score -= 1
-        reasons.append(f"PCR (OI) is {pcr_oi:.2f} — mildly more calls than puts, a soft bearish lean.")
+        reasons.append(
+            f"PCR (OI) is {pcr_oi:.2f} — mildly more calls than puts short, a soft bearish lean; "
+            "not crowded enough on either side to call it a squeeze setup."
+        )
     else:
-        reasons.append(f"PCR (OI) is {pcr_oi:.2f} — close to 1, calls and puts are roughly balanced.")
+        reasons.append(
+            f"PCR (OI) is {pcr_oi:.2f} — close to 1, calls and puts are roughly balanced, so neither "
+            "side is crowded or at obvious risk of a squeeze right now."
+        )
 
     # 2. Fresh OI buildup tilt (today's change in OI, summed across all strikes)
     total_call_chg = sum((s.get("ce_chg_oi") or 0) for s in strikes)
@@ -163,14 +180,18 @@ def classify_option_chain_signal(chain: dict[str, Any]) -> dict[str, Any]:
         if tilt_pct >= 25:
             score += 1.5
             reasons.append(
-                f"Today's fresh Put OI addition outpaces Call OI addition — new support is "
-                "being built beneath the market, bullish for the near term."
+                "Today's fresh Put OI addition outpaces Call OI addition — new support is being "
+                "built beneath the market, bullish for the near term. Since this is fresh writing "
+                "(not yet sitting on a big profit cushion), these put-sellers aren't near a "
+                "profit-booking exit yet — this floor has room to hold for a bit."
             )
         elif tilt_pct <= -25:
             score -= 1.5
             reasons.append(
-                "Today's fresh Call OI addition outpaces Put OI addition — new resistance is "
-                "being built overhead, bearish for the near term."
+                "Today's fresh Call OI addition outpaces Put OI addition — new resistance is being "
+                "built overhead, bearish for the near term. Since this is fresh writing (not yet "
+                "sitting on a big profit cushion), these call-sellers aren't near a profit-booking "
+                "exit yet — this cap has room to hold for a bit."
             )
         else:
             reasons.append("Today's fresh Call vs Put OI addition is roughly balanced — no clear buildup bias.")
@@ -184,14 +205,20 @@ def classify_option_chain_signal(chain: dict[str, Any]) -> dict[str, Any]:
             reasons.append(
                 f"Spot ({underlying:,.1f}) is trading closer to the strongest support at "
                 f"{support:,.0f} (highest Put OI) than the strongest resistance at "
-                f"{resistance:,.0f} (highest Call OI) — more room to the upside before hitting a wall."
+                f"{resistance:,.0f} (highest Call OI) — more room to the upside before hitting a wall. "
+                f"If price does reach {resistance:,.0f}, the heavy Call OI sitting there would have to "
+                "unwind (buy back), often accelerating the move — a short-squeeze setup, not a "
+                "guaranteed ceiling."
             )
         elif pos >= 0.6:
             score -= 1
             reasons.append(
                 f"Spot ({underlying:,.1f}) is trading closer to the strongest resistance at "
                 f"{resistance:,.0f} (highest Call OI) than the strongest support at "
-                f"{support:,.0f} (highest Put OI) — limited room before hitting a wall overhead."
+                f"{support:,.0f} (highest Put OI) — limited room before hitting a wall overhead. "
+                f"If price breaks below {support:,.0f} instead, the heavy Put OI there would have to "
+                "unwind (buy back), often accelerating the drop — same squeeze dynamic, just on the "
+                "downside."
             )
         else:
             reasons.append(
@@ -206,13 +233,17 @@ def classify_option_chain_signal(chain: dict[str, Any]) -> dict[str, Any]:
             score -= 1
             reasons.append(
                 f"Max Pain is at {max_pain:,.0f}, below spot ({underlying:,.1f}) by {gap_pct:.1f}% — "
-                "option-writer economics create a soft pull downward toward that level into expiry."
+                "option-writers (who net collect premium) profit most if price settles there, so there's "
+                "a soft pull downward into expiry. This is a mild statistical tendency, not a rule — it "
+                "only really tightens its grip in the last day or two before expiry as writers hedge."
             )
         elif gap_pct < -0.5:
             score += 1
             reasons.append(
                 f"Max Pain is at {max_pain:,.0f}, above spot ({underlying:,.1f}) by {abs(gap_pct):.1f}% — "
-                "option-writer economics create a soft pull upward toward that level into expiry."
+                "option-writers (who net collect premium) profit most if price settles there, so there's "
+                "a soft pull upward into expiry. This is a mild statistical tendency, not a rule — it "
+                "only really tightens its grip in the last day or two before expiry as writers hedge."
             )
         else:
             reasons.append(f"Spot is already trading close to Max Pain ({max_pain:,.0f}) — no strong pull either way.")

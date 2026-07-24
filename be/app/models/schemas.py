@@ -335,6 +335,12 @@ class CommandCenterOptionChainRequest(BaseModel):
     is_index: bool = True
 
 
+class CommandCenterOptionShortLongRequest(BaseModel):
+    symbols: list[str] = Field(..., min_length=1)
+    is_index: bool = True
+    expiries: list[str] | None = None
+
+
 class CommandCenterQuickAnalyzerRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(..., min_length=1)
