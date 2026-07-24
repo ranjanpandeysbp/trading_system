@@ -54,7 +54,7 @@ const STYLES: Style[] = [
         note: 'Safe / Hunt-Resistant tier by default — a scalp’s stop sits closest to price of any style, which is exactly what gets swept.' },
       { label: 'Take-profit', tags: ['Take Profit Targets'],
         note: 'TP1 / Conservative only — book and move on, don’t hold a scalp for the extended target.' },
-      { label: 'Leave alone', tags: ['Fundamental Analysis', 'Upgrade/Downgrade', 'Mega Setup Advisor (EOD-cadence)'] },
+      { label: 'Leave alone', tags: ['Fundamental Analysis', 'Mutual Fund Holdings', 'Upgrade/Downgrade', 'Mega Setup Advisor (EOD-cadence)'] },
     ],
     workflow: [
       '**24Hrs Volatile Crypto** or **NSE and World Indices → Load Futures** — shortlist the actual movers.',
@@ -79,7 +79,7 @@ const STYLES: Style[] = [
       { label: 'Stop-loss', tags: ['Stoploss Hunting'], note: 'Safe tier as the default working stop for the day.' },
       { label: 'Take-profit', tags: ['Take Profit Targets'],
         note: 'TP1 for the core position; let a partial runner go to TP2 only on a confirmed trending regime.' },
-      { label: 'Leave alone', tags: ['Fundamental Analysis', 'Upgrade/Downgrade'] },
+      { label: 'Leave alone', tags: ['Fundamental Analysis', 'Mutual Fund Holdings', 'Upgrade/Downgrade'] },
     ],
     workflow: [
       '**NSE and World Indices → Load Futures** each morning before the open — read the overnight bias.',
@@ -95,8 +95,8 @@ const STYLES: Style[] = [
     period: 'Days to weeks · held through noise',
     tf: '4h – 1d – 1w',
     blocks: [
-      { label: 'Screen', tags: ['Upgrade/Downgrade', 'Fundamental Analysis', 'Indian Market Heatmap'],
-        note: 'Build a watchlist where analyst activity, a healthy fundamental read, or a sector already showing strength leans your way — corroborating evidence, not a timing trigger.' },
+      { label: 'Screen', tags: ['Upgrade/Downgrade', 'Mutual Fund Holdings', 'Fundamental Analysis', 'Indian Market Heatmap'],
+        note: 'Build a watchlist where analyst activity, funds building a position, a healthy fundamental read, or a sector already showing strength leans your way — corroborating evidence, not a timing trigger.' },
       { label: 'Primary engine', tags: ['One-Click Swing'],
         note: 'A higher-timeframe trend gate sets the bias; for India, a bearish Fundamental Analysis read directly downgrades or vetoes a technical LONG here — the only place a non-technical signal enters the vote.' },
       { label: 'Confirm before entry', tags: ['Fundamental Analysis', 'Investigate + Strategy', 'Mega Setup Advisor'],
@@ -108,7 +108,7 @@ const STYLES: Style[] = [
       { label: 'Leave alone', tags: ['Scalping-only setups', 'Session-timing / opening-range reads'] },
     ],
     workflow: [
-      '**Upgrade/Downgrade** + **Fundamental Analysis** — build a watchlist with a fundamental tailwind.',
+      '**Upgrade/Downgrade** + **Mutual Fund Holdings** + **Fundamental Analysis** — build a watchlist with a fundamental tailwind.',
       '**One-Click Swing**, Strict mode, run the watchlist.',
       'On any TAKE, check **Fundamental Analysis** directly to set position size.',
       'Cross-check with **Investigate + Strategy** or **Mega Setup Advisor**.',

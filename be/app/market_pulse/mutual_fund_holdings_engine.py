@@ -208,11 +208,13 @@ def analyze_holdings_change(
         })
     overall = pd.DataFrame(overall_rows).sort_values("avg_change_pct", ascending=False)
 
-    return {
+    from app.market_pulse.holdings_trend_views import attach_sector_views
+
+    return attach_sector_views({
         "dates": dates,
         "raw": df,
         "per_scheme": per_scheme,
         "overall": overall,
         "scheme_ids": scheme_ids,
         "scheme_names": scheme_names,
-    }
+    })

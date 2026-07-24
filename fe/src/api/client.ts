@@ -632,21 +632,103 @@ export const runQuickAnalyzer = (payload: {
   include_option_chain?: boolean
 }) => api.post('/command-center/quick-analyzer', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export type MutualFundAmc = {
+  ID?: number
+  Id?: number
+  Name: string
+  AUM?: number | null
+  SchemeCount?: number | null
+  AUMDate?: string | null
+  Slug?: string | null
+}
+
+export type MutualFundScheme = {
+  ID?: number
+  Id?: number
+  Name: string
+  Description?: string | null
+  NAV?: number | null
+  Return?: number | null
+  AUM?: number | null
+}
+
 export const fetchMutualFundAmcs = () =>
-  api.get<{ amcs: Array<{ Id: number; Name: string }> }>('/command-center/mutual-fund/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
+  api.get<{ amcs: MutualFundAmc[] }>('/command-center/mutual-fund/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchMutualFundSchemes = (amcId: number) =>
-  api.get<{ schemes: Array<Record<string, unknown>> }>('/command-center/mutual-fund/schemes', {
+  api.get<{ schemes: MutualFundScheme[] }>('/command-center/mutual-fund/schemes', {
     params: { amc_id: amcId },
     timeout: MP_TIMEOUT,
   }).then((r) => r.data)
 
 export const runMutualFundHoldingsChange = (payload: {
   scheme_ids: number[]
-  scheme_names: Record<number, string>
+  scheme_names: Record<string, string>
   from_date: string
   to_date: string
 }) => api.post('/command-center/mutual-fund/holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export type EtfCatalogItem = {
+  symbol: string
+  name: string
+  category: string
+}
+
+export type EtfIssuer = {
+  ID: number
+  Name: string
+  SchemeCount?: number | null
+  path?: string | null
+}
+
+export type EtfIssuerScheme = {
+  ID: string
+  Name: string
+  Description?: string | null
+  NAV?: number | null
+  Return?: number | null
+  AUM?: number | null
+  symbol?: string
+}
+
+export const fetchEtfHoldingsAmcs = () =>
+  api.get<{ amcs: MutualFundAmc[] }>('/command-center/etf/amcs', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchEtfHoldingsSchemes = (amcId: number) =>
+  api.get<{ schemes: MutualFundScheme[] }>('/command-center/etf/schemes', {
+    params: { amc_id: amcId },
+    timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
+
+export const fetchEtfHoldingsIssuers = (market: 'us' | 'crypto') =>
+  api.get<{ market: string; issuers: EtfIssuer[] }>('/command-center/etf/catalog', {
+    params: { market },
+    timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
+
+/** @deprecated use fetchEtfHoldingsIssuers */
+export const fetchEtfHoldingsCatalog = fetchEtfHoldingsIssuers
+
+export const fetchEtfIssuerSchemes = (market: 'us' | 'crypto', issuerName: string) =>
+  api.get<{ market: string; issuer: string; schemes: EtfIssuerScheme[] }>(
+    '/command-center/etf/issuer-schemes',
+    { params: { market, issuer_name: issuerName }, timeout: MP_TIMEOUT },
+  ).then((r) => r.data)
+
+export const runEtfIndiaHoldingsChange = (payload: {
+  scheme_ids: number[]
+  scheme_names: Record<string, string>
+  from_date: string
+  to_date: string
+}) => api.post('/command-center/etf/holdings/india', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runEtfYahooHoldingsChange = (payload: {
+  market: 'us' | 'crypto'
+  symbols: string[]
+  symbol_names: Record<string, string>
+  from_date: string
+  to_date: string
+}) => api.post('/command-center/etf/holdings/yahoo', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchOptionsSections = () =>
   api.get<{ sections: Array<{ id: string; label: string }> }>('/options/sections', { timeout: MP_TIMEOUT }).then((r) => r.data)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, LineChart, Link2, Newspaper, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -46,6 +46,8 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { CommandCenterResults } from '../components/command-center/CommandCenterPanels'
+import { MutualFundHoldingsPanel } from '../components/command-center/MutualFundHoldingsPanel'
+import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -77,6 +79,8 @@ const TABS = [
   { id: 'one_click_scalping', label: 'One-Click Scalping', icon: Zap },
   { id: 'one_click_swing', label: 'One-Click Swing', icon: Zap },
   { id: 'fundamental_analysis', label: 'Fundamental Analysis', icon: BarChart3 },
+  { id: 'mutual_fund_holdings', label: 'Mutual Fund Holdings', icon: Landmark },
+  { id: 'etf_holdings', label: 'ETF Holdings', icon: Package },
   { id: 'stock_upgrade_downgrade', label: 'Upgrade/Downgrade', icon: Newspaper },
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
   { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
@@ -383,6 +387,10 @@ export default function CommandCenter() {
 
       {tab === 'playbook' ? (
         <PlaybookPanel />
+      ) : tab === 'mutual_fund_holdings' ? (
+        <MutualFundHoldingsPanel />
+      ) : tab === 'etf_holdings' ? (
+        <EtfHoldingsPanel />
       ) : tab === 'tomorrow_outlook' ? (
         <Card className="mb-6">
           <Button
@@ -790,7 +798,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

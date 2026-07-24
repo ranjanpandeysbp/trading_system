@@ -30,6 +30,8 @@ from app.models.schemas import (
     CommandCenterInvestigateStrategiesRequest,
     CommandCenterMegaAdviceRequest,
     CommandCenterMfHoldingsRequest,
+    CommandCenterEtfIndiaHoldingsRequest,
+    CommandCenterEtfYahooHoldingsRequest,
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
@@ -998,6 +1000,66 @@ async def command_center_mf_holdings(
 ):
     return await CommandCenterService(SettingsService(db)).mutual_fund_holdings_change(
         payload.scheme_ids, payload.scheme_names, payload.from_date, payload.to_date,
+    )
+
+
+@router.get("/command-center/etf/amcs")
+async def command_center_etf_amcs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).etf_amc_list()
+
+
+@router.get("/command-center/etf/schemes")
+async def command_center_etf_schemes(
+    amc_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).etf_schemes(amc_id)
+
+
+@router.get("/command-center/etf/catalog")
+async def command_center_etf_catalog(
+    market: str = "us",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """US categories (INDMoney) or crypto issuers."""
+    return await CommandCenterService(SettingsService(db)).etf_issuers(market)
+
+
+@router.get("/command-center/etf/issuer-schemes")
+async def command_center_etf_issuer_schemes(
+    issuer_name: str,
+    market: str = "us",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).etf_issuer_schemes(market, issuer_name)
+
+
+@router.post("/command-center/etf/holdings/india")
+async def command_center_etf_holdings_india(
+    payload: CommandCenterEtfIndiaHoldingsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).etf_india_holdings_change(
+        payload.scheme_ids, payload.scheme_names, payload.from_date, payload.to_date,
+    )
+
+
+@router.post("/command-center/etf/holdings/yahoo")
+async def command_center_etf_holdings_yahoo(
+    payload: CommandCenterEtfYahooHoldingsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """US (INDMoney + NPORT) or Crypto (SEC NPORT) holdings trend."""
+    return await CommandCenterService(SettingsService(db)).etf_us_holdings_change(
+        payload.market, payload.symbols, payload.symbol_names, payload.from_date, payload.to_date,
     )
 
 

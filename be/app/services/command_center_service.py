@@ -539,15 +539,97 @@ class CommandCenterService:
 
         from app.market_pulse.mutual_fund_holdings_engine import analyze_holdings_change
 
+        # JSON object keys arrive as strings; normalize so engine lookups by int id work.
+        names = {int(k): str(v) for k, v in (scheme_names or {}).items()}
+
         def _run():
             return analyze_holdings_change(
                 scheme_ids,
-                scheme_names,
+                names,
                 date_cls.fromisoformat(from_date),
                 date_cls.fromisoformat(to_date),
             )
 
         return json_safe(await asyncio.to_thread(_run))
+
+    async def etf_amc_list(self) -> dict[str, Any]:
+        from app.market_pulse.etf_holdings_engine import fetch_amc_list
+
+        return json_safe({"amcs": await asyncio.to_thread(fetch_amc_list)})
+
+    async def etf_schemes(self, amc_id: int) -> dict[str, Any]:
+        from app.market_pulse.etf_holdings_engine import fetch_etf_schemes_for_amc
+
+        return json_safe({"schemes": await asyncio.to_thread(fetch_etf_schemes_for_amc, amc_id)})
+
+    async def etf_issuers(self, market: str) -> dict[str, Any]:
+        from app.market_pulse.etf_holdings_engine import list_issuers
+
+        m = "crypto" if market == "crypto" else "us"
+        return json_safe({"market": m, "issuers": await asyncio.to_thread(list_issuers, m)})
+
+    async def etf_issuer_schemes(self, market: str, issuer_name: str) -> dict[str, Any]:
+        from app.market_pulse.etf_holdings_engine import fetch_schemes_for_issuer
+
+        m = "crypto" if market == "crypto" else "us"
+        return json_safe({
+            "market": m,
+            "issuer": issuer_name,
+            "schemes": await asyncio.to_thread(fetch_schemes_for_issuer, m, issuer_name),
+        })
+
+    async def etf_india_holdings_change(
+        self,
+        scheme_ids: list[int],
+        scheme_names: dict[int, str],
+        from_date: str,
+        to_date: str,
+    ) -> dict[str, Any]:
+        from datetime import date as date_cls
+
+        from app.market_pulse.etf_holdings_engine import analyze_india_etf_holdings_change
+
+        names = {int(k): str(v) for k, v in (scheme_names or {}).items()}
+
+        def _run():
+            return analyze_india_etf_holdings_change(
+                scheme_ids,
+                names,
+                date_cls.fromisoformat(from_date),
+                date_cls.fromisoformat(to_date),
+            )
+
+        return json_safe(await asyncio.to_thread(_run))
+
+    async def etf_us_holdings_change(
+        self,
+        market: str,
+        symbols: list[str],
+        symbol_names: dict[str, str],
+        from_date: str,
+        to_date: str,
+    ) -> dict[str, Any]:
+        from datetime import date as date_cls
+
+        from app.market_pulse.etf_holdings_engine import analyze_us_etf_holdings_change
+
+        m = "crypto" if market == "crypto" else "us"
+        names = {str(k): str(v) for k, v in (symbol_names or {}).items()}
+        syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
+
+        def _run():
+            return analyze_us_etf_holdings_change(
+                m,
+                syms,
+                names,
+                date_cls.fromisoformat(from_date),
+                date_cls.fromisoformat(to_date),
+            )
+
+        return json_safe(await asyncio.to_thread(_run))
+
+    # Back-compat alias
+    etf_yahoo_holdings_change = etf_us_holdings_change
 
     async def fundamental_analysis(self, tickers: list[str]) -> dict[str, Any]:
         from app.market_pulse.fundamental_analysis_engine import analyze_tickers
@@ -822,6 +904,7 @@ class CommandCenterService:
                 {"id": "one_click_scalping", "label": "One-Click Scalping Setup"},
                 {"id": "one_click_swing", "label": "One-Click Swing Setup"},
                 {"id": "mutual_fund_holdings", "label": "Mutual Fund Holdings Tracker"},
+                {"id": "etf_holdings", "label": "ETF Holdings — Stock-Level Trend (India · US · Crypto)"},
                 {"id": "fundamental_analysis", "label": "Fundamental Analysis (screener.in)"},
                 {"id": "stock_upgrade_downgrade", "label": "Upgrade/Downgrade & Corporate Actions"},
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},

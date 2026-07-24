@@ -292,8 +292,23 @@ class CommandCenterMfSchemesRequest(BaseModel):
 
 
 class CommandCenterMfHoldingsRequest(BaseModel):
-    scheme_ids: list[int] = Field(..., min_length=1, max_length=10)
+    scheme_ids: list[int] = Field(..., min_length=1)
     scheme_names: dict[int, str] = Field(default_factory=dict)
+    from_date: str
+    to_date: str
+
+
+class CommandCenterEtfIndiaHoldingsRequest(BaseModel):
+    scheme_ids: list[int] = Field(..., min_length=1)
+    scheme_names: dict[int, str] = Field(default_factory=dict)
+    from_date: str
+    to_date: str
+
+
+class CommandCenterEtfYahooHoldingsRequest(BaseModel):
+    market: Literal["us", "crypto"] = "us"
+    symbols: list[str] = Field(..., min_length=1)
+    symbol_names: dict[str, str] = Field(default_factory=dict)
     from_date: str
     to_date: str
 
