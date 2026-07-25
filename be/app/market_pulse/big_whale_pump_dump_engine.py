@@ -70,7 +70,7 @@ class WhaleScanConfig:
     min_pump_24h_pct: float = 10.0
     min_liquidity_usd: float = 25_000.0
     min_volume_24h_usd: float = 50_000.0
-    max_tokens_per_chain: int = 20
+    max_tokens_per_chain: int = 10_000  # no practical per-chain token cap
     accumulation_pump_max_pct: float = 45.0
     accumulation_pump_min_pct: float = 3.0
     big_trade_volume_pctile: float = 70.0
@@ -462,7 +462,7 @@ def _step4_accumulation(candidates: list[dict], cfg: WhaleScanConfig) -> list[di
         )
         acc.append(entry)
     acc.sort(key=lambda x: -x["accumulation_score"])
-    return acc[:15]
+    return acc
 
 
 def _step5_liquidity_leaders(all_metrics: list[dict], cfg: WhaleScanConfig) -> list[dict]:
@@ -474,7 +474,7 @@ def _step5_liquidity_leaders(all_metrics: list[dict], cfg: WhaleScanConfig) -> l
             2,
         )
     eligible.sort(key=lambda x: -x["liquidity_inflow_score"])
-    return eligible[:15]
+    return eligible
 
 
 def _linked_wallet_actions(pair: dict) -> list[dict]:
@@ -522,7 +522,7 @@ def run_big_whale_scan(cfg: WhaleScanConfig | None = None) -> dict[str, Any]:
             search = _get_json("/latest/dex/search", params={"q": chain})
             time.sleep(cfg.request_pause_sec)
             if isinstance(search, dict):
-                for p in (search.get("pairs") or [])[:15]:
+                for p in (search.get("pairs") or []):
                     if str(p.get("chainId")) != chain:
                         continue
                     base = (p.get("baseToken") or {}).get("address")
@@ -561,8 +561,8 @@ def run_big_whale_scan(cfg: WhaleScanConfig | None = None) -> dict[str, Any]:
     liquidity_leaders = _step5_liquidity_leaders(all_metrics, cfg)
 
     watchlist = []
-    for p in liquidity_leaders[:8]:
-        if p in accumulation or any(p["symbol"] == x["symbol"] for x in pumped[:5]):
+    for p in liquidity_leaders:
+        if p in accumulation or any(p["symbol"] == x["symbol"] for x in pumped):
             entry = dict(p)
             entry["verdict"] = "HIGH_WATCH"
             entry["verdict_note"] = (
@@ -572,8 +572,8 @@ def run_big_whale_scan(cfg: WhaleScanConfig | None = None) -> dict[str, Any]:
             watchlist.append(entry)
 
     min_conf = cfg.min_trade_confidence
-    pumped = _attach_trades(pumped[:20], "pumped_fade", min_conf)
-    big_trades = _attach_trades(big_trades[:15], "big_trade", min_conf)
+    pumped = _attach_trades(pumped, "pumped_fade", min_conf)
+    big_trades = _attach_trades(big_trades, "big_trade", min_conf)
     accumulation = _attach_trades(accumulation, "accumulation", min_conf)
     liquidity_leaders = _attach_trades(liquidity_leaders, "liquidity", min_conf)
     watchlist = _attach_trades(watchlist, "watchlist", min_conf)

@@ -3,11 +3,13 @@ import { DataTable, Td, SortableTh, useSort } from '../ui/Table'
 
 type ScreenerResult = Record<string, unknown>
 
-function statusBadge(row: ScreenerResult) {
-  if (row.error) return <Badge action="SELL" />
-  if (isActionable(row)) return <Badge action="BUY" />
-  return <Badge action="HOLD" />
-}
+const ACTIONABLE_VERDICTS = new Set([
+  'BUY',
+  'STRONG BUY',
+  'SELL',
+  'WATCHLIST',
+  'TOP PICK',
+])
 
 function isActionable(row: ScreenerResult): boolean {
   if (row.error) return false
@@ -15,22 +17,62 @@ function isActionable(row: ScreenerResult): boolean {
   const phase = String(row.phase ?? '')
   if (['ENTRY_READY', 'SNIPER_ENTRY', 'GOLDEN_BULLET_ENTRY'].includes(phase)) return true
   const verdict = String(row.verdict ?? '').toUpperCase()
-  return verdict.startsWith('TAKE')
+  if (ACTIONABLE_VERDICTS.has(verdict)) return true
+  return verdict.startsWith('TAKE') || verdict.startsWith('WATCH')
+}
+
+function statusBadge(row: ScreenerResult) {
+  if (row.error) return <Badge action="SELL" />
+  const verdict = String(row.verdict ?? '').toUpperCase()
+  if (verdict.includes('SELL')) return <Badge action="SELL" />
+  if (isActionable(row)) return <Badge action="BUY" />
+  return <Badge action="HOLD" />
 }
 
 function summaryFor(row: ScreenerResult): string {
   if (row.error) return String(row.error)
-  const keys = ['verdict', 'signal', 'phase', 'bias', 'recommendation', 'action', 'status', 'summary']
+  const keys = ['summary', 'verdict', 'signal', 'phase', 'bias', 'recommendation', 'action', 'status']
   for (const k of keys) {
     if (row[k] != null && row[k] !== '') return String(row[k])
   }
   return 'See details'
 }
 
+function MtfLegs({ row }: { row: ScreenerResult }) {
+  const mtf = (row.mtf as Record<string, unknown> | undefined) ?? undefined
+  const legs = (mtf?.legs as Array<Record<string, unknown>> | undefined)
+    ?? (row.legs as Array<Record<string, unknown>> | undefined)
+  if (!legs?.length) return null
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {legs.map((leg, i) => {
+        const tf = String(leg.tf ?? leg.chart_tf ?? leg.timeframe ?? `#${i}`)
+        const verdict = String(leg.verdict ?? '—')
+        const conf = leg.confidence != null ? `${Number(leg.confidence).toFixed(0)}%` : ''
+        const bias = leg.sr_bias != null ? String(leg.sr_bias) : ''
+        return (
+          <span
+            key={`${tf}-${i}`}
+            className="rounded-md border border-slate-700/60 bg-slate-900/50 px-2 py-1 text-[11px] text-slate-300"
+          >
+            <span className="font-medium text-white">{tf}</span>
+            {' · '}
+            {verdict}
+            {conf ? ` · ${conf}` : ''}
+            {bias ? ` · ${bias}` : ''}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 export function TaScreenerResultsPanel({ data }: { data: Record<string, unknown> }) {
   const results = (data.results as ScreenerResult[]) ?? []
   const actionable = (data.actionable as ScreenerResult[]) ?? []
   const label = String(data.label ?? data.screener_id ?? 'Screener')
+  const isWssr = String(data.screener_id ?? '') === 'weak_strong_sr'
+  const timeframes = data.timeframes as string[] | undefined
 
   const { sorted, sortKey, sortDir, handleSort } = useSort(results, {
     ticker: (row) => String(row.ticker ?? ''),
@@ -50,9 +92,11 @@ export function TaScreenerResultsPanel({ data }: { data: Record<string, unknown>
         <span className="text-sm text-slate-400">
           {actionable.length} actionable / {results.length} scanned
         </span>
-        {data.timeframe != null && data.timeframe !== '' && (
+        {timeframes?.length ? (
+          <span className="text-xs text-slate-500">TFs: {timeframes.join(', ')}</span>
+        ) : data.timeframe != null && data.timeframe !== '' ? (
           <span className="text-xs text-slate-500">TF: {String(data.timeframe)}</span>
-        )}
+        ) : null}
       </div>
 
       <DataTable>
@@ -68,9 +112,21 @@ export function TaScreenerResultsPanel({ data }: { data: Record<string, unknown>
             const ticker = String(row.ticker ?? `#${i + 1}`)
             return (
               <tr key={`${ticker}-${i}`}>
-                <Td className="font-medium text-white">{ticker}</Td>
-                <Td className="max-w-md truncate text-slate-300">{summaryFor(row)}</Td>
-                <Td>{statusBadge(row)}</Td>
+                <Td className="font-medium text-white align-top">
+                  {ticker}
+                  {isWssr && <MtfLegs row={row} />}
+                </Td>
+                <Td className="max-w-md text-slate-300">
+                  <div className="truncate">{summaryFor(row)}</div>
+                  {isWssr && row.phase != null && (
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      phase {String(row.phase)}
+                      {row.confidence != null ? ` · conf ${Number(row.confidence).toFixed(0)}%` : ''}
+                      {row.direction != null && row.direction !== '—' ? ` · ${String(row.direction)}` : ''}
+                    </div>
+                  )}
+                </Td>
+                <Td className="align-top">{statusBadge(row)}</Td>
               </tr>
             )
           })}

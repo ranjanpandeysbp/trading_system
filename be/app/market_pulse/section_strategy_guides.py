@@ -1066,6 +1066,21 @@ Conf / SL% / TP% / hold time on every scan row.
 Conf / SL% / TP% / hold (1–15 min) on every row.
 """,
 
+    "scalp_livefree_fx": """
+### Scalp — LiveFree FX 5-Minute Strategy
+[Video](https://www.youtube.com/watch?v=a74KPzR7phE) — HTF bias + kill zones + London liquidity sweep + 5m BoS:
+
+| Step | Rule |
+|------|------|
+| **HTF bias** | Daily / 4H / 1H structure (HH/HL vs LH/LL) — trade only with the majority |
+| **Sessions** | Asia → London → NY kill zones (EST for US/Crypto; IST analogue for India) |
+| **Sweep** | NY wicks London high (shorts) or low (longs) and closes back inside |
+| **Entry** | 5m Break of Structure + SMA-5 momentum back with HTF |
+| **Risk** | SL beyond sweep extreme · TP1 @1:1 (50%, SL→BE) · TP2 next liquidity · first-win walk-away |
+
+Groww · US · Crypto.
+""",
+
     "demo_india": """
 ### Demo Trading — India
 Paper NSE/BSE portfolio (login required). Virtual capital, live P&L, order history.

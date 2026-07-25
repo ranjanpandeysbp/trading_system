@@ -190,7 +190,12 @@ export const fetchStrategyCategories = () =>
 export const fetchScannerCategories = () =>
   api.get<StrategyCategoryInfo[]>('/strategies/scanner-categories').then((r) => r.data)
 export const fetchStrategy = (id: string) => api.get<StrategyInfo>(`/strategies/${id}`).then((r) => r.data)
-export const runScan = (payload: { tickers: string[]; strategies: string[]; timeframes: string[] }) =>
+export const runScan = (payload: {
+  tickers: string[]
+  strategies: string[]
+  timeframes: string[]
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
+}) =>
   api.post<{ signals: ScanSignal[]; scanned_at: string }>('/scanner/scan', payload).then((r) => r.data)
 export const runBacktest = (payload: {
   ticker: string
@@ -292,8 +297,26 @@ export const runStockRotationMarket = (
 export const fetchOppositeHedge = (capital = 100000) =>
   api.get('/market-pulse/opposite-hedge', { params: { capital }, timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runMtfBias = (tickers: string[]) =>
-  api.post('/market-pulse/mtf-bias', { tickers }, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const runMtfBias = (tickers: string[], is_crypto = false) =>
+  api.post('/market-pulse/mtf-bias', { tickers, is_crypto }, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runAccurateStrategy = (payload: {
+  tickers: string[]
+  timeframe?: string
+  min_confluence?: number
+  rr_target?: number
+  market?: string
+}) => api.post('/market-pulse/accurate-strategy', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runPumpDumpBreakout = (payload: {
+  tickers: string[]
+  timeframe?: string
+  market?: string
+  initial_balance?: number
+}) => api.post('/market-pulse/pump-dump-breakout', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchBigWhalePumpDump = () =>
+  api.get('/market-pulse/big-whale-pump-dump', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchWeek52 = (index_name: string) =>
   api.get('/market-pulse/week52', { params: { index_name }, timeout: MP_TIMEOUT }).then((r) => r.data)
@@ -349,13 +372,19 @@ export const runTaScreener = (payload: {
   tickers: string[]
   timeframe?: string
   options?: Record<string, unknown>
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
 }) => api.post('/technical-analysis/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchStrategyLabSections = () =>
   api.get('/strategy-lab/sections').then((r) => r.data)
 
-export const fetchStrategyLabPresets = (market?: string) =>
-  api.get('/strategy-lab/presets', { params: market ? { market } : undefined }).then((r) => r.data)
+export const fetchStrategyLabPresets = (market?: string, assetClass?: string) =>
+  api.get('/strategy-lab/presets', {
+    params: {
+      ...(market ? { market } : {}),
+      ...(assetClass ? { asset_class: assetClass } : {}),
+    },
+  }).then((r) => r.data)
 
 export const runStrategyLabBacktest = (payload: Record<string, unknown>) =>
   api.post('/strategy-lab/backtest', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
@@ -366,8 +395,11 @@ export const runStrategyLabMultiCombo = (payload: Record<string, unknown>) =>
 export const runStrategyLabScreener = (payload: Record<string, unknown>) =>
   api.post('/strategy-lab/screener', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runSeasonalityAnalyze = (payload: { tickers: string[]; years?: number }) =>
-  api.post('/seasonality/analyze', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const runSeasonalityAnalyze = (payload: {
+  tickers: string[]
+  years?: number
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
+}) => api.post('/seasonality/analyze', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchAlertsConfig = () => api.get('/alerts/config').then((r) => r.data)
 
@@ -395,6 +427,9 @@ export interface TradingHubSection {
     choices?: Array<{ value: string; label: string }>
     default?: string
   }>
+  /** When set, scan ignores the ticker picker and always uses this India-index list. */
+  fixed_universe?: string[] | null
+  fixed_universe_label?: string | null
 }
 
 export interface TradingHub {
@@ -779,3 +814,17 @@ export const runOptionsDeltaNeutralPnl = (payload: {
   profit_target_pct?: number
   stop_loss_multiple?: number
 }) => api.post('/options/delta-neutral/pnl', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsGokulChhabra = (payload?: {
+  tickers?: string[]
+  exchange?: string
+  vwma_length?: number
+  st_period?: number
+  st_multiplier?: number
+  session_start?: string
+  session_end?: string
+  pullback_tol_pct?: number
+  min_rr?: number
+  target_delta_min?: number
+  target_delta_max?: number
+}) => api.post('/options/gokul-chhabra', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)

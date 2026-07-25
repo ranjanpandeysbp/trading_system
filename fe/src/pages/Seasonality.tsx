@@ -6,25 +6,28 @@ import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, Input, Textarea } from '../components/ui/Form'
+import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { StatCard } from '../components/ui/StatCard'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
+import type { AssetClass } from '../components/command-center/AssetClassTickerPicker'
 
 function parseTickers(raw: string) {
   return raw.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
 }
 
 export default function Seasonality() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
   const [years, setYears] = useState(10)
   const [error, setError] = useState('')
 
+  const tickerList = parseTickers(tickers)
+
   const mutation = useMutation({
     mutationFn: () => {
-      const list = parseTickers(tickers)
-      if (!list.length) throw new Error('Enter at least one ticker')
-      return runSeasonalityAnalyze({ tickers: list, years })
+      if (!tickerList.length) throw new Error('Enter at least one ticker')
+      return runSeasonalityAnalyze({ tickers: tickerList, years, asset_class: assetClass })
     },
     onError: (e) => setError(apiErrorMessage(e)),
     onSuccess: () => setError(''),
@@ -37,11 +40,29 @@ export default function Seasonality() {
     <div>
       <PageHeader
         title="Seasonality"
-        description="Monthly return patterns · seasonal signals · historical backtest (up to 8 tickers)"
+        description="Monthly return patterns · seasonal signals · historical backtest — India · US · Crypto · Commodities"
       />
 
       <Card className="mb-4">
-        <FormField label="Tickers (comma-separated, max 8)">
+        <FormField label="Asset class">
+          <Select
+            value={assetClass}
+            onChange={(e) => {
+              const next = e.target.value as AssetClass
+              setAssetClass(next)
+              if (next === 'us') setTickers('AAPL, MSFT, NVDA, AMZN')
+              else if (next === 'crypto') setTickers('BTC-USDT, ETH-USDT, SOL-USDT')
+              else if (next === 'commodity') setTickers('CL=F, GC=F, SI=F')
+              else setTickers('RELIANCE, TCS, INFY, HDFCBANK')
+            }}
+          >
+            <option value="india">🇮🇳 Indian stocks (Yahoo .NS)</option>
+            <option value="us">🇺🇸 US stocks (Yahoo)</option>
+            <option value="crypto">₿ Crypto (Yahoo USD)</option>
+            <option value="commodity">🛢️ Commodity futures</option>
+          </Select>
+        </FormField>
+        <FormField label="Tickers (comma-separated)">
           <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
         </FormField>
         <div className="mt-4 max-w-xs">
@@ -55,12 +76,16 @@ export default function Seasonality() {
             />
           </FormField>
         </div>
-        <Button className="mt-4" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-          <span className="inline-flex items-center gap-2">
-            <CalendarRange size={16} />
-            Analyze seasonality
-          </span>
-        </Button>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !tickerList.length}>
+            <span className="inline-flex items-center gap-2">
+              <CalendarRange size={16} />
+              {mutation.isPending
+                ? `Analyzing ${tickerList.length} ticker${tickerList.length === 1 ? '' : 's'}…`
+                : `Analyze seasonality${tickerList.length ? ` (${tickerList.length})` : ''}`}
+            </span>
+          </Button>
+        </div>
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>
 
@@ -91,7 +116,7 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
   const stats = (item.stats as Record<string, unknown>[]) ?? []
   const bt = (item.backtest as Record<string, number>) ?? {}
   const signals = (item.signals as Record<string, unknown>[]) ?? []
-  const bullish = signals.filter((s) => String(s.Signal ?? s.signal).toUpperCase().includes('BUY'))
+  const bullish = signals.filter((s) => String(s.Signal ?? s.Action ?? '').toUpperCase().includes('BUY'))
 
   const { sorted: sortedStats, sortKey: statsSortKey, sortDir: statsSortDir, handleSort: handleStatsSort } = useSort(
     stats,
@@ -101,7 +126,7 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
       win_rate: (r) => (r.WinRate != null ? Number(r.WinRate) : null),
       signal: (r) => {
         const sig = signals.find((s) => s.Month === r.Month)
-        return sig ? String(sig.Signal ?? sig.signal ?? '') : ''
+        return sig ? String(sig.Signal ?? sig.Action ?? '') : ''
       },
     },
   )
@@ -109,9 +134,10 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-white">{symbol}</h3>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Seasonal BT return" value={`${bt.total_return_pct?.toFixed(2) ?? '—'}%`} />
-        <StatCard label="Win months" value={String(bullish.length)} />
+      <div className="grid gap-3 sm:grid-cols-4">
+        <StatCard label="Seasonal BT return" value={`${bt.total_return_pct?.toFixed?.(2) ?? bt.total_return_pct ?? '—'}%`} />
+        <StatCard label="CAGR" value={`${bt.cagr_pct?.toFixed?.(2) ?? bt.cagr_pct ?? '—'}%`} />
+        <StatCard label="Win months (BUY)" value={String(bullish.length)} />
         <StatCard label="Months analyzed" value={String(stats.length)} />
       </div>
 
@@ -129,12 +155,18 @@ function SymbolSeasonality({ item }: { item: Record<string, unknown> }) {
             {sortedStats.map((row, i) => {
               const month = String(row.MonthName ?? row.Month ?? i + 1)
               const sig = signals.find((s) => s.Month === row.Month)
+              const signal = sig ? String(sig.Signal ?? sig.Action ?? '—') : '—'
+              const signalClass = signal.includes('BUY')
+                ? 'text-emerald-400'
+                : signal.includes('SELL')
+                  ? 'text-rose-400'
+                  : 'text-slate-400'
               return (
                 <tr key={month}>
                   <Td>{month}</Td>
                   <Td>{row.AvgReturn != null ? Number(row.AvgReturn).toFixed(2) : '—'}</Td>
                   <Td>{row.WinRate != null ? Number(row.WinRate).toFixed(1) : '—'}</Td>
-                  <Td>{sig ? String(sig.Signal ?? sig.signal ?? '—') : '—'}</Td>
+                  <Td className={signalClass}>{signal}</Td>
                 </tr>
               )
             })}

@@ -93,6 +93,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     ],
     "🎯 Scalping": [
         ("scalp_rectangle", "Scalp — 1m Rectangle Sniper Entry"),
+        ("scalp_livefree_fx", "Scalp — LiveFree FX 5m"),
     ],
     "💰 Smart Money": [
         ("smc_cisd", "SMC — CISD Entry Rule (Golden Rule)"),

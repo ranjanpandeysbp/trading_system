@@ -37,6 +37,7 @@ const CORE_ICONS: Record<string, typeof Search> = {
 const SENTIMENT_TFS = ['5m', '15m', '1h', '4h', '1d']
 const MTF_TFS = ['5m', '15m', '1h', '4h', '1d']
 const ENGINE_TFS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+const WSSR_TFS = ['5m', '15m', '30m', '1h', '4h', '1d']
 
 type ScreenerMeta = {
   id: string
@@ -62,6 +63,7 @@ export default function TechnicalAnalysis() {
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
   const [sentimentTfs, setSentimentTfs] = useState<string[]>(['1d', '4h'])
   const [mtfTfs, setMtfTfs] = useState<string[]>(['15m', '1h', '4h', '1d'])
+  const [wssrTfs, setWssrTfs] = useState<string[]>(['15m', '1h', '1d'])
   const [engineTf, setEngineTf] = useState('')
   const [error, setError] = useState('')
 
@@ -95,7 +97,14 @@ export default function TechnicalAnalysis() {
           return runTaScreener({
             screener_id: tab,
             tickers: tab === 'big_whale' ? ['BTC'] : list,
-            timeframe: engineTf || active?.default_tf || undefined,
+            timeframe:
+              tab === 'weak_strong_sr'
+                ? wssrTfs[0] || active?.default_tf || undefined
+                : engineTf || active?.default_tf || undefined,
+            asset_class: assetClass,
+            ...(tab === 'weak_strong_sr'
+              ? { options: { timeframes: wssrTfs.length ? wssrTfs : ['15m'] } }
+              : {}),
           })
       }
     },
@@ -121,11 +130,11 @@ export default function TechnicalAnalysis() {
     <div>
       <PageHeader
         title="Technical Analysis"
-        description="16 screeners — Ticker Investigation · Sentiment · MTF · Weak S-R · Fakeout · SMC · Crypto engines"
+        description="TA screeners — Ticker Investigation · Sentiment · MTF · Price Action · S/R · Fakeout · SMC · Crypto engines"
       />
 
       <p className="mb-3 text-sm text-slate-500">
-        {(catalog as { count?: number })?.count ?? screeners.length} TA screeners · select a tab below
+        {(catalog as { count?: number })?.count ?? screeners.length} TA screeners · no ticker count limit
       </p>
 
       <div className="mb-2">
@@ -157,33 +166,31 @@ export default function TechnicalAnalysis() {
       </div>
 
       <Card className="mb-4">
+        <FormField label="Asset class">
+          <Select
+            value={assetClass}
+            onChange={(e) => {
+              setAssetClass(e.target.value as AssetClass)
+              setPicker({ tickers: [], durations: [] })
+            }}
+          >
+            <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+            <option value="us">🇺🇸 US stocks (Yahoo)</option>
+            <option value="crypto">₿ Crypto (CoinDCX)</option>
+            <option value="commodity">🛢️ Commodity futures</option>
+          </Select>
+        </FormField>
+
         {tab === 'ticker_investigation' && (
-          <>
-            <FormField label="Asset class">
-              <Select
-                value={assetClass}
-                onChange={(e) => {
-                  setAssetClass(e.target.value as AssetClass)
-                  setPicker({ tickers: [], durations: [] })
-                }}
-              >
-                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
-                <option value="us">🇺🇸 US stocks (Yahoo)</option>
-                <option value="crypto">₿ Crypto (CoinDCX)</option>
-                <option value="commodity">🛢️ Commodity futures</option>
-              </Select>
-            </FormField>
-            <AssetClassTickerPicker
-              key={assetClass}
-              assetClass={assetClass}
-              single
-              onChange={handlePickerChange}
-            />
-          </>
+          <AssetClassTickerPicker
+            key={assetClass}
+            assetClass={assetClass}
+            onChange={handlePickerChange}
+          />
         )}
 
         {tab !== 'big_whale' && tab !== 'ticker_investigation' && (
-          <FormField label="Tickers (comma-separated, max 15)">
+          <FormField label="Tickers (comma-separated, no count limit)">
             <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
           </FormField>
         )}
@@ -220,7 +227,25 @@ export default function TechnicalAnalysis() {
           </div>
         )}
 
-        {isEngine && tab !== 'big_whale' && (
+        {tab === 'weak_strong_sr' && (
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+              Weak Strong S-R timeframes (MTF aggregate when 2+)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {WSSR_TFS.map((tf) => (
+                <Chip key={tf} selected={wssrTfs.includes(tf)} onClick={() => toggleTf(tf, wssrTfs, setWssrTfs)}>
+                  {tf}
+                </Chip>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Strong/weak S/R · consolidation · supply/demand · VWAP · Volume · Supertrend · RSI · MTF
+            </p>
+          </div>
+        )}
+
+        {isEngine && tab !== 'big_whale' && tab !== 'weak_strong_sr' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
               Chart timeframe (default: {active?.default_tf ?? '15m'})
@@ -239,10 +264,19 @@ export default function TechnicalAnalysis() {
           </div>
         )}
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? 'Scanning…' : tab === 'ticker_investigation' ? 'Investigate' : 'Run scan'}
+            {mutation.isPending
+              ? `Scanning…`
+              : tab === 'ticker_investigation'
+                ? `Investigate${picker.tickers.length ? ` (${picker.tickers.length})` : ''}`
+                : tab === 'big_whale'
+                  ? 'Run whale scan'
+                  : `Run scan${parseTickers(tickers).length ? ` (${parseTickers(tickers).length})` : ''}`}
           </Button>
+          {tab !== 'big_whale' && (
+            <span className="text-xs text-slate-500">Full selected universe is scanned — no ticker cap.</span>
+          )}
         </div>
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>

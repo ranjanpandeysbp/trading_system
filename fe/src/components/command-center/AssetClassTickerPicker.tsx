@@ -34,6 +34,10 @@ type Props = {
   assetClass: AssetClass
   single?: boolean
   showDurations?: boolean
+  /** Initial "how many tickers" selection. Defaults to 15. */
+  defaultSelectCount?: TickerSelectCount
+  /** Initial crypto Top-N. Defaults to 15. */
+  defaultCryptoTopN?: number
   onChange: (value: TickerPickerValue) => void
 }
 
@@ -53,12 +57,14 @@ export function AssetClassTickerPicker({
   assetClass,
   single = false,
   showDurations = false,
+  defaultSelectCount = 15,
+  defaultCryptoTopN = 15,
   onChange,
 }: Props) {
   const [group, setGroup] = useState('Custom')
   const [cryptoMode, setCryptoMode] = useState('Manual Selection')
-  const [cryptoTopN, setCryptoTopN] = useState(15)
-  const [selectCount, setSelectCount] = useState<TickerSelectCount>(15)
+  const [cryptoTopN, setCryptoTopN] = useState(defaultCryptoTopN)
+  const [selectCount, setSelectCount] = useState<TickerSelectCount>(defaultSelectCount)
   const [search, setSearch] = useState('')
   const [customText, setCustomText] = useState('')
   const [selected, setSelected] = useState<string[]>([])
@@ -294,7 +300,7 @@ export function AssetClassTickerPicker({
               </FormField>
               <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800/60 p-2">
                 <div className="flex flex-wrap gap-2">
-                  {cryptoDisplayPool.slice(0, 200).map((t) => (
+                  {cryptoDisplayPool.map((t) => (
                     <Chip key={t} selected={selected.includes(t)} onClick={() => toggleTicker(t)}>
                       {t}
                     </Chip>

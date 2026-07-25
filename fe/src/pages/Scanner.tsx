@@ -155,7 +155,12 @@ export default function Scanner() {
       setError('Select at least one ticker, strategy, and timeframe')
       return
     }
-    scanMutation.mutate({ tickers: tickerList, strategies: selectedStrategies, timeframes: selectedTimeframes })
+    scanMutation.mutate({
+      tickers: tickerList,
+      strategies: selectedStrategies,
+      timeframes: selectedTimeframes,
+      asset_class: assetClass,
+    })
   }
 
   const activeSignals = signals.filter((s) => s.action !== 'HOLD')
@@ -164,7 +169,7 @@ export default function Scanner() {
     <div>
       <PageHeader
         title="Strategy Scanner"
-        description="Search tickers across strategies and timeframes — get BUY/SELL with SL%, TP%, and confidence"
+        description="Search tickers across strategies and timeframes — BUY/SELL with SL%, TP%, and confidence · India · US · Crypto · Commodities"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -189,6 +194,8 @@ export default function Scanner() {
           <AssetClassTickerPicker
             key={assetClass}
             assetClass={assetClass}
+            defaultSelectCount="All"
+            defaultCryptoTopN={200}
             onChange={handlePickerChange}
           />
 
@@ -248,7 +255,9 @@ export default function Scanner() {
 
           <Button onClick={handleScan} disabled={scanMutation.isPending} className="w-full sm:w-auto">
             <Zap size={16} />
-            {scanMutation.isPending ? 'Scanning...' : 'Run Scan'}
+            {scanMutation.isPending
+              ? `Scanning ${picker.tickers.length} ticker${picker.tickers.length === 1 ? '' : 's'}…`
+              : `Run Scan${picker.tickers.length ? ` (${picker.tickers.length})` : ''}`}
           </Button>
           {error && <Alert type="error">{error}</Alert>}
         </Card>

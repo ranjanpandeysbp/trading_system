@@ -120,7 +120,8 @@ class MarketPulseService:
         import app.market_pulse.news_scanner as ns
 
         attach_clear_stubs(ns)
-        data = await asyncio.to_thread(ns.fetch_nse_index_stock_movers, index_name, 10)
+        # No top-N cap — return the full constituent ranked list.
+        data = await asyncio.to_thread(ns.fetch_nse_index_stock_movers, index_name, None)
         if not data:
             data = await self._run(compute_india_movers, index_name, "1d", 1)
         return json_safe(data or {"error": f"No movers for {index_name}", "gainers": [], "losers": []})
@@ -281,27 +282,159 @@ class MarketPulseService:
     async def opposite_hedge(self, capital: float = 100_000.0, mode: str = "index") -> dict:
         import app.market_pulse.opposite_hedge_mtf_engine as eng
 
-        htf = await self.sector_rotation()
-        intraday = await self.sector_rotation_intraday()
+        try:
+            htf = await self.sector_rotation()
+            intraday = await self.sector_rotation_intraday()
 
-        def _fetch():
-            return eng.compute_opposite_hedge_mtf(
-                intraday if "error" not in intraday else None,
-                htf if "error" not in htf else None,
-                capital=capital,
-                mode=mode,
-            )
+            def _fetch():
+                return eng.compute_opposite_hedge_mtf(
+                    intraday if isinstance(intraday, dict) and "error" not in intraday else None,
+                    htf if isinstance(htf, dict) and "error" not in htf else None,
+                    capital=capital,
+                    mode=mode,
+                )
 
-        return json_safe(await asyncio.to_thread(_fetch) or {"error": "No hedge plans"})
+            result = await asyncio.to_thread(_fetch)
+            return json_safe(result or {"error": "No hedge plans"})
+        except Exception as e:
+            return json_safe({"error": str(e), "plans": [], "consensus": None})
 
-    async def mtf_bias(self, tickers: list[str]) -> dict:
+    async def mtf_bias(self, tickers: list[str], *, is_crypto: bool = False) -> dict:
         import app.market_pulse.mtf_intraday_bias_engine as eng
 
         def _fetch():
             try:
-                return eng.analyze_universe(tickers[:30], is_crypto=False)
+                return eng.analyze_universe(list(tickers), is_crypto=is_crypto)
             except Exception as e:
                 return {"error": str(e), "bullish": [], "bearish": [], "errors": []}
+
+        return json_safe(await asyncio.to_thread(_fetch))
+
+    async def accurate_strategy(
+        self,
+        tickers: list[str],
+        *,
+        timeframe: str = "1h",
+        min_confluence: float = 60.0,
+        rr_target: float = 2.0,
+        market: str = "India (Groww)",
+    ) -> dict:
+        from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+        from app.market_pulse.ticker_utils import market_currency
+        from app.market_pulse.zireman_confluence_engine import (
+            run_strategy,
+            serialize_result,
+            signal_to_dict,
+        )
+
+        bar_limits = {"15m": 400, "1h": 350, "4h": 280, "1d": 220}
+        bar_limit = bar_limits.get(timeframe, 300)
+        token = await self._groww_token()
+        exchange = await self._exchange()
+
+        def _fetch():
+            set_groww_token(token)
+            results = []
+            for ticker in tickers:
+                try:
+                    df = fetch_data_for_gap_scan(
+                        ticker, timeframe, market, token, exchange, limit=bar_limit,
+                    )
+                    if df is None or df.empty or len(df) < 80:
+                        results.append({"ticker": ticker, "error": "Insufficient OHLCV bars"})
+                        continue
+                    df.columns = [str(c).lower() for c in df.columns]
+                    result = run_strategy(df, min_confluence=min_confluence, rr_target=rr_target)
+                    currency = market_currency(market)
+                    payload = {
+                        "ticker": ticker,
+                        "market": market,
+                        "timeframe": timeframe,
+                        "min_confluence": min_confluence,
+                        "rr_target": rr_target,
+                        "currency": currency,
+                        **serialize_result(result, currency=currency),
+                    }
+                    if result.get("latest_signal"):
+                        payload["latest_signal"] = signal_to_dict(
+                            result["latest_signal"], currency=currency,
+                        )
+                    payload["summary"] = result.get("summary") or {}
+                    results.append(payload)
+                except Exception as exc:
+                    results.append({"ticker": ticker, "error": str(exc)[:200]})
+            actionable = [
+                r for r in results
+                if not r.get("error") and r.get("latest_signal")
+            ]
+            return {
+                "results": results,
+                "actionable": actionable,
+                "entry_count": len(actionable),
+                "strategy": "Accurate Strategy — OB + FVG + S/R",
+            }
+
+        return json_safe(await asyncio.to_thread(_fetch))
+
+    async def pump_dump_breakout(
+        self,
+        tickers: list[str],
+        *,
+        timeframe: str = "15m",
+        market: str = "India (Groww)",
+        initial_balance: float = 1000.0,
+    ) -> dict:
+        from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+        from app.market_pulse.pump_dump_breakout_engine import StrategyConfig, run_analysis
+
+        token = await self._groww_token()
+        exchange = await self._exchange()
+        bar_limits = {"5m": 500, "15m": 400, "1h": 350, "4h": 280, "1d": 220}
+        bar_limit = bar_limits.get(timeframe, 400)
+
+        def _fetch():
+            set_groww_token(token)
+            cfg = StrategyConfig()
+            results = []
+            for ticker in tickers:
+                try:
+                    df = fetch_data_for_gap_scan(
+                        ticker, timeframe, market, token, exchange, limit=bar_limit,
+                    )
+                    if df is None or df.empty:
+                        results.append({"symbol": ticker, "error": "No OHLCV data"})
+                        continue
+                    payload = run_analysis(
+                        df,
+                        symbol=ticker,
+                        config=cfg,
+                        initial_balance=initial_balance,
+                        timeframe=timeframe,
+                    )
+                    results.append(payload)
+                except Exception as exc:
+                    results.append({"symbol": ticker, "error": str(exc)[:200]})
+            live_setups = [
+                r for r in results
+                if not r.get("error") and (r.get("live") or {}).get("latest_signal")
+            ]
+            return {
+                "results": results,
+                "entries": live_setups,
+                "entry_count": len(live_setups),
+                "strategy": "Pump/Dump Breakout",
+            }
+
+        return json_safe(await asyncio.to_thread(_fetch))
+
+    async def big_whale_pump_dump(self) -> dict:
+        from app.market_pulse.big_whale_pump_dump_engine import run_big_whale_scan
+
+        def _fetch():
+            try:
+                return run_big_whale_scan()
+            except Exception as e:
+                return {"error": str(e), "pumped": [], "big_trades": [], "trade_recommendations": []}
 
         return json_safe(await asyncio.to_thread(_fetch))
 
@@ -327,7 +460,8 @@ class MarketPulseService:
         def _fetch():
             try:
                 if mode == "custom":
-                    return []
+                    # Custom mode falls back to the full sectoral heatmap (no empty stub).
+                    return hm.generate_groww_sectoral_heatmap(token, exchange, timeframe)
                 return hm.generate_groww_sectoral_heatmap(token, exchange, timeframe)
             except Exception:
                 return []
@@ -378,7 +512,7 @@ class MarketPulseService:
             set_groww_token(token)
             try:
                 return eng.run_sentiment_screener(
-                    tickers[:20],
+                    list(tickers),
                     tfs,
                     market=GROWW_MARKET,
                     groww_token=token,
@@ -402,7 +536,7 @@ class MarketPulseService:
             set_groww_token(token)
             try:
                 results = eng.run_mtf_scan(
-                    tickers[:15],
+                    list(tickers),
                     tfs,
                     GROWW_MARKET,
                     groww_token=token,
@@ -424,7 +558,7 @@ class MarketPulseService:
             try:
                 payload = eng.run_ticker_investigation(
                     asset_class,
-                    tickers[:10],
+                    list(tickers),
                     groww_token=token,
                 )
                 return payload or {"error": "Investigation failed", "results": []}

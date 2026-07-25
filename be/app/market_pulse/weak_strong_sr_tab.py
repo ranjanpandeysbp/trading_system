@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import pandas as pd
+import streamlit as st
 from app.market_pulse.ai_view import (
     STANDARD_REPORT_FORMAT,
     call_ai_report,

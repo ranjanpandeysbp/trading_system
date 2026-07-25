@@ -945,8 +945,8 @@ _FO_INDICES_FOR_STOCK_MOVERS = (
     "NIFTY FINANCIAL SERVICES",
     "NIFTY MIDCAP SELECT",
 )
-_MONTHLY_STOCK_MAX_CONSTITUENTS = 80
-_MONTHLY_MOVERS_TOP_N = 10
+_MONTHLY_STOCK_MAX_CONSTITUENTS: int | None = None  # no constituent cap
+_MONTHLY_MOVERS_TOP_N: int | None = None  # return full ranked lists
 
 
 def _fetch_nse_index_constituent_symbols(index_name: str) -> list[str]:
@@ -986,7 +986,9 @@ def _monthly_return_from_close(close_series) -> float | None:
 
 def _fetch_monthly_returns_for_symbols(symbols: list[str]) -> list[dict]:
     """Compute ~1-month % return for NSE symbols via yfinance."""
-    symbols = [s for s in symbols if s][:_MONTHLY_STOCK_MAX_CONSTITUENTS]
+    symbols = [s for s in symbols if s]
+    if _MONTHLY_STOCK_MAX_CONSTITUENTS is not None and _MONTHLY_STOCK_MAX_CONSTITUENTS > 0:
+        symbols = symbols[:_MONTHLY_STOCK_MAX_CONSTITUENTS]
     if not symbols:
         return []
     tickers = [stock_symbol_to_yf(s) for s in symbols]
@@ -1036,12 +1038,16 @@ def _fetch_monthly_returns_for_symbols(symbols: list[str]) -> list[dict]:
     return results
 
 
-def fetch_index_monthly_stock_movers(index_name: str, top_n: int = _MONTHLY_MOVERS_TOP_N) -> dict | None:
-    """Top stock gainers/losers over ~1 month for an index's constituents."""
+def fetch_index_monthly_stock_movers(index_name: str, top_n: int | None = _MONTHLY_MOVERS_TOP_N) -> dict | None:
+    """Stock gainers/losers over ~1 month for an index's constituents (full list by default)."""
     symbols = _fetch_nse_index_constituent_symbols(index_name)
     if not symbols:
         return None
-    if len(symbols) > _MONTHLY_STOCK_MAX_CONSTITUENTS:
+    if (
+        _MONTHLY_STOCK_MAX_CONSTITUENTS is not None
+        and _MONTHLY_STOCK_MAX_CONSTITUENTS > 0
+        and len(symbols) > _MONTHLY_STOCK_MAX_CONSTITUENTS
+    ):
         return {
             "skipped": True,
             "constituent_count": len(symbols),
@@ -1051,13 +1057,16 @@ def fetch_index_monthly_stock_movers(index_name: str, top_n: int = _MONTHLY_MOVE
     stocks = _fetch_monthly_returns_for_symbols(symbols)
     if not stocks:
         return None
-    gainers = sorted(stocks, key=lambda x: x["pct"], reverse=True)[:top_n]
-    losers = sorted(stocks, key=lambda x: x["pct"])[:top_n]
+    gainers = sorted(stocks, key=lambda x: x["pct"], reverse=True)
+    losers = sorted(stocks, key=lambda x: x["pct"])
+    if top_n is not None and top_n > 0:
+        gainers = gainers[:top_n]
+        losers = losers[:top_n]
     return {"gainers": gainers, "losers": losers, "skipped": False}
 
 
-def fetch_nse_index_stock_movers(index_name: str, top_n: int = 10) -> dict | None:
-    """Fetch top stock gainers/losers for an NSE index from equity-stockIndices."""
+def fetch_nse_index_stock_movers(index_name: str, top_n: int | None = None) -> dict | None:
+    """Fetch stock gainers/losers for an NSE index from equity-stockIndices (full list by default)."""
     try:
         session = requests.Session()
         _warm_nse_session(session, "/market-data/live-equity-market")
@@ -1082,8 +1091,11 @@ def fetch_nse_index_stock_movers(index_name: str, top_n: int = 10) -> dict | Non
             })
         if not stocks:
             return None
-        gainers = sorted(stocks, key=lambda x: x["pct"], reverse=True)[:top_n]
-        losers = sorted(stocks, key=lambda x: x["pct"])[:top_n]
+        gainers = sorted(stocks, key=lambda x: x["pct"], reverse=True)
+        losers = sorted(stocks, key=lambda x: x["pct"])
+        if top_n is not None and top_n > 0:
+            gainers = gainers[:top_n]
+            losers = losers[:top_n]
         return {"gainers": gainers, "losers": losers}
     except Exception as e:
         logger.error(f"Index stock movers fetch error ({index_name}): {e}")
@@ -2582,7 +2594,7 @@ def render_nifty_monthly_performance_tab() -> None:
 
 # ─── Sector Rotation ──────────────────────────────────────────────────────
 
-_SECTOR_ROTATION_TOP_N = 8
+_SECTOR_ROTATION_TOP_N: int | None = None  # return full ranked sector lists
 _NIFTY50_YF = NIFTY50_YF
 _SECTOR_YF_TICKERS = SECTOR_INDEX_YF_TICKERS
 

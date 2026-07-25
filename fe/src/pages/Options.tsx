@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { apiErrorMessage, runOptionsDeltaNeutral, runOptionsDoubleCalendar } from '../api/client'
+import { apiErrorMessage, runOptionsDeltaNeutral, runOptionsDoubleCalendar, runOptionsGokulChhabra } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
-import { DeltaNeutralPanel, DoubleCalendarPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -15,6 +15,7 @@ import { Alert, Loading } from '../components/ui/Feedback'
 const SECTIONS = [
   { id: 'double_calendar', label: '📅 Double Calendar' },
   { id: 'delta_neutral', label: '🎰 Delta Neutral' },
+  { id: 'gokul_chhabra', label: '🎯 Gokul Chhabra 3m ITM' },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
@@ -73,6 +74,21 @@ leg is labeled "Simulated". The VIX/choppy gate reuses the same real India VIX /
 Calendar, plus a trend-strength (ADX) read.
 
 Heuristic framework, not a fill guarantee — research / education only, not financial advice.`
+
+const GOKUL_EXPLANATION = `Dr. Gokul Chhabra option-buying masterclass (https://www.youtube.com/watch?v=2RnBT9DDDNI).
+
+Analyse Nifty / Bank Nifty on a 3-minute chart (futures proxied via index OHLC; 1m bars resampled
+to 3m). Indicators: session VWAP, VWMA(20), SuperTrend(10, 3). Trade only 09:45–15:15 IST — ignore
+the first 30 minutes, flat by 15:15, no BTST.
+
+Buy Call when close is strictly above VWAP, VWMA, and SuperTrend. Buy Put when strictly below all
+three. If price is trapped between the indicators, stay flat. Prefer a VWMA pullback entry if you
+missed the initial breakout.
+
+Initial stop: a 3-minute candle closing beyond SuperTrend. At 1:1 R:R move the stop to cost-to-cost.
+Target at least 1:2. Execute by buying ITM options targeting delta 0.60–0.75 from the live NSE chain.
+
+Research / education only — not financial advice.`
 
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -173,9 +189,34 @@ export default function Options() {
   const dnData = runDnMutation.data as Record<string, unknown> | undefined
   const dnAskContext = dnData ? buildAskContext('Delta Neutral', dnData) : ''
 
+  const [gkError, setGkError] = useState('')
+  const [vwmaLen, setVwmaLen] = useState(20)
+  const [stPeriod, setStPeriod] = useState(10)
+  const [stMult, setStMult] = useState(3)
+  const [minRr, setMinRr] = useState(2)
+  const [deltaLo, setDeltaLo] = useState(0.6)
+  const [deltaHi, setDeltaHi] = useState(0.75)
+
+  const runGkMutation = useMutation({
+    mutationFn: () =>
+      runOptionsGokulChhabra({
+        tickers: ['Nifty 50', 'Bank Nifty'],
+        vwma_length: vwmaLen,
+        st_period: stPeriod,
+        st_multiplier: stMult,
+        min_rr: minRr,
+        target_delta_min: deltaLo,
+        target_delta_max: deltaHi,
+      }),
+    onSuccess: () => setGkError(''),
+    onError: (e) => setGkError(apiErrorMessage(e)),
+  })
+  const gkData = runGkMutation.data as Record<string, unknown> | undefined
+  const gkAskContext = gkData ? buildAskContext('Gokul Chhabra', gkData) : ''
+
   return (
     <div>
-      <PageHeader title="Options" description="Options income & structuring strategies." />
+      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Gokul Chhabra 3m ITM · India · US · Crypto · Commodities" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
@@ -208,7 +249,13 @@ export default function Options() {
               </select>
             </FormField>
 
-            <AssetClassTickerPicker key={assetClass} assetClass={assetClass} showDurations onChange={handlePickerChange} />
+            <AssetClassTickerPicker
+              key={assetClass}
+              assetClass={assetClass}
+              showDurations
+              defaultSelectCount="All"
+              onChange={handlePickerChange}
+            />
 
             <div className="mt-4">
               <CollapsibleSection title="⚙️ Setup & Management Rules">
@@ -253,7 +300,9 @@ export default function Options() {
             </div>
 
             <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-              {runMutation.isPending ? 'Building…' : '📅 Build Double Calendar'}
+              {runMutation.isPending
+                ? `Building ${picker.tickers.length || ''}…`
+                : `📅 Build Double Calendar${picker.tickers.length ? ` (${picker.tickers.length})` : ''}`}
             </Button>
             {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
           </Card>
@@ -300,7 +349,13 @@ export default function Options() {
               </select>
             </FormField>
 
-            <AssetClassTickerPicker key={dnAssetClass} assetClass={dnAssetClass} showDurations onChange={handleDnPickerChange} />
+            <AssetClassTickerPicker
+              key={dnAssetClass}
+              assetClass={dnAssetClass}
+              showDurations
+              defaultSelectCount="All"
+              onChange={handleDnPickerChange}
+            />
 
             <div className="mt-4">
               <CollapsibleSection title="⚙️ Setup & Management Rules">
@@ -339,7 +394,9 @@ export default function Options() {
             </div>
 
             <Button className="mt-4" onClick={() => runDnMutation.mutate()} disabled={runDnMutation.isPending}>
-              {runDnMutation.isPending ? 'Building…' : '🎯 Build Delta-Neutral Spread'}
+              {runDnMutation.isPending
+                ? `Building ${dnPicker.tickers.length || ''}…`
+                : `🎯 Build Delta-Neutral Spread${dnPicker.tickers.length ? ` (${dnPicker.tickers.length})` : ''}`}
             </Button>
             {dnError && <div className="mt-3"><Alert type="error">{dnError}</Alert></div>}
           </Card>
@@ -354,6 +411,73 @@ export default function Options() {
 
           {dnAskContext && !runDnMutation.isPending && (
             <AskAIPanel context={dnAskContext} section="options/delta_neutral" />
+          )}
+        </div>
+      )}
+
+      {section === 'gokul_chhabra' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            3-minute VWAP · VWMA(20) · SuperTrend(10,3) alignment on Nifty / Bank Nifty — buy ITM calls/puts
+            (delta 0.60–0.75) after 09:45 IST. Flat by 15:15. No BTST.
+          </p>
+
+          <CollapsibleSection title="📖 How Gokul Chhabra option buying works">
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{GOKUL_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <div className="rounded-lg border border-slate-700/80 bg-slate-900/50 px-4 py-3">
+              <p className="text-sm font-medium text-slate-200">Fixed universe — India index options</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Always scans <span className="text-slate-300">Nifty 50 · Bank Nifty</span> (futures proxied via index OHLC).
+                No Crypto / US ticker picker for this strategy.
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <CollapsibleSection title="⚙️ Parameters">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="VWMA length">
+                    <Input type="number" min={5} max={50} value={vwmaLen} onChange={(e) => setVwmaLen(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="SuperTrend length">
+                    <Input type="number" min={5} max={30} value={stPeriod} onChange={(e) => setStPeriod(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="SuperTrend multiplier">
+                    <Input type="number" step={0.5} min={1} max={6} value={stMult} onChange={(e) => setStMult(Number(e.target.value))} />
+                  </FormField>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Min R:R target">
+                    <Input type="number" step={0.5} min={1} max={5} value={minRr} onChange={(e) => setMinRr(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Delta min">
+                    <Input type="number" step={0.01} min={0.4} max={0.9} value={deltaLo} onChange={(e) => setDeltaLo(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Delta max">
+                    <Input type="number" step={0.01} min={0.4} max={0.9} value={deltaHi} onChange={(e) => setDeltaHi(Number(e.target.value))} />
+                  </FormField>
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            <Button className="mt-4" onClick={() => runGkMutation.mutate()} disabled={runGkMutation.isPending}>
+              {runGkMutation.isPending ? 'Scanning…' : '🔍 Scan Gokul Chhabra setups'}
+            </Button>
+            {gkError && <div className="mt-3"><Alert type="error">{gkError}</Alert></div>}
+          </Card>
+
+          {runGkMutation.isPending && <Loading message="Scanning 3m VWAP / VWMA / SuperTrend setups…" />}
+
+          {gkData && !runGkMutation.isPending && (
+            <Card>
+              <GokulChhabraPanel data={gkData} />
+            </Card>
+          )}
+
+          {gkAskContext && !runGkMutation.isPending && (
+            <AskAIPanel context={gkAskContext} section="options/gokul_chhabra" />
           )}
         </div>
       )}

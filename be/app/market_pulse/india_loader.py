@@ -78,7 +78,7 @@ def load_india_intelligence(groww_token: str = "") -> dict[str, Any]:
         turnover_delivery_data=turnover_delivery_data,
     )
 
-    sr_names = list(INDIA_MARKET_DISPLAY_YF.keys())[:12]
+    sr_names = list(INDIA_MARKET_DISPLAY_YF.keys())
     index_sr_map = ns.fetch_index_sr_levels(sr_names) or {}
 
     return json_safe(

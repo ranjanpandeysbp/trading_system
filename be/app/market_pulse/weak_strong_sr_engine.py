@@ -80,6 +80,13 @@ def _nearest_levels(
         out["nearest_resistance"] = nr
         out["resistance_dist_pct"] = (float(nr["price"]) - price) / price * 100
 
+    # Levels on the *other* side of price — used to detect breakdowns/breakouts
+    # (a support price has fallen below, or a resistance price has cleared).
+    sups_above = [s for s in supports if s.get("price") is not None and float(s["price"]) >= price]
+    ress_below = [r for r in resistances if r.get("price") is not None and float(r["price"]) <= price]
+    out["broken_support"] = min(sups_above, key=lambda x: float(x["price"])) if sups_above else None
+    out["broken_resistance"] = max(ress_below, key=lambda x: float(x["price"])) if ress_below else None
+
     out["at_support"] = (
         out["nearest_support"] is not None
         and out["support_dist_pct"] is not None
@@ -140,26 +147,28 @@ def _sr_bias_from_levels(
             bear_pts += 8
             reasons.append(f"Moderate resistance {lvl:.4g} — trim longs unless volume breaks through.")
 
-    if ns and not nearest.get("at_support") and price < float(ns["price"]) * 0.998:
-        strength = _classify_strength(int(ns.get("touches", 1)), median_touches)
+    bs = nearest.get("broken_support")
+    if bs and not nearest.get("at_support") and price < float(bs["price"]) * 0.998:
+        strength = _classify_strength(int(bs.get("touches", 1)), median_touches)
         if strength == "weak":
             bear_pts += 18
-            reasons.append(f"Price broke weak support {float(ns['price']):.4g} — momentum sell.")
+            reasons.append(f"Price broke weak support {float(bs['price']):.4g} — momentum sell.")
             bias = "SELL"
         elif strength == "strong":
             bear_pts += 8
-            reasons.append(f"Price below strong support {float(ns['price']):.4g} — failed floor (sell).")
+            reasons.append(f"Price below strong support {float(bs['price']):.4g} — failed floor (sell).")
             bias = "SELL"
 
-    if nr and not nearest.get("at_resistance") and price > float(nr["price"]) * 1.002:
-        strength = _classify_strength(int(nr.get("touches", 1)), median_touches)
+    br = nearest.get("broken_resistance")
+    if br and not nearest.get("at_resistance") and price > float(br["price"]) * 1.002:
+        strength = _classify_strength(int(br.get("touches", 1)), median_touches)
         if strength == "weak":
             bull_pts += 16
-            reasons.append(f"Price cleared weak resistance {float(nr['price']):.4g} — breakout buy.")
+            reasons.append(f"Price cleared weak resistance {float(br['price']):.4g} — breakout buy.")
             bias = "BUY"
         elif strength == "strong":
             bull_pts += 6
-            reasons.append(f"Price above strong resistance {float(nr['price']):.4g} — breakout continuation.")
+            reasons.append(f"Price above strong resistance {float(br['price']):.4g} — breakout continuation.")
 
     if recent_low and price <= recent_low * 1.002 and bias == "NEUTRAL":
         bear_pts += 6
@@ -228,6 +237,18 @@ def analyze_weak_strong_sr(
     sr2 = calculate_two_level_sr(work)
     supports = list(sr.get("supports") or [])
     resistances = list(sr.get("resistances") or [])
+
+    # Recently crossed swing clusters so broken_support / broken_resistance can fire
+    crossed_sup = sorted(
+        [s for s in (sr.get("all_supports") or []) if s.get("price") is not None and float(s["price"]) >= price],
+        key=lambda x: (abs(float(x["price"]) - price), -int(x.get("strength", 0))),
+    )[:3]
+    crossed_res = sorted(
+        [r for r in (sr.get("all_resistances") or []) if r.get("price") is not None and float(r["price"]) <= price],
+        key=lambda x: (abs(float(x["price"]) - price), -int(x.get("strength", 0))),
+    )[:3]
+    supports.extend(crossed_sup)
+    resistances.extend(crossed_res)
 
     for key, kind in (("s1", "support"), ("s2", "support"), ("r1", "resistance"), ("r2", "resistance")):
         val = sr2.get(key)
@@ -403,6 +424,8 @@ def analyze_weak_strong_sr(
             "sr_bias": sr_bias,
             "nearest_support": ns,
             "nearest_resistance": nr,
+            "broken_support": nearest.get("broken_support"),
+            "broken_resistance": nearest.get("broken_resistance"),
             "at_support": nearest.get("at_support"),
             "at_resistance": nearest.get("at_resistance"),
             "s1": sr2.get("s1"),

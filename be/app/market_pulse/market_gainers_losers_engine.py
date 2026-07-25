@@ -42,7 +42,7 @@ from app.market_pulse.stock_price_rotation_markets import _US_INDEX_CATALOG
 logger = logging.getLogger(__name__)
 
 LAZY_BATCH_SIZE = _MARKET_PULSE_LAZY_BATCH_SIZE
-TOP_N = 10
+TOP_N: int | None = None  # no ticker count limit — return full ranked lists
 
 MARKET_INDIA = "india"
 MARKET_US = "us"
@@ -86,13 +86,19 @@ def _rows_to_movers(rows: list[dict], *, name_key: str = "symbol") -> dict[str, 
     if not rows:
         return {"gainers": [], "losers": []}
     sorted_rows = sorted(rows, key=lambda x: x.get("pct", 0), reverse=True)
+    gainers_src = sorted_rows if TOP_N is None or TOP_N <= 0 else sorted_rows[:TOP_N]
+    losers_src = (
+        sorted(sorted_rows, key=lambda x: x.get("pct", 0))
+        if TOP_N is None or TOP_N <= 0
+        else sorted(sorted_rows, key=lambda x: x.get("pct", 0))[:TOP_N]
+    )
     gainers = [
         {name_key: r.get(name_key, r.get("name", "")), "pct": r["pct"], "last": r.get("last", 0)}
-        for r in sorted_rows[:TOP_N]
+        for r in gainers_src
     ]
     losers = [
         {name_key: r.get(name_key, r.get("name", "")), "pct": r["pct"], "last": r.get("last", 0)}
-        for r in sorted(sorted_rows, key=lambda x: x.get("pct", 0))[:TOP_N]
+        for r in losers_src
     ]
     return {"gainers": gainers, "losers": losers}
 
@@ -128,7 +134,7 @@ def compute_india_movers(
                 "source": "NSE live",
             }
 
-    symbols = _fetch_nse_index_constituent_symbols(index_name)[:80]
+    symbols = _fetch_nse_index_constituent_symbols(index_name)
     if not symbols:
         return {"error": f"No constituents for {index_name}"}
 
@@ -156,7 +162,7 @@ def compute_us_movers(
     if not entry:
         return {"error": f"Unknown US index {index_id}"}
 
-    symbols = list(entry["fetch"]())[:80]
+    symbols = list(entry["fetch"]())
     interval = _tf_yf_interval(tf_key)
     period = _tf_yf_period(tf_key, lookback_bars)
     closes = _load_yf_closes(symbols, period, interval)
@@ -225,7 +231,7 @@ def compute_crypto_movers(
 
     interval = tf_key if tf_key in ("1m", "5m", "15m", "30m", "1h", "4h", "1d") else "1d"
     limit = max(lookback_bars + 30, 60)
-    closes = _load_crypto_closes(symbols[:60], interval, limit)
+    closes = _load_crypto_closes(list(symbols), interval, limit)
     rows: list[dict] = []
     for sym, series in closes.items():
         pct = _pct_return_over_bars(series, lookback_bars)

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
 from typing import Any
 
+from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
 from app.market_pulse.engine import run_true_backtest
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.groww_auth import set_groww_token
@@ -16,7 +16,51 @@ from app.market_pulse.serialize import json_safe
 from app.market_pulse.signal_eval import eval_rules_on_last_bar
 from app.services.settings_service import SettingsService
 
-_TF_DAYS = {"1m": 7, "5m": 60, "15m": 60, "30m": 90, "1h": 180, "4h": 365, "1d": 730}
+_TF_DAYS = {"1m": 7, "3m": 30, "5m": 60, "15m": 60, "30m": 90, "1h": 180, "4h": 365, "1d": 730}
+
+# Real default when no preset / no custom rules are supplied (matches FE "RSI mean-reversion").
+_DEFAULT_INDICATORS = [
+    {"type": "rsi", "period": 14},
+    {"type": "ema", "period": 20},
+]
+_DEFAULT_ENTRY = [
+    {"left": "rsi_14", "op": "<", "right_type": "value", "right_val": "35"},
+]
+_DEFAULT_EXIT = [
+    {"left": "rsi_14", "op": ">", "right_type": "value", "right_val": "65"},
+]
+
+# Soft default for multi-combo when strategies list is empty (never auto-run entire catalog).
+_DEFAULT_COMBO_STRATEGY_COUNT = 5
+
+_SCREENER_PRESETS: dict[str, dict[str, Any]] = {
+    "rsi_oversold": {
+        "label": "RSI Oversold (<35)",
+        "indicators": _DEFAULT_INDICATORS,
+        "entry_rules": _DEFAULT_ENTRY,
+    },
+    "rsi_overbought": {
+        "label": "RSI Overbought (>65)",
+        "indicators": _DEFAULT_INDICATORS,
+        "entry_rules": [
+            {"left": "rsi_14", "op": ">", "right_type": "value", "right_val": "65"},
+        ],
+    },
+    "above_ema20": {
+        "label": "Price above EMA 20",
+        "indicators": [{"type": "ema", "period": 20}],
+        "entry_rules": [
+            {"left": "close", "op": ">", "right_type": "indicator", "right_val": "ema_20"},
+        ],
+    },
+    "below_ema20": {
+        "label": "Price below EMA 20",
+        "indicators": [{"type": "ema", "period": 20}],
+        "entry_rules": [
+            {"left": "close", "op": "<", "right_type": "indicator", "right_val": "ema_20"},
+        ],
+    },
+}
 
 
 def _period_for_tf(tf: str, lookback: int = 200) -> int:
@@ -34,12 +78,48 @@ class StrategyLabService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
 
-    async def presets(self, market: str | None = None) -> dict[str, Any]:
-        market = market or await self.settings.get_default_market()
-        by_cat = get_presets_by_category(market)
-        flat = get_presets_for_market(market)
+    async def _asset_ctx(self, asset_class: str | None = None, market: str | None = None) -> tuple[str, str, str]:
+        """Return (market, groww_token, exchange). Prefer explicit market, else asset_class, else settings."""
+        token = await self.settings.get_groww_token() or ""
+        if market:
+            resolved_market = market
+            ac = "india"
+            for key, cfg in ASSET_CLASS_CONFIG.items():
+                if str(cfg["market"]) == market:
+                    ac = key
+                    break
+        else:
+            ac = asset_class or "india"
+            cfg = ASSET_CLASS_CONFIG.get(ac) or ASSET_CLASS_CONFIG["india"]
+            resolved_market = str(cfg["market"])
+
+        if ac == "india":
+            exchange = await self.settings.get_groww_exchange()
+        else:
+            cfg = ASSET_CLASS_CONFIG.get(ac) or ASSET_CLASS_CONFIG["india"]
+            exchange = str(cfg.get("exchange") or "NSE")
+        return resolved_market, token, exchange
+
+    async def presets(self, market: str | None = None, asset_class: str | None = None) -> dict[str, Any]:
+        resolved_market, _, _ = await self._asset_ctx(asset_class=asset_class, market=market)
+        by_cat = get_presets_by_category(resolved_market)
+        flat = get_presets_for_market(resolved_market)
+        from app.market_pulse.section_strategy_guides import SECTION_GUIDES
+
+        guides = {
+            key: SECTION_GUIDES[key]
+            for key in (
+                "strategy_builder",
+                "multi_combo",
+                "screener",
+                "strategy_encyclopedia",
+                "saved_strategies",
+            )
+            if key in SECTION_GUIDES
+        }
         return {
-            "market": market,
+            "market": resolved_market,
+            "asset_class": asset_class or "india",
             "categories": {k: list(v.keys()) for k, v in by_cat.items()},
             "presets": {
                 name: {
@@ -50,21 +130,27 @@ class StrategyLabService:
                 }
                 for name, p in flat.items()
             },
+            "guides": guides,
+            "screener_presets": {
+                k: {"label": v["label"]} for k, v in _SCREENER_PRESETS.items()
+            },
             "count": len(flat),
         }
 
     async def backtest(self, payload: dict[str, Any]) -> dict[str, Any]:
-        market = payload.get("market") or await self.settings.get_default_market()
-        token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
+        asset_class = payload.get("asset_class") or "india"
+        market, token, exchange = await self._asset_ctx(
+            asset_class=asset_class,
+            market=payload.get("market"),
+        )
 
         def _run():
             set_groww_token(token)
             ticker = str(payload["ticker"]).upper()
             tf = payload.get("timeframe", "1d")
-            indicators = payload.get("indicators") or []
-            entry_rules = payload.get("entry_rules") or []
-            exit_rules = payload.get("exit_rules") or []
+            indicators = list(payload.get("indicators") or [])
+            entry_rules = list(payload.get("entry_rules") or [])
+            exit_rules = list(payload.get("exit_rules") or [])
             preset_name = payload.get("preset_name")
 
             if preset_name:
@@ -75,6 +161,11 @@ class StrategyLabService:
                 entry_rules = preset["entry_rules"]
                 exit_rules = preset.get("exit_rules") or []
                 tf = payload.get("timeframe") or preset.get("recommended_timeframe", "1d")
+            elif not indicators or not entry_rules:
+                # Real RSI mean-reversion default (not an empty / no-op ruleset).
+                indicators = list(_DEFAULT_INDICATORS)
+                entry_rules = list(_DEFAULT_ENTRY)
+                exit_rules = list(_DEFAULT_EXIT)
 
             days = int(payload.get("days") or _period_for_tf(tf))
             df = _fetch_bars(ticker, tf, market, token, exchange, days)
@@ -85,9 +176,6 @@ class StrategyLabService:
             entry_mode = payload.get("entry_mode", "AND")
             exit_mode = payload.get("exit_mode", "AND")
 
-            # "short_only" trades the same rules built above, just betting the other
-            # way; "long_short" mirrors them (entry rules go long, exit rules go
-            # short/cover) — no separate short rule-builder needed either way.
             direction_mode = payload.get("direction_mode", "long_only")
             if direction_mode == "short_only":
                 long_entry, long_exit = [], []
@@ -128,6 +216,8 @@ class StrategyLabService:
                 "ticker": ticker,
                 "timeframe": tf,
                 "market": market,
+                "asset_class": asset_class,
+                "preset_name": preset_name or "RSI mean-reversion (default)",
                 "metrics": metrics,
                 "trades": trade_list[-50:],
                 "trade_count": len(trade_list),
@@ -136,15 +226,20 @@ class StrategyLabService:
         return json_safe(await asyncio.to_thread(_run))
 
     async def multi_combo(self, payload: dict[str, Any]) -> dict[str, Any]:
-        market = payload.get("market") or await self.settings.get_default_market()
-        tickers = [t.upper() for t in payload.get("tickers") or []][:10]
+        asset_class = payload.get("asset_class") or "india"
+        market, token, exchange = await self._asset_ctx(
+            asset_class=asset_class,
+            market=payload.get("market"),
+        )
+        # No ticker count limit — scan the full list.
+        tickers = list(dict.fromkeys(
+            t.strip().upper() for t in (payload.get("tickers") or []) if t and str(t).strip()
+        ))
         timeframes = payload.get("timeframes") or ["1d"]
-        strategy_names = payload.get("strategies") or []
-        token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
+        strategy_names = [s for s in (payload.get("strategies") or []) if s]
         all_presets = get_presets_for_market(market)
         if not strategy_names:
-            strategy_names = list(all_presets.keys())[:5]
+            strategy_names = list(all_presets.keys())[:_DEFAULT_COMBO_STRATEGY_COUNT]
 
         def _run():
             set_groww_token(token)
@@ -182,9 +277,6 @@ class StrategyLabService:
                                 "Win Rate %": m.get("win_rate_pct"),
                                 "Trades": m.get("n_trades"),
                                 "Status": "OK",
-                                "_indicators": preset["indicators"],
-                                "_entry_rules": preset["entry_rules"],
-                                "_exit_rules": preset.get("exit_rules") or [],
                             })
                         except Exception as exc:
                             rows.append({
@@ -192,27 +284,45 @@ class StrategyLabService:
                                 "Status": str(exc)[:80],
                             })
             rows.sort(key=lambda r: float(r.get("Return %") or -999), reverse=True)
-            return {"market": market, "rows": rows, "count": len(rows)}
+            return {
+                "market": market,
+                "asset_class": asset_class,
+                "ticker_count": len(tickers),
+                "strategy_count": len(strategy_names),
+                "rows": rows,
+                "count": len(rows),
+            }
 
         return json_safe(await asyncio.to_thread(_run))
 
     async def screener_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
-        market = payload.get("market") or await self.settings.get_default_market()
-        tickers = [t.upper() for t in payload.get("tickers") or []]
+        asset_class = payload.get("asset_class") or "india"
+        market, token, exchange = await self._asset_ctx(
+            asset_class=asset_class,
+            market=payload.get("market"),
+        )
+        # No ticker count limit — scan the full list.
+        tickers = list(dict.fromkeys(
+            t.strip().upper() for t in (payload.get("tickers") or []) if t and str(t).strip()
+        ))
         timeframes = payload.get("timeframes") or ["1d"]
-        indicators = payload.get("indicators") or [{"type": "rsi", "period": 14}, {"type": "ema", "period": 20}]
-        entry_rules = payload.get("entry_rules") or [
-            {"left": "rsi_14", "op": "<", "right_type": "value", "right_val": "35"},
-        ]
+
+        screener_preset = payload.get("screener_preset") or ""
+        if screener_preset and screener_preset in _SCREENER_PRESETS:
+            sp = _SCREENER_PRESETS[screener_preset]
+            indicators = list(sp["indicators"])
+            entry_rules = list(sp["entry_rules"])
+        else:
+            indicators = payload.get("indicators") or list(_DEFAULT_INDICATORS)
+            entry_rules = payload.get("entry_rules") or list(_DEFAULT_ENTRY)
+
         entry_mode = payload.get("entry_mode", "AND")
-        token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
 
         def _run():
             set_groww_token(token)
             hits: list[dict] = []
             for tf in timeframes:
-                for ticker in tickers[:20]:
+                for ticker in tickers:
                     try:
                         df = _fetch_bars(ticker, tf, market, token, exchange, _period_for_tf(tf))
                         if df.empty or len(df) < 15:
@@ -225,11 +335,18 @@ class StrategyLabService:
                                 "Timeframe": tf,
                                 "Close": round(float(last["close"]), 2),
                                 "Volume": float(last.get("volume", 0)),
-                                "Signal": "BUY",
+                                "Signal": "BUY" if screener_preset != "rsi_overbought" else "SELL",
                             })
                     except Exception:
                         continue
-            return {"market": market, "signals": hits, "count": len(hits)}
+            return {
+                "market": market,
+                "asset_class": asset_class,
+                "screener_preset": screener_preset or "custom",
+                "ticker_count": len(tickers),
+                "signals": hits,
+                "count": len(hits),
+            }
 
         return json_safe(await asyncio.to_thread(_run))
 

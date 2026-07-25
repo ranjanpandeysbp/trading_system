@@ -1,20 +1,45 @@
-from datetime import datetime, timezone
+"""Strategy Scanner — live BUY/SELL signals across strategies and timeframes."""
+
+from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pandas as pd
 
-from app.data.factory import DataProviderFactory
 from app.data.market_price import MarketQuote, fetch_market_quote
+from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+from app.market_pulse.groww_auth import set_groww_token
+from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.models.schemas import ScanRequest, ScanSignal
 from app.services.settings_service import SettingsService
 from app.services.signal_enricher import enrich_signal
 from app.strategies.registry import (
     STRATEGY_META,
+    STRATEGY_MIN_BARS,
     category_for_timeframe,
     get_strategy,
     needs_benchmark,
 )
+
+_TF_LIMIT = {
+    "1m": 500,
+    "3m": 400,
+    "5m": 400,
+    "15m": 350,
+    "30m": 300,
+    "1h": 300,
+    "4h": 300,
+    "1d": 400,
+}
+
+_BENCHMARK_BY_ASSET = {
+    "india": None,  # use settings
+    "us": "SPY",
+    "commodity": "CL=F",
+    "crypto": "B-BTCUSDT",
+}
 
 
 def _ohlcv_day_range(df: pd.DataFrame) -> tuple[float | None, float | None]:
@@ -32,18 +57,41 @@ def _ohlcv_day_range(df: pd.DataFrame) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _fetch_bars(
+    ticker: str,
+    timeframe: str,
+    market: str,
+    groww_token: str,
+    exchange: str,
+) -> pd.DataFrame:
+    limit = _TF_LIMIT.get(timeframe, 350)
+    df = fetch_data_for_gap_scan(ticker, timeframe, market, groww_token, exchange, limit=limit)
+    return normalize_ohlcv(df)
+
+
 class ScannerService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
 
     async def scan(self, request: ScanRequest) -> list[ScanSignal]:
-        provider = await DataProviderFactory.get_provider(self.settings)
-        costs_pct = await self.settings.get_costs_pct()
-        benchmark_ticker = await self.settings.get_benchmark_ticker()
-        benchmark_df: pd.DataFrame | None = None
-
+        asset_class = getattr(request, "asset_class", None) or "india"
+        cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
+        market = str(cfg["market"])
         groww_token = await self.settings.get_groww_token() or ""
-        groww_exchange = await self.settings.get_groww_exchange()
+        groww_exchange = (
+            await self.settings.get_groww_exchange()
+            if asset_class == "india"
+            else str(cfg.get("exchange") or "NSE")
+        )
+        costs_pct = await self.settings.get_costs_pct()
+
+        settings_bench = await self.settings.get_benchmark_ticker()
+        benchmark_ticker = _BENCHMARK_BY_ASSET.get(asset_class) or settings_bench
+        benchmark_cache: dict[str, pd.DataFrame | None] = {}
+
+        # No ticker count limit — scan the full list.
+        unique_tickers = list(dict.fromkeys(t.strip() for t in request.tickers if t and str(t).strip()))
+
         quote_cache: dict[str, MarketQuote] = {}
         quote_lock = asyncio.Lock()
 
@@ -58,12 +106,13 @@ class ScannerService:
                         ticker,
                         groww_token=groww_token,
                         exchange=groww_exchange,
+                        asset_class=asset_class,
+                        market=market,
                     )
                     return quote_cache[ticker]
                 except Exception:
                     return None
 
-        unique_tickers = list(dict.fromkeys(request.tickers))
         await asyncio.gather(*(_ensure_quote(t) for t in unique_tickers))
 
         async def _market_fields(ticker: str, df: pd.DataFrame | None = None) -> dict:
@@ -72,6 +121,11 @@ class ScannerService:
                 fields = {"price": q.price, "day_high": q.day_high, "day_low": q.day_low}
             else:
                 fields = {"price": 0.0, "day_high": None, "day_low": None}
+                if df is not None and not df.empty and "close" in df.columns:
+                    try:
+                        fields["price"] = float(df["close"].iloc[-1])
+                    except Exception:
+                        pass
 
             if df is not None and (fields["day_high"] is None or fields["day_low"] is None):
                 hi, lo = _ohlcv_day_range(df)
@@ -82,16 +136,20 @@ class ScannerService:
 
             return fields
 
+        def _load_bars(ticker: str, timeframe: str) -> pd.DataFrame:
+            set_groww_token(groww_token)
+            return _fetch_bars(ticker, timeframe, market, groww_token, groww_exchange)
+
         signals: list[ScanSignal] = []
 
-        for ticker in request.tickers:
+        for ticker in unique_tickers:
             for timeframe in request.timeframes:
                 category = category_for_timeframe(timeframe)
                 if not category:
                     continue
 
                 try:
-                    df = await provider.fetch_ohlcv(ticker, interval=timeframe)
+                    df = await asyncio.to_thread(_load_bars, ticker, timeframe)
                 except Exception as exc:
                     signals.append(
                         ScanSignal(
@@ -114,16 +172,27 @@ class ScannerService:
                     )
                     continue
 
-                if df.empty or len(df) < 30:
+                if df is None or df.empty:
                     continue
 
-                if benchmark_df is None and any(
+                min_needed = 30
+                for sid in request.strategies:
+                    if sid in STRATEGY_META:
+                        min_needed = max(min_needed, STRATEGY_MIN_BARS.get(sid, 30))
+                if len(df) < min(min_needed, 30):
+                    continue
+
+                needs_any_bench = any(
                     needs_benchmark(s) for s in request.strategies if s in STRATEGY_META
-                ):
+                )
+                if needs_any_bench and timeframe not in benchmark_cache:
                     try:
-                        benchmark_df = await provider.fetch_ohlcv(benchmark_ticker, interval=timeframe)
+                        benchmark_cache[timeframe] = await asyncio.to_thread(
+                            _load_bars, benchmark_ticker, timeframe
+                        )
                     except Exception:
-                        benchmark_df = None
+                        benchmark_cache[timeframe] = None
+                benchmark_df = benchmark_cache.get(timeframe)
 
                 for strategy_id in request.strategies:
                     if strategy_id not in STRATEGY_META:
@@ -132,10 +201,14 @@ class ScannerService:
                     if meta["category"] != category:
                         continue
 
+                    need_bars = STRATEGY_MIN_BARS.get(strategy_id, 30)
+                    if len(df) < need_bars:
+                        continue
+
                     try:
                         fn = get_strategy(strategy_id)
                         if needs_benchmark(strategy_id):
-                            if benchmark_df is None:
+                            if benchmark_df is None or benchmark_df.empty:
                                 continue
                             result = fn(df, benchmark_df)
                         else:

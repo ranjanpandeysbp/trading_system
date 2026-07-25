@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, Eye, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Eye, Plus, RefreshCw, Share2, Trash2 } from 'lucide-react'
 import {
   addWatchlistItem,
   apiErrorMessage,
@@ -10,6 +10,7 @@ import {
   fetchWatchlistItems,
   fetchWatchlists,
   removeWatchlistItem,
+  type WatchlistItemInfo,
 } from '../api/client'
 import { TradeSetupDrillDown } from '../components/command-center/CommandCenterPanels'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -38,6 +39,55 @@ function fmtPct(v: number | null | undefined) {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 }
 
+function itemTicker(it: WatchlistItemInfo) {
+  return (it.display_name || it.ticker || '').trim()
+}
+
+/** Comma-separated — good for pasting into scanners / other apps. */
+function tickersCsv(items: WatchlistItemInfo[]) {
+  return items.map(itemTicker).filter(Boolean).join(', ')
+}
+
+/** WhatsApp-friendly message with watchlist name + one ticker per line. */
+function watchlistShareText(name: string, market: string, items: WatchlistItemInfo[]) {
+  const lines = items.map((it) => {
+    const t = itemTicker(it)
+    const bits: string[] = [t]
+    if (it.ltp != null) bits.push(`LTP ${it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 })}`)
+    if (it.change_pct != null) bits.push(fmtPct(it.change_pct))
+    if (it.notes?.trim()) bits.push(`— ${it.notes.trim()}`)
+    return bits.join('  ')
+  })
+  return [
+    `*${name}*`,
+    `Market: ${market} · ${items.length} ticker${items.length === 1 ? '' : 's'}`,
+    '',
+    ...lines,
+    '',
+    `Tickers: ${tickersCsv(items)}`,
+  ].join('\n')
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
+function openWhatsAppShare(text: string) {
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 export default function WatchlistPage() {
   const qc = useQueryClient()
   const [error, setError] = useState('')
@@ -50,10 +100,13 @@ export default function WatchlistPage() {
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [analyzeId, setAnalyzeId] = useState<number | null>(null)
   const [timeframeByItem, setTimeframeByItem] = useState<Record<number, string>>({})
+  const [copied, setCopied] = useState(false)
+  const [shareHint, setShareHint] = useState('')
 
   const listsQ = useQuery({ queryKey: ['watchlists'], queryFn: fetchWatchlists })
   const lists = listsQ.data?.watchlists ?? []
-  const currentMarket = lists.find((l) => l.id === selectedId)?.market_type ?? newMarket
+  const selectedList = lists.find((l) => l.id === selectedId)
+  const currentMarket = selectedList?.market_type ?? newMarket
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedTicker(ticker.trim()), 200)
@@ -119,6 +172,7 @@ export default function WatchlistPage() {
   })
 
   const items = itemsQ.data?.items ?? []
+  const csvTickers = useMemo(() => tickersCsv(items), [items])
 
   const { sorted: sortedItems, sortKey: itemsSortKey, sortDir: itemsSortDir, handleSort: handleItemsSort } = useSort(
     items,
@@ -129,6 +183,26 @@ export default function WatchlistPage() {
       change_since_added_pct: (r) => r.change_since_added_pct,
     },
   )
+
+  const handleCopyTickers = async () => {
+    if (!items.length) return
+    try {
+      await copyText(csvTickers)
+      setCopied(true)
+      setShareHint('')
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setShareHint('Could not copy — try selecting the tickers manually.')
+    }
+  }
+
+  const handleWhatsAppShare = () => {
+    if (!items.length || !selectedList) return
+    const text = watchlistShareText(selectedList.name, selectedList.market_type, items)
+    openWhatsAppShare(text)
+    setShareHint('Opening WhatsApp…')
+    window.setTimeout(() => setShareHint(''), 2500)
+  }
 
   return (
     <div>
@@ -172,9 +246,29 @@ export default function WatchlistPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2 font-medium text-white">
                   <Eye size={16} />
-                  {lists.find((l) => l.id === selectedId)?.name} ({items.length})
+                  {selectedList?.name} ({items.length})
                 </h3>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleCopyTickers}
+                    disabled={!items.length}
+                    title="Copy all tickers as comma-separated text"
+                  >
+                    {copied ? <Check size={14} className="mr-1.5 text-emerald-400" /> : <Copy size={14} className="mr-1.5" />}
+                    {copied ? 'Copied!' : 'Copy tickers'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleWhatsAppShare}
+                    disabled={!items.length}
+                    title="Share this watchlist and all tickers on WhatsApp"
+                  >
+                    <Share2 size={14} className="mr-1.5" />
+                    Share on WhatsApp
+                  </Button>
                   <Button variant="secondary" size="sm" onClick={() => itemsQ.refetch()} disabled={itemsQ.isFetching}>
                     <RefreshCw size={14} className="mr-1.5" />
                     Refresh prices
@@ -190,6 +284,7 @@ export default function WatchlistPage() {
                   </Button>
                 </div>
               </div>
+              {shareHint && <p className="mb-3 text-xs text-slate-500">{shareHint}</p>}
 
               <div className="mb-4 flex flex-wrap items-end gap-2">
                 <FormField label="Add ticker">

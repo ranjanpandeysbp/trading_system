@@ -29,6 +29,9 @@ from app.market_pulse.news_scanner import (
     fmt_last_pct,
 )
 
+# Default India Nifty sectoral / thematic indices for Sector Rotation + Opposite Hedge-MTF.
+INDIA_SECTOR_INDICES: tuple[str, ...] = tuple(sector_fallback_index_names())
+
 logger = logging.getLogger(__name__)
 
 MarketKind = Literal["us", "crypto"]

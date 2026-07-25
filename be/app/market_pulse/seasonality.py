@@ -21,13 +21,16 @@ from app.market_pulse.groww_auth import get_active_groww_token
 from app.market_pulse.run_summary import render_run_summary, summarize_seasonality
 
 def fetch_seasonality_data(tickers, years=10, market: str = ""):
-    """Fetch historical daily OHLCV data for multiple tickers."""
+    """Fetch historical daily OHLCV data for multiple tickers (no ticker count limit)."""
+    import logging
+
     from app.market_pulse.ticker_utils import is_crypto_market, is_us_market
     from app.market_pulse.us_market_yfinance import us_symbol_to_yf
 
+    logger = logging.getLogger(__name__)
     end_date = datetime.now()
     start_date = end_date - timedelta(days=years * 365.25)
-    
+
     all_data = {}
     for ticker in tickers:
         yf_ticker = ticker
@@ -38,11 +41,14 @@ def fetch_seasonality_data(tickers, years=10, market: str = ""):
             elif "-USDT" in ticker.upper():
                 symbol = ticker.upper().replace("-USDT", "")
                 yf_ticker = f"{symbol}-USD"
+        elif "=F" in ticker.upper() or ticker.endswith("=X"):
+            # Yahoo futures / FX — pass through unchanged
+            yf_ticker = ticker
         elif is_us_market(market):
             yf_ticker = us_symbol_to_yf(ticker)
         elif ticker.endswith(".NS"):
             yf_ticker = ticker
-        elif not ticker.endswith(".NS") and ticker.isupper():
+        elif not ticker.endswith(".NS") and ticker.isupper() and "=" not in ticker:
             yf_ticker = f"{ticker}.NS"
 
         try:
@@ -50,51 +56,70 @@ def fetch_seasonality_data(tickers, years=10, market: str = ""):
             if not df.empty:
                 all_data[ticker] = df
         except Exception as e:
-            st.error(f"Error fetching {ticker}: {e}")
+            logger.error("Error fetching %s: %s", ticker, e)
     return all_data
+
+
+def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Accept Close/close and flatten MultiIndex columns from yfinance."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    if isinstance(out.columns, pd.MultiIndex):
+        out.columns = [str(c[0]).lower() if isinstance(c, tuple) else str(c).lower() for c in out.columns]
+    else:
+        out.columns = [str(c).lower() for c in out.columns]
+    # Keep a canonical Close for legacy Streamlit charts / backtest helpers.
+    if "close" in out.columns and "Close" not in out.columns:
+        out["Close"] = out["close"]
+    elif "Close" in out.columns and "close" not in out.columns:
+        out["close"] = out["Close"]
+    return out
+
 
 def compute_seasonality(df):
     """Compute monthly returns, win rates, and statistical significance."""
-    # Ensure we have Close prices
-    if 'Close' not in df.columns:
-        return None
-    
+    work = _normalize_ohlcv_columns(df)
+    if "Close" not in work.columns and "close" not in work.columns:
+        return None, None
+
+    close = work["Close"] if "Close" in work.columns else work["close"]
     # Resample to monthly returns
-    monthly_prices = df['Close'].resample('ME').last()
+    monthly_prices = close.resample("ME").last()
     monthly_returns = monthly_prices.pct_change().dropna()
-    
+
     # Create a dataframe for analysis
     returns_df = pd.DataFrame(monthly_returns)
-    returns_df.columns = ['Return']
-    returns_df['Year'] = returns_df.index.year
-    returns_df['Month'] = returns_df.index.month
-    
+    returns_df.columns = ["Return"]
+    returns_df["Year"] = returns_df.index.year
+    returns_df["Month"] = returns_df.index.month
+
     # Pivot for heatmap: Years x Months
-    pivot_table = returns_df.pivot(index='Year', columns='Month', values='Return')
-    
+    pivot_table = returns_df.pivot(index="Year", columns="Month", values="Return")
+
     # Metrics per month
     stats_data = []
     for month in range(1, 13):
-        month_rets = returns_df[returns_df['Month'] == month]['Return']
+        month_rets = returns_df[returns_df["Month"] == month]["Return"]
         if len(month_rets) < 2:
             continue
-            
+
         avg_ret = month_rets.mean()
         std_dev = month_rets.std()
         win_rate = (month_rets > 0).mean()
-        
+
         # T-test for significance (null hypothesis: mean return is 0)
         t_stat, p_val = stats.ttest_1samp(month_rets, 0)
-        
+
         stats_data.append({
-            'Month': month,
-            'Avg Return': avg_ret,
-            'Std Dev': std_dev,
-            'Win Rate': win_rate,
-            'P-Value': p_val,
-            'Count': len(month_rets)
+            "Month": month,
+            "Avg Return": avg_ret,
+            "Std Dev": std_dev,
+            "Win Rate": win_rate,
+            "P-Value": p_val,
+            "Count": len(month_rets),
         })
-        
+
     return pivot_table, pd.DataFrame(stats_data)
 
 def generate_signals(stats_df):
@@ -128,52 +153,82 @@ def generate_signals(stats_df):
 
 def run_seasonal_backtest(df, signals_df):
     """Simulate trading based on seasonal signals."""
-    monthly_prices = df['Close'].resample('ME').last()
+    work = _normalize_ohlcv_columns(df)
+    close = work["Close"] if "Close" in work.columns else work.get("close")
+    if close is None or close.empty:
+        return {
+            "Total Return": 0.0,
+            "CAGR": 0.0,
+            "Sharpe": 0.0,
+            "Max Drawdown": 0.0,
+            "total_return_pct": 0.0,
+            "cagr_pct": 0.0,
+            "sharpe": 0.0,
+            "max_drawdown_pct": 0.0,
+        }
+
+    monthly_prices = close.resample("ME").last()
     monthly_returns = monthly_prices.pct_change().dropna().squeeze()
-    
+
     # Ensure it's a Series just in case squeeze returns a single value or behaves unexpectedly
     if isinstance(monthly_returns, pd.DataFrame):
         monthly_returns = monthly_returns.iloc[:, 0]
-    
+
     backtest_results = []
     current_val = 100.0
-    
+
     for date, ret in monthly_returns.items():
         month = date.month
-        sig = signals_df[signals_df['Month'] == month]
-        
+        sig = signals_df[signals_df["Month"] == month]
+
         if not sig.empty:
-            action = sig.iloc[0]['Action']
+            action = sig.iloc[0]["Action"]
             if "BUY" in action:
                 current_val *= (1 + ret)
             elif "SELL" in action:
-                # Assuming inverse for sell or stay cash. Let's stay cash (no change) 
+                # Assuming inverse for sell or stay cash. Let's stay cash (no change)
                 # or short (-ret). Institutional scanners often show 'Short' potential.
                 current_val *= (1 - ret)
-        
-        backtest_results.append({'Date': date, 'Value': current_val})
-        
-    bt_df = pd.DataFrame(backtest_results).set_index('Date')
-    
+
+        backtest_results.append({"Date": date, "Value": current_val})
+
+    bt_df = pd.DataFrame(backtest_results).set_index("Date")
+    if bt_df.empty:
+        return {
+            "Total Return": 0.0,
+            "CAGR": 0.0,
+            "Sharpe": 0.0,
+            "Max Drawdown": 0.0,
+            "total_return_pct": 0.0,
+            "cagr_pct": 0.0,
+            "sharpe": 0.0,
+            "max_drawdown_pct": 0.0,
+        }
+
     # Compute metrics
-    total_ret = (bt_df['Value'].iloc[-1] / 100.0) - 1
-    days = (bt_df.index[-1] - bt_df.index[0]).days
-    cagr = (bt_df['Value'].iloc[-1] / 100.0) ** (365.25 / days) - 1
-    
-    daily_rets = bt_df['Value'].pct_change().dropna()
-    sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(12) if len(daily_rets) > 0 else 0
-    
+    total_ret = (bt_df["Value"].iloc[-1] / 100.0) - 1
+    days = max((bt_df.index[-1] - bt_df.index[0]).days, 1)
+    cagr = (bt_df["Value"].iloc[-1] / 100.0) ** (365.25 / days) - 1
+
+    daily_rets = bt_df["Value"].pct_change().dropna()
+    sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(12) if len(daily_rets) > 0 and daily_rets.std() else 0
+
     # Drawdown
-    rolling_max = bt_df['Value'].cummax()
-    drawdown = (bt_df['Value'] / rolling_max) - 1
+    rolling_max = bt_df["Value"].cummax()
+    drawdown = (bt_df["Value"] / rolling_max) - 1
     max_dd = drawdown.min()
-    
+
     return {
-        'Total Return': total_ret,
-        'CAGR': cagr,
-        'Sharpe': sharpe,
-        'Max Drawdown': max_dd,
-        'Equity Curve': bt_df
+        "Total Return": total_ret,
+        "CAGR": cagr,
+        "Sharpe": sharpe,
+        "Max Drawdown": max_dd,
+        "Equity Curve": bt_df,  # Streamlit charts
+        # FE-friendly aliases
+        "total_return_pct": round(float(total_ret) * 100, 2),
+        "cagr_pct": round(float(cagr) * 100, 2),
+        "sharpe": round(float(sharpe), 2),
+        "max_drawdown_pct": round(float(max_dd) * 100, 2),
     }
 
 def render_seasonality_tab():

@@ -42,7 +42,15 @@ class TradingHubService:
     ) -> dict:
         token = await self._groww_token()
         market, exchange = await self._asset_ctx(asset_class)
-        resolved = self.universe.resolve(asset_class, tickers)[:20]
+        from app.trading_hubs.registry import get_section
+
+        section = get_section(section_id)
+        # Fixed-universe sections (e.g. Scalp-2mins) ignore the picker — no resolve/cap.
+        if section and section.get("fixed_universe"):
+            resolved = list(section["fixed_universe"])
+        else:
+            # No ticker count limit — scan the full resolved universe.
+            resolved = list(self.universe.resolve(asset_class, tickers))
 
         def _run():
             set_groww_token(token)

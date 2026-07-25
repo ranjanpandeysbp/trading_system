@@ -35,6 +35,7 @@ import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 
 type Row = Record<string, unknown>
 
@@ -292,14 +293,20 @@ function SummaryCard({ title, row }: { title: string; row: Row }) {
   const verdict = String(row.verdict ?? '—')
   const reasons = (row.reasons as string[]) ?? []
   const plan = row.trade_plan as Row | undefined
+  const ticker = row.ticker != null ? String(row.ticker) : ''
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{title}</p>
-        <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(verdict)}`}>
-          {row.ticker != null ? `${String(row.ticker)} · ` : ''}{verdict}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{title}</p>
+            <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(verdict)}`}>
+              {ticker ? `${ticker} · ` : ''}{verdict}
+            </p>
+          </div>
+          {ticker && <AddToWatchlistButton ticker={ticker} />}
+        </div>
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
           {row.score != null && (
             <span className="rounded-lg bg-slate-800/60 px-3 py-1 text-slate-200">
@@ -499,6 +506,7 @@ function EngineSummaryTable({
             <SortableTh active={sortKey === 'sl'} direction={sortDir} onSort={() => handleSort('sl')}>SL %</SortableTh>
             <SortableTh active={sortKey === 'tp'} direction={sortDir} onSort={() => handleSort('tp')}>TP %</SortableTh>
             <SortableTh active={sortKey === 'exp'} direction={sortDir} onSort={() => handleSort('exp')}>Exp %</SortableTh>
+            <Th></Th>
           </tr>
         </thead>
         <tbody>
@@ -523,10 +531,13 @@ function EngineSummaryTable({
                   <Td>{isTrade ? fmtNum(plan.stop_loss_pct) : '—'}</Td>
                   <Td>{isTrade ? fmtNum(plan.take_profit_pct) : '—'}</Td>
                   <Td>{isTrade ? fmtNum(plan.expected_profit_pct) : '—'}</Td>
+                  <Td onClick={(e) => e.stopPropagation()}>
+                    <AddToWatchlistButton ticker={String(s.ticker ?? '')} compact />
+                  </Td>
                 </tr>
                 {expanded === i && reasons.length > 0 && (
                   <tr>
-                    <td colSpan={9} className="border-b border-slate-800/40 bg-slate-900/30 px-4 py-3">
+                    <td colSpan={10} className="border-b border-slate-800/40 bg-slate-900/30 px-4 py-3">
                       <ul className="space-y-1 text-xs text-slate-300">
                         {reasons.map((r, ri) => <li key={ri}>• {r}</li>)}
                       </ul>
@@ -575,6 +586,7 @@ function BuySellPanel({ data }: { data: Row }) {
               <SortableTh active={sortKey === 'sl_pct'} direction={sortDir} onSort={() => handleSort('sl_pct')}>SL %</SortableTh>
               <SortableTh active={sortKey === 'tp_pct'} direction={sortDir} onSort={() => handleSort('tp_pct')}>TP %</SortableTh>
               <SortableTh active={sortKey === 'engine_count'} direction={sortDir} onSort={() => handleSort('engine_count')}>Engines</SortableTh>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
@@ -594,6 +606,9 @@ function BuySellPanel({ data }: { data: Row }) {
                   <Td>{fmtNum(r.sl_pct)}</Td>
                   <Td>{fmtNum(r.tp_pct)}</Td>
                   <Td>{String(r.engine_count ?? '—')}</Td>
+                  <Td onClick={(e) => e.stopPropagation()}>
+                    <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+                  </Td>
                 </tr>
               )
             })}
@@ -653,7 +668,10 @@ function MomentumPanel({ data }: { data: Row }) {
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Momentum · {String(r.ticker)}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Momentum · {String(r.ticker)}</p>
+              <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+            </div>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(r.overall_direction ?? ''))}`}>
               {String(r.overall_direction ?? '—')}
             </p>
@@ -895,6 +913,9 @@ function RealBottomTickerRow({ res }: { res: Row }) {
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{String(res.ticker)}</span>
         <span className="text-slate-500">· {priceStr}{res.atr != null ? ` · ATR ${fmtNum(res.atr, 4)}` : ''}</span>
+        <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+          <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+        </span>
       </button>
       {open && (
         <div className="border-t border-slate-800/60 px-3 py-2">
@@ -1046,6 +1067,9 @@ function WeakStrongResultRow({ res, compact = false }: { res: Row; compact?: boo
             <span className="flex items-center gap-1.5">
               {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
               <span className="font-semibold text-white">{String(res.ticker)}</span>
+              <span onClick={(e) => e.stopPropagation()}>
+                <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+              </span>
             </span>
             <span className="text-slate-500 leading-snug">{meta}</span>
           </>
@@ -1054,6 +1078,9 @@ function WeakStrongResultRow({ res, compact = false }: { res: Row; compact?: boo
             {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
             <span className="font-semibold text-white">{String(res.ticker)}</span>
             <span className="text-slate-500">· {meta}</span>
+            <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+              <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+            </span>
           </>
         )}
       </button>
@@ -1135,6 +1162,9 @@ function CopyTradeResultRow({ res }: { res: Row }) {
           {' · %K '}{fmtNum(res.stoch_k, 1)}
           {' · vol '}{fmtNum(res.vol_ratio, 1)}x
         </span>
+        <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+          <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+        </span>
       </button>
       {open && (
         <div className="border-t border-slate-800/60 px-3 py-2">
@@ -1208,6 +1238,9 @@ function Sma20200ResultRow({ res, assetClass }: { res: Row; assetClass: string }
           {' · '}{String(live.verdict ?? 'WAIT')}
           {' · '}{fmtNum(live.confidence_pct, 0)}% confidence
           {' · price '}{fmtNum(res.price, 4)}
+        </span>
+        <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+          <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
         </span>
       </button>
       {open && (
@@ -1434,6 +1467,9 @@ function PatternTickerRow({ res }: { res: Row }) {
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{String(res.ticker)}</span>
         <span className="text-slate-500">· {priceStr} · {fmtNum(res.confidence_pct, 0)}% confidence · 🟢{nBull} / 🔴{nBear} pattern(s)</span>
+        <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+          <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+        </span>
       </button>
       {open && (
         <div className="border-t border-slate-800/60 px-3 py-2">
@@ -1532,9 +1568,12 @@ function EmaPositionPanel({ data }: { data: Row }) {
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              EMA Position · {String(r.ticker)} · {String(r.timeframe ?? '')}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                EMA Position · {String(r.ticker)} · {String(r.timeframe ?? '')}
+              </p>
+              <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+            </div>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(action.bucket ?? ''))}`}>
               {String(action.bucket ?? '—')}{action.direction != null ? ` · ${String(action.direction)}` : ''}
             </p>
@@ -2255,6 +2294,7 @@ function TradeSetupBucketTable({ items, timeframe, assetClass }: { items: Row[];
           <SortableTh active={sortKey === 'rsi'} direction={sortDir} onSort={() => handleSort('rsi')}>RSI(14)</SortableTh>
           <SortableTh active={sortKey === 'trend'} direction={sortDir} onSort={() => handleSort('trend')}>Trend</SortableTh>
           <SortableTh active={sortKey === 'volume'} direction={sortDir} onSort={() => handleSort('volume')}>Volume x</SortableTh>
+          <Th></Th>
         </tr>
       </thead>
       <tbody>
@@ -2270,6 +2310,9 @@ function TradeSetupBucketTable({ items, timeframe, assetClass }: { items: Row[];
                 <Td className={verdictClass(String(r.bucket ?? ''))}>{fmtNum(r.rsi, 1)}</Td>
                 <Td>{String(r.trend_direction ?? '—')}</Td>
                 <Td>{fmtNum(r.volume_ratio)}</Td>
+                <Td onClick={(e) => e.stopPropagation()}>
+                  <AddToWatchlistButton ticker={ticker} compact />
+                </Td>
               </tr>
               {isOpen && (
                 <tr>
@@ -2404,7 +2447,10 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Fundamental Analysis · {String(r.ticker)}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Fundamental Analysis · {String(r.ticker)}</p>
+              <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+            </div>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(overall.signal ?? r.verdict ?? ''))}`}>
               {String(overall.signal ?? r.verdict ?? '—')} · {fmtNum(overall.confidence_pct, 0)}% confidence
             </p>
@@ -2677,9 +2723,12 @@ function OneClickPanel({ data, style }: { data: Row; style: 'intraday' | 'scalpi
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              One-Click {style.charAt(0).toUpperCase() + style.slice(1)} · {String(r.ticker)}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                One-Click {style.charAt(0).toUpperCase() + style.slice(1)} · {String(r.ticker)}
+              </p>
+              <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+            </div>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(combo.verdict ?? ''))}`}>
               {String(combo.verdict ?? '—')}
             </p>
@@ -3080,7 +3129,10 @@ function StockUpgradeDowngradePanel({ data }: { data: Row }) {
       </div>
 
       <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Upgrade/Downgrade · {String(r.ticker)}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Upgrade/Downgrade · {String(r.ticker)}</p>
+          <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+        </div>
         <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(consensus.consensus ?? ''))}`}>
           {String(consensus.consensus ?? 'NO DATA')}
         </p>
@@ -3256,7 +3308,16 @@ function CoinDcxTile({ row }: { row: Row }) {
         <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
         <div>
           <div className="text-[10px] opacity-85">Ticker name</div>
-          <div className="text-sm font-bold leading-tight">{String(row.ticker ?? '—')}</div>
+          <div className="flex items-center gap-1.5">
+            <div className="text-sm font-bold leading-tight">{String(row.ticker ?? '—')}</div>
+            <AddToWatchlistButton
+              ticker={apiSymbol}
+              displayName={String(row.ticker ?? apiSymbol)}
+              marketType="crypto"
+              compact
+              className="!border-white/30 !bg-black/20 !text-inherit hover:!bg-black/35"
+            />
+          </div>
           <div className="text-sm font-semibold">LTP {fmtNum(row.price, 4)}</div>
         </div>
         <div className="text-[10px] leading-relaxed">
@@ -3373,7 +3434,10 @@ function IndiaMarketHeatmapTile({ row, exchange, assetClass }: { row: Row; excha
         <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
         <div>
           <div className="text-[10px] opacity-85">Ticker name</div>
-          <div className="text-sm font-bold leading-tight">{ticker}</div>
+          <div className="flex items-center gap-1.5">
+            <div className="text-sm font-bold leading-tight">{ticker}</div>
+            <AddToWatchlistButton ticker={ticker} compact className="!border-white/30 !bg-black/20 !text-inherit hover:!bg-black/35" />
+          </div>
           <div className="truncate text-[10px] opacity-85" title={String(row.company ?? '')}>{String(row.company ?? '')}</div>
         </div>
         <div className="text-sm font-semibold">{price != null ? `${HEATMAP_CURRENCY_PREFIX[assetClass] ?? ''}${Number(price).toLocaleString(undefined, { maximumFractionDigits: 4 })}` : '—'}</div>
@@ -4327,6 +4391,7 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
                 <SortableTh active={resultsSortKey === 'option_chain'} direction={resultsSortDir} onSort={() => handleResultsSort('option_chain')}>Option Chain</SortableTh>
               </>
             )}
+            <Th></Th>
           </tr>
         </thead>
         <tbody>
@@ -4344,7 +4409,7 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
               >
                 <Td className="font-medium text-white">{String(res.ticker ?? '—')}</Td>
                 {res.error ? (
-                  <Td colSpan={showCombos ? 11 : 9} className="text-rose-400">ERROR — {String(res.error)}</Td>
+                  <Td colSpan={showCombos ? 12 : 10} className="text-rose-400">ERROR — {String(res.error)}</Td>
                 ) : (
                   <>
                     <Td className={verdictClass(String(s.direction ?? ''))}>{_SETUP_BADGE[String(s.direction ?? '')] ?? String(s.direction ?? '—')}</Td>
@@ -4364,6 +4429,9 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
                     )}
                   </>
                 )}
+                <Td onClick={(e) => e.stopPropagation()}>
+                  <AddToWatchlistButton ticker={String(res.ticker ?? '')} compact />
+                </Td>
               </tr>
             )
           })}
@@ -4383,7 +4451,10 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Quick Analyzer · {String(r.ticker)}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Quick Analyzer · {String(r.ticker)}</p>
+              <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+            </div>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(setup.direction ?? ''))}`}>
               {_SETUP_BADGE[String(setup.direction ?? '')] ?? String(setup.direction ?? '—')} · {fmtNum(setup.confidence_pct, 1)}% confidence
               {setup.sl_pct != null ? ` · SL ${fmtNum(setup.sl_pct, 2)}% / TP ${fmtNum(setup.tp_pct, 2)}%` : ''}

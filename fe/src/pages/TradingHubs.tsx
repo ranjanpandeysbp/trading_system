@@ -49,9 +49,10 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_multi_indicator: '1m',
   scalp_rectangle: '1m',
   scalp_heikin_ashi: '1m (India 09:45-11:45 IST / US 10:00-12:00 ET session window; crypto unrestricted)',
+  scalp_livefree_fx: 'HTF 1D/4H/1H · 15m sessions · 5m sweep + BoS',
   scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
   scalp_sr_mss: '1h HTF zone + 1m MSS entry',
-  scalp_2min: '2m (1m resampled) — always scans Nifty 50 / Bank Nifty / Sensex',
+  scalp_2min: '2m (1m resampled) · Nifty 50 / Bank Nifty / Sensex only',
   smc_cisd: '1h bias + 15m execution',
   smc_weekly_sweep_cisd: 'Weekly HTF sweep + 15m execution',
   smc_mtf_day_plan: '4h HTF + 1h MTF + 15m LTF day plan',
@@ -75,6 +76,10 @@ function defaultConfig(section: TradingHubSection | undefined): Record<string, s
   return out
 }
 
+function sectionHasFixedUniverse(section: TradingHubSection | undefined): boolean {
+  return Boolean(section?.fixed_universe?.length)
+}
+
 export default function TradingHubs() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [hubId, setHubId] = useState('swing')
@@ -93,6 +98,12 @@ export default function TradingHubs() {
   const activeSection = useMemo(
     () => activeHub?.sections?.find((s) => s.id === sectionId) as TradingHubSection | undefined,
     [activeHub, sectionId],
+  )
+
+  const fixedUniverse = sectionHasFixedUniverse(activeSection)
+  const scanTickers = useMemo(
+    () => (fixedUniverse ? (activeSection?.fixed_universe ?? []) : picker.tickers),
+    [fixedUniverse, activeSection?.fixed_universe, picker.tickers],
   )
 
   useEffect(() => {
@@ -118,12 +129,16 @@ export default function TradingHubs() {
 
   const scanMutation = useMutation({
     mutationFn: () => {
-      if (!picker.tickers.length) throw new Error('Select at least one ticker')
       if (!sectionId) throw new Error('Select a section')
+      const tickers = fixedUniverse
+        ? (activeSection?.fixed_universe ?? [])
+        : picker.tickers
+      if (!tickers.length) throw new Error('Select at least one ticker')
       return runTradingHubScan({
         section_id: sectionId,
-        tickers: picker.tickers,
-        asset_class: assetClass,
+        tickers,
+        // Fixed-universe strategies (e.g. Scalp-2mins) are India indices only.
+        asset_class: fixedUniverse ? 'india' : assetClass,
         config: Object.keys(config).length ? config : undefined,
       })
     },
@@ -175,23 +190,37 @@ export default function TradingHubs() {
           </div>
         )}
 
-        <FormField label="Asset class">
-          <Select value={assetClass} onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}>
-            <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
-            <option value="us">🇺🇸 US stocks (Yahoo)</option>
-            <option value="crypto">₿ Crypto (CoinDCX)</option>
-            <option value="commodity">🛢️ Commodity futures</option>
-          </Select>
-        </FormField>
+        {fixedUniverse ? (
+          <div className="rounded-lg border border-slate-700/80 bg-slate-900/50 px-4 py-3">
+            <p className="text-sm font-medium text-slate-200">
+              {activeSection?.fixed_universe_label ?? 'Fixed scan universe'}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              This strategy does not use the Crypto / US / commodity ticker picker. It always scans:{' '}
+              <span className="text-slate-300">{(activeSection?.fixed_universe ?? []).join(' · ')}</span>
+            </p>
+          </div>
+        ) : (
+          <>
+            <FormField label="Asset class">
+              <Select value={assetClass} onChange={(e) => handleAssetClassChange(e.target.value as AssetClass)}>
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+                <option value="commodity">🛢️ Commodity futures</option>
+              </Select>
+            </FormField>
 
-        <div className="mt-4">
-          <AssetClassTickerPicker
-            key={assetClass}
-            assetClass={assetClass}
-            showDurations={false}
-            onChange={handlePickerChange}
-          />
-        </div>
+            <div className="mt-4">
+              <AssetClassTickerPicker
+                key={assetClass}
+                assetClass={assetClass}
+                showDurations={false}
+                onChange={handlePickerChange}
+              />
+            </div>
+          </>
+        )}
 
         {activeSection && Object.entries(activeSection.config_options ?? {}).map(([key, opt]) => (
           <div key={key} className="mt-4">
@@ -207,10 +236,15 @@ export default function TradingHubs() {
           </div>
         ))}
 
-        <div className="mt-4">
-          <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId}>
-            {scanMutation.isPending ? 'Scanning…' : 'Run live scan'}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length}>
+            {scanMutation.isPending
+              ? `Scanning ${scanTickers.length} ticker${scanTickers.length === 1 ? '' : 's'}…`
+              : `Run live scan${scanTickers.length ? ` (${scanTickers.length})` : ''}`}
           </Button>
+          {scanTickers.length > 0 && (
+            <span className="text-xs text-slate-500">No ticker count limit — full selected universe is scanned.</span>
+          )}
         </div>
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>

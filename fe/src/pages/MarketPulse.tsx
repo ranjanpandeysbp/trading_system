@@ -3,6 +3,7 @@ import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-quer
 import { Activity, RefreshCw } from 'lucide-react'
 import {
   apiErrorMessage,
+  fetchBigWhalePumpDump,
   fetchHeatmap,
   fetchMarketPulseIndices,
   fetchMarketPulseIntelligence,
@@ -18,13 +19,17 @@ import {
   fetchStockRotationUniverses,
   fetchTomorrowOutlook,
   fetchWeek52,
+  runAccurateStrategy,
   runCommodityScreener,
   runGainersLosers,
   runMtfBias,
+  runPumpDumpBreakout,
   runStockRotation,
   runStockRotationMarket,
 } from '../api/client'
 import {
+  AccurateStrategyPanel,
+  BigWhalePanel,
   BreadthPanel,
   CommodityPanel,
   HeatmapPanel,
@@ -33,6 +38,7 @@ import {
   MonthlyPanel,
   MoversTable,
   MtfBiasPanel,
+  PumpDumpBreakoutPanel,
   SectorRotationPanel,
   StockRotationPanel,
   TomorrowOutlookPanel,
@@ -49,8 +55,14 @@ const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d', '1w', '1M']
 const SLOW_SECTIONS = new Set([
   'sector_rotation', 'sector_rotation_intraday', 'opposite_hedge', 'week52', 'commodity_screener',
   'sector_rotation_us', 'sector_rotation_us_intraday', 'sector_rotation_crypto', 'sector_rotation_crypto_intraday',
+  'accurate_strategy', 'pump_dump_breakout', 'big_whale_pump_dump',
 ])
-const ACTION_SECTIONS = new Set(['gainers_losers', 'stock_rotation', 'commodity_screener', 'mtf_bias', 'stock_rotation_us', 'stock_rotation_crypto'])
+const ACTION_SECTIONS = new Set([
+  'gainers_losers', 'stock_rotation', 'commodity_screener', 'mtf_bias', 'mtf_bias_crypto',
+  'stock_rotation_us', 'stock_rotation_crypto',
+  'accurate_strategy', 'pump_dump_breakout',
+])
+const PAGE_SIZE = 5000 // no practical page cap — load full breadth / monthly universes
 const MARKET_ROTATION_SECTIONS: Record<string, 'us' | 'crypto'> = {
   sector_rotation_us: 'us',
   sector_rotation_us_intraday: 'us',
@@ -104,7 +116,14 @@ function SectionContent({ section, data }: { section: string; data: SectionData 
     case 'commodity_screener':
       return <CommodityPanel data={data} />
     case 'mtf_bias':
+    case 'mtf_bias_crypto':
       return <MtfBiasPanel data={data} />
+    case 'accurate_strategy':
+      return <AccurateStrategyPanel data={data} />
+    case 'pump_dump_breakout':
+      return <PumpDumpBreakoutPanel data={data} />
+    case 'big_whale_pump_dump':
+      return <BigWhalePanel data={data} />
     default:
       return <p className="text-sm text-slate-500">Select a section to view market data.</p>
   }
@@ -151,13 +170,13 @@ export default function MarketPulse() {
 
   const breadthQ = useQuery({
     queryKey: ['mp-breadth', breadthOffset],
-    queryFn: () => fetchNiftyBreadth(breadthOffset, 10),
+    queryFn: () => fetchNiftyBreadth(breadthOffset, PAGE_SIZE),
     enabled: section === 'nifty_breadth',
   })
 
   const monthlyQ = useQuery({
     queryKey: ['mp-monthly', monthlyOffset],
-    queryFn: () => fetchNiftyMonthly(monthlyOffset, 2),
+    queryFn: () => fetchNiftyMonthly(monthlyOffset, PAGE_SIZE),
     enabled: section === 'nifty_monthly',
   })
 
@@ -208,9 +227,16 @@ export default function MarketPulse() {
     enabled: section === 'heatmap',
   })
 
+  const whaleQ = useQuery({
+    queryKey: ['mp-big-whale'],
+    queryFn: fetchBigWhalePumpDump,
+    enabled: section === 'big_whale_pump_dump',
+  })
+
   const actionMutation = useMutation({
     mutationFn: async () => {
       const payload = { index_name: indexName, tf_key: tfKey, lookback_bars: lookback }
+      const tickerList = tickers.split(/[,\s]+/).filter(Boolean)
       switch (section) {
         case 'gainers_losers':
           return runGainersLosers(payload)
@@ -219,7 +245,13 @@ export default function MarketPulse() {
         case 'commodity_screener':
           return runCommodityScreener(['1 day', '1 week'])
         case 'mtf_bias':
-          return runMtfBias(tickers.split(/[,\s]+/).filter(Boolean))
+          return runMtfBias(tickerList, false)
+        case 'mtf_bias_crypto':
+          return runMtfBias(tickerList, true)
+        case 'accurate_strategy':
+          return runAccurateStrategy({ tickers: tickerList, timeframe: tfKey === '1w' || tfKey === '1M' ? '1d' : tfKey })
+        case 'pump_dump_breakout':
+          return runPumpDumpBreakout({ tickers: tickerList, timeframe: tfKey === '1w' || tfKey === '1M' ? '15m' : tfKey })
         case 'stock_rotation_us':
         case 'stock_rotation_crypto':
           return runStockRotationMarket(STOCK_ROTATION_MARKETS[section], {
@@ -257,9 +289,10 @@ export default function MarketPulse() {
       case 'opposite_hedge': return hedgeQ
       case 'week52': return week52Q
       case 'heatmap': return heatmapQ
+      case 'big_whale_pump_dump': return whaleQ
       default: return null
     }
-  }, [section, tomorrowQ, intelligenceQ, breadthQ, monthlyQ, moversQ, sectorQ, sectorIntraQ, marketSectorQ, hedgeQ, week52Q, heatmapQ])
+  }, [section, tomorrowQ, intelligenceQ, breadthQ, monthlyQ, moversQ, sectorQ, sectorIntraQ, marketSectorQ, hedgeQ, week52Q, heatmapQ, whaleQ])
 
   const activeData = useMemo(() => {
     switch (section) {
@@ -278,9 +311,10 @@ export default function MarketPulse() {
       case 'opposite_hedge': return hedgeQ.data
       case 'week52': return week52Q.data
       case 'heatmap': return heatmapQ.data
+      case 'big_whale_pump_dump': return whaleQ.data
       default: return actionMutation.data
     }
-  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, marketSectorQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, actionMutation.data])
+  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, marketSectorQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, whaleQ.data, actionMutation.data])
 
   const isLoading = (
     (activeQuery?.isFetching && activeQuery.isEnabled) ||
@@ -310,7 +344,7 @@ export default function MarketPulse() {
 
       <Card className="mb-4">
         <div className="grid gap-4 md:grid-cols-3">
-          {!['intelligence', 'tomorrow_outlook', 'mtf_bias', ...Object.keys(MARKET_ROTATION_SECTIONS), ...Object.keys(STOCK_ROTATION_MARKETS)].includes(section) && (
+          {!['intelligence', 'tomorrow_outlook', 'mtf_bias', 'mtf_bias_crypto', 'accurate_strategy', 'pump_dump_breakout', 'big_whale_pump_dump', ...Object.keys(MARKET_ROTATION_SECTIONS), ...Object.keys(STOCK_ROTATION_MARKETS)].includes(section) && (
             <FormField label="Index">
               <Select value={indexName} onChange={(e) => setIndexName(e.target.value)}>
                 {indexOptions.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -326,7 +360,7 @@ export default function MarketPulse() {
               </Select>
             </FormField>
           )}
-          {['gainers_losers', 'stock_rotation', 'heatmap', 'stock_rotation_us', 'stock_rotation_crypto'].includes(section) && (
+          {['gainers_losers', 'stock_rotation', 'heatmap', 'stock_rotation_us', 'stock_rotation_crypto', 'accurate_strategy', 'pump_dump_breakout'].includes(section) && (
             <FormField label="Timeframe">
               <Select value={tfKey} onChange={(e) => setTfKey(e.target.value)}>
                 {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
@@ -338,9 +372,9 @@ export default function MarketPulse() {
               <Input type="number" value={lookback} onChange={(e) => setLookback(Number(e.target.value))} />
             </FormField>
           )}
-          {section === 'mtf_bias' && (
-            <FormField label="Tickers">
-              <Input value={tickers} onChange={(e) => setTickers(e.target.value)} />
+          {['mtf_bias', 'mtf_bias_crypto', 'accurate_strategy', 'pump_dump_breakout'].includes(section) && (
+            <FormField label="Tickers (comma-separated, no count limit)">
+              <Input value={tickers} onChange={(e) => setTickers(e.target.value)} placeholder="RELIANCE, TCS, INFY, …" />
             </FormField>
           )}
         </div>
@@ -348,14 +382,14 @@ export default function MarketPulse() {
         <div className="mt-4 flex flex-wrap gap-2">
           {section === 'nifty_breadth' && (
             <>
-              <Button variant="secondary" size="sm" onClick={() => setBreadthOffset((o) => Math.max(0, o - 10))}>Prev 10</Button>
-              <Button size="sm" onClick={() => setBreadthOffset((o) => o + 10)}>Next 10</Button>
+              <Button variant="secondary" size="sm" onClick={() => setBreadthOffset((o) => Math.max(0, o - PAGE_SIZE))}>Prev page</Button>
+              <Button size="sm" onClick={() => setBreadthOffset((o) => o + PAGE_SIZE)}>Next page</Button>
             </>
           )}
           {section === 'nifty_monthly' && (
             <>
-              <Button variant="secondary" size="sm" onClick={() => setMonthlyOffset((o) => Math.max(0, o - 2))}>Prev</Button>
-              <Button size="sm" onClick={() => setMonthlyOffset((o) => o + 2)}>Next</Button>
+              <Button variant="secondary" size="sm" onClick={() => setMonthlyOffset((o) => Math.max(0, o - PAGE_SIZE))}>Prev page</Button>
+              <Button size="sm" onClick={() => setMonthlyOffset((o) => o + PAGE_SIZE)}>Next page</Button>
             </>
           )}
           {needsAction && (
@@ -366,7 +400,7 @@ export default function MarketPulse() {
           )}
           <Button variant="ghost" size="sm" onClick={() => {
             intelligenceQ.refetch(); tomorrowQ.refetch(); breadthQ.refetch(); monthlyQ.refetch(); moversQ.refetch()
-            sectorQ.refetch(); sectorIntraQ.refetch(); marketSectorQ.refetch(); hedgeQ.refetch(); week52Q.refetch(); heatmapQ.refetch()
+            sectorQ.refetch(); sectorIntraQ.refetch(); marketSectorQ.refetch(); hedgeQ.refetch(); week52Q.refetch(); heatmapQ.refetch(); whaleQ.refetch()
           }}>
             <RefreshCw size={16} />
             Refresh

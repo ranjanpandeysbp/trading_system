@@ -115,41 +115,59 @@ def _groww_auth_quote_sync(symbol: str, exchange: str, token: str) -> MarketQuot
     return MarketQuote(price=price, day_high=high, day_low=low)
 
 
+def _yf_symbol_for_quote(ticker: str, *, asset_class: str = "india", market: str = "") -> str:
+    """Map ticker to a Yahoo symbol appropriate for the asset class."""
+    raw = (ticker or "").strip()
+    ac = (asset_class or "india").lower()
+    if ac == "crypto" or "coindcx" in (market or "").lower() or "crypto" in (market or "").lower():
+        sym = raw.upper().replace("B-", "").replace("_USDT", "").replace("-USDT", "").replace("USDT", "")
+        return f"{sym}-USD"
+    if ac in ("us", "commodity") or "=F" in raw.upper() or raw.startswith("^"):
+        from app.market_pulse.us_market_yfinance import us_symbol_to_yf
+        return us_symbol_to_yf(raw)
+    return normalize_ticker(raw)
+
+
 async def fetch_market_quote(
     ticker: str,
     *,
     groww_token: str = "",
     exchange: str = "NSE",
+    asset_class: str = "india",
+    market: str = "",
 ) -> MarketQuote:
     """
     Fetch current market price and day high/low.
 
-    Priority: Groww public live feed → Groww quote (token) → yfinance.
+    India: Groww public live feed → Groww quote (token) → yfinance (.NS).
+    US / commodity / crypto: yfinance with asset-class-aware symbols.
     """
+    ac = (asset_class or "india").lower()
     token = (groww_token or "").strip()
-    candidates = resolve_groww_symbol_candidates(ticker)
 
-    for sym in candidates:
-        live = await asyncio.to_thread(
-            fetch_groww_live_quote,
-            sym,
-            exchange,
-            prefer_index=_is_index_ticker(ticker, sym),
-        )
-        if live and live.get("price", 0) > 0:
-            return MarketQuote(
-                price=float(live["price"]),
-                day_high=live.get("day_high"),
-                day_low=live.get("day_low"),
-            )
-
-    if token:
+    if ac == "india":
+        candidates = resolve_groww_symbol_candidates(ticker)
         for sym in candidates:
-            quoted = await asyncio.to_thread(_groww_auth_quote_sync, sym, exchange, token)
-            if quoted:
-                return quoted
+            live = await asyncio.to_thread(
+                fetch_groww_live_quote,
+                sym,
+                exchange,
+                prefer_index=_is_index_ticker(ticker, sym),
+            )
+            if live and live.get("price", 0) > 0:
+                return MarketQuote(
+                    price=float(live["price"]),
+                    day_high=live.get("day_high"),
+                    day_low=live.get("day_low"),
+                )
 
-    symbol = normalize_ticker(ticker)
+        if token:
+            for sym in candidates:
+                quoted = await asyncio.to_thread(_groww_auth_quote_sync, sym, exchange, token)
+                if quoted:
+                    return quoted
+
+    symbol = _yf_symbol_for_quote(ticker, asset_class=ac, market=market)
     yf_quote = await asyncio.to_thread(_yfinance_quote_sync, symbol)
     if yf_quote:
         return yf_quote
@@ -162,6 +180,14 @@ async def fetch_market_price(
     *,
     groww_token: str = "",
     exchange: str = "NSE",
+    asset_class: str = "india",
+    market: str = "",
 ) -> float:
-    quote = await fetch_market_quote(ticker, groww_token=groww_token, exchange=exchange)
+    quote = await fetch_market_quote(
+        ticker,
+        groww_token=groww_token,
+        exchange=exchange,
+        asset_class=asset_class,
+        market=market,
+    )
     return quote.price

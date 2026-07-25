@@ -33,6 +33,8 @@ class OptionsService:
         from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
 
         cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
+        if asset_class == "india":
+            return str(cfg["market"]), await self.settings.get_groww_exchange()
         return str(cfg["market"]), str(cfg.get("exchange") or "NSE")
 
     async def sections(self) -> dict[str, Any]:
@@ -40,6 +42,7 @@ class OptionsService:
             "sections": [
                 {"id": "double_calendar", "label": "📅 Double Calendar — Theta-Positive Income Spread"},
                 {"id": "delta_neutral", "label": "🎰 Delta Neutral — Iron Condor / Iron Fly"},
+                {"id": "gokul_chhabra", "label": "🎯 Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"},
             ],
         }
 
@@ -116,3 +119,30 @@ class OptionsService:
 
         cfg = DeltaNeutralConfig(**(cfg_overrides or {}))
         return json_safe(evaluate_delta_neutral_pnl(net_credit, current_cost_to_close, cfg))
+
+    async def gokul_chhabra(
+        self, *, tickers: list[str] | None = None, exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.gokul_chhabra_engine import (
+            INDEX_NAMES,
+            GokulChhabraConfig,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        market, default_exchange = await self._asset_ctx("india")
+        _, token, _ = await self._ctx()
+        cfg = GokulChhabraConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+        names = [n for n in (tickers or INDEX_NAMES) if n in INDEX_NAMES] or list(INDEX_NAMES)
+
+        def _run():
+            return scan_universe(
+                names, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = "india"
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)

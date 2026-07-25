@@ -18,11 +18,13 @@ from app.models.schemas import (
     EtfTaRecommendRequest,
     EtfTaScanRequest,
     ForgotPasswordRequest,
+    MarketPulseAccurateStrategyRequest,
     MarketPulseCommodityRequest,
     MarketPulseHeatmapRequest,
     MarketPulseIndexRequest,
     MarketPulseMtfRequest,
     MarketPulsePagination,
+    MarketPulsePumpDumpRequest,
     MarketPulseRotationRequest,
     MarketPulseSentimentRequest,
     MarketPulseStockRotationMarketRequest,
@@ -50,6 +52,7 @@ from app.models.schemas import (
     OptionsDeltaNeutralRequest,
     OptionsDoubleCalendarPnlRequest,
     OptionsDoubleCalendarRequest,
+    OptionsGokulChhabraRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -361,6 +364,9 @@ async def market_pulse_sections():
             {"id": "gainers_losers", "label": "Gainers & Losers (India multi-TF)"},
             {"id": "stock_rotation", "label": "Stock Price Rotation"},
             {"id": "commodity_screener", "label": "Commodity Screener (Nifty)"},
+            {"id": "accurate_strategy", "label": "Accurate Strategy — OB + FVG + S/R"},
+            {"id": "pump_dump_breakout", "label": "Pump/Dump Breakout"},
+            {"id": "big_whale_pump_dump", "label": "Big Whale Pump & Dump"},
             {"id": "sector_rotation", "label": "Sector Rotation (HTF)"},
             {"id": "sector_rotation_intraday", "label": "Sector Rotation (Intraday)"},
             {"id": "sector_rotation_us", "label": "Sector Rotation — US (HTF)"},
@@ -371,6 +377,7 @@ async def market_pulse_sections():
             {"id": "stock_rotation_crypto", "label": "Stock Price Rotation — Crypto"},
             {"id": "opposite_hedge", "label": "Opposite Hedge-MTF"},
             {"id": "mtf_bias", "label": "MTF Intraday Bias"},
+            {"id": "mtf_bias_crypto", "label": "MTF Intraday Bias — Crypto"},
             {"id": "week52", "label": "52-Week High & Low"},
             {"id": "heatmap", "label": "Live Heatmap (India)"},
         ]
@@ -546,7 +553,47 @@ async def market_pulse_mtf_bias(
     current_user: User = Depends(get_current_user),
 ):
     service = MarketPulseService(SettingsService(db))
-    return await service.mtf_bias(payload.tickers)
+    return await service.mtf_bias(payload.tickers, is_crypto=payload.is_crypto)
+
+
+@router.post("/market-pulse/accurate-strategy")
+async def market_pulse_accurate_strategy(
+    payload: MarketPulseAccurateStrategyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = MarketPulseService(SettingsService(db))
+    return await service.accurate_strategy(
+        payload.tickers,
+        timeframe=payload.timeframe,
+        min_confluence=payload.min_confluence,
+        rr_target=payload.rr_target,
+        market=payload.market,
+    )
+
+
+@router.post("/market-pulse/pump-dump-breakout")
+async def market_pulse_pump_dump_breakout(
+    payload: MarketPulsePumpDumpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = MarketPulseService(SettingsService(db))
+    return await service.pump_dump_breakout(
+        payload.tickers,
+        timeframe=payload.timeframe,
+        market=payload.market,
+        initial_balance=payload.initial_balance,
+    )
+
+
+@router.get("/market-pulse/big-whale-pump-dump")
+async def market_pulse_big_whale_pump_dump(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = MarketPulseService(SettingsService(db))
+    return await service.big_whale_pump_dump()
 
 
 @router.get("/market-pulse/week52")
@@ -1256,6 +1303,7 @@ async def ta_screener_scan(
             payload.tickers,
             timeframe=payload.timeframe,
             options=payload.options,
+            asset_class=payload.asset_class,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1272,10 +1320,11 @@ async def strategy_lab_sections(
 @router.get("/strategy-lab/presets")
 async def strategy_lab_presets(
     market: str | None = None,
+    asset_class: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await StrategyLabService(SettingsService(db)).presets(market)
+    return await StrategyLabService(SettingsService(db)).presets(market=market, asset_class=asset_class)
 
 
 @router.post("/strategy-lab/backtest")
@@ -1318,7 +1367,11 @@ async def seasonality_analyze(
     current_user: User = Depends(get_current_user),
 ):
     service = SeasonalityService(SettingsService(db))
-    return await service.analyze(payload.tickers, years=payload.years)
+    return await service.analyze(
+        payload.tickers,
+        years=payload.years,
+        asset_class=payload.asset_class,
+    )
 
 
 @router.get("/alerts/config")
@@ -1603,5 +1656,28 @@ async def options_delta_neutral_pnl(
         cfg_overrides={
             "profit_target_pct": payload.profit_target_pct,
             "stop_loss_multiple": payload.stop_loss_multiple,
+        },
+    )
+
+
+@router.post("/options/gokul-chhabra")
+async def options_gokul_chhabra(
+    payload: OptionsGokulChhabraRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).gokul_chhabra(
+        tickers=payload.tickers,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "vwma_length": payload.vwma_length,
+            "st_period": payload.st_period,
+            "st_multiplier": payload.st_multiplier,
+            "session_start": payload.session_start,
+            "session_end": payload.session_end,
+            "pullback_tol_pct": payload.pullback_tol_pct,
+            "min_rr": payload.min_rr,
+            "target_delta_min": payload.target_delta_min,
+            "target_delta_max": payload.target_delta_max,
         },
     )

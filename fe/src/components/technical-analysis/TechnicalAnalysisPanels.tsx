@@ -4,6 +4,7 @@ import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { StatCard } from '../ui/StatCard'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 
 type Row = Record<string, unknown>
 
@@ -53,6 +54,7 @@ export function SentimentScreenerPanel({ data }: { data: Row }) {
             <SortableTh active={sortKey === 'trade_confidence'} direction={sortDir} onSort={() => handleSort('trade_confidence')}>Conf</SortableTh>
             <SortableTh active={sortKey === 'rsi'} direction={sortDir} onSort={() => handleSort('rsi')}>RSI</SortableTh>
             <SortableTh active={sortKey === 'sl_pct'} direction={sortDir} onSort={() => handleSort('sl_pct')}>SL/TP %</SortableTh>
+            <th className="px-3 py-2 text-left text-xs font-medium text-slate-500" />
           </tr>
         </thead>
         <tbody>
@@ -69,6 +71,9 @@ export function SentimentScreenerPanel({ data }: { data: Row }) {
                 <Td>{r.trade_confidence != null ? `${r.trade_confidence}%` : '—'}</Td>
                 <Td>{r.rsi != null ? Number(r.rsi).toFixed(1) : '—'}</Td>
                 <Td>{r.sl_pct != null ? `${r.sl_pct}/${r.tp_pct}` : '—'}</Td>
+                <Td onClick={(e) => e.stopPropagation()}>
+                  <AddToWatchlistButton ticker={String(r.ticker ?? '')} compact />
+                </Td>
               </tr>
             )
           })}
@@ -341,13 +346,18 @@ export function TickerInvestigationPanel({
       </div>
 
       <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
-        <p className="text-lg font-semibold text-white">{String(r.display_name ?? r.ticker)}</p>
-        <p className="text-sm text-slate-400">
-          Price: {r.current_price != null ? `₹${Number(r.current_price).toFixed(2)}` : '—'}
-          {' '}· {news.length} headlines · {analystCalls.length} analyst calls
-          {r.mtf_label ? ` · MTF ${String(r.mtf_label)}` : ''}
-          {r.pa_verdict != null ? ` · PA ${String(r.pa_verdict)}` : ''}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-lg font-semibold text-white">{String(r.display_name ?? r.ticker)}</p>
+            <p className="text-sm text-slate-400">
+              Price: {r.current_price != null ? `₹${Number(r.current_price).toFixed(2)}` : '—'}
+              {' '}· {news.length} headlines · {analystCalls.length} analyst calls
+              {r.mtf_label ? ` · MTF ${String(r.mtf_label)}` : ''}
+              {r.pa_verdict != null ? ` · PA ${String(r.pa_verdict)}` : ''}
+            </p>
+          </div>
+          <AddToWatchlistButton ticker={String(r.ticker ?? '')} displayName={String(r.display_name ?? r.ticker ?? '')} />
+        </div>
         {r.error != null ? <Alert type="error">{String(r.error)}</Alert> : null}
       </div>
 

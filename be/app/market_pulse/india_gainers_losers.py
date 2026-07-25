@@ -7,7 +7,8 @@ from typing import Any
 from app.market_pulse.news_scanner import _fetch_nse_index_constituent_symbols, fetch_nse_index_stock_movers
 from app.market_pulse.stock_price_rotation import compute_stock_price_rotation
 
-TOP_N = 10
+# No ticker count limit — return the full ranked gainer/loser lists.
+TOP_N: int | None = None
 
 
 def compute_india_movers(
@@ -27,7 +28,7 @@ def compute_india_movers(
                 "source": "NSE live",
             }
 
-    symbols = _fetch_nse_index_constituent_symbols(index_name)[:80]
+    symbols = _fetch_nse_index_constituent_symbols(index_name)
     if not symbols:
         return {"error": f"No constituents for {index_name}"}
 

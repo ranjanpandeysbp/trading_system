@@ -30,6 +30,7 @@ logging.getLogger("yfinance").setLevel(logging.ERROR)
 # Maps timeframe key -> (yfinance period, yfinance interval, bars_to_fetch)
 YF_TF_MAP = {
     "1m":  ("7d",   "1m",   300),
+    "3m":  ("60d",  "1m",   300),   # yfinance has no 3m; resample from 1m
     "5m":  ("60d",  "5m",   300),
     "15m": ("60d",  "15m",  300),
     "30m": ("60d",  "30m",  200),
@@ -84,17 +85,19 @@ def fetch_ohlcv_yfinance(symbol: str, tf_key: str, is_crypto: bool = False, limi
         yf_sym = _yfinance_symbol(symbol, is_crypto, market)
         period, interval, _ = YF_TF_MAP.get(tf_key, ("1y", "1d", 300))
 
-        # For 4h: download 1h and resample
-        if tf_key == "4h":
-            symbols_4h = [yf_sym]
+        # Resample timeframes yfinance does not offer natively
+        _RESAMPLE = {"3m": ("60d", "1m", "3min"), "4h": ("2y", "1h", "4h")}
+        if tf_key in _RESAMPLE:
+            rs_period, rs_interval, rs_rule = _RESAMPLE[tf_key]
+            symbols_try = [yf_sym]
             if not is_crypto:
                 from app.market_pulse.nse_index_yfinance import index_yf_candidates, is_nse_index_symbol
                 if is_nse_index_symbol(symbol):
-                    symbols_4h = index_yf_candidates(symbol) or symbols_4h
+                    symbols_try = index_yf_candidates(symbol) or symbols_try
             raw = pd.DataFrame()
-            for try_sym in symbols_4h:
+            for try_sym in symbols_try:
                 raw = yf.download(
-                    try_sym, period="2y", interval="1h",
+                    try_sym, period=rs_period, interval=rs_interval,
                     progress=False, auto_adjust=True, threads=False,
                 )
                 if not raw.empty:
@@ -104,7 +107,7 @@ def fetch_ohlcv_yfinance(symbol: str, tf_key: str, is_crypto: bool = False, limi
             raw.columns = [c[0].lower() if isinstance(c, tuple) else c.lower()
                            for c in raw.columns]
             raw = raw[["open", "high", "low", "close", "volume"]]
-            df = raw.resample("4h").agg({
+            df = raw.resample(rs_rule).agg({
                 "open": "first", "high": "max",
                 "low": "min", "close": "last", "volume": "sum"
             }).dropna()

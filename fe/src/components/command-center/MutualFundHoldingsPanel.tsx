@@ -375,6 +375,8 @@ export function MutualFundHoldingsPanel() {
               fundNoun="Funds"
               askSection="command-center/mutual_fund_holdings"
               askTitle="Mutual Fund Holdings"
+              marketType="india"
+              resolveName
             />
           )}
         </Card>

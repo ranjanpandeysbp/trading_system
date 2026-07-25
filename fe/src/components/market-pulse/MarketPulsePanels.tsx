@@ -762,7 +762,7 @@ export function CommodityPanel({ data }: { data: Row }) {
                 <SortableTh active={signalsSort.sortKey === 'commodity'} direction={signalsSort.sortDir} onSort={() => signalsSort.handleSort('commodity')}>Commodity</SortableTh>
               </tr></thead>
               <tbody>
-                {signalsSort.sorted.slice(0, 10).map((s, i) => (
+                {signalsSort.sorted.map((s, i) => (
                   <tr key={`${s.ticker}-${i}`}>
                     <Td>{String(s.ticker ?? s.sector)}</Td>
                     <Td className={String(s.direction).toUpperCase().includes('BUY') ? 'text-emerald-400' : 'text-rose-400'}>{String(s.direction)}</Td>
@@ -775,6 +775,147 @@ export function CommodityPanel({ data }: { data: Row }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+export function AccurateStrategyPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
+  if (!results.length) return <p className="text-sm text-slate-500">No Accurate Strategy results.</p>
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">
+        Actionable: <strong className="text-white">{String(data.entry_count ?? 0)}</strong>
+        {data.strategy != null && <> · {String(data.strategy)}</>}
+      </p>
+      <DataTable>
+        <thead>
+          <tr>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Ticker</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Signal</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Score</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Entry / SL / TP</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Win rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r) => {
+            const sig = (r.latest_signal as Row) || {}
+            const summary = (r.summary as Row) || {}
+            return (
+              <tr key={String(r.ticker)}>
+                <Td className="font-medium">{String(r.ticker)}</Td>
+                <Td className={r.error ? 'text-rose-400' : 'text-slate-200'}>
+                  {r.error ? String(r.error) : String(sig.side ?? sig.direction ?? '—').toUpperCase()}
+                </Td>
+                <Td>{sig.confluence_score != null ? String(sig.confluence_score) : '—'}</Td>
+                <Td className="text-xs">
+                  {sig.entry != null
+                    ? `${sig.entry} / ${sig.stop ?? '—'} / ${sig.target ?? '—'}`
+                    : '—'}
+                </Td>
+                <Td>{summary.win_rate_pct != null ? `${summary.win_rate_pct}%` : '—'}</Td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </DataTable>
+    </div>
+  )
+}
+
+export function PumpDumpBreakoutPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
+  if (!results.length) return <p className="text-sm text-slate-500">No Pump/Dump Breakout results.</p>
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">
+        Actionable: <strong className="text-white">{String(data.entry_count ?? 0)}</strong>
+      </p>
+      <DataTable>
+        <thead>
+          <tr>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Symbol</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">24h %</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Live</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">R:R</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r) => {
+            const live = (r.live as Row) || {}
+            const setup = (live.latest_signal as Row) || {}
+            const status = r.error
+              ? String(r.error)
+              : setup.side
+                ? String(setup.side)
+                : live.watch
+                  ? 'WATCH (consolidating)'
+                  : '—'
+            return (
+              <tr key={String(r.symbol)}>
+                <Td className="font-medium">{String(r.symbol)}</Td>
+                <Td className={pctClass(Number(r.change_24h_pct))}>{fmtPct(Number(r.change_24h_pct))}</Td>
+                <Td>{status}</Td>
+                <Td>{setup.rr_ratio != null ? `1:${setup.rr_ratio}` : '—'}</Td>
+                <Td className="max-w-[14rem] truncate text-xs text-slate-400">
+                  {setup.status
+                    ? String(setup.status)
+                    : live.is_consolidating
+                      ? 'In consolidation box'
+                      : String((r.screened as Row)?.reason ?? '—')}
+                </Td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </DataTable>
+    </div>
+  )
+}
+
+export function BigWhalePanel({ data }: { data: Row }) {
+  if (data.error) return <Alert type="error">{String(data.error)}</Alert>
+  const recs = (data.trade_recommendations as Row[]) ?? []
+  const pumped = (data.pumped as Row[]) ?? []
+  const watch = (data.watchlist as Row[]) ?? []
+  const rows = recs.length ? recs : [...watch, ...pumped]
+  if (!rows.length) return <p className="text-sm text-slate-500">No whale scan hits — try again later.</p>
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-400">
+        Recommendations: <strong className="text-white">{recs.length}</strong>
+        {' · '}Pumped: <strong className="text-white">{pumped.length}</strong>
+        {' · '}Watch: <strong className="text-white">{watch.length}</strong>
+      </p>
+      <DataTable>
+        <thead>
+          <tr>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Symbol</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Chain</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Pump 24h</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Role / Verdict</th>
+            <th className="px-3 py-2 text-left text-xs text-slate-400">Conf</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const setup = (r.trade_setup as Row) || {}
+            return (
+              <tr key={`${r.symbol}-${i}`}>
+                <Td className="font-medium">{String(r.symbol ?? r.base_symbol ?? '—')}</Td>
+                <Td>{String(r.chain_id ?? r.chain ?? '—')}</Td>
+                <Td className={pctClass(Number(r.pump_24h_pct))}>{fmtPct(Number(r.pump_24h_pct))}</Td>
+                <Td>{String(r.role ?? r.verdict ?? setup.role ?? '—')}</Td>
+                <Td>{setup.confidence_pct != null ? `${setup.confidence_pct}%` : '—'}</Td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </DataTable>
     </div>
   )
 }

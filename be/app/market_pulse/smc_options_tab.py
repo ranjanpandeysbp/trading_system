@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def _news_scanner():
     """Lazy import to avoid circular load with hub_tabs → mega_analyser → smc_options."""
-    from truebacktesting import news_scanner
+    from app.market_pulse import news_scanner
     return news_scanner
 
 

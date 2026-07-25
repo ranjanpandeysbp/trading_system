@@ -381,7 +381,7 @@ def render_heatmap_ticker_extremes(
     exchange: str = "NSE",
     groww_token: str = "",
     limit: int = 300,
-    max_tickers: int = 15,
+    max_tickers: int | None = None,
 ):
     """Render price-extreme expanders for heatmap ticker grids."""
     if not data_list:
@@ -395,7 +395,8 @@ def render_heatmap_ticker_extremes(
         "(Higher High / Higher Low / Lower High / Lower Low)."
     )
 
-    for d in data_list[:max_tickers]:
+    rows = data_list if max_tickers is None or max_tickers <= 0 else data_list[:max_tickers]
+    for d in rows:
         tick = d.get("ticker", "")
         if not tick:
             continue

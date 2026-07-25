@@ -307,7 +307,7 @@ def resolve_index_constituents(index_name: str) -> list[dict]:
     for candidate in dict.fromkeys([index_name, normalize_index_name(index_name)]):
         symbols = _fetch_nse_index_constituent_symbols(candidate)
         if symbols:
-            yf_stocks = _fetch_52w_extremes_yfinance(tuple(symbols[:150]))
+            yf_stocks = _fetch_52w_extremes_yfinance(tuple(symbols))
             resolved = [yf_stocks[s] for s in symbols if s in yf_stocks]
             if resolved:
                 return resolved

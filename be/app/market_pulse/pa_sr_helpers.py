@@ -74,4 +74,10 @@ def detect_support_resistance(
     all_resistances = cluster_levels(swing_highs, tolerance)
     supports = sorted([s for s in all_supports if s["price"] < current_price], key=lambda x: (-x["strength"], -x["recency"]))[:num_levels]
     resistances = sorted([r for r in all_resistances if r["price"] > current_price], key=lambda x: (-x["strength"], -x["recency"]))[:num_levels]
-    return {"supports": supports, "resistances": resistances}
+    return {
+        "supports": supports,
+        "resistances": resistances,
+        # Full clusters (incl. crossed price) — used by Weak Strong S-R breakout/breakdown scoring
+        "all_supports": all_supports,
+        "all_resistances": all_resistances,
+    }

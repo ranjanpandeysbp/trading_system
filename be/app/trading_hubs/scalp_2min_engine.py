@@ -302,6 +302,111 @@ def select_itm_option_leg(
 
 
 # ---------------------------------------------------------------------------
+# Live setup snapshot (fills Conf / SL% / TP% even when not TAKE)
+# ---------------------------------------------------------------------------
+
+def _session_signals(signals: list[dict[str, Any]], session_day: date) -> list[dict[str, Any]]:
+    """Signals whose timestamp falls on the last bar's calendar session (not wall-clock today)."""
+    prefix = session_day.isoformat()
+    return [s for s in signals if str(s.get("timestamp", "")).startswith(prefix)]
+
+
+def _live_ema_state(df: pd.DataFrame, cfg: Scalp2MinConfig) -> dict[str, Any]:
+    """Trend / pullback / indicative index risk from the last completed 2m bar."""
+    work = add_ema(df.copy(), cfg.ema_fast)
+    work = add_ema(work, cfg.ema_slow)
+    fast_col, slow_col = f"ema_{cfg.ema_fast}", f"ema_{cfg.ema_slow}"
+    work = work.dropna(subset=[fast_col, slow_col])
+    if work.empty:
+        return {
+            "trend": "FLAT", "direction_bias": "WAIT", "near_pullback": False,
+            "ema_fast": None, "ema_slow": None, "spot": None,
+            "sl_pct": 0.25, "tp_pct": 0.50,
+        }
+
+    row = work.iloc[-1]
+    spot = float(row["close"])
+    ema_fast_v = float(row[fast_col])
+    ema_slow_v = float(row[slow_col])
+    low_v, high_v = float(row["low"]), float(row["high"])
+
+    uptrend = ema_fast_v > ema_slow_v and spot > ema_fast_v and spot > ema_slow_v
+    downtrend = ema_fast_v < ema_slow_v and spot < ema_fast_v and spot < ema_slow_v
+    pullback_long = low_v <= ema_slow_v and spot > ema_slow_v
+    pullback_short = high_v >= ema_slow_v and spot < ema_slow_v
+
+    if uptrend:
+        trend, direction_bias = "UP", "LONG"
+        near_pullback = pullback_long
+    elif downtrend:
+        trend, direction_bias = "DOWN", "SHORT"
+        near_pullback = pullback_short
+    else:
+        trend, direction_bias, near_pullback = "FLAT", "WAIT", False
+
+    # Indicative index SL: invalidate beyond the 20 EMA; TP at 1:2 (mirrors option R:R).
+    buffer = max(spot * 0.00025, 2.0)
+    if direction_bias == "LONG":
+        stop = min(ema_slow_v, spot) - buffer
+        risk = max(spot - stop, spot * 0.0004)
+        sl_pct = risk / spot * 100
+        tp_pct = sl_pct * 2.0
+    elif direction_bias == "SHORT":
+        stop = max(ema_slow_v, spot) + buffer
+        risk = max(stop - spot, spot * 0.0004)
+        sl_pct = risk / spot * 100
+        tp_pct = sl_pct * 2.0
+    else:
+        # Flat — show planned option-proxy risk (~18 pts premium ≈ ~36 index pts at ~0.5δ).
+        risk_pts = cfg.sl_points_option * 2.0
+        sl_pct = risk_pts / spot * 100
+        tp_pct = sl_pct * 2.0
+
+    return {
+        "trend": trend,
+        "direction_bias": direction_bias,
+        "near_pullback": near_pullback,
+        "ema_fast": round(ema_fast_v, 2),
+        "ema_slow": round(ema_slow_v, 2),
+        "spot": round(spot, 4),
+        "sl_pct": round(max(0.08, sl_pct), 2),
+        "tp_pct": round(max(0.16, tp_pct), 2),
+    }
+
+
+def _score_confidence(
+    *,
+    vix_ok: bool,
+    past_cutoff: bool,
+    trend: str,
+    near_pullback: bool,
+    is_fresh: bool,
+    session_signal_count: int,
+    pattern_reliability: str | None,
+) -> float:
+    conf = 18.0
+    if vix_ok:
+        conf += 12.0
+    if not past_cutoff:
+        conf += 14.0
+    else:
+        conf += 2.0  # after cutoff still show mild setup quality, not a zero row
+    if trend in ("UP", "DOWN"):
+        conf += 18.0
+    if near_pullback:
+        conf += 12.0
+    if session_signal_count > 0:
+        conf += 8.0
+    if is_fresh:
+        conf += 18.0
+        if pattern_reliability == "VERY HIGH":
+            conf += 6.0
+        elif pattern_reliability == "HIGH":
+            conf += 3.0
+    return round(max(15.0, min(92.0, conf)), 1)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -315,30 +420,45 @@ def analyze_scalp_2min(
 
     signals = scan_scalp_2min_signals(df, cfg)
     vix = _fetch_india_vix(cfg)
-
-    today_str = date.today().isoformat()
-    today_signals = [s for s in signals if s["timestamp"].startswith(today_str)]
+    ema_state = _live_ema_state(df, cfg)
 
     last_ts = df.index[-1]
-    spot = float(df["close"].iloc[-1])
-    last_signal = today_signals[-1] if today_signals else None
-    is_fresh = bool(last_signal and last_signal["timestamp"] == (last_ts.isoformat() if hasattr(last_ts, "isoformat") else str(last_ts)))
+    session_day = last_ts.date() if hasattr(last_ts, "date") else date.today()
+    session_signals = _session_signals(signals, session_day)
+    spot = float(ema_state["spot"] if ema_state.get("spot") is not None else df["close"].iloc[-1])
+
+    last_signal = session_signals[-1] if session_signals else None
+    last_iso = last_ts.isoformat() if hasattr(last_ts, "isoformat") else str(last_ts)
+    is_fresh = bool(last_signal and last_signal["timestamp"] == last_iso)
 
     cutoff_time = datetime.strptime(cfg.time_cutoff, "%H:%M").time()
     last_bar_time = last_ts.time() if hasattr(last_ts, "time") else dtime(0, 0)
     past_cutoff = last_bar_time >= cutoff_time
-    day_cap_hit = len(today_signals) >= cfg.max_entries_per_day and not is_fresh
+    day_cap_hit = len(session_signals) >= cfg.max_entries_per_day and not is_fresh
+
+    calendar_today = date.today()
+    session_note = (
+        f"Session day {session_day.isoformat()}"
+        + (f" (calendar today is {calendar_today.isoformat()} — using last bar's session)" if session_day != calendar_today else "")
+    )
 
     reasons: list[str] = [
         vix["reason"],
-        f"{len(today_signals)}/{cfg.max_entries_per_day} entries used today — strategy caps at {cfg.max_entries_per_day}/day.",
+        session_note,
+        f"{len(session_signals)}/{cfg.max_entries_per_day} entries used this session — strategy caps at {cfg.max_entries_per_day}/day.",
         f"Time filter: last candle at {last_bar_time.strftime('%H:%M')} — "
         + ("past" if past_cutoff else "before") + f" the {cfg.time_cutoff} cutoff for new entries.",
+        (
+            f"EMA state: {cfg.ema_fast}/{cfg.ema_slow} trend **{ema_state['trend']}** "
+            f"(fast {ema_state['ema_fast']}, slow {ema_state['ema_slow']})"
+            + (", price tagging the 20 EMA pullback zone" if ema_state["near_pullback"] else "")
+        ),
     ]
 
     verdict = "WAIT"
     option_leg = None
-    entry_ok = is_fresh and vix["favorable"] and not past_cutoff and len(today_signals) <= cfg.max_entries_per_day
+    entry_ok = is_fresh and vix["favorable"] and not past_cutoff and len(session_signals) <= cfg.max_entries_per_day
+    pattern_rel = last_signal.get("pattern_reliability") if last_signal else None
 
     if entry_ok and last_signal:
         verdict = last_signal["direction"]
@@ -352,10 +472,12 @@ def analyze_scalp_2min(
         except Exception as exc:
             logger.debug("Option leg selection failed for %s: %s", index_name, exc)
         if option_leg is None:
-            reasons.append("No NSE option-chain data available to pick an ITM strike for this index — underlying signal only.")
+            reasons.append("No NSE option-chain data available to pick an ITM strike for this index — showing underlying indicative SL/TP.")
     elif last_signal:
+        bias = last_signal["direction"]
+        verdict = f"WATCH {bias}" if not past_cutoff else "WAIT"
         reasons.append(
-            f"Most recent qualifying setup was {last_signal['direction']} at {last_signal['timestamp']} "
+            f"Most recent qualifying setup was {bias} at {last_signal['timestamp']} "
             "— not the current candle, so no fresh trigger right now."
         )
         if not vix["favorable"]:
@@ -364,15 +486,64 @@ def analyze_scalp_2min(
             reasons.append("Blocked by the time filter — outside the morning entry window.")
         if day_cap_hit:
             reasons.append("Blocked by the daily entry cap.")
+    elif ema_state["direction_bias"] in ("LONG", "SHORT") and not past_cutoff:
+        verdict = f"WATCH {ema_state['direction_bias']}"
+        reasons.append(
+            "Trend aligned on EMAs — waiting for a Morning/Evening Star or Engulfing at the 20 EMA pullback."
+            if not ema_state["near_pullback"]
+            else "Trend + 20 EMA pullback present — waiting for a reversal candle pattern to fire."
+        )
     else:
-        reasons.append("No qualifying trend + pullback + reversal-pattern setup found in the fetched window.")
+        if past_cutoff:
+            reasons.append("Outside the morning entry window — no new Scalp-2mins entries until next session.")
+        if ema_state["trend"] == "FLAT":
+            reasons.append("No clear 10/20 EMA trend — strategy only trades with EMA alignment.")
+        if not session_signals and not signals:
+            reasons.append("No qualifying trend + pullback + reversal-pattern setup found in the fetched window.")
+        elif not session_signals and signals:
+            reasons.append(
+                f"{len(signals)} historical setup(s) in the lookback, but none on session {session_day.isoformat()}."
+            )
+
+    confidence_pct = _score_confidence(
+        vix_ok=bool(vix.get("favorable")),
+        past_cutoff=past_cutoff,
+        trend=str(ema_state["trend"]),
+        near_pullback=bool(ema_state["near_pullback"]),
+        is_fresh=is_fresh,
+        session_signal_count=len(session_signals),
+        pattern_reliability=pattern_rel,
+    )
+
+    sl_pct = float(ema_state["sl_pct"])
+    tp_pct = float(ema_state["tp_pct"])
+    if option_leg and option_leg.get("premium"):
+        premium = float(option_leg["premium"])
+        if premium > 0:
+            sl_pct = round(option_leg["sl_points"] / premium * 100, 2)
+            tp_pct = round((option_leg["target_price"] - premium) / premium * 100, 2)
+            confidence_pct = max(confidence_pct, 100.0 if option_leg.get("in_target_delta_band") else 70.0)
 
     return {
-        "ticker": index_name, "spot": round(spot, 4), "verdict": verdict,
-        "vix": vix, "signals_today": today_signals, "all_signals": signals,
-        "option_leg": option_leg, "reasons": reasons,
-        "ema_fast": cfg.ema_fast, "ema_slow": cfg.ema_slow,
+        "ticker": index_name,
+        "spot": round(spot, 4),
+        "verdict": verdict,
+        "vix": vix,
+        "signals_today": session_signals,  # session-day signals (name kept for tab compatibility)
+        "all_signals": signals,
+        "option_leg": option_leg,
+        "reasons": reasons,
+        "ema_fast": cfg.ema_fast,
+        "ema_slow": cfg.ema_slow,
         "last_bar_time": last_bar_time.strftime("%H:%M"),
+        "session_date": session_day.isoformat(),
+        "trend": ema_state["trend"],
+        "near_pullback": ema_state["near_pullback"],
+        "direction_bias": ema_state["direction_bias"],
+        "confidence_pct": confidence_pct,
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
+        "take_trade": verdict in ("LONG", "SHORT"),
     }
 
 
@@ -422,20 +593,29 @@ def scan_universe(
             )
         today_signals = r.get("signals_today") or []
         if today_signals:
-            reasons.append(f"{len(today_signals)} qualifying setup(s) today.")
+            reasons.append(f"{len(today_signals)} qualifying setup(s) this session.")
 
-        sl_pct = tp_pct = confidence_pct = None
+        take_trade = bool(r.get("take_trade")) or verdict in ("LONG", "SHORT")
+        confidence_pct = float(r.get("confidence_pct") or 0.0)
+        sl_pct = r.get("sl_pct")
+        tp_pct = r.get("tp_pct")
+        if sl_pct is None or tp_pct is None:
+            sl_pct, tp_pct = 0.25, 0.50
         if leg and leg.get("premium"):
-            premium = leg["premium"]
-            sl_pct = round(leg["sl_points"] / premium * 100, 2)
-            tp_pct = round((leg["target_price"] - premium) / premium * 100, 2)
-            confidence_pct = 100.0 if leg.get("in_target_delta_band") else 60.0
+            reasons.append(
+                f"SL/TP % from ITM option premium (max SL {cfg.sl_points_option:g} pts, 1:2 R:R)."
+            )
+        else:
+            reasons.append(
+                f"Indicative index SL/TP from 20 EMA invalidation (1:2). "
+                f"Option pricing fills when a fresh LONG/SHORT fires with NSE chain data "
+                f"(max SL {cfg.sl_points_option:g} pts on premium)."
+            )
 
         ltp = get_index_last_traded_price(ticker)
         if ltp.get("price") is not None:
             reasons.insert(0, f"LTP {ltp['price']:,.2f} (live index quote) vs {cfg.ema_slow}-EMA candle close {r.get('spot')}.")
 
-        take_trade = verdict in ("LONG", "SHORT")
         results.append({
             "ticker": ticker,
             "last_close": ltp.get("price") if ltp.get("price") is not None else r.get("spot"),
@@ -444,19 +624,31 @@ def scan_universe(
                 "take_trade": take_trade,
                 "verdict": verdict,
                 "phase": verdict,
+                "direction": r.get("direction_bias") or "WAIT",
                 "confidence_pct": confidence_pct,
-                "sl_pct": sl_pct,
-                "tp_pct": tp_pct,
+                "sl_pct": round(float(sl_pct), 2),
+                "tp_pct": round(float(tp_pct), 2),
                 "hold_duration": f"Intraday scalp — new entries stop at {cfg.time_cutoff}, exit same session",
                 "reasons": reasons,
+                "trend": r.get("trend"),
+                "near_pullback": r.get("near_pullback"),
+                "session_date": r.get("session_date"),
             },
         })
 
     entries = [r for r in results if not r.get("error") and (r.get("live") or {}).get("take_trade")]
+    watches = [
+        r for r in results
+        if not r.get("error")
+        and not (r.get("live") or {}).get("take_trade")
+        and str((r.get("live") or {}).get("verdict", "")).startswith("WATCH")
+    ]
     return {
         "market": market,
         "results": results,
         "entries": entries,
+        "watchlist": watches,
         "entry_count": len(entries),
+        "watch_count": len(watches),
         "strategy": "Scalp-2mins — 2-Minute EMA Pullback Scalp",
     }

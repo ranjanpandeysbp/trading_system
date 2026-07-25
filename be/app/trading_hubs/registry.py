@@ -19,6 +19,7 @@ from app.trading_hubs import (
     scalp_multi_indicator_engine,
     scalp_rectangle_engine,
     scalp_heikin_ashi_engine,
+    scalp_livefree_fx_engine,
     scalp_smc_engine,
     scalp_sr_mss_engine,
     sc_fvg_engine,
@@ -52,6 +53,8 @@ def _section(
     module: Any,
     config_cls: type,
     config_options: dict[str, Any] | None = None,
+    fixed_universe: list[str] | None = None,
+    fixed_universe_label: str | None = None,
 ) -> HubSection:
     return {
         "id": id,
@@ -61,6 +64,10 @@ def _section(
         "module": module,
         "config_cls": config_cls,
         "config_options": config_options or {},
+        # When set, the FE hides the asset-class / ticker picker and the scan
+        # ignores client-selected tickers (engine uses this fixed list instead).
+        "fixed_universe": fixed_universe,
+        "fixed_universe_label": fixed_universe_label,
     }
 
 
@@ -316,6 +323,26 @@ HUB_SECTIONS: list[HubSection] = [
         config_cls=scalp_heikin_ashi_engine.HeikinAshiScalpConfig,
     ),
     _section(
+        id="scalp_livefree_fx",
+        hub="scalping",
+        label="Scalp - LiveFree FX 5m",
+        description="HTF bias (1D/4H/1H) + Asia/London/NY kill zones + London liquidity sweep + 5m Break of Structure entry. Video: https://www.youtube.com/watch?v=a74KPzR7phE",
+        module=scalp_livefree_fx_engine,
+        config_cls=scalp_livefree_fx_engine.LiveFreeConfig,
+        config_options={
+            "session_profile": {
+                "type": "select",
+                "label": "Session profile",
+                "choices": [
+                    {"value": "auto", "label": "Auto (India → IST / others → EST)"},
+                    {"value": "fx_est", "label": "FX / ICT EST kill zones"},
+                    {"value": "india_ist", "label": "India IST cash-session analogue"},
+                ],
+                "default": "auto",
+            },
+        },
+    ),
+    _section(
         id="sc_fvg",
         hub="smart_money",
         label="SC - FVG (Reversal at Key Levels)",
@@ -327,9 +354,15 @@ HUB_SECTIONS: list[HubSection] = [
         id="scalp_2min",
         hub="scalping",
         label="Scalp-2mins",
-        description="2-minute 10/20 EMA pullback scalp on Nifty/Bank Nifty/Sensex with ITM option-leg selection — always scans these three indices regardless of the ticker picker above.",
+        description=(
+            "2-minute 10/20 EMA pullback scalp on Nifty / Bank Nifty / Sensex with ITM "
+            "option-leg selection. India index options only — not available for Crypto, US, "
+            "or commodities."
+        ),
         module=scalp_2min_engine,
         config_cls=scalp_2min_engine.Scalp2MinConfig,
+        fixed_universe=list(scalp_2min_engine.INDEX_NAMES),
+        fixed_universe_label="Nifty 50 · Bank Nifty · Sensex (India index options)",
     ),
     _section(
         id="smc_sc_best",
@@ -411,6 +444,8 @@ def list_hubs_payload() -> dict:
                 "label": s["label"],
                 "description": s["description"],
                 "config_options": s["config_options"],
+                "fixed_universe": s.get("fixed_universe"),
+                "fixed_universe_label": s.get("fixed_universe_label"),
             }
             for s in HUB_SECTIONS
             if s["hub"] == hub_id

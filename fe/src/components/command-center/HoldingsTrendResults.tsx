@@ -14,6 +14,8 @@ import { Chip } from '../ui/Chip'
 import { FormField } from '../ui/Form'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 
 export type OverallRow = {
   stock?: string
@@ -154,12 +156,16 @@ function EntityPanel({
   raw,
   mode,
   fundNoun,
+  marketType,
+  resolveName,
 }: {
   overall: OverallRow[]
   perScheme: PerSchemeRow[]
   raw: RawRow[]
   mode: 'stock' | 'sector'
   fundNoun: string
+  marketType: WatchlistMarket
+  resolveName?: boolean
 }) {
   const entityLabel = mode === 'stock' ? 'Stock' : 'Sector'
   const yTitle = mode === 'stock' ? 'Holding %' : 'Sector weight %'
@@ -249,6 +255,7 @@ function EntityPanel({
               <SortableTh active={sortKey === 'avg'} direction={sortDir} onSort={() => handleSort('avg')}>Avg Δ %</SortableTh>
               <SortableTh active={sortKey === 'total'} direction={sortDir} onSort={() => handleSort('total')}>Total Δ %</SortableTh>
               <SortableTh active={sortKey === 'trend'} direction={sortDir} onSort={() => handleSort('trend')}>Trend</SortableTh>
+              {mode === 'stock' && <Th></Th>}
             </tr>
           </thead>
           <tbody>
@@ -271,6 +278,18 @@ function EntityPanel({
                 </Td>
                 <Td>{fmtPct(r.total_change_pct, 3)}</Td>
                 <Td>{trendBadge(r.overall_trend)}</Td>
+                {mode === 'stock' && (
+                  <Td>
+                    <AddToWatchlistButton
+                      ticker={r._entity}
+                      displayName={r._entity}
+                      notes={`MF/ETF holdings · ${r.sector ?? ''} · ${r.overall_trend ?? ''}`.trim()}
+                      marketType={marketType}
+                      resolveName={resolveName}
+                      compact
+                    />
+                  </Td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -314,6 +333,7 @@ function EntityPanel({
                 <Th>To %</Th>
                 <SortableTh active={perSort.sortKey === 'change'} direction={perSort.sortDir} onSort={() => perSort.handleSort('change')}>Δ %</SortableTh>
                 <SortableTh active={perSort.sortKey === 'trend'} direction={perSort.sortDir} onSort={() => perSort.handleSort('trend')}>Trend</SortableTh>
+                {mode === 'stock' && <Th></Th>}
               </tr>
             </thead>
             <tbody>
@@ -330,6 +350,18 @@ function EntityPanel({
                     {fmtPct(r.change_pct, 3)}
                   </Td>
                   <Td>{trendBadge(r.trend)}</Td>
+                  {mode === 'stock' && r.stock && (
+                    <Td>
+                      <AddToWatchlistButton
+                        ticker={String(r.stock)}
+                        displayName={String(r.stock)}
+                        notes={`From ${r.scheme_name ?? 'fund'} · ${r.trend ?? ''}`}
+                        marketType={marketType}
+                        resolveName={resolveName}
+                        compact
+                      />
+                    </Td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -373,11 +405,16 @@ export function HoldingsTrendResults({
   fundNoun = 'Funds',
   askSection,
   askTitle,
+  marketType = 'india',
+  resolveName = false,
 }: {
   data: HoldingsAnalysisResult
   fundNoun?: string
   askSection: string
   askTitle: string
+  marketType?: WatchlistMarket
+  /** MF holdings return company names — resolve to NSE symbols when adding. */
+  resolveName?: boolean
 }) {
   const [view, setView] = useState<'stock' | 'sector'>('stock')
   const dates = data.dates ?? []
@@ -429,6 +466,8 @@ export function HoldingsTrendResults({
           raw={data.raw ?? []}
           mode="stock"
           fundNoun={fundNoun}
+          marketType={marketType}
+          resolveName={resolveName}
         />
       ) : sectorUseful ? (
         <EntityPanel
@@ -437,6 +476,7 @@ export function HoldingsTrendResults({
           raw={data.raw_sector ?? []}
           mode="sector"
           fundNoun={fundNoun}
+          marketType={marketType}
         />
       ) : (
         <p className="text-sm text-slate-500">

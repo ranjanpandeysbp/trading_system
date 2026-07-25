@@ -329,16 +329,10 @@ def _render_market_price_rotation_tab(market: MarketKind) -> None:
         picked = st.selectbox("📊 US index", labels, index=default_idx, key=f"{prefix}_index")
         entry = entry_by_label[picked]
         full_list = entry["fetch"]()
-        all_symbols = full_list[:_MAX_CONSTITUENTS]
+        all_symbols = list(full_list)
         universe_id = entry["id"]
         universe_name = picked
         benchmark_label = entry["benchmark_label"]
-
-        if len(full_list) > _MAX_CONSTITUENTS:
-            st.caption(
-                f"Showing first **{_MAX_CONSTITUENTS}** of **{len(full_list)}** symbols "
-                "(performance cap). Use multiselect to focus on a subset."
-            )
 
         selected_symbols = st.multiselect(
             "Constituent tickers",

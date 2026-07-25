@@ -73,6 +73,7 @@ class ScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     strategies: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class ScanSignal(BaseModel):
@@ -229,6 +230,22 @@ class MarketPulseStockRotationMarketRequest(BaseModel):
 class MarketPulseMtfRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] | None = None
+    is_crypto: bool = False
+
+
+class MarketPulseAccurateStrategyRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframe: str = "1h"
+    min_confluence: float = Field(default=60.0, ge=40.0, le=85.0)
+    rr_target: float = Field(default=2.0, ge=1.0, le=4.0)
+    market: str = "India (Groww)"
+
+
+class MarketPulsePumpDumpRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframe: str = "15m"
+    market: str = "India (Groww)"
+    initial_balance: float = Field(default=1000.0, ge=100.0)
 
 
 class MarketPulseSentimentRequest(BaseModel):
@@ -410,12 +427,14 @@ class TaScreenerRunRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframe: str | None = None
     options: dict[str, Any] | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class StrategyLabBacktestRequest(BaseModel):
     ticker: str
     timeframe: str = "1d"
     market: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     preset_name: str | None = None
     indicators: list[dict[str, Any]] | None = None
     entry_rules: list[dict[str, Any]] | None = None
@@ -439,6 +458,7 @@ class StrategyLabMultiComboRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: ["1d"])
     strategies: list[str] | None = None
     market: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     capital: float = 100_000.0
     commission: float = 0.001
 
@@ -450,11 +470,14 @@ class StrategyLabScreenerRequest(BaseModel):
     entry_rules: list[dict[str, Any]] | None = None
     entry_mode: str = "AND"
     market: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    screener_preset: str | None = None
 
 
 class SeasonalityRequest(BaseModel):
-    tickers: list[str] = Field(..., min_length=1, max_length=8)
+    tickers: list[str] = Field(..., min_length=1)
     years: int = Field(default=10, ge=3, le=20)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class AlertMonitorCreate(BaseModel):
@@ -535,3 +558,17 @@ class OptionsDeltaNeutralPnlRequest(BaseModel):
     current_cost_to_close: float
     profit_target_pct: float = 0.50
     stop_loss_multiple: float = 1.0
+
+
+class OptionsGokulChhabraRequest(BaseModel):
+    tickers: list[str] | None = None  # ignored — fixed Nifty 50 / Bank Nifty universe
+    exchange: str | None = None
+    vwma_length: int = 20
+    st_period: int = 10
+    st_multiplier: float = 3.0
+    session_start: str = "09:45"
+    session_end: str = "15:15"
+    pullback_tol_pct: float = 0.08
+    min_rr: float = 2.0
+    target_delta_min: float = 0.60
+    target_delta_max: float = 0.75

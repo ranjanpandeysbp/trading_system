@@ -46,6 +46,7 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { CommandCenterResults } from '../components/command-center/CommandCenterPanels'
+import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { MutualFundHoldingsPanel } from '../components/command-center/MutualFundHoldingsPanel'
 import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
@@ -367,7 +368,11 @@ export default function CommandCenter() {
     setError('')
   }
 
+  const watchlistMarket: WatchlistMarket =
+    assetClass === 'us' || assetClass === 'commodity' ? 'us' : assetClass === 'crypto' ? 'crypto' : 'india'
+
   return (
+    <WatchlistMarketProvider market={watchlistMarket}>
     <div>
       <PageHeader
         title="Command Center"
@@ -802,5 +807,6 @@ export default function CommandCenter() {
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>
+    </WatchlistMarketProvider>
   )
 }

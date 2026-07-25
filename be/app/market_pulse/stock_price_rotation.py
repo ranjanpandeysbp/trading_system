@@ -34,8 +34,9 @@ from app.market_pulse.week52_high_low import _get_index_names_by_group
 
 logger = logging.getLogger(__name__)
 
-_ROTATION_TOP_N = 10
-_MAX_CONSTITUENTS = 80
+# No hard ticker/constituent caps — return the full ranked universe.
+_ROTATION_TOP_N: int | None = None
+_MAX_CONSTITUENTS: int | None = None
 _PREFIX = "spr"
 
 _TIMEFRAME_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -143,7 +144,9 @@ def _resolve_constituent_symbols(index_name: str) -> list[str]:
             continue
         seen.add(s)
         out.append(s)
-    return out[:_MAX_CONSTITUENTS]
+    if _MAX_CONSTITUENTS is not None and _MAX_CONSTITUENTS > 0:
+        return out[:_MAX_CONSTITUENTS]
+    return out
 
 
 def _build_index_picker_options(breadth: dict | None) -> list[tuple[str, str]]:
@@ -285,14 +288,20 @@ def compute_stock_price_rotation(
         return None
 
     rows.sort(key=lambda x: x["pct"], reverse=True)
+    if _ROTATION_TOP_N is not None and _ROTATION_TOP_N > 0:
+        inflow = rows[:_ROTATION_TOP_N]
+        outflow = list(reversed(rows[-_ROTATION_TOP_N:]))
+    else:
+        inflow = list(rows)
+        outflow = list(reversed(rows))
     return {
         "index_name": index_name,
         "tf_key": tf_key,
         "lookback_bars": lookback_bars,
         "benchmark_pct": bench_pct,
         "stocks": rows,
-        "inflow": rows[:_ROTATION_TOP_N],
-        "outflow": list(reversed(rows[-_ROTATION_TOP_N:])),
+        "inflow": inflow,
+        "outflow": outflow,
         "stock_count": len(rows),
         "requested_count": len(symbols),
         "data_feed": "groww" if groww_token else "yfinance",

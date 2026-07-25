@@ -258,7 +258,7 @@ function IndiaEtfTab() {
       {analysis && !analyzeMutation.isPending && (
         analysis.error
           ? <Alert type="error">{analysis.error}</Alert>
-          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle="ETF Holdings (India)" />
+          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle="ETF Holdings (India)" marketType="india" resolveName />
       )}
     </div>
   )
@@ -467,7 +467,7 @@ function IssuerEtfTab({
       {analysis && !analyzeMutation.isPending && (
         analysis.error
           ? <Alert type="error">{analysis.error}</Alert>
-          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle={`ETF Holdings (${market.toUpperCase()})`} />
+          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle={`ETF Holdings (${market.toUpperCase()})`} marketType={market === 'crypto' ? 'crypto' : market === 'us' ? 'us' : 'india'} />
       )}
     </div>
   )
