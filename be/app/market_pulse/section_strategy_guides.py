@@ -7,6 +7,8 @@ Rendered automatically from hub_tabs.render_hub_section*.
 
 from __future__ import annotations
 
+import streamlit as st
+
 GUIDE_EXPANDER_TITLE = "📖 Strategy Guide & Methodology — what this section does"
 
 _SENTIMENT_GUIDE = """
@@ -65,20 +67,46 @@ Forward-looking Command Center snapshot from the same live payload as Market Pul
 **Today banner** = composite sentiment. **Tomorrow banner** = gap risk, global cues, and event risk into the next session.
 """,
 
+    "global_market_mood": """
+### Global Market Mood
+Worldwide **regional mood dashboard** — one refresh for India, Asia, Europe, US stocks & futures, crypto, commodities, and gold/silver.
+
+| Region | Instruments tracked |
+|--------|---------------------|
+| 🇮🇳 India | Nifty, Bank Nifty, Sensex, IT, Midcap, Gift Nifty, USD/INR, VIX |
+| 🌏 Asia | Nikkei, Hang Seng, Shanghai, KOSPI, STI, ASX, Taiwan |
+| 🇪🇺 Europe | FTSE, DAX, CAC |
+| 🇺🇸 US | Dow, S&P, Nasdaq, Russell |
+| 📈 US Futures | YM, ES, NQ |
+| ₿ Crypto | BTC, ETH, SOL |
+| 🛢️ Commodities | WTI crude, DXY, US 10Y |
+| 🥇 Gold & Silver | GC, SI futures |
+
+**Also includes:** geopolitical/war headline filter · **sector leading/lagging** (NSE sectoral indices) with rotation outlook · **stock movers** (Nifty 50 · S&P 500 · CoinDCX crypto).
+
+Mood = average signed % change per region (VIX and bond yields inverted). **WATCHLIST**-style composite at top.
+""",
+
     "mega_analyser": """
 ### Mega Analyser — unified multi-engine scan
-One click runs multiple TA engines on your watchlist with scenario presets.
+One click runs **30 per-ticker TA scanners** plus core TA legs on your watchlist with scenario presets.
 
 | Engine bucket | Includes |
 |---------------|----------|
 | Core TA | Price Action, Find S/R, **Weak Strong S-R**, Pattern and Breakout, Confluence, Sentiment, Elliott |
-| MTF / session | MTF Scanner, Top-Down SMC, **MTF Intraday Session Bias**, Weekly Stoch, KN Smart |
-| Scalp | Fakeout 4H/15M, **Velez Retracement**, **Crypto Scalping**, **1m Rectangle Sniper** |
-| SMC / structure | **SMC Fake Market Shift** (BOS→POI→sweep, Groww/CoinDCX), SMC Flow (India stocks) |
+| MTF / session | MTF Scanner, Top-Down SMC, **TOPDOWN-MTF (liquidity + OB)**, **MTF Intraday Session Bias**, Weekly Stoch, KN Smart |
+| TA extensions | **BB Exposed**, **Breakout MTF** (daily BO), **ONE TA** (Golden Zone), **Box Trading** (prev-day range) |
+| Scalp | Fakeout 4H/15M, **Velez Retracement**, **Crypto Scalping**, **Rectangle**, **SMC Rule of Three**, **ARC**, **S/R MSS** |
+| SMC / structure | **SMC Fake Market Shift**, **CISD**, **Weekly Sweep CISD**, **MTF Day Plan**, **Golden Bullet**, **Liquidity**, **SMB SnP**, SMC Flow (India stocks) |
+| Intraday | **Alpha 9:45**, **Fib 9:45**, **VWAP Fade**, **MTF Breakout-Retest** |
 | Crypto | **Smart Wave Crypto** (CoinDCX only) |
 | Special | Pump and Dump pre-move, Gap, Seasonality, Strategy Builder backtest, Saved Strategies, Screener |
 
 **Scenarios:** Full analysis · Pump & Dump pre-move · India intraday scalp · Crypto momentum · Swing/positional · **Custom**.
+
+Large watchlists run in **batches of 20 tickers** — each batch shows digest + per-ticker breakdown; click **Load next 20** until the full list is done.
+
+**Setup advisor:** Auto recommendations for your market + timeframes (no AI). Click **Ask AI for setup advice** for personalized asset class, timeframes, scenario, and engine list; **Apply** pushes settings to the controls below.
 
 Each ticker gets per-engine verdict, mega score, trade plan, and optional **AI View**. Pair with **Buy or Sell** for asset-class presets.
 """,
@@ -99,7 +127,7 @@ Pick tickers → durations → **Analyse & suggest Buy / Sell**. Requires networ
 """,
 
     "ticker_investigation": """
-### Ticker Investigation — News · Price · S/R · Strategies
+### Ticker Investigation — News · Price Action · S/R · Strategies
 Four tabs — **Crypto · Indian stocks · US stocks · Commodity**. Enter comma-separated tickers → **Search & investigate**.
 
 | Tab | Tickers | Data |
@@ -111,15 +139,30 @@ Four tabs — **Crypto · Indian stocks · US stocks · Commodity**. Enter comma
 
 | Output | Detail |
 |--------|--------|
-| News | RSS from Moneycontrol, LiveMint, ET Now, Zee Business, NDTV Profit, Yahoo, MarketWatch, CoinTelegraph, Google News, and more |
+| News | RSS from **Investing.com**, Moneycontrol, LiveMint, ET Now, Zee Business, NDTV Profit, Yahoo, MarketWatch, CoinTelegraph, Google News (`site:investing.com`), and more |
 | Analyst calls | **Upgrades · downgrades · re-ratings · initiations · price targets** from Moneycontrol brokerage RSS, Seeking Alpha, Benzinga, Google News |
 | Price moves | % change over **5d · 24h · 4h · 1h · 15m · 5m** + RSI zone per window |
+| **Price Action** | Same engine as PA screener — trend, RSI div, EMA stack, Fib golden zone, **session VWAP**, **RVOL**, **MFI**, SMC OB/FVG, Elliott/candle/chart patterns, **approaching WATCHLIST** alerts |
 | S/R | Nearest **weak/strong** support & resistance · **breakout %** · **breakdown %** · bias by TF |
-| Strategies | Ranked **scalp / swing** setups with **SL% · TP% · confidence%** from TA confluence |
-| Trade setup | Primary **TAKE LONG / SHORT / NO TRADE** — blends S/R, RSI, MTF, news sentiment, analyst calls |
+| **Suggested trades** | Ranked ideas with **confidence % · SL % · TP % · R:R** — TAKE / WATCH / MONITOR from PA + S/R + MTF + news + analysts |
+| Strategies | Alternate **scalp / swing** setups in table form |
+| Trade setup | Primary **TAKE LONG / SHORT / NO TRADE** — best blended setup with trade plan |
 | Ask AI | **AI Trade Setup** (SL/TP/confidence) + full investigation synthesis |
 
 India: optional Groww token for live intraday bars. Commodity: Yahoo Finance futures (no Groww).
+""",
+
+    "ticker_investigation_strategy": """
+### Ticker Investigation — Select Strategy
+Same as **Ticker Investigation** (Crypto · India · US · Commodity) **plus** user-selected hub strategy engines.
+
+| Step | Action |
+|------|--------|
+| **1** | Pick **one or more** strategies from the dropdown (all TA hub + swing engines) |
+| **2** | Enter ticker(s) in any asset tab → **Search & investigate** |
+| **3** | Review news · PA · S/R · analysts · **merged** suggested trades & primary setup |
+
+Selected engines run live `analyze_ticker` per symbol; signals merge into ranked trades alongside rule-based confluence.
 """,
 
     "news_scanner": """
@@ -386,7 +429,7 @@ Colour grid of sector and ticker % change. Sector mode for industries; ticker mo
 
     "price_action": """
 ### Price Action Screener
-Multi-indicator live scanner: S/R, trendlines, RSI divergence, EMA crossovers, Fibonacci golden zone, Elliott wave, candlesticks, chart patterns, SMC (order blocks / FVG).
+Multi-indicator live scanner: S/R, trendlines, RSI divergence, EMA crossovers, Fibonacci golden zone, Elliott wave, candlesticks, chart patterns, SMC (order blocks / FVG), **session VWAP**, and **relative volume**.
 
 | Metric | Meaning |
 |--------|---------|
@@ -394,7 +437,12 @@ Multi-indicator live scanner: S/R, trendlines, RSI divergence, EMA crossovers, F
 | RSI | <30 oversold, >70 overbought |
 | EMA stack | 9/21/50 alignment |
 | Fib Golden | 50–61.8% retrace zone |
+| **VWAP** | Session-reset fair value — above/below bias; **AT VWAP** = test/reclaim zone |
+| **RVOL** | Volume vs 20-bar avg — **≥1.5×** spike confirms S/R or breakout; **<0.7×** = thin |
+| **MFI** | Money Flow Index — volume-weighted momentum |
 | Smart Money | OB / FVG footprints near price |
+
+**Approaching alerts** fire when price is within ~0.4% of S/R, testing VWAP reclaim/loss, volume spikes at a level, or in Fib golden zone without a ready setup — surfaced as **WATCHLIST** in the screener digest.
 
 Groww and CoinDCX · multi-TF · approaching-setup alerts · SL/TP trade plans · AI View.
 """,
@@ -556,6 +604,69 @@ References:
 Groww and CoinDCX · multi-TF · AI View.
 """,
 
+    "bb_exposed": """
+### BB Exposed — Bollinger Free Bar + Squeeze (Mind Math Money)
+[Video reference](https://www.youtube.com/watch?v=dnSoD4iO0YU&t=148s):
+
+| Strategy | Rule |
+|----------|------|
+| **Free Bar** | Full candle outside bands = exhaustion fade (with reversal candle) |
+| **Squeeze** | Bandwidth contraction → breakout close outside bands |
+| **Day preset** | BB **10** · std **1.5** |
+| **Swing preset** | BB **50** · std **2.5** |
+| **SL / TP** | Beyond trigger wick · **2:1 R:R** minimum |
+
+Groww · CoinDCX · US · multi-TF chart. Conf / SL% / TP% on every row.
+""",
+
+    "breakout_mtf": """
+### Breakout MTF — Multi-Period Daily Scanner
+[FoxTrader breakout scanner](http://www.youtube.com/watch?v=kQyruEPH108) — Reliable Software Systems:
+
+| Rule | Detail |
+|------|--------|
+| **Lookbacks** | 10 / 20 / 50 / 90 / 200 days — parallel flags |
+| **Exclude current bar** | Rolling max/min on **prior** bars only (`shift(1)`) |
+| **Breakout** | Close > highest high of N days → **BUY** |
+| **Breakdown** | Close < lowest low of N days → **SELL** |
+| **RSI** | Bullish continuation **50–70** |
+| **MACD** | Positive for breakouts · negative for breakdowns |
+
+Dashboard shows per-period BO/BD columns. Conf / SL% / TP% on actionable rows.
+""",
+
+    "one_ta": """
+### ONE TA — Golden Zone (Fib + EMA + VPA)
+[Professional trading blueprint](https://www.youtube.com/watch?v=UbmSxPOQRb4&t=14s):
+
+| Layer | Rule |
+|-------|------|
+| **Trend** | **200 EMA** bias — long above · short below |
+| **Golden Zone** | Pullback into **50%–61.8%** Fib of swing range |
+| **Confluence** | Zone overlaps **EMA** / supply-demand |
+| **Entry** | **Engulfing** (2-candle body) or **50%+ wick rejection** |
+| **SL** | Past **61.8%** / swing extreme |
+| **TP** | Partials **38.2% / 23.6%** · full at swing origin (100%) |
+
+Multi-TF chart. Conf / SL% / TP% / momentum ROC on every row.
+""",
+
+    "box_trading": """
+### Box Trading — TradingLab Box Strategy
+[Alex Ruiz / TradingLab](https://www.youtube.com/watch?v=oXb2lySZhCU&t=40s) — pure price-action day trade:
+
+| Rule | Detail |
+|------|--------|
+| **Box** | Prev day **high** + **low** extended on today's chart |
+| **No-trade** | Middle **50%** of box — chop zone |
+| **Never** | Long at top · Short at bottom |
+| **Long** | Bottom test + bullish rejection (pin / engulfing) |
+| **Short** | Top test + bearish rejection |
+| **Breakout** | Break → **retest** → enter with trend (no chase) |
+
+5m/15m execution. Conf / SL% / TP% / box levels on every row.
+""",
+
     "fakeout_4h": """
 ### 5min – 4hrs Breakout Screener (4H range fakeout fade)
 
@@ -656,6 +767,27 @@ Compare hedge ratios across lookbacks — stable beta/hedge ratio = more reliabl
 | NEUTRAL | No clear bias |
 
 Avoid: LTF vs HTF conflict, skipping MTF, HTF level blocking path. Groww and CoinDCX.
+""",
+
+    "topdown_mtf": """
+### TOPDOWN - MTF — Liquidity & Order Blocks
+
+**Reference:** [YouTube — Top Down Analysis with Liquidity and Order Blocks](https://www.youtube.com/watch?v=RvVs6n46X10)
+
+| Tier | Default TF | Role |
+|------|------------|------|
+| **HTF** | 1d | Trend direction (HH/HL · LH/LL) |
+| **ATF** | 1h / 4h | Swings, **liquidity sweeps**, **order blocks** after BOS |
+| **LTF** | 15m / 5m | Price taps OB → **MSS** → entry on LTF OB |
+
+| Phase | Meaning |
+|-------|---------|
+| ENTRY_READY | HTF + ATF OB + LTF MSS — SL/TP active |
+| IN_OB_ZONE | Inside OB — wait for MSS |
+| ATF_SETUP | OB mapped — wait for retest |
+| HTF_BIAS | Trend only |
+
+Distinct from **Top Down MTF** (shorter default TFs + CHoCH/FVG). Groww, CoinDCX, US.
 """,
 
     "weekly_stoch_sweet_spot": """
@@ -836,9 +968,22 @@ Your personal library of backtested strategies (login required).
 ### Multi-Combo Scanner
 Batch backtest engine: **tickers × timeframes × strategies**.
 
-- Use saved strategies or built-in TA hub engines.
-- Rank results by metrics; save best combos.
-- Saved combos power **Alert Monitors** for live polling.
+- Preset/custom backtests plus **all 30 TA hub engines** (grouped below).
+- Rank results by metrics; save best combos for **Alert Monitors**.
+- Large watchlists use **lazy loading — 20 tickers per batch** with per-batch digest + combined results.
+
+**TA engine groups (once per ticker):**
+
+| Group | Engines |
+|-------|---------|
+| Core MTF & session | Fakeout 15m/4h · MTF Scanner · Top Down MTF · **TOPDOWN-MTF** · Weekly Stoch · KN Smart · Velez · MTF Intraday Bias |
+| TA extensions | SMC Fake Market Shift · BB Exposed · Breakout MTF · ONE TA · **Box Trading** |
+| Crypto | Smart Wave · Crypto Scalping |
+| Scalping | Rectangle · SMC Rule of Three · ARC · S/R MSS |
+| Smart Money | CISD · Weekly Sweep CISD · MTF Day Plan · Golden Bullet · Liquidity · **SMB SnP** |
+| Intraday | Alpha 9:45 · Fib 9:45 · VWAP Fade · MTF Breakout-Retest |
+
+Use **Strategy Lab → Builder** to backtest presets; **Multi-Combo** to batch-scan; **Alerts** to monitor live.
 """,
 
     "strategy_encyclopedia": """
@@ -847,7 +992,8 @@ Master reference for the entire application.
 
 | Tab inside Encyclopedia | Contents |
 |-------------------------|----------|
-| **Application & Section Guide** | App overview, 8 workflows, when-to-use matrix, every hub section |
+| **Application & Section Guide** | App overview, workflows, when-to-use matrix, every hub section (quick) |
+| **Detailed Strategy Encyclopedia** | Beginner deep dives — trading basics, SMC primer, every section elaborated |
 | **Preset Strategy Catalog** | Documented presets with Load into Builder |
 
 Use **Strategy Lab → Builder** to backtest presets; **Multi-Combo** to batch-scan; **Alerts** to monitor live.
@@ -947,6 +1093,21 @@ Risk **1–2%** · R:R **1:3–1:4** · SL at structural swing · conf/SL%/TP%/h
 Conf / SL% / TP% / hold time on every scan row. Prefer liquid index names for options workflow.
 """,
 
+    "swing_trading_st_simple_steal": """
+### SW — Simple Steal · Little Rizzy Projection
+[Video reference](https://www.youtube.com/watch?v=AVVM-FyewLg&t=12s) — trendline measured moves + **Bollinger Bands (20, 2σ)**:
+
+| Step | Rule |
+|------|------|
+| **Bearish** | Descending trendline on bounce highs · lowest low under line |
+| **Measure** | Vertical distance low → trendline · **project down** by same distance |
+| **Bullish** | Ascending trendline on pullback lows · highest high above line · **project up** |
+| **BB context** | Outer-band touch = out of reality · favors reversion toward target |
+| **Invalidation** | Close **across** trendline = hard stop |
+
+Daily / 4h execution. Conf / SL% / TP% / hold on every row.
+""",
+
     "intraday_alpha_945": """
 ### INTRA — 9:45 AM Alpha Scanner
 [Video reference](http://www.youtube.com/watch?v=MfGUybW4O4c) — Dhan relative-strength scan at **9:45 IST**:
@@ -1022,6 +1183,77 @@ No sweep, no failure, no entry. Conf / SL% / TP% / hold on every row.
 Multi-TF: execution TF + optional HTF bias. Conf / SL% / TP% / hold on every row.
 """,
 
+    "smc_liquidity": """
+### SMC — Liquidity (Sweeps · Grabs · FVG)
+[MASTER Liquidity Concepts](https://www.youtube.com/watch?v=lSRoNosc4zw) — order-flow structural pools:
+
+| Concept | Rule |
+|---------|------|
+| **BSL / SSL** | Buy-side liquidity above swing highs · sell-side below swing lows |
+| **Sweep / Grab** | Wick through structure, **close back inside** → fade toward opposite pool |
+| **Liquidity run** | Expansion body ≥ 2× prior · close beyond level → continuation watch |
+| **FVG** | 3-candle imbalance + ATR momentum filter · enter on gap retest |
+| **Internal vs external** | Minor internal pools often swept before external extremes |
+
+Modes: Sweep/Grab · FVG Rebalance · Both. Conf / SL% / TP% / hold on every row.
+""",
+
+    "smc_ttg_sniper": """
+### SM — TTG Sniper Entry (Liquidity Sweep + Order Block + FVG)
+[TTG Sniper Entry methodology](https://www.youtube.com/watch?v=MypSrcfiqtM&t=32s) — mechanical 5-step entry:
+
+| Step | Rule |
+|------|------|
+| **1. Sweep** | Price pierces a prior swing high/low, closes back inside — liquidity trapped |
+| **2. Displacement** | Move away from the sweep must exceed a configurable **× ATR** threshold, or the setup is discarded |
+| **3. Order Block** | Last opposite-colour candle before the impulsive move |
+| **4. Fair Value Gap** | 3-candle imbalance inside the leg, overlapping the Order Block — the precise entry zone (falls back to the full Order Block if none forms) |
+| **5. Pullback entry** | **Aggressive** — enter on zone tap, SL beyond zone, fixed R:R. **Conservative** — same tap, but wait for a lower-TF market structure shift first |
+
+**Advanced stop tip:** no FVG + wide Order Block → stop tightens to just beyond the sweep candle's
+extreme instead of the whole block (that level is "protected" — a break invalidates the idea anyway).
+
+**Context rule:** sweep direction must align with the HTF SMA trend bias (toggleable) — not every
+sweep/FVG is tradeable in isolation.
+
+Groww · US · CoinDCX. Conf / SL% / TP% / hold on every row.
+""",
+
+    "smb_snp": """
+### SMB — SnP · Fashionably Late Scalp
+[Video reference](https://www.youtube.com/watch?v=zm4ehSDIr0k&t=98s) — intraday momentum-reversal after morning LOD grind:
+
+| Rule | Detail |
+|------|--------|
+| **Trigger** | **9 EMA crosses up through VWAP** after LOD established |
+| **Windows** | 10:00–10:45 · 10:46–13:30 (liquidity only) |
+| **Unit** | Entry (VWAP) − LOD |
+| **Target** | Entry + Unit · **SL** = Entry − Unit÷3 → **3:1** R:R |
+| **HTF** | Above daily 5 & 10 SMA · RVOL ≥ 1.5 |
+| **Chop** | Abort if <20% of target in 10 bars post-cross |
+
+Groww · US · CoinDCX. 1m / 5m execution.
+""",
+
+    "sc_fvg": """
+### SC — FVG · Reversal at Key Levels
+[Video reference](https://www.youtube.com/watch?v=-xuQXmQWMCk) — "How I'd Trade $4 Into $2,000
+In Only 5 Days" (Riley Coleman). Trade reversals exclusively at pre-mapped key levels, never
+the middle of the range, for a mechanically favorable R:R:
+
+| Step | What it looks for |
+|------|--------------------|
+| **1. HTF zones** | 15m swing highs/lows → Resistance / Support |
+| **2. Unhealthy move** | A rapid, unchecked spike into the zone leaves a Fair Value Gap on the 5m chart |
+| **3. Confirm the reversal** | A failed-continuation rejection candle on 1m **plus** market structure starting to shift (LH/LL for short, HH/HL for long) |
+| **4. Entry** | Stop-market break of the rejection candle's structural extreme |
+| **5. Risk** | Fixed **1:3** R:R (configurable), stop just beyond the rejection extreme (ATR-buffered) |
+
+Phases: NO_ZONE / AT_ZONE_NO_FVG / AWAITING_REJECTION / ENTRY_TRIGGERED. Structure-shift
+confirmation is treated as a hard requirement — a rejection candle alone does not trigger TAKE.
+Groww · US · CoinDCX. Fixed 15m/5m/1m multi-timeframe (not user-selectable).
+""",
+
     "intraday_vwap_fade": """
 ### INTRA — VWAP Fade Value Area Extremes
 [Video reference](http://www.youtube.com/watch?v=Z2uJRbkb2pA) — **Setup #2** fade at ±1σ VWAP bands:
@@ -1035,6 +1267,53 @@ Multi-TF: execution TF + optional HTF bias. Conf / SL% / TP% / hold on every row
 | **Skip** | First **15 min** after open |
 
 MTF 15m/30m range filter. Conf / SL% / TP% / hold on every row.
+""",
+
+    "intraday_mtf_breakout_retest": """
+### INTRA — MTF Breakout & Retest (Daniel Holmes)
+[Video reference](https://www.youtube.com/watch?v=k_DIcwgC3uQ&t=58s) — top-down price action on **15m**:
+
+| Step | Rule |
+|------|------|
+| **Daily bias** | Bullish day = **longs only** · bearish = **shorts only** |
+| **HTF** | 4H / 1H / 30m structure aligned or consolidating |
+| **S/R** | Equal **body** cluster — resistance above bodies · support below bodies |
+| **Traffic** | Clean left-side movement — avoid messy chop |
+| **Entry** | Breakout **close** outside range · retest · break breakout candle extreme |
+| **Exit** | SL beyond wick · **1:1** (80% partial, 20% runner to structure) |
+
+Groww · CoinDCX · US. Conf / SL% / TP% / hold on every row.
+""",
+
+    "intraday_7_wasted": """
+### INTRA — 7+wasted · 5m Opening Range Breakout & Retest
+[Video reference](https://www.youtube.com/watch?v=Bl0CQnhSbgo&t=12s) — Break & Retest framework on **1m**:
+
+| Step | Rule |
+|------|------|
+| **Daily bias** | **Bullish** daily = longs only · mark prev-day high/low |
+| **Opening range** | First **5 minutes** of session — absolute high & low |
+| **Breakout** | 1m **close above** 5m high (external liquidity swept) |
+| **Retest** | Pullback touches 5m high (internal liquidity) · close reclaims above |
+| **Risk** | SL below entry candle low · **1:2** R:R minimum |
+
+Groww · CoinDCX · US. Conf / SL% / TP% / hold on every row.
+""",
+
+    "intra_hwp": """
+### INTRA — HWP · Two-Sided Gap Fill + 21 EMA
+[Video reference](https://www.youtube.com/watch?v=Q_TY4lQrSZc&t=24s) — the market rarely fills an
+opening gap in only one direction:
+
+| Step | Rule |
+|------|------|
+| **Mark the gap** | Previous Day's Close (PDC) vs Today's Open (TO) |
+| **Side 1 fill** | Price tags the PDC (wick or full candle) |
+| **Side 2 timing** | 5m candle **closes back through the 21 EMA** — short below on a gap down, long above on a gap up |
+| **Target / SL** | Target = Today's Open · SL beyond the swing high/low since the tag (ATR-buffered) |
+
+Groww India · US · Crypto (crypto shows "No Gap" most of the time — 24/7 trading has no real
+overnight gap, which is expected). Conf / SL% / TP% / gap % / hold time on every scan row.
 """,
 
     "intraday_fib_945": """
@@ -1066,19 +1345,66 @@ Conf / SL% / TP% / hold time on every scan row.
 Conf / SL% / TP% / hold (1–15 min) on every row.
 """,
 
-    "scalp_livefree_fx": """
-### Scalp — LiveFree FX 5-Minute Strategy
-[Video](https://www.youtube.com/watch?v=a74KPzR7phE) — HTF bias + kill zones + London liquidity sweep + 5m BoS:
+    "scalp_arc": """
+### Scalp — ARC Method (Area · Range · Candle)
+[Video reference](https://www.youtube.com/watch?v=T7QN-yqryr4&t=329s) — Doug's institutional boundary system:
 
 | Step | Rule |
 |------|------|
-| **HTF bias** | Daily / 4H / 1H structure (HH/HL vs LH/LL) — trade only with the majority |
-| **Sessions** | Asia → London → NY kill zones (EST for US/Crypto; IST analogue for India) |
-| **Sweep** | NY wicks London high (shorts) or low (longs) and closes back inside |
-| **Entry** | 5m Break of Structure + SMA-5 momentum back with HTF |
-| **Risk** | SL beyond sweep extreme · TP1 @1:1 (50%, SL→BE) · TP2 next liquidity · first-win walk-away |
+| **A · Area** | Prev-day box high/low + swing high/low — **four zones only**; no mid-box trades |
+| **Gap** | Full gap above/below box → rebuild from **pre-market** high/low |
+| **R · Range** | Unabated move ≥ **20%** of box range before fade is valid |
+| **Target** | **50%–100%** of measured box range (default 75%) |
+| **C · Candle** | **John Wick** hammer at zone → enter on **next** candle break |
+| **SL** | Beyond confirmation wick tip |
 
-Groww · US · Crypto.
+Groww · CoinDCX · US. Conf / SL% / TP% / hold on every row.
+""",
+
+    "scalp_sr_mss": """
+### Scalp — HTF S/R Zone + 1m MSS (Joovier A+ 3-Step)
+[Video reference](https://www.youtube.com/watch?v=SdbBbc8lFQ8&t=82s) — **1H / 4H** zones forward-filled to **1-minute** execution:
+
+| Step | Rule |
+|------|------|
+| **Support zone** | HTF wick **low** → lowest **body** (min open/close) |
+| **Resistance zone** | Highest **body** → wick **high** |
+| **Time filter** | Groww **09:15 IST** · US / Crypto **09:30 NY** |
+| **Long MSS** | Support tap + **LH/LL** → break recent 1m swing **high** |
+| **Short MSS** | Resistance tap + **HH/HL** → break recent 1m swing **low** |
+| **SL / TP** | Beyond swing extreme · **~2.4:1 R:R** or older swing pool |
+
+Conf / SL% / TP% / hold on every row.
+""",
+
+    "scalp_multi_indicator": """
+### Scalp — Multi Indicator (UT Bot · QQE · VAE · EMA · Volume Delta)
+[Video reference](https://www.youtube.com/watch?v=L3Zn_3ONytI&t=7s) — **1m** five-indicator stack:
+
+| Indicator | Settings / Rule |
+|-----------|-----------------|
+| **UT Bot** | Sensitivity **3** · ATR **4** |
+| **QQE** | RSI **55** · factor **8** — filter UT signals |
+| **Vaddah Attar V2** | Green/red histogram · dead zone · explosion line |
+| **EMA pullback** | **34** band (H/L/C) · **89** fast · **200** medium |
+| **Volume delta** | Buy vs sell volume confirm at S/R |
+
+**Long:** UT buy + QQE up + >EMA200 + pullback to 34 band + VAE + buy vol. **SL/TP:** band extreme · **2:1** R:R.
+""",
+
+    "scalp_smc": """
+### Scalp — SMC Rule of Three (OTE · FVG · OB · CRT)
+[Video reference](https://www.youtube.com/watch?v=8avLqVtKAhk&t=257s) — modular SMC engine:
+
+| Layer | Rule |
+|-------|------|
+| **HTF** | Fractal swings · **BOS/CHoCH** · premium/discount/OTE off latest leg |
+| **LTF** | **FVG** · displacement **Order Blocks** · **CRT** validated sweeps |
+| **Fusion** | Long only in discount/OTE + bullish bias · short in premium + bearish |
+| **Entry** | LTF confirmation inside HTF zone · deduped clustered signals |
+| **SL/TP** | Structure invalidation · configurable **R:R** |
+
+Groww · CoinDCX · US. Conf / SL% / TP% / hold on every row.
 """,
 
     "demo_india": """
@@ -1101,7 +1427,782 @@ Live polling of **Multi-Combo saved picks**. Telegram/email when entry rules mat
 
 **Setup:** Login → Multi-Combo save combos → Alerts → create monitor → configure channels.
 """,
+
+    "scalp_crt_fvg": """
+### Scalp — CRT-FVG (Market Structure, Liquidity & Candle Range Theory)
+[Video reference](https://www.youtube.com/watch?v=o8YajmBv1-0&t=4s) — HTF liquidity sweep, LTF FVG entry:
+
+| Step | Rule |
+|------|------|
+| **Trend** | SMA-based HTF bias (**1H/4H**) — trade only with prevailing trend |
+| **CRT sweep** | Pullback candle's high/low = liquidity; next candle sweeps it but **closes back inside** |
+| **Invalidation** | Sweeping candle closes **fully outside** the range → expansion, not rejection |
+| **LTF entry** | First **Fair Value Gap** (3-candle imbalance) after the sweep, on **5m/15m** |
+| **SL / TP** | Beyond the FVG · **TP1 @1:1** (close 50%, SL→BE) · **TP2** next structural high/low |
+
+Groww · US · Crypto. Conf / SL% / TP% / hold on every row.
+""",
+
+    "scalp_livefree_fx": """
+### Scalp — LiveFree FX 5-Minute Strategy
+[Video](https://www.youtube.com/watch?v=a74KPzR7phE) — HTF bias + kill zones + London liquidity sweep + 5m BoS:
+
+| Step | Rule |
+|------|------|
+| **HTF bias** | Daily / 4H / 1H structure (HH/HL vs LH/LL) — trade only with the majority |
+| **Sessions** | Asia → London → NY kill zones (EST for US/Crypto; IST analogue for India) |
+| **Sweep** | NY wicks London high (shorts) or low (longs) and closes back inside |
+| **Entry** | 5m Break of Structure + SMA-5 momentum back with HTF |
+| **Risk** | SL beyond sweep extreme · TP1 @1:1 (50%, SL→BE) · TP2 next liquidity · first-win walk-away |
+
+Groww · US · Crypto.
+""",
+
+    "scalp_heikin_ashi": """
+### Scalp — Heikin Ashi (100 EMA Pullback + High-Volume Doji)
+[Video reference](https://www.youtube.com/watch?v=_q-VI9hGNTE&t=28s) — trend-following 1m pullback scalp:
+
+| Step | Rule |
+|------|------|
+| **Chart setup** | Heikin Ashi candles + 100 EMA, fixed 1m execution |
+| **Trend filter** | Above EMA → BUYS only · Below EMA → SELLS only · Chopping through → no-trade zone |
+| **Pullback** | ≥2 consecutive flat-top red (buys) / flat-bottom green (sells) HA candles — no trend-facing wick |
+| **Entry trigger** | High-volume Doji ends the pullback — range bigger than at least one of the 2 preceding candles |
+| **Stop / Target** | Stop beyond the Doji's far wick · strict **1:1** R:R (configurable) |
+
+**Session window (adapted per market):** 🇺🇸 US 10:00–12:00 ET (as in the video) · 🇮🇳 India
+09:45–11:45 IST (same offset/width mapped onto NSE's open) · ₿ Crypto — no restriction (24/7,
+no chaotic open to avoid). Phases: OUTSIDE_WINDOW / NO_TREND / AWAITING_PULLBACK / ENTRY_TRIGGERED.
+""",
+
+    "stock_upgrade_downgrade": """
+### Stock Upgrade / Downgrade — Block Deals · M&A · Analyst Calls
+Fixed site checklist per region, checked via direct RSS + `site:`-scoped news search:
+
+| Region | Sites checked |
+|--------|---------------|
+| **India** | Trendlyne · Moneycontrol · ET Markets · Tickertape · CNBC-TV18 · Business Standard · LiveMint · The Hindu BusinessLine · NDTV Profit |
+| **US / Global / Crypto** | TipRanks · Investing.com · Bloomberg · MarketWatch · Reuters · Yahoo Finance |
+
+Classifies each headline into **Block Deal**, **Merger/Acquisition**, **Upgrade**, **Downgrade**,
+**Target Raise/Cut**, **Re-rating**, **Initiate**, **Reiterate**, or general **Recommendation** —
+ranked with corporate actions and rating changes first. **Ask AI** reconciles the feed into a
+TAKE/WATCH/NO SIGNAL read.
+
+**When to use:** Before entering/exiting a position — check for fresh corporate actions or a
+brokerage rating change the price hasn't fully reacted to yet.
+""",
+
+    "momentum": """
+### Momentum — Multi-Timeframe Strength & Direction
+Per timeframe (1m→1w), scored independently then combined into one timeframe-weighted verdict:
+
+| Signal | Source |
+|--------|--------|
+| **Trend direction** | EMA(8/21/50) stack + MACD histogram → UP / DOWN / CONSOLIDATING |
+| **Strength** | **ADX(14)** — ≥25 Strong, 18–25 Medium, <18 Weak (direction-agnostic) |
+| **Momentum change** | ADX's own slope — rising = Increasing, falling = Decreasing |
+| **Continuation confidence** | ADX level + RSI room-to-run + MACD agreement + volume |
+| **Breakout odds** | Fresh close beyond prior 20-bar high/low, scored by ADX + volume + MACD |
+
+Groww · US · Crypto. **MIXED** verdict when timeframes disagree — confidence capped lower.
+""",
+
+    "trade_setup": """
+### Trade Setup — Oversold/Overbought Screener
+Pick tickers + timeframe(s), hit Analyze — RSI(14) computed independently per selected
+timeframe (same engine as Momentum), then every ticker is bucketed **per timeframe**:
+
+| Bucket | RSI(14) |
+|--------|---------|
+| 🔥🔴 **Extended Overbought** | ≥ 80 |
+| 🔴 **Overbought** | 70–79.9 |
+| ⚪ **Neutral** | 30–69.9 |
+| 🟢 **Oversold** | 20–29.9 |
+| 🔥🟢 **Extended Oversold** | < 20 |
+
+Each timeframe gets its own tab with the bucketed ticker lists, plus a ticker × timeframe
+RSI matrix for a quick cross-timeframe view. Groww India · US · Crypto · Commodities.
+
+Expand any ticker to drill down further — tick 📈 Momentum, 📊 Volume (professional
+volume-price analysis: current volume vs its 20-bar average, tiered Very Low→Very High,
+cross-checked against price direction for a 🟢 Bullish / 🔴 Bearish / ⚪ Neutral bias, with
+accumulation/distribution and breakout volume-confirmation notes), ⚡ Quick Analyzer,
+🕯️ Candlestick/Chart Patterns (bullish/bearish reversal candles + swing-point chart
+patterns including Cup and Handle and Bull/Bear Flag, each with reliability and reasoning),
+🧠 Smart Money (combines TTG Sniper Entry,
+CISD Entry Rule, and MTF Day Plan into one confluence verdict — TAKE only when 2+ of 3
+independent SMC strategies agree), ⚡ Scalping (combines Rectangle Setup, SMC Rule of Three
+[CRT-FVG], ARC Method, and A+ S/R MSS into one confluence verdict — TAKE only when 2+ of
+those 4 agree), 📈 Time Series (combines MA Crossover [Golden/Death Cross], Bollinger Mean
+Reversion, and Momentum Breakout into one confluence verdict — TAKE only when 2+ of the 3
+agree), 🔀 Divergences (Price vs RSI and Price vs Volume [OBV] — 🟢 positive/bullish or
+🔴 negative/bearish, confidence rises when both agree), 🎯 Support/Resistance (nearest
+levels, approaching-within-1.5% alerts, and fresh breakout/breakdown with volume
+confirmation), 🏷️ Stock Upgrade Downgrade (Block Deals · M&A · Analyst Calls),
+📚 Fundamentals, and/or ⛓️ Option Chain (Fundamentals/Option Chain are Groww India/NSE only,
+the rest work across all 4 markets), then **Run further analysis**
+to fetch and show that ticker's read for each engine checked, without leaving the screener.
+""",
+
+    "time_series_strategy": """
+### Time Series Trading Strategy — MA Crossover + Bollinger + Breakout
+Combines three classic time-series-theory strategies into one confluence verdict per
+ticker, computed independently **per selected timeframe**:
+
+| Strategy | Signal | Best for |
+|----------|--------|----------|
+| 🌟 MA Crossover | 50-period SMA crosses the 200-period SMA (Golden/Death Cross) | Trending markets |
+| 🎯 Mean Reversion | Price closes outside a 20-period SMA ± 2σ Bollinger Band | Range-bound markets |
+| 🚀 Momentum Breakout | Fresh close beyond multi-bar S/R, volume-confirmed | Breakouts on conviction |
+
+TAKE only when 2+ of the 3 agree. Pick one or more timeframes — each gets its own tab,
+and results bucket into ✅ TAKE / 👀 WATCH / ⛔ NO TRADE per timeframe. Groww India · US ·
+Crypto · Commodities. An interactive Moving Average simulator at the bottom lets you
+manipulate MA type/period live on real price history.
+""",
+
+    "divergences": """
+### Divergences — Price vs RSI · Price vs Volume (OBV)
+Two independent divergence checks, each comparing the last two swing lows (positive/bullish)
+or swing highs (negative/bearish) in price against the same points on an indicator:
+
+| Check | Positive (Bullish) | Negative (Bearish) |
+|-------|---------------------|----------------------|
+| 🎯 RSI Divergence | Price lower low, RSI higher low | Price higher high, RSI lower high |
+| 📊 Volume Divergence (OBV) | Price lower low, OBV higher low | Price higher high, OBV lower high |
+
+Bias is 🟢 Bullish when either/both checks fire positive with no conflicting bearish signal,
+🔴 Bearish symmetrically, ⚪ Neutral when signals conflict or neither fires — confidence rises
+when RSI and Volume divergence agree. Pick one or more timeframes — each gets its own tab.
+Groww India · US · Crypto · Commodities.
+""",
+
+    "candlestick_chart_patterns": """
+### Candlestick & Chart Patterns
+Scans each ticker for two pattern families, the same detectors used in the Trade Setup
+drill-down:
+
+| Family | Patterns | Lookback |
+|--------|----------|----------|
+| 🕯️ Candlestick | Hammer, Engulfing, Marubozu, Morning/Evening Star, Three White Soldiers/Black Crows, Doji, etc. | Last ~10 bars |
+| 📐 Chart | Double Top/Bottom, Head & Shoulders, Rising/Falling Wedge, Cup and Handle, Bull/Bear Flag | Full swing-point history |
+
+Each pattern is tagged Bullish/Bearish/Neutral with a reliability rating (Moderate → Very
+High). A ticker's overall bias weighs all patterns found by reliability. Pick one or more
+timeframes — each gets its own tab. Groww India · US · Crypto · Commodities.
+""",
+
+    "real_bottom": """
+### Real Bottom
+The 5-step mechanical sequence for identifying genuine market bottoms, adapted from Smart Money
+Decode X's "How to Catch a Real Market Bottom": a chain of events institutional players leave
+behind, not a single indicator. If one link breaks, the setup is invalid:
+
+| Step | What it looks for |
+|------|--------------------|
+| 1️⃣ Selling Exhaustion | Heavy volume through the decline, but price stops extending sharply lower |
+| 2️⃣ The Retest | Price returns toward the lows on noticeably lower volume |
+| 3️⃣ The Trap | A liquidity sweep — price wicks below the floor then reverses back inside |
+| 4️⃣ Displacement | A strong candle breaks the recent lower high, usually leaving a Fair Value Gap |
+| 5️⃣ The Entry | A pullback into the FVG/order block, confirmed by a bullish trigger candle |
+
+Status: 🟢 Confirmed / 🟡 Pending / 🟠 Trap Confirmed / 🔵 Trap Fired (unconfirmed) / ⚪ No Setup.
+Stop-loss below the trap low, target at the next resistance. A strict, multi-stage sequence by
+design — most scans return No Setup, which is the point. Groww India · US · Crypto · Commodities.
+""",
+
+    "weak_strong": """
+### Weak / Strong
+Multi-factor relative-strength & trend classifier. Seven independent reads combine into one
+-100..+100 score:
+
+| Factor | Weight |
+|--------|--------|
+| Trend structure (HH/HL vs LH/LL) | ±20 |
+| EMA stack (9/21/50) alignment | ±15 |
+| ADX + DI strength & direction | ±15 |
+| Volume confirmation (OBV trend + relative volume) | ±20 |
+| RSI(14) momentum bias | ±10 |
+| MACD histogram momentum | ±10 |
+| Relative strength vs benchmark (Nifty 50 / SPY / BTC) | ±10 |
+
+Volume is a primary confirmation signal (Wyckoff/VSA-style), not a tiebreaker: OBV trending
+with price on above-average volume (RVOL ≥ 1.3x) adds full weight; OBV diverging from price
+contributes nothing (a warning the move lacks real participation); any move on thin volume
+(RVOL ≤ 0.7x) has its score halved regardless of direction.
+
+Score ≥ +35 → 🟢 STRONG, ≤ -35 → 🔴 WEAK, else ⚪ NEUTRAL. Every STRONG/WEAK ticker gets a
+🎯 Scalping playbook (same-timeframe 21 EMA pullback, tight ATR stop) and a 📈 Swing playbook
+(Daily 50 EMA pullback, wider structural stop, multi-day/week hold) — both aligned with the
+verdict's direction; never fight strength or weakness. Choose one or more timeframes and one
+or more tickers per scan. India · US · Crypto.
+""",
+
+    "copy_trade": """
+### Copy Trade
+High-beta / 3x leveraged ETF momentum scalp, fixed 15m timeframe:
+
+| Step | What it looks for |
+|------|--------------------|
+| Trend "sweet spot" | Stochastic %K breaks above 80 (long) or below 20 (short) |
+| Volume confirmation | Current bar's volume above its 20-bar average |
+| Trigger candle | Fresh Engulfing candle (Bullish for longs, Bearish for shorts) |
+
+Exit rule is hyper-conservative: exit the instant %K stops extending (pullback in momentum) —
+never wait for a stop-loss to be hit. Re-enter on a fresh engulfing candle a few bars later if
+the zone/trend is still intact. Phases: NO_SETUP / WATCHING_ZONE / ENTRY_TRIGGERED / EXIT_SIGNAL
+(the last one flags a pullback-exit cue for an assumed open position, not a new entry).
+Suggested universe: TQQQ, SQQQ, LABU, LABD, SOXL, SOXS, TNA, TZA. India · US · Crypto.
+""",
+
+    "stop_hunt": """
+### Stop Loss Hunting
+Detects whether a liquidity sweep (stop hunt) is active or likely, and recommends
+hunt-resistant stop-loss levels:
+
+| Check | What it looks for |
+|-------|--------------------|
+| 🎣 Sweep/grab detection | Wick-based rejection through the prior swing high/low, closing back inside range |
+| 📊 Weak vs strong S/R | Touch-count classification — weak (1-2 touches) levels are hunt magnets |
+| 🔢 Round-number proximity | Levels near clean numbers attract extra stop clustering |
+
+Status: 🎣 Active Sweep Detected / ⚠️ High Hunt-Risk Zone / 🟢 Low Hunt-Risk. For each ticker,
+two-tier stop recommendations (🎯 Tight/Aggressive and 🛡️ Safe/Hunt-Resistant) are given for
+both LONG and SHORT scenarios, in price and % from current price, ATR-scaled by how weak the
+anchor level is and nudged clear of round numbers. Groww India · US · Crypto · Commodities.
+""",
+
+    "take_profit": """
+### Take Profit Targets
+Combines four independent target methods into two-tier take-profit levels for both a LONG and
+a SHORT scenario:
+
+| Method | What it looks for |
+|--------|--------------------|
+| 📊 Weak vs strong S/R | Nearest S/R level in the profit direction, tagged by touch count |
+| 📐 Chart-pattern measured move | Any detected pattern's own structure-derived price projection |
+| 🌀 Fibonacci extension | 127.2% / 161.8% / 261.8% projections of the most recent swing |
+| 🎯 SMC liquidity draw | The opposite-side structural liquidity pool ("draw on liquidity") |
+
+Status: 🎯 High-Confluence / 📍 Moderate-Confluence / 🌫️ Low-Confluence. For each ticker, two-tier
+targets — 🎯 TP1 (Conservative, booked slightly ahead of the exact level) and 🚀 TP2 (Extended,
+always farther than TP1) — in price and % from current price. Groww India · US · Crypto · Commodities.
+""",
+
+    "playbook": """
+### Trading Playbook — Scalping · Intraday · Swing
+A static reference, not an engine — grounded in a direct read of ~55 strategy engines' actual entry
+mechanisms across this app, not just their titles. Maps which Command Center sections to use for
+each trading style: what to screen candidates with, which composite engine to enter on, a curated
+"also in the toolkit" shortlist of genuinely distinct specialized engines per style (e.g. Velez
+Retracement's fade-the-exhaustion scalp, SMC Fake Market Shift's liquidity-sweep intraday reversal,
+Weekly Stochastic Sweet Spot for swing), which Stop Loss Hunting / Take Profit Targets tier to use,
+and what to explicitly leave alone. Also covers cross-style tools (MTF Scanner, Global Market Mood,
+Mega Analyser, portfolio-level hedging) that don't belong to one style. Closes with six discipline
+rules that hold across all three — strictness defaults, reading the vote breakdown before sizing,
+structure-anchored stops over flat %, inverse position sizing by holding period, AI View as a
+second opinion, and treating most of the remaining tabs as differently-branded variants of a
+handful of ideas rather than distinct edges.
+""",
+
+    "take_trade": """
+### Take Trade
+Runs every analysis already offered as a Trade Setup checkbox (momentum, quick analyzer,
+candlestick/chart patterns, smart money, scalping, time series, divergences, S/R, stock
+upgrade/downgrade, fundamentals, option chain) for one ticker/timeframe, and combines up to 11
+independent votes into one composite call:
+
+| Bucket | Meaning |
+|--------|---------|
+| 🟢 BUY | Composite direction is LONG |
+| 🔴 SELL | Composite direction is SHORT |
+| ⚪ WAIT | No real agreement among the independent analyses |
+
+Each BUY/SELL gets a **TAKE** (4+ analyses agree, composite confidence clears the take threshold)
+or a lower-conviction **WATCH** verdict, with a confidence %, and a stop-loss + take-profit — each
+in price and % — pulled from the Stop Loss Hunting and Take Profit Targets sections. A per-
+analysis vote breakdown and AI View are shown for every ticker. Groww India · US · Crypto ·
+Commodities.
+""",
+
+    "mutual_fund_holdings": """
+### Mutual Fund Holdings — Stock-Level Trend Across Funds
+Browse AMC → equity schemes → track domestic-equity stock holdings (%) over a date range:
+
+| Step | Rule |
+|------|------|
+| **Load AMCs** | Full list of Indian mutual fund houses (AUM, scheme count) |
+| **Pick fund(s)** | Select-all/clear-all checkbox per AMC table, across one or more AMCs |
+| **Date range** | Snapped to month-end snapshots — fund disclosures are monthly |
+| **Per stock** | Holding % at first vs last snapshot → Increasing / Decreasing / Mixed per fund |
+| **Sector-wise** | Same trend on sector weights (sum of stock holding % in each sector) |
+| **Chart** | One line per fund, per stock or sector, over the snapshot dates |
+
+**When to use:** See whether one or more mutual funds are building or trimming a position.
+""",
+
+    "etf_holdings": """
+### ETF Holdings — Stock-Level Trend Across Funds (India · US · Crypto)
+ETF analogue of Mutual Fund Holdings — same stock-level holding-% trend idea, per market:
+
+| Market | Source | Flow |
+|--------|--------|------|
+| **🇮🇳 India** | StockEdge ETF schemes | Load AMCs → **Get ETF funds** → date range → month-end holdings |
+| **🇺🇸 US** | INDMoney US ETFs | Load categories → pick ETF(s) → Companies / Holding % from each ETF page |
+| **₿ Crypto** | SEC NPORT-P crypto-theme equity ETFs | Same issuer → ETF flow with historical reporting periods |
+
+**Results:** **Stock-wise** and **Sector-wise** tabs (sector weights = sum of stock holding %).
+
+**When to use:** See whether ETFs are building or trimming the same stock / sector across funds over time.
+""",
+
+    "india_fii_dii_holdings": """
+### India FII-DII Holding — Ownership · P&L · Valuation · Deals
+Scrapes screener.in for one or more NSE tickers over a date range — seven result tabs:
+
+| Tab | What it shows |
+|-----|----------------|
+| **Overview** | Combined invest-timing table across tickers |
+| **Ownership** | Promoters / FII / DII / Public % — Increasing / Decreasing / Stable + charts |
+| **Revenue & Profit** | Quarterly Sales & Net Profit direction in your From/To window + charts |
+| **Valuation** | Is P/E justified vs ROCE? Undervalued / Fair / High / Overvalued (+ industry P/E when available) |
+| **Invest Timing** | YES / WAIT / NO checklist combining ownership + P&L + valuation + deals |
+| **Deals & Expansion** | Recent announcements keyword-flagged as orders, deals/M&A, capex/expansion |
+| **Actions** | News, orders, deals, block/bulk mentions, upgrades/downgrades, analyst reco, credit ratings, concalls (screener Documents) |
+| **How to read** | Plain-English guide for every signal |
+
+**When to use:** Before a swing/positional entry — ownership, business momentum, valuation, and catalyst headlines in one place.
+""",
+
+    "next_day_move": """
+### Next Day Move — Smart Money vs Retail (India · US · Crypto)
+Fade retail when it leans against smart money — Amit Dhamija participant-wise OI framework
+([video](https://www.youtube.com/watch?v=65_-M-icfK0&t=1360s)):
+
+| Market | Data | Retail | Smart money | Horizon |
+|--------|------|--------|-------------|---------|
+| **🇮🇳 India** | NSE `fao_participant_oi` daily | Client | FII + Pro | Next session |
+| **🇺🇸 US** | CFTC Legacy COT | Non-reportable | Non-commercial | Until next weekly report |
+| **₿ Crypto** | Binance global vs top-trader L/S + funding | Global accounts | Top traders | Next ~24h |
+
+**Bias:** Retail bullish + smart bearish → Sell on rise · Retail bearish + smart bullish → Buy on dips · else conflicting/range.
+
+**When to use:** After India F&O close (~evening) for the next NSE session; weekly for US; anytime for crypto.
+""",
+
+    "detect_sector_rotation": """
+### Detect Sector Rotation — CRS · Hull · Cyclical Pullback (India · US · Crypto)
+[Video](https://www.youtube.com/watch?v=IfMDd2XlArU&t=123s) top-down weekly rotation detector:
+
+| Step | Rule |
+|------|------|
+| **1. Pullback setup** | Sector negative for 2–3 consecutive months (or quarters) |
+| **2. CRS trigger** | Sector÷Benchmark RS line **above** its 50-week SMA |
+| **3. Hull confirm** | Sector close **above** HMA(9) — absolute uptrend |
+| **BUY / ROTATE IN** | Steps 2 + 3 true (higher conviction with pullback / fresh CRS cross) |
+
+🇮🇳 Nifty sectors vs Nifty 50 · 🇺🇸 SPDR ETFs vs SPY · ₿ CoinDCX themes vs BTC.
+Each sector row also lists **linked ETFs** and **top 20 stocks** (index weight / SPDR holdings / crypto theme peers).
+""",
+
+    "ema_position": """
+### EMA Position — Crossovers, Status & Next S/R
+For one or more tickers, one or more timeframes, across a **from → to** date range:
+
+| Signal | Rule |
+|--------|------|
+| **EMAs tracked** | 5 · 9 · 20 · 50 · 200, with ~400 bars of warm-up before "from" date |
+| **Status@From / Status@To** | ABOVE or BELOW each EMA at each end of the range |
+| **Verdict** | Crossed Above / Crossed Below (flipped) vs Stayed Above / Stayed Below |
+| **Crossover count** | How many times price crossed that EMA in the range (clean vs choppy) |
+| **Next S/R** | Nearest swing-based support/resistance below/above latest close |
+
+Groww · US · Crypto. Candlestick chart per ticker/timeframe with ▲/▼ crossover markers.
+""",
+
+    "watchlist": """
+### Watchlist — Track Tickers · % Change Since Added
+Per-user, per-market (India / US / Crypto) watchlists — login required.
+
+**Flow:** Create a named watchlist → search & add a ticker (its price is captured at add-time) →
+table shows **last traded price** and **% change since added** (color-coded) → 🔄 refresh prices ·
+🗑️ remove a ticker · delete the whole watchlist.
+
+**When to use:** Track a shortlist of tickers without re-running a scanner each time.
+""",
+
+    "fundamental_analysis": """
+### Fundamental Analysis — Valuation · Holdings · Profit & Revenue Trend (India)
+Scrapes screener.in's public company page — no login required:
+
+| Signal | How it's derived |
+|--------|-------------------|
+| **Valuation** | P/E ÷ ROCE ratio — near 1.0 is fair; well below is attractive; well above is rich/expensive |
+| **Shareholding trend** | Promoter / FII / DII / Public % change over the last ~4 quarters (~12 months), with implication |
+| **Profit & Revenue** | Screener's own **TTM** compounded growth, plus 3/5/10-year CAGR context |
+| **Debt** | Borrowings trend from the balance sheet (Increasing / Decreasing / Debt-free) |
+| **Overall signal** | Point-scored across valuation, growth, holdings, debt, and screener's own Pros/Cons checklist → BULLISH / NEUTRAL / BEARISH with confidence % |
+
+**When to use:** Before a swing/positional entry — sanity-check the business fundamentals behind a technical setup.
+""",
+
+    "one_click_setup": """
+### One-Click Trade Setup — Scalping · Intraday · Swing (Genuine Multi-Engine Confluence)
+Combines a small, deliberately curated set of **structurally-independent** existing engines
+per style — not many indicator variants of the same idea — and only calls a trade when they
+independently agree:
+
+| Style | Combines | Take rule |
+|-------|----------|-----------|
+| **Scalping** | CRT-FVG sweep + HTF S/R zone/1m MSS, session kill-zone, RVOL, Momentum (1m/5m/15m/1h) | Both liquidity detectors agree (strict) or ≥1 (loose) |
+| **Intraday** | Weighted MTF bias + regime-routed breakout-retest (trending days only), Momentum confirms regime + strength | Bias agrees with the regime-appropriate trigger |
+| **Swing** | Weekly KISS bias + weekly PWH/PWL liquidity-grab/MSS, SuperTrend trailing stop, measured-move TP2, Momentum (1h/4h/1d/1w), fundamentals gate (India) | Both directional votes agree; fundamentals can downgrade a contradicted call |
+
+**Momentum — Multi-Timeframe Strength & Direction** is used in all three styles as a
+**non-voting confidence adjuster** (never a third direction vote, to avoid double-counting
+the same trend information) — timeframe-matched per style and boosting/penalizing confidence
+based on whether its trend direction + ADX strength agree with the combo's direction.
+
+**Strictness toggle:** *Fewer/High Quality* requires more engines to agree and hard-gates on
+regime/session filters; *More/Lower Quality* relaxes both — trades trade frequency for quality.
+
+**Risk model:** two-stage partial take-profit — TP1 books half the position at ~1:1 and moves
+the stop to breakeven (caps the loss), TP2 is a further structural/measured-move runner target.
+
+**Backtest panel:** validates a simplified daily-bar proxy of each style's core trend+trigger
+logic (win rate, profit factor, max drawdown, equity curve) before you trust the live scan.
+
+**When to use:** As a second opinion before entering — the per-engine vote breakdown shows
+exactly which independent signals agree/disagree, so it's never a black box.
+""",
+
+    "todays_indian_tickers": """
+### Today's Indian Tickers — Live Market Movers (Dhan.co)
+Six one-click buttons, each pulled directly from Dhan.co's live market-mover pages:
+
+| Button | What it shows |
+|--------|----------------|
+| 📈 Top Gainers | Biggest % gainers today (NSE) |
+| 📉 Top Losers | Biggest % losers today (NSE) |
+| 🚀 52-Week High | Stocks trading at/near their 52-week high |
+| 🔻 52-Week Low | Stocks trading at/near their 52-week low |
+| 💰 Most Active by Value | Highest ₹ turnover today |
+| 📊 Most Active by Volume | Highest share volume today |
+
+Each row includes P/E, industry P/E, ROE/ROCE, dividend yield, and 1w/1m/1y returns — so a
+big mover can be immediately sanity-checked against its underlying fundamentals rather than
+taken at face value. Data is a live snapshot, cached for 15 minutes.
+
+**When to use:** A fast daily scan for what's moving and why — pair with Fundamental Analysis
+or One-Click Trade Setup before acting on any single name.
+""",
+
+    "india_market_heatmap": """
+### Indian Market Heatmap
+
+Pick any NSE/BSE index or sector from the dropdown (100+ supported — Nifty 50, all Nifty
+sectoral/thematic indices, Sensex, and all BSE indices), hit **Submit**, and see every
+constituent as a green/red heatmap tile, sourced live from tradebrains.in.
+
+- 🟩 **Green** = positive % change today, 🟥 **Red** = negative — tile color intensity scales
+  with the size of the move (bigger move = deeper color).
+- Each tile shows the ticker, company name, last traded price, and today's % change.
+- A summary strip shows total constituents, gainers, losers, and unchanged counts.
+
+**When to use:** A fast visual read on breadth within one index/sector — which names are
+driving the move and how broad-based it is, rather than scanning a plain table.
+""",
+
+    "quick_analyzer": """
+### Quick Analyzer (India)
+
+Combines these reads into one table, per ticker, every one computed independently **per
+selected timeframe** from that timeframe's own OHLCV:
+
+| Component | Detail |
+|-----------|--------|
+| **Momentum** | Trend, strength (ADX), RSI, MACD, ROC — same engine as the Momentum section |
+| **Volume** | Volume vs its 20-bar average |
+| **EMA / SMA + oscillators** | 5/10/20/50/100/200-period EMA/SMA, RSI, Stochastic, MACD, ADX, ROC, Williams %R |
+| **Bollinger Bands (20, 2σ)** | Position vs upper/mid/lower band |
+| **Fibonacci retracement** | Auto swing high/low, golden-zone bounce read |
+| **EMA Crossover strategy** | 9/21, 20/50, 50/200 stack + recent cross events |
+| **VWAP** | Price vs volume-weighted average price |
+| **Price Action** | The most **critical** (highest-reliability) recent candlestick pattern, not just the latest one |
+| **RSI / MACD Divergence** | Bullish/bearish divergence vs the last two swing highs/lows, with a plain-English trade interpretation |
+| **S/R Breakout/Breakdown** | Support/resistance computed on prior bars, checked against the latest close for a breakout/breakdown, with volume confirmation |
+
+**Flow:** Pick an Index/Group → pick one or more tickers → pick a **From/To date range** → pick
+one or more timeframes → **Analyze**. Each row's combined **Trade Setup** (Long/Short/Neutral +
+confidence %) weighs a strong (ACTIONABLE) momentum read more heavily, then confirms or
+discounts it against how many of the EMA/oscillator/strategy reads agree **across the
+timeframes you picked** — including any divergence or breakout/breakdown signals, which are
+also called out explicitly in the setup's reasons. When a **Long** or **Short** fires, **%SL /
+%TP** are shown too (ATR-based stop on the finest selected timeframe, fixed 1:2 R:R target). A
+separate **Daily reference (Dhan.co)** table is shown per ticker for cross-checking — Dhan's
+technical-analysis page has no timeframe selector, so that read is always daily and isn't fed
+into the score.
+
+**Charts:** OHLCV is fetched for the picked date range (plus a warm-up buffer so the largest
+EMA is meaningful from day one of the visible window) — each timeframe tab shows a 4-panel
+chart: price + EMA20/50/200 + Bollinger Bands + VWAP, Volume (green/red bars vs its 20-bar
+average), RSI(14), and MACD(12,26,9), all over that period, not just the latest bar.
+
+**When to use:** A fast, single-table screen across an index's constituents before drilling
+into individual sections (Momentum, EMA Position, Fundamental Analysis) for deeper confirmation.
+""",
+
+    "quick_analyzer_crypto": """
+### Quick Analyzer Crypto (CoinDCX)
+
+Identical model to **Quick Analyzer** (Momentum + Volume + EMA/oscillators + Bollinger Bands +
+Fibonacci + EMA Crossover + VWAP + critical Price Action pattern + RSI/MACD Divergence +
+S/R Breakout/Breakdown, all computed independently per selected timeframe over a picked
+**From/To date range**, with a 4-panel chart — price, Volume, RSI, MACD — per timeframe)
+applied to CoinDCX USDT-margined pairs instead of Indian stocks.
+
+**Flow:** Pick one or more pairs → pick a date range → pick one or more timeframes →
+**Analyze** → combined **Trade Setup** (Long/Short/Neutral + confidence %) with **%SL/%TP**
+on any Long/Short.
+
+**Difference from the India version:** no Dhan.co daily-reference table (that source only
+covers Indian large/mid-caps) — the score here comes purely from the per-timeframe technical
+computation.
+""",
+
+    "quick_analyzer_us": """
+### Quick Analyzer US (Yahoo)
+
+Identical model to **Quick Analyzer** (Momentum + Volume + EMA/oscillators + Bollinger Bands +
+Fibonacci + EMA Crossover + VWAP + critical Price Action pattern + RSI/MACD Divergence +
+S/R Breakout/Breakdown, all computed independently per selected timeframe over a picked
+**From/To date range**, with a 4-panel chart — price, Volume, RSI, MACD — per timeframe)
+applied to US-listed stocks via Yahoo Finance instead of Indian stocks.
+
+**Flow:** Pick an Index/Group → pick one or more tickers → pick a date range → pick one or
+more timeframes → **Analyze** → combined **Trade Setup** (Long/Short/Neutral + confidence %)
+with **%SL/%TP** on any Long/Short.
+
+**Difference from the India version:** no Dhan.co daily-reference table (India-only coverage)
+— the score here comes purely from the per-timeframe technical computation.
+""",
+
+    "option_chain": """
+### Option Chain — Bias & Trade Signal (NSE)
+
+Pick an **Index** (Nifty, Bank Nifty, FinNifty, Midcap Nifty) or a **Stock**, hit
+**Analyze Option Chain**, and get the full nearest-expiry chain (NSE v3 API, Groww
+fallback) plus a scored bullish/bearish/neutral read:
+
+| Metric | What it means |
+|--------|----------------|
+| **PCR (OI)** | Put OI ÷ Call OI. High = more puts written = bullish tilt; low = bearish tilt |
+| **Max Pain** | Strike where option writers profit most — price tends to drift toward it into expiry |
+| **Support / Resistance** | Highest-OI Put strike (support) / highest-OI Call strike (resistance) |
+| **Fresh OI buildup** | Which side (calls vs puts) added more OI today |
+
+These four factors combine into a scored **Bullish / Bearish / Neutral** bias with a
+**Buy / Sell / Wait** suggestion and a confidence %, each backed by a plain-English reason —
+never a black box. Full strike-by-strike chain and top-5 Call/Put OI tables are shown for
+verification.
+
+**When to use:** Before any F&O trade — confirm the technical direction isn't fighting
+heavy OI positioning on the other side. Pair with **Ticker Investigation** or **One-Click
+Trade Setup** for a non-options confirmation before acting.
+""",
+
+    "nse_world_indices": """
+### NSE and World Indices
+
+Three one-click buttons:
+
+| Button | What it shows | Source |
+|--------|----------------|--------|
+| 📥 Load NSE Indices | All ~119 NSE indices — Nifty 50, sectoral, thematic, strategy indices | Dhan.co |
+| 🌍 Load Global Indices | Major world indices — US, Europe, Asia | Dhan.co |
+| 🚀 Load Futures | US & Europe index futures + GIFT Nifty (formerly SGX Nifty) | investing.com · 5paisa |
+
+**NSE Indices** table: Index Name, LTP, trend arrow, Change %, Open, Prev. Close, 52W High,
+52W Low, and 1Y/3Y/5Y returns — a quick read on which timeframes an index is winning/losing on.
+
+**Global Indices** table: Index Name, LTP, Change, Change %, trend arrow, Open, Prev. Close,
+Day High, Day Low.
+
+**Futures**: GIFT Nifty as a headline metric card (LTP, change, day/52-week range, open, prev
+close, 1W/1M/1Y returns) — the primary pre-market read for where NSE will open — plus separate
+US and Europe index futures tables (Name, LTP, Change %, Day High/Low, last update time).
+
+**When to use:** Pre-market or intraday — check overnight US/Europe futures and GIFT Nifty
+for where Indian markets are likely to open, alongside where Indian sectoral/thematic indices
+stand on both short (today) and long (1Y/3Y/5Y) horizons, before picking a sector or
+index-linked trade.
+""",
+
+    "coindcx_24h_volatility": """
+### 24Hrs Volatile Crypto
+
+Every CoinDCX USDT-margined futures pair as a green/red heatmap tile, ranked from the
+**biggest 24h gainer to the biggest 24h loser** — sourced live from CoinDCX's derivatives
+instrument API (a single call returns `change_24_hour` for the whole exchange).
+
+- 🟩 **Green** = positive 24h % change, 🟥 **Red** = negative — tile color intensity scales
+  with the size of the move (crypto moves are scaled to ±15% for full color range, vs ±6%
+  for equities, since crypto routinely moves much more in a day).
+- Each tile shows the pair, 24h % change, 24h high, 24h low, and 24h volume.
+- **Show top N** limits the grid to the top N by % change; **Refresh** bypasses the 60-second cache.
+- The advances/declines summary and A/D ratio are computed across the **full** universe, not just
+  the tiles currently shown.
+
+**When to use:** A fast visual scan of the whole CoinDCX futures universe for what's moving —
+pair with **Buy or Sell** or **Ticker Investigation** (Crypto) before acting on any single pair.
+""",
+
+    "gokul_chhabra": """
+### Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM Option Buying
+
+[Masterclass](https://www.youtube.com/watch?v=2RnBT9DDDNI&t=6s) by Dr. Gokul Chhabra.
+
+| Piece | Rule |
+|-------|------|
+| Chart | 3-minute (1m resampled) Nifty / Bank Nifty index as futures proxy |
+| Indicators | Session VWAP · VWMA(20) · SuperTrend(10, 3) |
+| Window | 09:45–15:15 IST only · flat by close · no BTST |
+| Buy Call | Close strictly above VWAP, VWMA, and SuperTrend |
+| Buy Put | Close strictly below all three |
+| Sideways | Mixed alignment → no trade |
+| Entry polish | Prefer VWMA pullback if the breakout was missed |
+| Risk | SL = 3m close beyond SuperTrend · trail to cost at 1:1 · target ≥ 1:2 |
+| Execution | Buy ITM options targeting delta **0.60–0.75** (live NSE chain) |
+
+**How to use:** Open **Options → Gokul Chhabra**, pick Nifty 50 / Bank Nifty, scan. Expand a
+**BUY CALL / BUY PUT** row for SuperTrend SL/TP and the suggested ITM strike.
+""",
+
+    "sma_20_200": """
+### 200SMA–20SMA — Bounce & Rejection
+
+Uses the **200 SMA** as the institutional trend floor/ceiling and the **20 SMA** as the near-term
+mean. Scans for:
+
+- **Bounce** — price tags the 200 SMA from above in an uptrend and reclaims the 20 SMA
+- **Rejection** — price fails at the 200 SMA from below in a downtrend and rolls under the 20 SMA
+
+**When to use:** Swing / positional timing after a pullback into the 200 SMA. Pair with Momentum
+or Weak/Strong for confirmation.
+""",
+
+    "option_short_long": """
+### Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)
+
+Reads NSE option-chain **open interest** buildup / unwinding, call vs put **premium vs discount**
+to underlying, and surfaces **Buy Call / Buy Put / Sell Call / Sell Put** bias with PCR context.
+
+**When to use:** NSE F&O names around event days or when spot is stuck at S/R — OI tells you
+whether the move is being supported or faded by dealers.
+""",
+
+    "mega_setup_advisor": """
+### Mega Setup Advisor — multi-engine confluence pick
+
+Ranks tickers by how many independent engines (TA screeners + hub strategies) agree on the same
+direction / phase. Surfaces the **highest-confluence** setups with a compact trade plan.
+
+**When to use:** After Mega Analyser or a multi-section morning scan — narrow to the 3–5 best
+ideas instead of reading every engine separately.
+""",
+
+    "one_click_intraday": """
+### One-Click Intraday Setup
+
+Runs the intraday multi-engine confluence pack (opening-range / VWAP / MTF bias engines) and
+returns ENTRY_READY / WATCH setups for the current session.
+
+**When to use:** 9:45–11:30 IST when you want a fast shortlist without configuring each scanner.
+""",
+
+    "one_click_scalping": """
+### One-Click Scalping Setup
+
+Aggregates scalping hub engines (rectangle, ARC, CRT-FVG, LiveFree, Heikin Ashi, etc.) into one
+ranked list for LTF entries.
+
+**When to use:** Liquid names during kill-zones when you want confluence across scalp playbooks.
+""",
+
+    "one_click_swing": """
+### One-Click Swing Setup
+
+Aggregates swing hub engines (capitulation, MSS, SuperTrend, KISS, HA+EMA, Simple Steal) into one
+ranked multi-day shortlist.
+
+**When to use:** EOD / weekend planning for positional entries.
+""",
+
+    "scalp_2min": """
+### Scalp — 2-Minute Momentum Burst
+
+Ultra-short **2m** momentum burst entries with volume and micro-structure filters. Designed for
+highly liquid India / crypto pairs during active sessions.
+
+**When to use:** Only when spreads are tight and you can manage exits within minutes.
+""",
+
+    "smc_sc_best": """
+### SMC — SC Best (Structure · Liquidity · Displacement)
+
+Smart-money confluence of market structure, liquidity sweeps, and displacement candles into a
+single ranked entry model.
+
+**When to use:** When you want a stricter SMC filter than CISD alone.
+""",
+
+    "smc_lewiskelly": """
+### SMC — Lewis Kelly (Kill Zone · Sweep · MSS)
+
+Session **kill-zone** liquidity sweep + market structure shift model (Lewis Kelly framework).
+
+**When to use:** London / NY kill zones on FX-style or liquid equity index futures proxies.
+""",
+
+    "double_calendar": """
+### Double Calendar — dual-expiry premium capture
+
+Options strategy that sells a nearer-expiry calendar and buys a farther one (or dual calendars)
+to harvest theta while defining directional/volatility exposure.
+
+**When to use:** Elevated IV environments around events when you expect IV crush after the event.
+""",
+
+    "delta_neutral": """
+### Delta Neutral — volatility / premium strategies
+
+Constructs near **delta-neutral** option structures (straddles / strangles / iron flies as
+configured) to trade volatility rather than direction.
+
+**When to use:** When implied vol is mispriced vs expected realized move and you can hedge delta.
+""",
 }
+
+
+# FE / API id aliases → canonical guide bodies
+_SECTION_ID_ALIASES: dict[str, str] = {
+    "tomorrow_outlook": "command_outlook",
+    "buy_sell": "buy_sell_advisor",
+    "investigation": "ticker_investigation",
+    "investigation_strategies": "ticker_investigation_strategy",
+    "ticker_investigation_strategies": "ticker_investigation_strategy",
+    "weekly_stoch": "weekly_stoch_sweet_spot",
+    "kn_smart_rsi": "kn_smart_rsi_mtf",
+    "sentiment_screener": "sentiment",
+    "big_whale": "big_whale_pump_dump",
+    "smc_fake_shift": "smc_fake_market_shift",
+    "opposite_hedge": "opposite_hedge_mtf",
+}
+
+for _alias, _canon in _SECTION_ID_ALIASES.items():
+    if _alias not in SECTION_GUIDES and _canon in SECTION_GUIDES:
+        SECTION_GUIDES[_alias] = SECTION_GUIDES[_canon]
 
 
 def get_section_guide_body(section_id: str) -> str | None:

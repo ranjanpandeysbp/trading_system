@@ -383,6 +383,15 @@ class CommandCenterQuickAnalyzerRequest(BaseModel):
     include_option_chain: bool = False
 
 
+class DetectSectorRotationRequest(BaseModel):
+    market: Literal["india", "us", "crypto"] = "india"
+    sectors: list[str] | None = None
+    crs_sma_period: int = 50
+    hma_length: int = 9
+    pullback_months: int = 2
+    pullback_mode: Literal["months", "quarters"] = "months"
+
+
 class TradingHubScanRequest(BaseModel):
     section_id: str
     tickers: list[str] = Field(..., min_length=1)
@@ -494,6 +503,50 @@ class AlertMonitorCreate(BaseModel):
     notify_telegram: bool = True
     notify_email: bool = False
     enabled: bool = True
+
+
+class AlertScheduleCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    market: Literal["india", "us", "crypto"] = "india"
+    tickers: list[str] = Field(..., min_length=1)
+    timeframes: list[str] = Field(..., min_length=1)
+    strategies: list[str] = Field(..., min_length=1)
+    schedule_mode: Literal["interval", "daily_at"] = "interval"
+    poll_minutes: int = Field(default=15, ge=1, le=1440)
+    daily_time: str | None = Field(default=None, description="HH:MM local")
+    notify_telegram: bool = True
+    notify_email: bool = False
+    enabled: bool = False
+
+
+class AlertScheduleUpdate(BaseModel):
+    name: str | None = None
+    tickers: list[str] | None = None
+    timeframes: list[str] | None = None
+    strategies: list[str] | None = None
+    schedule_mode: Literal["interval", "daily_at"] | None = None
+    poll_minutes: int | None = Field(default=None, ge=1, le=1440)
+    daily_time: str | None = None
+    notify_telegram: bool | None = None
+    notify_email: bool | None = None
+    enabled: bool | None = None
+
+
+class AlertScheduleHitsDelete(BaseModel):
+    ids: list[int] = []
+    delete_all: bool = False
+    schedule_id: int | None = None
+
+
+class AlertNotifyConfigUpdate(BaseModel):
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_password: str | None = None  # omit / empty = keep existing
+    smtp_from: str | None = None
+    email_to: str | None = None  # comma-separated
+    telegram_bot_token: str | None = None
+    telegram_chat_ids: str | None = None
 
 
 class MarketPulsePagination(BaseModel):

@@ -890,9 +890,48 @@ class CommandCenterService:
         expiries = await asyncio.to_thread(list_expiries, symbol, is_index)
         return json_safe({"expiries": expiries})
 
+    async def detect_sector_rotation(
+        self,
+        market: str,
+        *,
+        sectors: list[str] | None = None,
+        crs_sma_period: int = 50,
+        hma_length: int = 9,
+        pullback_months: int = 2,
+        pullback_mode: str = "months",
+    ) -> dict[str, Any]:
+        from app.market_pulse.detect_sector_rotation_engine import (
+            DetectSectorRotationConfig,
+            scan_detect_sector_rotation,
+        )
+
+        m = (market or "india").lower()
+        if m not in ("india", "us", "crypto"):
+            return {"error": f"Unsupported market: {market}", "results": []}
+        cfg = DetectSectorRotationConfig(
+            crs_sma_period=crs_sma_period,
+            hma_length=hma_length,
+            pullback_months=pullback_months,
+            pullback_mode=pullback_mode,
+        )
+
+        def _run():
+            return scan_detect_sector_rotation(m, cfg=cfg, sector_filter=sectors or None)
+
+        return json_safe(await asyncio.to_thread(_run))
+
+    async def detect_sector_rotation_universe(self, market: str) -> dict[str, Any]:
+        from app.market_pulse.detect_sector_rotation_engine import list_sectors
+
+        m = (market or "india").lower()
+        if m not in ("india", "us", "crypto"):
+            return {"market": market, "sectors": []}
+        return {"market": m, "sectors": list_sectors(m)}
+
     def sections(self) -> dict[str, Any]:
         return {
             "sections": [
+                {"id": "playbook", "label": "Trading Playbook"},
                 {"id": "tomorrow_outlook", "label": "Tomorrow & Today Market Outlook"},
                 {"id": "mega_analyser", "label": "Mega Analyser"},
                 {"id": "buy_sell", "label": "Buy or Sell (India · US · Crypto · Commodity)"},
@@ -900,17 +939,28 @@ class CommandCenterService:
                 {"id": "global_market_mood", "label": "Global Market Mood"},
                 {"id": "momentum", "label": "Momentum Scanner"},
                 {"id": "ema_position", "label": "EMA Position Scanner"},
+                {"id": "divergences", "label": "Divergences"},
+                {"id": "candlestick_chart_patterns", "label": "Candlestick & Chart Patterns"},
+                {"id": "stop_hunt", "label": "Stoploss Hunting"},
+                {"id": "take_profit", "label": "Take Profit Targets"},
+                {"id": "real_bottom", "label": "Real Bottom"},
+                {"id": "weak_strong", "label": "Weak / Strong"},
+                {"id": "sma_20_200", "label": "200SMA-20SMA — Bounce & Rejection"},
+                {"id": "copy_trade", "label": "Copy Trade"},
+                {"id": "take_trade", "label": "Take Trade"},
+                {"id": "trade_setup", "label": "Trade Setup — Oversold/Overbought"},
                 {"id": "one_click_intraday", "label": "One-Click Intraday Setup"},
                 {"id": "one_click_scalping", "label": "One-Click Scalping Setup"},
                 {"id": "one_click_swing", "label": "One-Click Swing Setup"},
+                {"id": "fundamental_analysis", "label": "Fundamental Analysis (screener.in)"},
                 {"id": "mutual_fund_holdings", "label": "Mutual Fund Holdings Tracker"},
                 {"id": "etf_holdings", "label": "ETF Holdings — Stock-Level Trend (India · US · Crypto)"},
-                {"id": "fundamental_analysis", "label": "Fundamental Analysis (screener.in)"},
+                {"id": "detect_sector_rotation", "label": "Detect Sector Rotation — CRS · Hull · Pullback"},
                 {"id": "stock_upgrade_downgrade", "label": "Upgrade/Downgrade & Corporate Actions"},
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},
                 {"id": "mega_setup_advisor", "label": "Mega Setup Advisor"},
                 {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
-                {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)"},
+                {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Buy/Sell Call/Put"},
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},

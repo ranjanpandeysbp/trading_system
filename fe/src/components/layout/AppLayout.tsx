@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { IndexMarquee } from './IndexMarquee'
 
 const nav = [
   { to: '/', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
@@ -159,26 +160,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-800/80 bg-slate-950/90 px-4 py-3 backdrop-blur-xl lg:hidden">
-          <button
-            type="button"
-            aria-label="Open navigation"
-            className="rounded-lg p-2 text-slate-300 hover:bg-slate-800"
-            onClick={() => setMenuOpen(true)}
-          >
-            <Menu size={22} />
-          </button>
-          <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 text-sm font-bold text-white">
-              ₹
+        <div className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
+          {/* Mobile top bar */}
+          <header className="flex items-center justify-between gap-3 px-4 py-3 lg:hidden">
+            <button
+              type="button"
+              aria-label="Open navigation"
+              className="rounded-lg p-2 text-slate-300 hover:bg-slate-800"
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu size={22} />
+            </button>
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 text-sm font-bold text-white">
+                ₹
+              </div>
+              <span className="truncate font-semibold text-white">
+                {nav.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? 'IST Paper'}
+              </span>
             </div>
-            <span className="truncate font-semibold text-white">
-              {nav.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? 'IST Paper'}
-            </span>
-          </div>
-          <div className="w-10" aria-hidden />
-        </header>
+            <div className="w-10" aria-hidden />
+          </header>
+
+          <IndexMarquee />
+        </div>
 
         <main className="flex-1 overflow-x-hidden p-4 pb-safe sm:p-6 lg:p-8 lg:pb-8">
           <div className="mx-auto w-full max-w-7xl">{children}</div>

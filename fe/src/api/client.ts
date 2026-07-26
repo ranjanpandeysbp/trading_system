@@ -417,6 +417,78 @@ export const toggleAlertMonitor = (id: number, enabled: boolean) =>
 export const pollAlerts = (force = false) =>
   api.post('/alerts/poll', null, { params: { force }, timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const fetchMarketMarquee = () =>
+  api.get<{ quotes: Array<{
+    id: string
+    label: string
+    symbol: string
+    market: string
+    price: number | null
+    change_pct: number | null
+    is_live: boolean
+  }>; refresh_seconds: number }>('/market/marquee', { timeout: 25_000 }).then((r) => r.data)
+
+export const fetchAlertNotifyConfig = () =>
+  api.get('/alerts/notify-config').then((r) => r.data)
+
+export const saveAlertNotifyConfig = (payload: Record<string, unknown>) =>
+  api.put('/alerts/notify-config', payload).then((r) => r.data)
+
+export const fetchAlertSchedules = () =>
+  api.get('/alerts/schedules').then((r) => r.data)
+
+export const fetchAlertScheduleCatalog = () =>
+  api.get('/alerts/schedule-catalog').then((r) => r.data as AlertScheduleCatalog)
+
+export type AlertScheduleCatalogItem = {
+  id: string
+  raw_id: string
+  label: string
+  runnable: boolean
+  prefix: string
+}
+
+export type AlertScheduleCatalogGroup = {
+  id: string
+  label: string
+  items?: AlertScheduleCatalogItem[]
+  subgroups?: Array<{ id: string; label: string; items: AlertScheduleCatalogItem[] }>
+}
+
+export type AlertScheduleCatalog = {
+  groups: AlertScheduleCatalogGroup[]
+  count: number
+  runnable_count: number
+  runnable_prefixes: string[]
+}
+
+export const createAlertSchedule = (payload: Record<string, unknown>) =>
+  api.post('/alerts/schedules', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const updateAlertSchedule = (id: number, payload: Record<string, unknown>) =>
+  api.patch(`/alerts/schedules/${id}`, payload).then((r) => r.data)
+
+export const deleteAlertSchedule = (id: number) =>
+  api.delete(`/alerts/schedules/${id}`).then((r) => r.data)
+
+export const enableAlertSchedule = (id: number, enabled: boolean) =>
+  api.post(`/alerts/schedules/${id}/enable`, null, { params: { enabled } }).then((r) => r.data)
+
+export const runAlertSchedule = (id: number, force = true) =>
+  api.post(`/alerts/schedules/${id}/run`, null, { params: { force }, timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runDueAlertSchedules = () =>
+  api.post('/alerts/schedules/run-due', null, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchAlertScheduleHits = (params?: { schedule_id?: number; limit?: number }) =>
+  api.get('/alerts/schedule-hits', { params }).then((r) => r.data)
+
+export const deleteAlertScheduleHit = (id: number) =>
+  api.delete(`/alerts/schedule-hits/${id}`).then((r) => r.data)
+
+export const deleteAlertScheduleHits = (payload: { ids?: number[]; delete_all?: boolean; schedule_id?: number }) =>
+  api.post('/alerts/schedule-hits/delete', payload).then((r) => r.data)
+
 export interface TradingHubSection {
   id: string
   label: string
@@ -764,6 +836,21 @@ export const runEtfYahooHoldingsChange = (payload: {
   from_date: string
   to_date: string
 }) => api.post('/command-center/etf/holdings/yahoo', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchDetectSectorRotationUniverse = (market: 'india' | 'us' | 'crypto' = 'india') =>
+  api.get<{ market: string; sectors: string[] }>('/command-center/detect-sector-rotation/universe', {
+    params: { market },
+    timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
+
+export const runDetectSectorRotation = (payload: {
+  market: 'india' | 'us' | 'crypto'
+  sectors?: string[]
+  crs_sma_period?: number
+  hma_length?: number
+  pullback_months?: number
+  pullback_mode?: 'months' | 'quarters'
+}) => api.post('/command-center/detect-sector-rotation', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchOptionsSections = () =>
   api.get<{ sections: Array<{ id: string; label: string }> }>('/options/sections', { timeout: MP_TIMEOUT }).then((r) => r.data)

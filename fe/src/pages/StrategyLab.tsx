@@ -166,7 +166,7 @@ export default function StrategyLab() {
     <div>
       <PageHeader
         title="Strategy Lab"
-        description="Backtest presets · Multi-combo scanner · Rule screener · Preset encyclopedia — India · US · Crypto · Commodities"
+        description="Backtest presets · Multi-combo scanner · Rule screener · Full hub encyclopedia — Command Center · Market Pulse · TA · Trading Hubs · Options"
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -504,31 +504,101 @@ function ScreenerResults({ data }: { data: Record<string, unknown> }) {
 function PresetsPanel({ data }: { data: Record<string, unknown> }) {
   const presets = (data.presets as Record<string, { description?: string; recommended_timeframe?: string }>) ?? {}
   const categories = (data.categories as Record<string, string[]>) ?? {}
-  const guides = (data.guides as Record<string, string>) ?? {}
+  const encyclopedia = data.encyclopedia as
+    | {
+        hubs?: Array<{
+          hub: string
+          count: number
+          sections: Array<{ id: string; title: string; guide?: string | null; extra?: string | null }>
+        }>
+        section_count?: number
+        hub_count?: number
+        overview?: string
+        workflows?: string
+        when_to_use?: string
+        strategy_lab_detail?: string
+      }
+    | undefined
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-400">
-        {Object.keys(presets).length} presets for {String(data.market)} ({String(data.asset_class ?? '')})
+        {encyclopedia?.section_count ?? 0} hub sections across {encyclopedia?.hub_count ?? 0} hubs
+        {' · '}
+        {Object.keys(presets).length} builder presets for {String(data.market)} ({String(data.asset_class ?? '')})
       </p>
 
-      {Object.keys(guides).length > 0 && (
-        <div className="space-y-3">
-          <h4 className="font-medium text-white">Section guides</h4>
-          {Object.entries(guides).map(([key, text]) => (
-            <details key={key} className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
-              <summary className="cursor-pointer text-sm font-medium capitalize text-slate-200">
-                {key.replace(/_/g, ' ')}
-              </summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{text}</pre>
+      {encyclopedia?.hubs?.length ? (
+        <div className="space-y-4">
+          <h4 className="font-medium text-white">All hubs & strategies</h4>
+          {encyclopedia.overview && (
+            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-slate-200">App overview</summary>
+              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.overview}</pre>
             </details>
+          )}
+          {encyclopedia.workflows && (
+            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-slate-200">Workflows</summary>
+              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.workflows}</pre>
+            </details>
+          )}
+          {encyclopedia.when_to_use && (
+            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-slate-200">When to use what</summary>
+              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.when_to_use}</pre>
+            </details>
+          )}
+          {encyclopedia.hubs.map((hub) => (
+            <div key={hub.hub}>
+              <h5 className="mb-2 text-sm font-semibold text-slate-100">
+                {hub.hub}{' '}
+                <span className="font-normal text-slate-500">({hub.count})</span>
+              </h5>
+              <div className="space-y-2">
+                {hub.sections.map((section) => (
+                  <details
+                    key={section.id}
+                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2"
+                  >
+                    <summary className="cursor-pointer text-sm font-medium text-slate-200">
+                      {section.title}
+                    </summary>
+                    <p className="mt-1 text-[11px] text-slate-600">{section.id}</p>
+                    {section.guide ? (
+                      <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">
+                        {section.guide}
+                      </pre>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">No guide available yet.</p>
+                    )}
+                    {section.extra && (
+                      <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-500">
+                        {section.extra}
+                      </pre>
+                    )}
+                  </details>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
+      ) : null}
+
+      {encyclopedia?.strategy_lab_detail && (
+        <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-slate-200">Strategy Lab & tools detail</summary>
+          <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">
+            {encyclopedia.strategy_lab_detail}
+          </pre>
+        </details>
       )}
 
       {Object.entries(categories).map(([cat, names]) => (
         <div key={cat}>
-          <h4 className="mb-2 font-medium capitalize text-white">{cat.replace(/_/g, ' ')}</h4>
+          <h4 className="mb-2 font-medium capitalize text-white">
+            Builder presets — {cat.replace(/_/g, ' ')}
+          </h4>
           <ul className="space-y-2">
             {names.map((name) => (
               <li key={name} className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 text-sm">

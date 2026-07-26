@@ -105,18 +105,27 @@ class StrategyLabService:
         by_cat = get_presets_by_category(resolved_market)
         flat = get_presets_for_market(resolved_market)
         from app.market_pulse.section_strategy_guides import SECTION_GUIDES
+        from app.market_pulse.strategy_encyclopedia_guide import encyclopedia_catalog
 
+        encyclopedia = encyclopedia_catalog()
         guides = {
-            key: SECTION_GUIDES[key]
-            for key in (
-                "strategy_builder",
-                "multi_combo",
-                "screener",
-                "strategy_encyclopedia",
-                "saved_strategies",
-            )
-            if key in SECTION_GUIDES
+            entry["id"]: entry["guide"]
+            for hub in encyclopedia["hubs"]
+            for entry in hub["sections"]
+            if entry.get("guide")
         }
+        # Keep lab-focused guides even if missing from hub map
+        for key in (
+            "strategy_builder",
+            "multi_combo",
+            "screener",
+            "strategy_encyclopedia",
+            "saved_strategies",
+            "ai_strategy_creator",
+        ):
+            if key in SECTION_GUIDES and key not in guides:
+                guides[key] = SECTION_GUIDES[key].strip()
+
         return {
             "market": resolved_market,
             "asset_class": asset_class or "india",
@@ -131,10 +140,13 @@ class StrategyLabService:
                 for name, p in flat.items()
             },
             "guides": guides,
+            "encyclopedia": encyclopedia,
             "screener_presets": {
                 k: {"label": v["label"]} for k, v in _SCREENER_PRESETS.items()
             },
             "count": len(flat),
+            "section_count": encyclopedia["section_count"],
+            "hub_count": encyclopedia["hub_count"],
         }
 
     async def backtest(self, payload: dict[str, Any]) -> dict[str, Any]:

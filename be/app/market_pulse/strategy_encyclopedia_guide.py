@@ -7,15 +7,56 @@ hub map, workflows, when-to-use matrix, and every section explained.
 
 from __future__ import annotations
 
+from typing import Any
+
+import streamlit as st
+
 from app.market_pulse.section_strategy_guides import SECTION_GUIDES
 
 # Hub → (section_id, display title) — mirrors hub_tabs.py
 HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     "🚀 Command Center": [
         ("command_outlook", "Tomorrow & Today Market Outlook"),
+        ("global_market_mood", "Global Market Mood — regions · sectors · geopolitics"),
         ("mega_analyser", "Mega Analyser — unified multi-engine scan"),
         ("buy_sell_advisor", "Buy or Sell — Crypto · India · US · Commodity"),
         ("ticker_investigation", "Ticker Investigation — Crypto · India · US · Commodity"),
+        ("ticker_investigation_strategy", "Ticker Investigation — Select Strategy"),
+        ("stock_upgrade_downgrade", "Stock Upgrade Downgrade — Block Deals · M&A · Analyst Calls"),
+        ("momentum", "Momentum — Multi-Timeframe Strength & Direction"),
+        ("trade_setup", "Trade Setup — Oversold/Overbought Screener"),
+        ("time_series_strategy", "Time Series Trading Strategy — MA Crossover + Bollinger + Breakout"),
+        ("divergences", "Divergences — Price vs RSI · Price vs Volume"),
+        ("candlestick_chart_patterns", "Candlestick & Chart Patterns"),
+        ("real_bottom", "Real Bottom — 5-Step Selling Exhaustion / Trap / Displacement"),
+        ("weak_strong", "Weak / Strong — Relative Strength & Trend Classifier"),
+        ("copy_trade", "Copy Trade — High-Beta / 3x Leveraged ETF Momentum Scalp"),
+        ("stop_hunt", "Stop Loss Hunting"),
+        ("take_profit", "Take Profit Targets"),
+        ("take_trade", "Take Trade — All Trade Setup Analyses Combined"),
+        ("playbook", "Trading Playbook — Scalping · Intraday · Swing"),
+        ("sma_20_200", "200SMA-20SMA — Bounce & Rejection"),
+        ("mutual_fund_holdings", "Mutual Fund Holdings — Stock-Level Trend Across Funds"),
+        ("etf_holdings", "ETF Holdings — Stock-Level Trend Across Funds (India · US · Crypto)"),
+        ("india_fii_dii_holdings", "India FII-DII Holding — Ownership · P&L · Valuation · Deals"),
+        ("next_day_move", "Next Day Move — Smart Money vs Retail (India · US · Crypto)"),
+        ("detect_sector_rotation", "Detect Sector Rotation — CRS · Hull · Pullback (India · US · Crypto)"),
+        ("ema_position", "EMA Position — Crossovers, Status & Next S/R"),
+        ("fundamental_analysis", "Fundamental Analysis — Valuation · Holdings · Profit & Revenue Trend (India)"),
+        ("one_click_setup", "One-Click Trade Setup — Scalping · Intraday · Swing (Multi-Engine Confluence)"),
+        ("one_click_intraday", "One-Click Intraday Setup"),
+        ("one_click_scalping", "One-Click Scalping Setup"),
+        ("one_click_swing", "One-Click Swing Setup"),
+        ("mega_setup_advisor", "Mega Setup Advisor — multi-engine confluence pick"),
+        ("todays_indian_tickers", "Today's Indian Tickers — Live Market Movers (Dhan.co)"),
+        ("option_chain", "Option Chain — Bias, PCR & Trade Signal (NSE)"),
+        ("option_short_long", "Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)"),
+        ("quick_analyzer", "Quick Analyzer — Momentum + EMA + Technical Indicators (India)"),
+        ("quick_analyzer_crypto", "Quick Analyzer Crypto — Momentum + EMA + Technical Indicators (CoinDCX)"),
+        ("quick_analyzer_us", "Quick Analyzer US — Momentum + EMA + Technical Indicators (Yahoo)"),
+        ("nse_world_indices", "NSE and World Indices"),
+        ("india_market_heatmap", "Indian Market Heatmap — Index/Sector Constituent Heatmap"),
+        ("coindcx_24h_volatility", "24Hrs Volatile Crypto — CoinDCX Futures Heatmap"),
     ],
     "📊 Market Pulse": [
         ("news_scanner", "News Scanner & Market Intelligence"),
@@ -32,6 +73,10 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("big_whale_pump_dump", "Big Whale Pump & Dump — DEX whale flow"),
         ("sector_rotation", "Sector Rotation — daily · weekly · monthly"),
         ("sector_rotation_intraday", "Sector Rotation — mins · hours · days"),
+        ("sector_rotation_us", "Sector Rotation (US) — daily · weekly · monthly"),
+        ("sector_rotation_us_intraday", "Sector Rotation (US) — mins · hours · days"),
+        ("sector_rotation_crypto", "Sector Rotation (Crypto) — daily · weekly · monthly"),
+        ("sector_rotation_crypto_intraday", "Sector Rotation (Crypto) — mins · hours · days"),
         ("opposite_hedge_mtf", "Opposite Hedge-MTF — long leader · short laggard"),
         ("mtf_intraday_bias", "MTF Intraday Bias — Equities"),
         ("mtf_intraday_bias_crypto", "MTF Intraday Bias — Crypto"),
@@ -49,6 +94,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("mtf_scanner", "Institutional MTF Scanner"),
         ("mtf_hedging", "Multi-Timeframe Hedging — Groww · US · Crypto"),
         ("top_down_mtf", "Top Down MTF (SMC)"),
+        ("topdown_mtf", "TOPDOWN - MTF (Liquidity + OB)"),
         ("weekly_stoch_sweet_spot", "Weekly Stoch Sweet Spot"),
         ("kn_smart_rsi_mtf", "KN Smart DP SL + RSI MTF + VWMA"),
         ("velez_retracement", "Velez Retracement Scalping"),
@@ -61,6 +107,10 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("sentiment", "Trend & Sentiment Screener"),
         ("top_bottom", "Top/Bottom Screener"),
         ("smc_options", "SMC · Options Flow Screener"),
+        ("bb_exposed", "BB Exposed — Free Bar + Squeeze"),
+        ("breakout_mtf", "Breakout MTF — Multi-Period Daily Scanner"),
+        ("one_ta", "ONE TA — Golden Zone Fib + EMA"),
+        ("box_trading", "Box Trading — Prev-Day Range (TradingLab)"),
     ],
     "🇮🇳 ETF TA IN": [
         ("stf_shop", "ETF Shop 4.0 — 20 DMA · dynamic SIP · FIFO · 39 distinct ETFs"),
@@ -85,21 +135,43 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("swing_trading_st_supertrend", "ST — SuperTrend + SMA 10 Swing & Pyramiding"),
         ("swing_trading_st_kiss", "ST — KISS Swing Systematic"),
         ("swing_trading_st_ha_ema", "ST — Daily HA Bias + 34 EMA Intraday"),
+        ("swing_trading_st_simple_steal", "SW — Simple Steal · Little Rizzy Projection"),
     ],
     "⚡ Intraday": [
         ("intraday_alpha_945", "INTRA — 9:45 AM Alpha Scanner"),
         ("intraday_fib_945", "INTRA — 9:45 Fib 50% + 10 EMA"),
         ("intraday_vwap_fade", "INTRA — VWAP Fade Value Area Extremes"),
+        ("intraday_mtf_breakout_retest", "INTRA — MTF Breakout & Retest (Daniel Holmes)"),
+        ("intraday_7_wasted", "INTRA — 7+wasted · 5m OR Breakout & Retest"),
+        ("intra_hwp", "INTRA — HWP · Two-Sided Gap Fill + 21 EMA"),
     ],
     "🎯 Scalping": [
         ("scalp_rectangle", "Scalp — 1m Rectangle Sniper Entry"),
-        ("scalp_livefree_fx", "Scalp — LiveFree FX 5m"),
+        ("scalp_smc", "Scalp — SMC Rule of Three (OTE · FVG · OB · CRT)"),
+        ("scalp_arc", "Scalp — ARC Method (Area · Range · Candle)"),
+        ("scalp_sr_mss", "Scalp — A+ S/R Zone + 1m MSS (Joovier)"),
+        ("scalp_multi_indicator", "Scalp — Multi Indicator (UT Bot · QQE · VAE)"),
+        ("scalp_crt_fvg", "Scalp — CRT-FVG (Market Structure, Liquidity & CRT)"),
+        ("scalp_livefree_fx", "Scalp — LiveFree FX 5m (HTF Bias · Sessions · London Sweep · BoS)"),
+        ("scalp_heikin_ashi", "Scalp — Heikin Ashi (100 EMA Pullback + High-Volume Doji)"),
+        ("scalp_2min", "Scalp — 2-Minute Momentum Burst"),
     ],
     "💰 Smart Money": [
         ("smc_cisd", "SMC — CISD Entry Rule (Golden Rule)"),
         ("smc_weekly_sweep_cisd", "SMC — Weekly Liquidity Sweep & CISD"),
         ("smc_mtf_day_plan", "SMC — MTF Day Plan (OB · FVG · CHoCH)"),
         ("smc_golden_bullet", "SMC — Golden Bullet (Liquidity + Timing)"),
+        ("smc_liquidity", "SMC — Liquidity (Sweeps · Grabs · FVG)"),
+        ("smc_ttg_sniper", "SM — TTG Sniper Entry (Sweep · Order Block · FVG)"),
+        ("smb_snp", "SMB — SnP Fashionably Late (VWAP × 9 EMA)"),
+        ("sc_fvg", "SC — FVG (Reversal at Key Levels + Fair Value Gap)"),
+        ("smc_sc_best", "SMC — SC Best (Structure · Liquidity · Displacement)"),
+        ("smc_lewiskelly", "SMC — Lewis Kelly (Kill Zone · Sweep · MSS)"),
+    ],
+    "📉 Options": [
+        ("double_calendar", "Double Calendar — dual-expiry premium capture"),
+        ("delta_neutral", "Delta Neutral — volatility / premium strategies"),
+        ("gokul_chhabra", "Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM options"),
     ],
     "📓 Demo Trading": [
         ("demo_india", "Demo Trading — India (Groww)"),
@@ -108,29 +180,36 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     "🔔 Alerts": [
         ("alerts", "Strategy Alert Monitors"),
     ],
+    "🔖 Watchlist": [
+        ("watchlist", "Watchlist — Track Tickers · % Change Since Added"),
+    ],
 }
 
 _OVERVIEW = """
 ### What is TrueBacktester?
 
 TrueBacktester is an **all-in-one trading research platform** for **NSE/BSE (Groww)** and **CoinDCX crypto futures**.
-It combines live market intelligence, 18+ technical screeners, strategy backtesting, batch scanning,
+It combines live market intelligence, **80+** technical screeners and hub sections, strategy backtesting, batch scanning,
 paper trading, and alert monitors — with **Ask AI** (Gemini/Groq) on most sections.
 
-### The 8 main hubs (top tabs)
+### The main hubs (top tabs)
 
 | Hub | Purpose | Start here if… |
 |-----|---------|----------------|
-| **Command Center** | One-click multi-engine scan + today/tomorrow outlook | You want a fast morning briefing or unified scan |
-| **Market Pulse** | Live news, flows, options, breadth, heatmaps, MTF session bias | You need macro context before picking trades |
-| **Technical Analysis** | Live screeners with trade setups, charts, AI View | You have a setup type in mind (scalp, swing, SMC…) |
-| **Strategy Lab** | Build, backtest, batch-scan, and AI-generate strategies | You want to test or create systematic rules |
-| **Screen & Scan** | Rule-based universe scan + gap events | You want to filter hundreds of tickers by rules |
-| **Seasonality** | Monthly historical edge patterns | You want statistical seasonal bias confirmation |
-| **Swing Trading** | ST capitulation + continuation breakouts (Backtrader) | Multi-day swing entries on India / US / crypto |
-| **Intraday** | 9:45 AM Alpha scanner — opening range breakouts | NSE session-timed relative-strength intraday |
-| **Demo Trading** | Paper portfolio (India + crypto) | You want to practice without real money |
-| **Alerts** | Telegram/email when saved setups fire | You want hands-off monitoring after research |
+| **Command Center** | One-click multi-engine scan + today/tomorrow outlook + Upgrade/Downgrade, Momentum, Mutual Fund Holdings, ETF Holdings (India/US/Crypto), EMA Position, Fundamental Analysis, One-Click Trade Setup, Today's Indian Tickers, Option Chain, Indian Market Heatmap, 24Hrs Volatile Crypto, Quick Analyzer (India/Crypto/US), NSE and World Indices | Fast morning briefing or unified scan |
+| **Market Pulse** | News, flows, breadth, rotation, gainers/losers, heatmaps | Macro context before picking trades |
+| **Technical Analysis** | Live screeners — price action, patterns, SMC, fakeout, BB, breakout MTF, ONE TA, **TOPDOWN-MTF**, **Box Trading**, confluence | You have a setup type in mind |
+| **ETF TA IN** | India NSE ETF systematic strategies (ETF Shop 4.0) | ETF rotation / SIP playbook |
+| **Strategy Lab** | Build, backtest, batch-scan, AI-generate strategies | Test or create systematic rules |
+| **Screen & Scan** | Rule-based universe scan + gap events | Filter hundreds of tickers by rules |
+| **Seasonality** | Monthly historical edge patterns | Statistical seasonal confirmation |
+| **Swing Trading** | ST capitulation, MSS, SuperTrend, KISS, HA+EMA | Multi-day swing on India / US / crypto |
+| **Intraday** | 9:45 scanners, Fib bias, VWAP fade, MTF breakout-retest | Session-timed NSE / global intraday |
+| **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
+| **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
+| **Demo Trading** | Paper portfolio (India + crypto) | Practice without real money |
+| **Alerts** | Telegram/email when saved setups fire | Hands-off monitoring after research |
+| **Watchlist** | Per-user, per-market saved tickers with live price & % change since added | Track a shortlist without re-scanning |
 
 ### Universal UI patterns (every section)
 
@@ -154,6 +233,7 @@ _WORKFLOWS = """
 1. **Command Center → Tomorrow & Today Outlook** — gap risk, global cues, event calendar.
 2. **Market Pulse → News Scanner** — click **Refresh Market Data**; read FII/DII, PCR, analyst calls.
 3. **Sector Rotation + Heatmap** — which sectors lead/lag today.
+4. **Detect Sector Rotation** — weekly CRS vs benchmark + Hull buy (video rotation framework).
 4. **MTF Intraday Bias (Equities)** — session direction on your watchlist.
 5. Pick a TA screener aligned with the bias (see *When to Use Which Strategy* below).
 
@@ -206,7 +286,9 @@ _WORKFLOWS = """
 
 1. **Market Pulse → News Scanner** — PCR, max pain, OI walls.
 2. **SMC · Options Flow Screener** — delivery %, PCR, OI change + SMC structure.
-3. **MTF Intraday Bias** — includes PCR in equity scoring.
+3. **Options → Gokul Chhabra** — 3m VWAP / VWMA / SuperTrend ITM call/put buying (09:45–15:15 IST).
+4. **MTF Intraday Bias** — includes PCR in equity scoring.
+5. **Options → Double Calendar / Delta Neutral** — theta-positive income structures.
 
 ### Workflow 8 — Mega Analyser (fastest research)
 
@@ -226,7 +308,25 @@ _WORKFLOWS = """
 1. **Command Center → Ticker Investigation** — Crypto, India, US, or **Commodity** tab.
 2. Enter one or more tickers → **Search & investigate**.
 3. Review headlines, analyst calls, multi-window % moves, S/R strength, breakout odds, **primary trade setup (SL%/TP%/confidence%)**.
-4. **AI Trade Setup** or **Ask AI** per ticker for TA + news + analyst synthesis.
+### Workflow 11 — Scalping (1m–15m)
+
+1. **Scalping → 1m Rectangle** — FVG + liquidity sweep → rectangle → sniper close breakout (3:1 R:R).
+2. **Scalping → SMC Rule of Three** — HTF BOS + premium/discount/OTE + LTF FVG/OB/CRT fusion.
+3. **Scalping → ARC Method** — prev-day box + swing zones, 20% unabated move, John Wick hammer at boundary.
+4. **Scalping → A+ S/R MSS** — HTF 1H/4H S/R zone tap + 1m market structure shift reversal.
+5. Confirm with **MTF Intraday Bias** or **Fakeout 15M** for session direction.
+6. **Demo Trading** to log fills before live orders.
+
+### Workflow 12 — Smart Money (SMC)
+
+1. **Smart Money → CISD** — compression → sweep → close through CISD level (golden rule).
+2. **Weekly Sweep + CISD** — PWH/PWL sweep failure on 5m/15m.
+3. **MTF Day Plan** — HTF OB/FVG → MTF CHoCH → LTF entry.
+4. **Golden Bullet** — HTF BOS + kill-zone timing + V-shape liquidity sweep.
+5. **SMC Liquidity** — BSL/SSL sweep/grab fades and FVG rebalance entries.
+6. **SM — TTG Sniper Entry** — liquidity sweep → Order Block → FVG pullback entry, Aggressive or Conservative (MSS-confirmed).
+7. **SMB SnP** — Fashionably Late: LOD grind → 9 EMA × VWAP cross (10:00–13:30, 3:1 R:R).
+8. Pair with **Top Down MTF**, **ONE TA Golden Zone**, or **SMC Fake Market Shift** for confluence.
 """
 
 _WHEN_TO_USE = """
@@ -235,7 +335,13 @@ _WHEN_TO_USE = """
 | Your goal | Best section(s) | Typical hold |
 |-----------|-----------------|--------------|
 | Pre-open / overnight bias | Command Outlook, News Scanner | — |
-| Broad market health | Nifty Breadth, Sector Rotation, Heatmap | — |
+| Broad market health | Nifty Breadth, Sector Rotation, Heatmap, Gainers/Losers | — |
+| Multi-market movers | Gainers & Losers — Multi-Market (India/US/Crypto/Commodities) | — |
+| OB + FVG + S/R confluence scan | Accurate Strategy (Market Pulse) | Intraday – swing |
+| Consolidation breakout box | Pump/Dump Breakout (Market Pulse) | Minutes – hours |
+| DEX whale flow / on-chain | Big Whale Pump & Dump (Market Pulse) | Minutes – hours |
+| Beta-neutral pair trade | Opposite Hedge-MTF, MTF Hedging (TA) | Days – weeks |
+| ETF rotation / dynamic SIP | ETF Shop 4.0 (ETF TA IN) | Weeks – months |
 | Today's session direction | MTF Intraday Bias (equity or crypto) | Intraday |
 | First 15M range fakeout | Fakeout 15M | 5–60 min |
 | 4H range fakeout fade | Fakeout 4H | 30 min – 3 hr |
@@ -247,6 +353,23 @@ _WHEN_TO_USE = """
 | Crypto bootcamp rules | Smart Wave Crypto | 30m – 1h |
 | Crypto 1m/5m VWAP scalp | Crypto Scalping (or Mega Analyser · Crypto momentum) | 1–30 min |
 | SMC BOS → POI → fake shift | SMC Fake Market Shift (or Mega · India/Crypto preset) | 15 min – 1d |
+| 9:45 opening-range breakout | INTRA — 9:45 Alpha Scanner | Same session |
+| 9:45 Fib 50% + EMA bias | INTRA — 9:45 Fib 50% + 10 EMA | Same session |
+| VWAP ±1σ fade (range day) | INTRA — VWAP Fade Value Area | 15–60 min |
+| 15m breakout-retest (Daniel Holmes) | INTRA — MTF Breakout & Retest | Same session |
+| Daily multi-period breakout scan | Breakout MTF (10/20/50/90/200D + RSI/MACD) | Days – weeks |
+| Golden Zone Fib pullback + EMA | ONE TA — Golden Zone | Hours – weeks |
+| BB free bar fade / squeeze breakout | BB Exposed | Scalp – swing |
+| 1m rectangle sniper scalp | Scalping → Rectangle Setup | 1–15 min |
+| SMC OTE + FVG + OB + CRT scalp | Scalping → SMC Rule of Three | 15–90 min |
+| ARC boundary fade (Area·Range·Candle) | Scalping → ARC Method | 5–60 min |
+| HTF S/R zone + 1m MSS scalp | Scalping → A+ S/R MSS (Joovier) | 15–90 min |
+| CISD golden entry (no early sweep) | SMC — CISD Entry Rule | 15 min – 1d |
+| Weekly PWH/PWL + LTF CISD | SMC — Weekly Liquidity Sweep & CISD | 1–2 weeks |
+| MTF day plan OB/FVG/CHoCH | SMC — MTF Day Plan | Intraday |
+| Golden Bullet kill-zone sweep | SMC — Golden Bullet (Liquidity + Timing) | 15 min – 4h |
+| BSL/SSL sweep · grab · FVG fade | SMC — Liquidity | 15 min – 1d |
+| Sweep → Order Block → FVG sniper pullback | SM — TTG Sniper Entry | 15 min – 1d |
 | Everything-at-once scan | Mega Analyser (22+ engines incl. Crypto Scalping · SMC FMS · Weak Strong S-R · Velez · Smart Wave) | — |
 | Asset-class buy/sell call | Buy or Sell Advisor (Command Center) | Scalp – swing |
 | News + tape on one symbol | Ticker Investigation (Command Center) | — |
@@ -270,11 +393,13 @@ _WHEN_TO_USE = """
 
 ### By trader style
 
-**Scalper (1m–15m):** Fakeout 15M · Velez · KN Smart · MTF Scanner (1m/5m) · Top Down MTF (1m LTF)
+**Scalper (1m–15m):** Fakeout 15M · Velez · KN Smart · MTF Scanner (1m/5m) · Top Down MTF · **TOPDOWN-MTF** · **Box Trading** · **Scalping Rectangle** · **Scalping SMC** · **Scalping ARC** · **Scalping A+ S/R MSS** · Crypto Scalping · BB Exposed (day preset)
 
-**Intraday (15m–4h):** Fakeout 4H · MTF Intraday Bias · Confluence · KN Smart · Price Action
+**Intraday (15m–4h):** Fakeout 4H · MTF Intraday Bias · Confluence · KN Smart · Price Action · **INTRA 9:45 Alpha** · **INTRA Fib 945** · **INTRA VWAP Fade** · **INTRA MTF Breakout-Retest** · **Box Trading** · **SMB SnP** · **SMC Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry**
 
-**Swing (4h–1w):** Weekly Stoch · MTF Scanner (4h/1d) · Pattern Breakout · Sentiment · Seasonality
+**Swing (4h–1w):** Weekly Stoch · MTF Scanner (4h/1d) · Pattern Breakout · Sentiment · Seasonality · **Breakout MTF** · **ONE TA** · **TOPDOWN-MTF** (1d→1h→15m) · **ST Capitulation** · **ST MSS** · **ST SuperTrend** · BB Exposed (swing preset) · **TTG Sniper Entry** (HTF)
+
+**SMC / Smart Money:** Top Down MTF · **TOPDOWN-MTF** · SMC Fake Market Shift · **CISD** · **Weekly Sweep CISD** · **MTF Day Plan** · **Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **SMB SnP** · Scalping SMC · ONE TA
 
 **Positional (1w+):** Weekly Stoch · Elliott Wave · Seasonality · Sentiment on 1d/1w
 
@@ -306,9 +431,12 @@ _STRATEGY_LAB_DETAIL = """
 - Source list for **Alert Monitors**.
 
 #### Multi-Combo Scanner
-- Pick saved strategies **or** built-in TA hub engines.
-- Batch: many tickers × many timeframes × many strategies.
+- Pick saved strategies **or** built-in TA hub engines (**30 strategies** in 6 groups).
+- Groups: Core MTF & session · TA extensions · Crypto · Scalping · Smart Money · Intraday.
+- Includes **TOPDOWN-MTF**, **Box Trading**, **SMB SnP**, and all Scalp/SMC/Intraday hub engines.
+- Batch: many tickers × many timeframes × many strategies (TA engines run **once per ticker**).
 - Rank by backtest metrics; **save picks** for alerts.
+- **Lazy load:** 20 tickers per batch — Load next batch until complete.
 - Best for finding *which* ticker loves *which* strategy.
 
 #### AI Strategy Creator
@@ -318,6 +446,7 @@ _STRATEGY_LAB_DETAIL = """
 
 #### Strategy Encyclopedia (this page)
 - **Application Guide** — how to use the whole app (you are here).
+- **Detailed Strategy Encyclopedia** — beginner-friendly deep dive on every concept and section.
 - **Preset Catalog** — documented preset strategies with **Load into Builder** button.
 
 ### Screen & Scan
@@ -366,10 +495,102 @@ _STRATEGY_LAB_DETAIL = """
 - **50% Fib** equilibrium of 9:15–9:45 range sets bullish/bearish bias.
 - **10 EMA** cross on 5m/1m with **30 MA** confirmation; SL at prior low or Fib.
 
+### INTRA — VWAP Fade Value Area
+- **Range-day filter** — trade only when price stays inside ±1σ VWAP bands.
+- Fade upper/lower band rejections back to **VWAP**; **60 min** time stop; skip first 15 min.
+
+### INTRA — MTF Breakout & Retest (Daniel Holmes)
+- **Daily bias** filter — longs only on bullish days, shorts on bearish days.
+- **4H / 1H / 30m** structure alignment; **15m** equal-body S/R breakout with retest entry.
+- **1:1 R:R** with 80% partial; SL beyond wick.
+
+### BB Exposed — Free Bar + Squeeze
+- **Free Bar** — full candle outside Bollinger Bands = exhaustion fade (reversal candle confirm).
+- **Squeeze** — bandwidth contraction then decisive close outside bands.
+- Day preset BB(10,1.5) · Swing BB(50,2.5) · 2:1 R:R minimum.
+
+### Breakout MTF — Multi-Period Daily Scanner
+- Parallel **10 / 20 / 50 / 90 / 200** day breakout & breakdown flags (current bar excluded).
+- **RSI 50–70** + **MACD positive** confirmation for bullish breakouts.
+- FoxTrader-style dashboard table per ticker.
+
+### ONE TA — Golden Zone Fib + EMA
+- **200 EMA** trend bias · pullback into **50%–61.8%** Golden Zone.
+- **Engulfing** (2-candle body) or **50%+ wick rejection** entry at zone.
+- Partials at **38.2% / 23.6%** · full target at swing origin.
+
+### TOPDOWN-MTF — Liquidity + Order Blocks
+- **HTF** trend (1d) → **ATF** order blocks & liquidity sweeps (1h) → **LTF** MSS entry (15m).
+- Distinct from Top Down MTF (CHoCH/FVG on shorter default TFs).
+
+### Box Trading — TradingLab Prev-Day Range
+- **Previous day high/low** box on today's chart · **middle 50%** no-trade zone.
+- Edge **reversals** (pin/engulfing) or **breakout retest** — never long at top / short at bottom.
+
+### SMB SnP — Fashionably Late (Smart Money)
+- Morning **LOD** grind → **9 EMA crosses up through VWAP** (10:00–13:30 window).
+- **3:1 R:R** from LOD unit · RVOL + daily SMA filters.
+
 ### Scalp — 1m Rectangle Sniper Entry
 - **FVG** imbalance + liquidity sweep → draw rectangle on rejection wick.
 - **Sniper entry** when 1m candle closes through rectangle body edge.
 - SL beyond wick · minimum **3:1 R:R** · hold 1–15 minutes.
+
+### Scalp — SMC Rule of Three
+- **HTF** BOS/CHoCH + premium/discount/**OTE** matrix off latest swing leg.
+- **LTF** FVG, displacement order blocks, validated **CRT** sweeps.
+- Fused entries when HTF bias + zone + LTF confirmation align.
+
+### Scalp — ARC Method (Area · Range · Candle)
+- **Area** — prev-day box + swing liquidity zones define boundaries only.
+- **Range** — 20% unabated move from boundary without mid-box chop.
+- **Candle** — John Wick hammer rejection triggers fade entry.
+
+### Scalp — A+ S/R Zone + 1m MSS (Joovier)
+- **HTF** 1H/4H support/resistance zones mapped to session.
+- **1m MSS** — market structure shift after zone tap (LH/LL into support, etc.).
+- Default ~2.4:1 R:R · Groww after 09:15 IST.
+
+### SMC — CISD Entry Rule
+- **Compression** → **liquidity sweep** → displacement → **close through CISD level**.
+- Golden rule: never enter at the sweep extreme; wait for CISD break.
+
+### SMC — Weekly Liquidity Sweep & CISD
+- **PWH/PWL** weekly levels · sweep · LTF CISD failure · TP at opposing weekly level.
+
+### SMC — MTF Day Plan (OB · FVG · CHoCH)
+- **HTF** trend + OB/FVG · **MTF** counter-trend into zone · **CHoCH** · LTF limit entry.
+
+### SMC — Golden Bullet (Liquidity + Timing)
+- HTF **BOS** + extreme POI liquidity pools.
+- **Kill zones** (London 03–06 EST · NY overlap 08–11 EST).
+- **V-shape sweep** rejection · LTF alignment · **3:1 R:R**.
+
+### SMC — Liquidity (Sweeps · Grabs · FVG)
+- **BSL/SSL** structural pools — sweep/grab fade when wick breaks structure, close inside.
+- **FVG rebalance** — ATR-filtered gap retest entries.
+- **Liquidity run** — expansion candle continuation watch (not a fade).
+
+### SM — TTG Sniper Entry (Sweep · Order Block · FVG)
+- **Sweep** — price pierces a prior swing high/low and closes back inside (the trap).
+- **Displacement filter** — the move away from the sweep must exceed a configurable × ATR threshold, or the setup is discarded.
+- **Order Block** — last opposite-colour candle before the impulsive move.
+- **Fair Value Gap** — 3-candle imbalance inside the impulsive leg, overlapping the Order Block — the precise entry zone (falls back to the full Order Block if no FVG forms).
+- **Entry modes** — Aggressive (enter on zone tap) or Conservative (wait for a lower-TF market structure shift after the tap).
+- **Advanced stop tip** — no FVG + wide Order Block → stop tightens to just beyond the sweep candle's extreme instead of the whole block.
+- **Context rule** — sweep direction must match the HTF SMA trend bias (toggleable) — not every sweep is tradeable.
+- Fixed **R:R target** (2R default), configurable.
+
+### Market Pulse — key screeners
+
+| Section | Use |
+|---------|-----|
+| **Gainers & Losers Multi-Market** | Top movers across India/US/Crypto/Commodities × multiple TFs |
+| **Accurate Strategy** | OB + FVG + S/R confluence score |
+| **Pump/Dump Breakout** | Consolidation box breakdown & breakout |
+| **Big Whale Pump & Dump** | DEX whale flow signals |
+| **Sector Rotation** (India/US/Crypto) | Daily/weekly/monthly + intraday rotation |
+| **Commodity Screener** | Nifty-linked commodity buy/sell bias |
 
 ### Demo Trading
 - **India:** virtual NSE/BSE book tied to your login.
@@ -384,6 +605,14 @@ _STRATEGY_LAB_DETAIL = """
 
 # Extra detail for sections with thin SECTION_GUIDES entries
 _SECTION_EXTRAS: dict[str, str] = {
+    "mega_analyser": """
+**When to use:** One-click **unified scan** across **30 per-ticker TA scanners** plus core TA legs (price action, S/R, confluence, sentiment, etc.).
+Use scenario presets or **Setup Advisor**; lazy-loads **20 tickers per batch**. Best for morning watchlist triage.
+""",
+    "multi_combo": """
+**When to use:** Batch **backtest ranking** — find which ticker performs best on which of the **30 TA hub engines** (6 groups in UI).
+Save winners to **Alert Monitors**. Lazy-loads 20 tickers per batch.
+""",
     "find_sr": """
 **When to use:** Before entering any trade — know where S1/S2/R1/R2 and trendline breaks are.
 **How:** Select tickers → timeframes → Run Scan. Expand ticker for chart + AI View.
@@ -395,6 +624,27 @@ _SECTION_EXTRAS: dict[str, str] = {
     "smc_options": """
 **When to use:** NSE F&O names where options flow (delivery, PCR, OI change) confirms SMC structure.
 **India only** — requires liquid options chain data.
+""",
+    "bb_exposed": """
+**When to use:** Volatility exhaustion fades (free bar outside bands) or squeeze breakouts after bandwidth contraction.
+Day preset BB(10,1.5) for scalp; swing BB(50,2.5) for larger moves. Confirm free bars with reversal candles.
+""",
+    "breakout_mtf": """
+**When to use:** Daily swing scanner — fresh closes breaking 10/20/50/90/200-day highs or lows with RSI + MACD filters.
+FoxTrader-style dashboard for watchlist ranking. Best on liquid NSE/US names with 200+ daily bars.
+""",
+    "one_ta": """
+**When to use:** Golden Zone pullback trades — 50–61.8% Fib retrace with 200 EMA trend bias,
+engulfing or 50% wick rejection entry. Scale at 38.2%/23.6%, full target at swing origin.
+""",
+    "topdown_mtf": """
+**When to use:** SMC **top-down** with **liquidity sweeps + order blocks** — HTF trend (1d) → ATF structure (1h) → LTF MSS entry (15m).
+Distinct from Top Down MTF (CHoCH/FVG on shorter default TFs). Groww · US · CoinDCX.
+""",
+    "box_trading": """
+**When to use:** Intraday **previous-day range** fades and breakout-retests — no indicators.
+Map yesterday's high/low, avoid the midpoint 50% chop, trade edge rejections or retests only.
+Best on liquid names during regular session hours.
 """,
     "strategy_scheduler": """
 **When to use:** Scheduled batch scan of encyclopedia-style preset packs across Groww or crypto universes.
@@ -408,7 +658,92 @@ Good for end-of-day watchlist building.
 **When to use:** First hour after open — gap continuation vs fade setups.
 Pair with Find S/R for target levels.
 """,
+    "intraday_vwap_fade": """
+**When to use:** Range-bound intraday sessions — fade ±1σ VWAP band rejections to VWAP.
+Skip first 15 min; avoid on strong trend days.
+""",
+    "intraday_mtf_breakout_retest": """
+**When to use:** Clear daily bias days — 15m equal-body S/R breakout with retest continuation.
+Requires clean traffic left of range; HTF 4H/1H/30m alignment boosts confidence.
+""",
+    "intraday_7_wasted": """
+**When to use:** Bullish daily sessions — first 5 minutes define OR; enter on 1m retest of OR high
+after breakout close. Do not chase the initial breakout; wait for internal liquidity retest.
+""",
+    "scalp_rectangle": """
+**When to use:** 1m scalps after FVG + liquidity sweep forms a clear rejection rectangle.
+Best on liquid names (indices, large caps, major crypto pairs).
+""",
+    "scalp_smc": """
+**When to use:** Structured SMC scalps when HTF bias + discount/premium OTE zone + LTF CRT/FVG/OB align.
+Use 5m LTF for India; crypto/US align well with auto HTF resample.
+""",
+    "scalp_arc": """
+**When to use:** Boundary-only institutional fades on range days — prev-day box + swing levels,
+20% unabated move, John Wick hammer trigger. Avoid mid-box chop. Best on liquid NSE / US / crypto pairs.
+""",
+    "scalp_sr_mss": """
+**When to use:** HTF S/R zone taps with 1m MSS reversal — LH/LL into support or HH/HL into resistance,
+then swing break entry. Groww after 09:15 IST; US/crypto after 09:30 NY. Default ~2.4:1 R:R.
+""",
+    "smc_cisd": """
+**When to use:** Avoid early sweep entries — wait for CISD close break after compression + liquidity grab.
+Multi-TF: execution TF + optional HTF bias filter.
+""",
+    "smc_weekly_sweep_cisd": """
+**When to use:** Swing/intraday reversals at weekly liquidity (PWH/PWL) with 5m/15m CISD confirmation.
+""",
+    "smc_mtf_day_plan": """
+**When to use:** Intraday SMC day-trading plan — HTF OB/FVG → MTF CHoCH → LTF entry with defined SL/TP.
+""",
+    "smc_golden_bullet": """
+**When to use:** Kill-zone timed liquidity sweeps with V-shape rejection at extreme POI pools.
+EST windows: London 03–06 · NY overlap 08–11. Crypto/US align best.
+""",
+    "smc_liquidity": """
+**When to use:** Structural BSL/SSL sweeps/grabs and FVG rebalance fades — order-flow liquidity pools
+from OHLCV swing structure. Modes: Sweep/Grab, FVG, or Both. Target opposite pool on reversals.
+""",
+    "smb_snp": """
+**When to use:** Intraday **Fashionably Late** scalp — after morning LOD, wait for **9 EMA × VWAP** cross
+between 10:00–13:30. 3:1 R:R from LOD unit. Best on liquid large caps with RVOL ≥ 1.5 and daily SMA support.
+""",
+    "market_gainers_losers": """
+**When to use:** Quick scan of top gainers/losers across India, US, crypto, commodities on multiple timeframes.
+""",
+    "accurate_strategy": """
+**When to use:** When you want OB + FVG + S/R confluence scored on a watchlist before picking a direction.
+""",
+    "mtf_hedging": """
+**When to use:** Portfolio hedging — beta hedge, pairs trade, protective puts, index ETF overlay.
+""",
 }
+
+
+def encyclopedia_catalog() -> dict[str, Any]:
+    """JSON-safe hub map + guides for Strategy Lab / API Encyclopedia."""
+    hubs = []
+    for hub_name, sections in HUB_SECTIONS.items():
+        entries = []
+        for section_id, title in sections:
+            body = SECTION_GUIDES.get(section_id, "")
+            extra = _SECTION_EXTRAS.get(section_id, "")
+            entries.append({
+                "id": section_id,
+                "title": title,
+                "guide": (body or "").strip() or None,
+                "extra": (extra or "").strip() or None,
+            })
+        hubs.append({"hub": hub_name, "sections": entries, "count": len(entries)})
+    return {
+        "hubs": hubs,
+        "hub_count": len(hubs),
+        "section_count": sum(h["count"] for h in hubs),
+        "overview": _OVERVIEW.strip(),
+        "workflows": _WORKFLOWS.strip(),
+        "when_to_use": _WHEN_TO_USE.strip(),
+        "strategy_lab_detail": _STRATEGY_LAB_DETAIL.strip(),
+    }
 
 
 def render_application_guide() -> None:
@@ -432,7 +767,8 @@ def render_application_guide() -> None:
 
     with tab_sections:
         st.markdown(
-            "Every hub section is listed below. "
+            f"Every hub section is listed below (**{sum(len(s) for s in HUB_SECTIONS.values())} sections** across "
+            f"**{len(HUB_SECTIONS)} hubs**). "
             "The same **📖 Strategy Guide** appears at the top of each section when you use it in the app."
         )
         for hub_name, sections in HUB_SECTIONS.items():
@@ -448,3 +784,9 @@ def render_application_guide() -> None:
 
     with tab_lab:
         st.markdown(_STRATEGY_LAB_DETAIL)
+        st.markdown("---")
+        st.markdown(
+            "For every other hub section (Market Pulse, Technical Analysis, Intraday, "
+            "Scalping, Smart Money, Swing Trading), open the **📂 All Sections** tab — "
+            "each entry mirrors the **📖 Strategy Guide** shown inside that section in the app."
+        )

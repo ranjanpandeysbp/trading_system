@@ -9,6 +9,10 @@ from app.models.db_models import User
 from app.models.schemas import (
     AIConfigResponse,
     AlertMonitorCreate,
+    AlertNotifyConfigUpdate,
+    AlertScheduleCreate,
+    AlertScheduleHitsDelete,
+    AlertScheduleUpdate,
     AskAIRequest,
     AskAIResponse,
     CommandCenterBuySellRequest,
@@ -42,6 +46,7 @@ from app.models.schemas import (
     CommandCenterSma20200Request,
     CommandCenterTickerScanRequest,
     CommandCenterTradeSetupDrillRequest,
+    DetectSectorRotationRequest,
     CommandCenterTradeSetupRequest,
     WatchlistCreate,
     WatchlistItemCreate,
@@ -76,6 +81,7 @@ from app.services.command_center_service import CommandCenterService
 from app.services.options_service import OptionsService
 from app.services.ticker_universe_service import TickerUniverseService
 from app.services.alerts_service import AlertsService
+from app.services.schedule_alerts_service import ScheduleAlertsService
 from app.services.watchlist_service import WatchlistService
 from app.services.auth_service import AuthService
 from app.services.ai_service import AIService
@@ -244,6 +250,16 @@ async def test_provider(
 async def list_markets():
     from app.market_pulse.ticker_utils import MARKET_OPTIONS
     return {"markets": MARKET_OPTIONS}
+
+
+@router.get("/market/marquee")
+async def market_marquee(
+    current_user: User = Depends(get_current_user),
+):
+    """Popular India / US / Crypto / Commodity LTPs for the header marquee."""
+    from app.services.marquee_quotes_service import fetch_marquee_quotes
+
+    return await fetch_marquee_quotes()
 
 
 @router.get("/ai/config", response_model=AIConfigResponse)
@@ -1282,6 +1298,31 @@ async def command_center_quick_analyzer(
     )
 
 
+@router.get("/command-center/detect-sector-rotation/universe")
+async def command_center_detect_sector_rotation_universe(
+    market: str = "india",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).detect_sector_rotation_universe(market)
+
+
+@router.post("/command-center/detect-sector-rotation")
+async def command_center_detect_sector_rotation(
+    payload: DetectSectorRotationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).detect_sector_rotation(
+        payload.market,
+        sectors=payload.sectors,
+        crs_sma_period=payload.crs_sma_period,
+        hma_length=payload.hma_length,
+        pullback_months=payload.pullback_months,
+        pullback_mode=payload.pullback_mode,
+    )
+
+
 @router.get("/technical-analysis/screeners")
 async def ta_screener_list(
     db: AsyncSession = Depends(get_db),
@@ -1434,6 +1475,184 @@ async def alerts_poll(
     current_user: User = Depends(get_current_user),
 ):
     return await AlertsService(db, SettingsService(db)).poll_all(current_user.id, force=force)
+
+
+# ── Alert schedules (Setup & Schedule) ──────────────────────────────────────
+
+@router.get("/alerts/notify-config")
+async def alerts_notify_config_get(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return await ScheduleAlertsService(db, SettingsService(db)).get_notify_config(current_user.id)
+
+
+@router.put("/alerts/notify-config")
+async def alerts_notify_config_put(
+    payload: AlertNotifyConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return await ScheduleAlertsService(db, SettingsService(db)).save_notify_config(
+        current_user.id, payload.model_dump(exclude_unset=True),
+    )
+
+
+@router.get("/alerts/schedules")
+async def alerts_schedules_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return {"schedules": await ScheduleAlertsService(db, SettingsService(db)).list_schedules(current_user.id)}
+
+
+@router.get("/alerts/schedule-catalog")
+async def alerts_schedule_catalog(
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_catalog_service import build_schedule_catalog
+
+    return build_schedule_catalog()
+
+
+@router.post("/alerts/schedules")
+async def alerts_schedules_create(
+    payload: AlertScheduleCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    try:
+        return await ScheduleAlertsService(db, SettingsService(db)).create_schedule(
+            current_user.id, payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/alerts/schedules/{schedule_id}")
+async def alerts_schedules_update(
+    schedule_id: int,
+    payload: AlertScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    row = await ScheduleAlertsService(db, SettingsService(db)).update_schedule(
+        current_user.id, schedule_id, payload.model_dump(exclude_unset=True),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return row
+
+
+@router.delete("/alerts/schedules/{schedule_id}")
+async def alerts_schedules_delete(
+    schedule_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    ok = await ScheduleAlertsService(db, SettingsService(db)).delete_schedule(current_user.id, schedule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"deleted": True}
+
+
+@router.post("/alerts/schedules/{schedule_id}/enable")
+async def alerts_schedules_enable(
+    schedule_id: int,
+    enabled: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    ok = await ScheduleAlertsService(db, SettingsService(db)).set_enabled(
+        current_user.id, schedule_id, enabled,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"enabled": enabled}
+
+
+@router.post("/alerts/schedules/{schedule_id}/run")
+async def alerts_schedules_run(
+    schedule_id: int,
+    force: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return await ScheduleAlertsService(db, SettingsService(db)).run_schedule(
+        current_user.id, schedule_id, force=force,
+    )
+
+
+@router.post("/alerts/schedules/run-due")
+async def alerts_schedules_run_due(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return await ScheduleAlertsService(db, SettingsService(db)).run_due_for_user(current_user.id)
+
+
+@router.get("/alerts/schedule-hits")
+async def alerts_schedule_hits(
+    schedule_id: int | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    return {
+        "hits": await ScheduleAlertsService(db, SettingsService(db)).list_hits(
+            current_user.id, limit=limit, schedule_id=schedule_id,
+        )
+    }
+
+
+@router.delete("/alerts/schedule-hits/{hit_id}")
+async def alerts_schedule_hit_delete(
+    hit_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    ok = await ScheduleAlertsService(db, SettingsService(db)).delete_hit(current_user.id, hit_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Hit not found")
+    return {"deleted": True, "id": hit_id}
+
+
+@router.post("/alerts/schedule-hits/delete")
+async def alerts_schedule_hits_delete_bulk(
+    payload: AlertScheduleHitsDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.schedule_alerts_service import ScheduleAlertsService
+
+    svc = ScheduleAlertsService(db, SettingsService(db))
+    if payload.delete_all:
+        n = await svc.delete_all_hits(current_user.id, schedule_id=payload.schedule_id)
+        return {"deleted": n, "all": True}
+    n = await svc.delete_hits(current_user.id, payload.ids or [])
+    return {"deleted": n, "ids": payload.ids or []}
 
 
 @router.get("/watchlists")

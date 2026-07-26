@@ -49,6 +49,7 @@ import { CommandCenterResults } from '../components/command-center/CommandCenter
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { MutualFundHoldingsPanel } from '../components/command-center/MutualFundHoldingsPanel'
 import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
+import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -82,6 +83,7 @@ const TABS = [
   { id: 'fundamental_analysis', label: 'Fundamental Analysis', icon: BarChart3 },
   { id: 'mutual_fund_holdings', label: 'Mutual Fund Holdings', icon: Landmark },
   { id: 'etf_holdings', label: 'ETF Holdings', icon: Package },
+  { id: 'detect_sector_rotation', label: 'Detect Sector Rotation', icon: RefreshCw },
   { id: 'stock_upgrade_downgrade', label: 'Upgrade/Downgrade', icon: Newspaper },
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
   { id: 'mega_setup_advisor', label: 'Mega Setup Advisor', icon: Sparkles },
@@ -396,6 +398,8 @@ export default function CommandCenter() {
         <MutualFundHoldingsPanel />
       ) : tab === 'etf_holdings' ? (
         <EtfHoldingsPanel />
+      ) : tab === 'detect_sector_rotation' ? (
+        <DetectSectorRotationPanel />
       ) : tab === 'tomorrow_outlook' ? (
         <Card className="mb-6">
           <Button
@@ -803,7 +807,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'detect_sector_rotation' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>
