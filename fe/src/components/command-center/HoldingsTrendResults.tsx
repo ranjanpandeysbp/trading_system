@@ -15,6 +15,7 @@ import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
+import { CollapsibleScrollSection } from './CollapsibleScrollSection'
 
 export type OverallRow = {
   stock?: string
@@ -340,6 +341,7 @@ function TradeSignalSummary({
   marketType: WatchlistMarket
   resolveName?: boolean
 }) {
+  const [open, setOpen] = useState(true)
   const signals = useMemo(
     () =>
       overall
@@ -370,25 +372,16 @@ function TradeSignalSummary({
   if (!signals.length) return null
 
   return (
-    <div className="space-y-3 rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h4 className="text-sm font-semibold text-white">
-            Trade bias from {fundNoun.toLowerCase()} stake changes
-          </h4>
-          <p className="mt-0.5 text-xs text-slate-500">
-            LONG = funds accumulating · SHORT = funds distributing · WAIT = mixed/flat. Holdings flow is one input — not a standalone order.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="text-emerald-400">{longs} long</span>
-          <span className="text-slate-600">·</span>
-          <span className="text-rose-400">{shorts} short</span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-400">{waits} wait</span>
-        </div>
+    <CollapsibleScrollSection
+      title={`Trade bias from ${fundNoun.toLowerCase()} stake changes`}
+      subtitle={`${longs} long · ${shorts} short · ${waits} wait · scroll inside`}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+      maxHeightClass="max-h-80"
+    >
+      <div className="mb-2 text-xs text-slate-500">
+        LONG = funds accumulating · SHORT = funds distributing · WAIT = mixed/flat.
       </div>
-
       <DataTable minWidth={920}>
         <thead>
           <tr>
@@ -447,7 +440,7 @@ function TradeSignalSummary({
           ))}
         </tbody>
       </DataTable>
-    </div>
+    </CollapsibleScrollSection>
   )
 }
 
@@ -495,6 +488,8 @@ function EntityPanel({
   const [chartEntity, setChartEntity] = useState(rows[0]?._entity ?? '')
   const [showFull, setShowFull] = useState(false)
   const [showPerFund, setShowPerFund] = useState(false)
+  const [topOpen, setTopOpen] = useState(true)
+  const [chartOpen, setChartOpen] = useState(true)
 
   const topUp = sorted.filter((r) => Number(r.avg_change_pct) > 0).slice(0, 10)
   const topDown = [...sorted]
@@ -600,7 +595,7 @@ function EntityPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <TradeSignalSummary
         overall={overall}
         mode={mode}
@@ -609,77 +604,93 @@ function EntityPanel({
         resolveName={resolveName}
       />
 
-      {renderTable(topUp, `Top ${entityLabel.toLowerCase()} increases`)}
-      {renderTable(topDown, `Top ${entityLabel.toLowerCase()} decreases`)}
+      <CollapsibleScrollSection
+        title={`Top ${entityLabel.toLowerCase()} movers`}
+        subtitle={`${topUp.length} increases · ${topDown.length} decreases`}
+        open={topOpen}
+        onToggle={() => setTopOpen((v) => !v)}
+        maxHeightClass="max-h-72"
+      >
+        <div className="space-y-4">
+          {renderTable(topUp, `Top ${entityLabel.toLowerCase()} increases`)}
+          {renderTable(topDown, `Top ${entityLabel.toLowerCase()} decreases`)}
+        </div>
+      </CollapsibleScrollSection>
 
-      <div>
-        <button type="button" className="mb-2 text-sm font-semibold text-slate-200 hover:text-white" onClick={() => setShowFull((v) => !v)}>
-          {showFull ? '▾' : '▸'} Full {entityLabel.toLowerCase()} summary — {overall.length}
-        </button>
-        {showFull && renderTable(sorted)}
-      </div>
+      <CollapsibleScrollSection
+        title={`Full ${entityLabel.toLowerCase()} summary — ${overall.length}`}
+        subtitle="Collapsed by default · expand to scroll all rows"
+        open={showFull}
+        onToggle={() => setShowFull((v) => !v)}
+        maxHeightClass="max-h-80"
+      >
+        {renderTable(sorted)}
+      </CollapsibleScrollSection>
 
-      <div>
-        <button type="button" className="mb-2 text-sm font-semibold text-slate-200 hover:text-white" onClick={() => setShowPerFund((v) => !v)}>
-          {showPerFund ? '▾' : '▸'} Per-{fundNoun.replace(/s$/i, '')} breakdown
-        </button>
-        {showPerFund && (
-          <DataTable minWidth={900}>
-            <thead>
-              <tr>
-                <SortableTh active={perSort.sortKey === 'fund'} direction={perSort.sortDir} onSort={() => perSort.handleSort('fund')}>{fundNoun.replace(/s$/i, '')}</SortableTh>
-                <SortableTh active={perSort.sortKey === 'entity'} direction={perSort.sortDir} onSort={() => perSort.handleSort('entity')}>{entityLabel}</SortableTh>
-                {mode === 'stock' && (
-                  <SortableTh active={perSort.sortKey === 'sector'} direction={perSort.sortDir} onSort={() => perSort.handleSort('sector')}>Sector</SortableTh>
-                )}
-                <Th>From</Th>
-                <Th>From %</Th>
-                <Th>To</Th>
-                <Th>To %</Th>
-                <SortableTh active={perSort.sortKey === 'change'} direction={perSort.sortDir} onSort={() => perSort.handleSort('change')}>Δ %</SortableTh>
-                <SortableTh active={perSort.sortKey === 'trend'} direction={perSort.sortDir} onSort={() => perSort.handleSort('trend')}>Trend</SortableTh>
-                {mode === 'stock' && <Th></Th>}
-              </tr>
-            </thead>
-            <tbody>
-              {perSort.sorted.map((r, i) => (
-                <tr key={`${r.scheme_name}-${mode === 'stock' ? r.stock : r.sector}-${i}`} className="border-t border-slate-800/80">
-                  <Td>{r.scheme_name ?? '—'}</Td>
-                  <Td className="font-medium text-slate-100">{(mode === 'stock' ? r.stock : r.sector) ?? '—'}</Td>
-                  {mode === 'stock' && <Td>{r.sector ?? '—'}</Td>}
-                  <Td>{String(r.first_date ?? '').slice(0, 10) || '—'}</Td>
-                  <Td>{fmtPct(r.first_pct, 3)}</Td>
-                  <Td>{String(r.last_date ?? '').slice(0, 10) || '—'}</Td>
-                  <Td>{fmtPct(r.last_pct, 3)}</Td>
-                  <Td className={Number(r.change_pct) > 0 ? 'text-emerald-400' : Number(r.change_pct) < 0 ? 'text-rose-400' : ''}>
-                    {fmtPct(r.change_pct, 3)}
+      <CollapsibleScrollSection
+        title={`Per-${fundNoun.replace(/s$/i, '')} breakdown — ${perScheme.length}`}
+        subtitle="Collapsed by default"
+        open={showPerFund}
+        onToggle={() => setShowPerFund((v) => !v)}
+        maxHeightClass="max-h-80"
+      >
+        <DataTable minWidth={900}>
+          <thead>
+            <tr>
+              <SortableTh active={perSort.sortKey === 'fund'} direction={perSort.sortDir} onSort={() => perSort.handleSort('fund')}>{fundNoun.replace(/s$/i, '')}</SortableTh>
+              <SortableTh active={perSort.sortKey === 'entity'} direction={perSort.sortDir} onSort={() => perSort.handleSort('entity')}>{entityLabel}</SortableTh>
+              {mode === 'stock' && (
+                <SortableTh active={perSort.sortKey === 'sector'} direction={perSort.sortDir} onSort={() => perSort.handleSort('sector')}>Sector</SortableTh>
+              )}
+              <Th>From</Th>
+              <Th>From %</Th>
+              <Th>To</Th>
+              <Th>To %</Th>
+              <SortableTh active={perSort.sortKey === 'change'} direction={perSort.sortDir} onSort={() => perSort.handleSort('change')}>Δ %</SortableTh>
+              <SortableTh active={perSort.sortKey === 'trend'} direction={perSort.sortDir} onSort={() => perSort.handleSort('trend')}>Trend</SortableTh>
+              {mode === 'stock' && <Th></Th>}
+            </tr>
+          </thead>
+          <tbody>
+            {perSort.sorted.map((r, i) => (
+              <tr key={`${r.scheme_name}-${mode === 'stock' ? r.stock : r.sector}-${i}`} className="border-t border-slate-800/80">
+                <Td>{r.scheme_name ?? '—'}</Td>
+                <Td className="font-medium text-slate-100">{(mode === 'stock' ? r.stock : r.sector) ?? '—'}</Td>
+                {mode === 'stock' && <Td>{r.sector ?? '—'}</Td>}
+                <Td>{String(r.first_date ?? '').slice(0, 10) || '—'}</Td>
+                <Td>{fmtPct(r.first_pct, 3)}</Td>
+                <Td>{String(r.last_date ?? '').slice(0, 10) || '—'}</Td>
+                <Td>{fmtPct(r.last_pct, 3)}</Td>
+                <Td className={Number(r.change_pct) > 0 ? 'text-emerald-400' : Number(r.change_pct) < 0 ? 'text-rose-400' : ''}>
+                  {fmtPct(r.change_pct, 3)}
+                </Td>
+                <Td>{trendBadge(r.trend)}</Td>
+                {mode === 'stock' && r.stock && (
+                  <Td>
+                    <AddToWatchlistButton
+                      ticker={String(r.stock)}
+                      displayName={String(r.stock)}
+                      notes={`From ${r.scheme_name ?? 'fund'} · ${r.trend ?? ''}`}
+                      marketType={marketType}
+                      resolveName={resolveName}
+                      compact
+                    />
                   </Td>
-                  <Td>{trendBadge(r.trend)}</Td>
-                  {mode === 'stock' && r.stock && (
-                    <Td>
-                      <AddToWatchlistButton
-                        ticker={String(r.stock)}
-                        displayName={String(r.stock)}
-                        notes={`From ${r.scheme_name ?? 'fund'} · ${r.trend ?? ''}`}
-                        marketType={marketType}
-                        resolveName={resolveName}
-                        compact
-                      />
-                    </Td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
-        )}
-      </div>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      </CollapsibleScrollSection>
 
       {allEntities.length > 0 && (
-        <div>
-          <h4 className="mb-2 text-sm font-semibold text-white">{entityLabel} holding % over time</h4>
-          <p className="mb-2 text-xs text-slate-500">
-            Clean view: average across all funds plus the top {TOP_FUND_LINES} by latest weight (hover for values).
-          </p>
+        <CollapsibleScrollSection
+          title={`${entityLabel} holding % over time`}
+          subtitle={`Avg + top ${TOP_FUND_LINES} funds · pick a ${entityLabel.toLowerCase()}`}
+          open={chartOpen}
+          onToggle={() => setChartOpen((v) => !v)}
+          scroll={false}
+        >
           <FormField label={`Pick a ${entityLabel.toLowerCase()} to chart`}>
             <select
               className="w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
@@ -694,7 +705,7 @@ function EntityPanel({
           <div className="mt-3">
             <HoldingTrendChart raw={raw} entity={chartEntity || allEntities[0]} yTitle={yTitle} />
           </div>
-        </div>
+        </CollapsibleScrollSection>
       )}
     </div>
   )

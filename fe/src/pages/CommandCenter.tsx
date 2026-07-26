@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Activity, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { Activity, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -49,6 +49,7 @@ import { CommandCenterResults } from '../components/command-center/CommandCenter
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { MutualFundHoldingsPanel } from '../components/command-center/MutualFundHoldingsPanel'
 import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
+import { IndiaFiiDiiHoldingsPanel } from '../components/command-center/IndiaFiiDiiHoldingsPanel'
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
@@ -82,6 +83,7 @@ const TABS = [
   { id: 'one_click_scalping', label: 'One-Click Scalping', icon: Zap },
   { id: 'one_click_swing', label: 'One-Click Swing', icon: Zap },
   { id: 'fundamental_analysis', label: 'Fundamental Analysis', icon: BarChart3 },
+  { id: 'india_fii_dii_holdings', label: 'India FII-DII Holding', icon: PieChart },
   { id: 'mutual_fund_holdings', label: 'Mutual Fund Holdings', icon: Landmark },
   { id: 'etf_holdings', label: 'ETF Holdings', icon: Package },
   { id: 'smart_money_activity', label: 'Check Smart Money Activity', icon: Activity },
@@ -396,6 +398,8 @@ export default function CommandCenter() {
 
       {tab === 'playbook' ? (
         <PlaybookPanel />
+      ) : tab === 'india_fii_dii_holdings' ? (
+        <IndiaFiiDiiHoldingsPanel />
       ) : tab === 'mutual_fund_holdings' ? (
         <MutualFundHoldingsPanel />
       ) : tab === 'etf_holdings' ? (
@@ -811,7 +815,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

@@ -330,6 +330,13 @@ class CommandCenterEtfYahooHoldingsRequest(BaseModel):
     to_date: str
 
 
+class CommandCenterIndiaFiiDiiHoldingsRequest(BaseModel):
+    """India FII-DII Holding — ownership · P&L · valuation · deals (screener.in)."""
+    tickers: list[str] = Field(..., min_length=1)
+    from_date: str
+    to_date: str
+
+
 class CommandCenterSmartMoneyActivityRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"

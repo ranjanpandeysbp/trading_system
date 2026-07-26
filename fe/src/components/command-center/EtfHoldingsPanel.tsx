@@ -13,6 +13,7 @@ import {
   type MutualFundAmc,
   type MutualFundScheme,
 } from '../../api/client'
+import { CollapsibleScrollSection } from './CollapsibleScrollSection'
 import { HoldingsTrendResults, type HoldingsAnalysisResult } from './HoldingsTrendResults'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
@@ -57,6 +58,10 @@ function IndiaEtfTab() {
   const [toDate, setToDate] = useState(isoDaysAgo(0))
   const [amcFilter, setAmcFilter] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [amcsOpen, setAmcsOpen] = useState(true)
+  const [fundsOpen, setFundsOpen] = useState(true)
+  const [resultsOpen, setResultsOpen] = useState(true)
+  const [fundSectionOpen, setFundSectionOpen] = useState<Record<number, boolean>>({})
 
   const amcsQuery = useQuery({
     queryKey: ['etf-amcs'],
@@ -154,14 +159,20 @@ function IndiaEtfTab() {
         <Alert type="error">{loadError || apiErrorMessage(amcsQuery.error)}</Alert>
       )}
       {amcs.length > 0 && (
-        <FormField label={`Select AMC(s) — ${amcs.length} loaded`}>
+        <CollapsibleScrollSection
+          title={`AMC list — ${amcs.length} loaded`}
+          subtitle={`${selectedAmcIds.length} selected · scroll inside`}
+          open={amcsOpen}
+          onToggle={() => setAmcsOpen((v) => !v)}
+          maxHeightClass="max-h-56"
+        >
           <input
             className="mb-2 w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
             placeholder="Filter by name…"
             value={amcFilter}
             onChange={(e) => setAmcFilter(e.target.value)}
           />
-          <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-slate-800 p-2">
+          <div className="flex flex-wrap gap-1.5">
             {filteredAmcs.map((a) => {
               const id = amcKey(a)
               return (
@@ -175,65 +186,77 @@ function IndiaEtfTab() {
               )
             })}
           </div>
-        </FormField>
+        </CollapsibleScrollSection>
       )}
       {loadedAmcIds.length > 0 && (
-        <div className="space-y-6">
-          <p className="text-xs text-slate-500">{selectedSchemes.length} ETF(s) selected.</p>
-          {loadedAmcIds.map((amcId) => {
-            const schemes = schemesByAmc[amcId] ?? []
-            const selected = selectedSchemeIds[amcId] ?? []
-            const amcName = amcNames.get(amcId) ?? String(amcId)
-            return (
-              <div key={amcId}>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-white">{amcName} — {schemes.length} ETF scheme(s)</h4>
-                  <div className="flex gap-2">
+        <CollapsibleScrollSection
+          title={`ETF schemes — ${selectedSchemes.length} selected`}
+          subtitle={`${loadedAmcIds.length} AMC(s) · collapse to reduce page length`}
+          open={fundsOpen}
+          onToggle={() => setFundsOpen((v) => !v)}
+          scroll={false}
+        >
+          <div className="space-y-3">
+            {loadedAmcIds.map((amcId) => {
+              const schemes = schemesByAmc[amcId] ?? []
+              const selected = selectedSchemeIds[amcId] ?? []
+              const amcName = amcNames.get(amcId) ?? String(amcId)
+              const sectionOpen = fundSectionOpen[amcId] ?? true
+              return (
+                <CollapsibleScrollSection
+                  key={amcId}
+                  title={`${amcName} — ${schemes.length} ETF scheme(s)`}
+                  subtitle={`${selected.length} selected`}
+                  open={sectionOpen}
+                  onToggle={() => setFundSectionOpen((prev) => ({ ...prev, [amcId]: !sectionOpen }))}
+                  maxHeightClass="max-h-64"
+                >
+                  <div className="mb-2 flex flex-wrap gap-2">
                     <Button size="sm" variant="ghost" disabled={!schemes.length} onClick={() => setSelectedSchemeIds((prev) => ({ ...prev, [amcId]: schemes.map(schemeKey) }))}>Select all</Button>
                     <Button size="sm" variant="ghost" disabled={!selected.length} onClick={() => setSelectedSchemeIds((prev) => ({ ...prev, [amcId]: [] }))}>Clear</Button>
                   </div>
-                </div>
-                {!schemes.length ? (
-                  <p className="text-xs text-slate-500">No ETF schemes found for this AMC.</p>
-                ) : (
-                  <DataTable minWidth={720}>
-                    <thead>
-                      <tr>
-                        <Th>Select</Th><Th>Scheme</Th><Th>Category</Th><Th>NAV</Th><Th>Return %</Th><Th>AUM (₹ Cr)</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {schemes.map((s) => {
-                        const sid = schemeKey(s)
-                        const checked = selected.includes(sid)
-                        return (
-                          <tr key={sid} className="border-t border-slate-800/80">
-                            <Td>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => setSelectedSchemeIds((prev) => {
-                                  const cur = prev[amcId] ?? []
-                                  return { ...prev, [amcId]: checked ? cur.filter((x) => x !== sid) : [...cur, sid] }
-                                })}
-                              />
-                            </Td>
-                            <Td className="font-medium text-slate-100">{s.Name}</Td>
-                            <Td>{s.Description ?? '—'}</Td>
-                            <Td>{fmtPct(s.NAV)}</Td>
-                            <Td>{fmtPct(s.Return)}</Td>
-                            <Td>{fmtAum(s.AUM)}</Td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </DataTable>
-                )}
-              </div>
-            )
-          })}
+                  {!schemes.length ? (
+                    <p className="text-xs text-slate-500">No ETF schemes found for this AMC.</p>
+                  ) : (
+                    <DataTable minWidth={720}>
+                      <thead>
+                        <tr>
+                          <Th>Select</Th><Th>Scheme</Th><Th>Category</Th><Th>NAV</Th><Th>Return %</Th><Th>AUM (₹ Cr)</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {schemes.map((s) => {
+                          const sid = schemeKey(s)
+                          const checked = selected.includes(sid)
+                          return (
+                            <tr key={sid} className="border-t border-slate-800/80">
+                              <Td>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => setSelectedSchemeIds((prev) => {
+                                    const cur = prev[amcId] ?? []
+                                    return { ...prev, [amcId]: checked ? cur.filter((x) => x !== sid) : [...cur, sid] }
+                                  })}
+                                />
+                              </Td>
+                              <Td className="font-medium text-slate-100">{s.Name}</Td>
+                              <Td>{s.Description ?? '—'}</Td>
+                              <Td>{fmtPct(s.NAV)}</Td>
+                              <Td>{fmtPct(s.Return)}</Td>
+                              <Td>{fmtAum(s.AUM)}</Td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </DataTable>
+                  )}
+                </CollapsibleScrollSection>
+              )
+            })}
+          </div>
           {selectedSchemes.length > 0 ? (
-            <div className="space-y-4 border-t border-slate-800 pt-4">
+            <div className="mt-4 space-y-4 border-t border-slate-800 pt-4">
               <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
                 <FormField label="From date">
                   <input type="date" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
@@ -242,7 +265,7 @@ function IndiaEtfTab() {
                   <input type="date" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </FormField>
                 <div className="flex items-end">
-                  <Button className="w-full" onClick={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending}>
+                  <Button className="w-full" onClick={() => { setResultsOpen(true); analyzeMutation.mutate() }} disabled={analyzeMutation.isPending}>
                     {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze Holding Change'}
                   </Button>
                 </div>
@@ -250,15 +273,23 @@ function IndiaEtfTab() {
               {analyzeMutation.isError && <Alert type="error">{apiErrorMessage(analyzeMutation.error)}</Alert>}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Select one or more ETF schemes from the table(s) above.</p>
+            <p className="mt-3 text-sm text-slate-500">Select one or more ETF schemes from the table(s) above.</p>
           )}
-        </div>
+        </CollapsibleScrollSection>
       )}
       {analyzeMutation.isPending && <Loading message="Fetching month-end ETF holdings…" />}
       {analysis && !analyzeMutation.isPending && (
-        analysis.error
-          ? <Alert type="error">{analysis.error}</Alert>
-          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle="ETF Holdings (India)" marketType="india" resolveName />
+        <CollapsibleScrollSection
+          title="Analysis results"
+          subtitle={analysis.error ? 'Error' : `${analysis.overall?.length ?? 0} stocks · scroll or collapse`}
+          open={resultsOpen}
+          onToggle={() => setResultsOpen((v) => !v)}
+          maxHeightClass="max-h-[70vh]"
+        >
+          {analysis.error
+            ? <Alert type="error">{analysis.error}</Alert>
+            : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle="ETF Holdings (India)" marketType="india" resolveName />}
+        </CollapsibleScrollSection>
       )}
     </div>
   )
@@ -278,6 +309,10 @@ function IssuerEtfTab({
   const [toDate, setToDate] = useState(isoDaysAgo(0))
   const [issuerFilter, setIssuerFilter] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [issuersOpen, setIssuersOpen] = useState(true)
+  const [fundsOpen, setFundsOpen] = useState(true)
+  const [resultsOpen, setResultsOpen] = useState(true)
+  const [fundSectionOpen, setFundSectionOpen] = useState<Record<string, boolean>>({})
 
   const issuersQuery = useQuery({
     queryKey: ['etf-issuers', market],
@@ -367,14 +402,20 @@ function IssuerEtfTab({
         <Alert type="error">{loadError || apiErrorMessage(issuersQuery.error)}</Alert>
       )}
       {issuers.length > 0 && (
-        <FormField label={`${market === 'us' ? 'Categories' : 'Issuers'} — ${issuers.length} loaded`}>
+        <CollapsibleScrollSection
+          title={`${market === 'us' ? 'Categories' : 'Issuers'} — ${issuers.length} loaded`}
+          subtitle={`${selectedIssuers.length} selected · scroll inside`}
+          open={issuersOpen}
+          onToggle={() => setIssuersOpen((v) => !v)}
+          maxHeightClass="max-h-56"
+        >
           <input
             className="mb-2 w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
             placeholder="Filter…"
             value={issuerFilter}
             onChange={(e) => setIssuerFilter(e.target.value)}
           />
-          <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-slate-800 p-2">
+          <div className="flex flex-wrap gap-1.5">
             {filteredIssuers.map((a) => (
               <Chip
                 key={a.Name}
@@ -385,59 +426,71 @@ function IssuerEtfTab({
               </Chip>
             ))}
           </div>
-        </FormField>
+        </CollapsibleScrollSection>
       )}
       {loadedIssuers.length > 0 && (
-        <div className="space-y-6">
-          <p className="text-xs text-slate-500">{selected.length} ETF(s) selected.</p>
-          {loadedIssuers.map((issuer) => {
-            const schemes = schemesByIssuer[issuer] ?? []
-            const picked = selectedByIssuer[issuer] ?? []
-            return (
-              <div key={issuer}>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-white">{issuer} — {schemes.length} ETF(s)</h4>
-                  <div className="flex gap-2">
+        <CollapsibleScrollSection
+          title={`ETF list — ${selected.length} selected`}
+          subtitle={`${loadedIssuers.length} group(s) · collapse to reduce page length`}
+          open={fundsOpen}
+          onToggle={() => setFundsOpen((v) => !v)}
+          scroll={false}
+        >
+          <div className="space-y-3">
+            {loadedIssuers.map((issuer) => {
+              const schemes = schemesByIssuer[issuer] ?? []
+              const picked = selectedByIssuer[issuer] ?? []
+              const sectionOpen = fundSectionOpen[issuer] ?? true
+              return (
+                <CollapsibleScrollSection
+                  key={issuer}
+                  title={`${issuer} — ${schemes.length} ETF(s)`}
+                  subtitle={`${picked.length} selected`}
+                  open={sectionOpen}
+                  onToggle={() => setFundSectionOpen((prev) => ({ ...prev, [issuer]: !sectionOpen }))}
+                  maxHeightClass="max-h-64"
+                >
+                  <div className="mb-2 flex flex-wrap gap-2">
                     <Button size="sm" variant="ghost" disabled={!schemes.length} onClick={() => setSelectedByIssuer((prev) => ({ ...prev, [issuer]: schemes.map((s) => String(s.ID)) }))}>Select all</Button>
                     <Button size="sm" variant="ghost" disabled={!picked.length} onClick={() => setSelectedByIssuer((prev) => ({ ...prev, [issuer]: [] }))}>Clear</Button>
                   </div>
-                </div>
-                {!schemes.length ? (
-                  <p className="text-xs text-slate-500">No ETFs found for this group.</p>
-                ) : (
-                  <DataTable minWidth={640}>
-                    <thead>
-                      <tr><Th>Select</Th><Th>Scheme</Th><Th>Category</Th></tr>
-                    </thead>
-                    <tbody>
-                      {schemes.map((s) => {
-                        const sid = String(s.ID)
-                        const checked = picked.includes(sid)
-                        return (
-                          <tr key={sid} className="border-t border-slate-800/80">
-                            <Td>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => setSelectedByIssuer((prev) => {
-                                  const cur = prev[issuer] ?? []
-                                  return { ...prev, [issuer]: checked ? cur.filter((x) => x !== sid) : [...cur, sid] }
-                                })}
-                              />
-                            </Td>
-                            <Td className="font-medium text-slate-100">{sid} — {s.Name}</Td>
-                            <Td>{s.Description ?? '—'}</Td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </DataTable>
-                )}
-              </div>
-            )
-          })}
+                  {!schemes.length ? (
+                    <p className="text-xs text-slate-500">No ETFs found for this group.</p>
+                  ) : (
+                    <DataTable minWidth={640}>
+                      <thead>
+                        <tr><Th>Select</Th><Th>Scheme</Th><Th>Category</Th></tr>
+                      </thead>
+                      <tbody>
+                        {schemes.map((s) => {
+                          const sid = String(s.ID)
+                          const checked = picked.includes(sid)
+                          return (
+                            <tr key={sid} className="border-t border-slate-800/80">
+                              <Td>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => setSelectedByIssuer((prev) => {
+                                    const cur = prev[issuer] ?? []
+                                    return { ...prev, [issuer]: checked ? cur.filter((x) => x !== sid) : [...cur, sid] }
+                                  })}
+                                />
+                              </Td>
+                              <Td className="font-medium text-slate-100">{sid} — {s.Name}</Td>
+                              <Td>{s.Description ?? '—'}</Td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </DataTable>
+                  )}
+                </CollapsibleScrollSection>
+              )
+            })}
+          </div>
           {selected.length > 0 ? (
-            <div className="space-y-4 border-t border-slate-800 pt-4">
+            <div className="mt-4 space-y-4 border-t border-slate-800 pt-4">
               <p className="text-xs text-slate-500">
                 {market === 'us'
                   ? 'ETF list + latest Companies/Holding % from INDMoney. Date-range trends use SEC NPORT reporting periods (typically quarterly).'
@@ -451,7 +504,7 @@ function IssuerEtfTab({
                   <input type="date" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </FormField>
                 <div className="flex items-end">
-                  <Button className="w-full" onClick={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending}>
+                  <Button className="w-full" onClick={() => { setResultsOpen(true); analyzeMutation.mutate() }} disabled={analyzeMutation.isPending}>
                     {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze Holding Change'}
                   </Button>
                 </div>
@@ -459,15 +512,23 @@ function IssuerEtfTab({
               {analyzeMutation.isError && <Alert type="error">{apiErrorMessage(analyzeMutation.error)}</Alert>}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Select one or more ETFs from the table(s) above.</p>
+            <p className="mt-3 text-sm text-slate-500">Select one or more ETFs from the table(s) above.</p>
           )}
-        </div>
+        </CollapsibleScrollSection>
       )}
       {analyzeMutation.isPending && <Loading message="Fetching ETF holdings…" />}
       {analysis && !analyzeMutation.isPending && (
-        analysis.error
-          ? <Alert type="error">{analysis.error}</Alert>
-          : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle={`ETF Holdings (${market.toUpperCase()})`} marketType={market === 'crypto' ? 'crypto' : market === 'us' ? 'us' : 'india'} />
+        <CollapsibleScrollSection
+          title="Analysis results"
+          subtitle={analysis.error ? 'Error' : `${analysis.overall?.length ?? 0} stocks · scroll or collapse`}
+          open={resultsOpen}
+          onToggle={() => setResultsOpen((v) => !v)}
+          maxHeightClass="max-h-[70vh]"
+        >
+          {analysis.error
+            ? <Alert type="error">{analysis.error}</Alert>
+            : <HoldingsTrendResults data={analysis} fundNoun="ETFs" askSection="command-center/etf_holdings" askTitle={`ETF Holdings (${market.toUpperCase()})`} marketType={market === 'crypto' ? 'crypto' : market === 'us' ? 'us' : 'india'} />}
+        </CollapsibleScrollSection>
       )}
     </div>
   )

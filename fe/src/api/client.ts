@@ -670,6 +670,13 @@ export const runOneClick = (payload: { style: 'intraday' | 'scalping' | 'swing';
 export const runFundamentalAnalysis = (payload: { tickers: string[]; asset_class: string }) =>
   api.post('/command-center/fundamental-analysis', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runIndiaFiiDiiHoldings = (payload: {
+  tickers: string[]
+  from_date: string
+  to_date: string
+}) =>
+  api.post('/command-center/india-fii-dii-holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runUpgradeDowngradeScan = (payload: { tickers: string[]; asset_class: string }) =>
   api.post('/command-center/upgrade-downgrade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 

@@ -679,6 +679,32 @@ class CommandCenterService:
         results = await asyncio.to_thread(analyze_tickers, tickers)
         return json_safe({"results": results})
 
+    async def india_fii_dii_holdings(
+        self,
+        tickers: list[str],
+        *,
+        from_date: str,
+        to_date: str,
+    ) -> dict[str, Any]:
+        from datetime import date as date_cls
+
+        from app.market_pulse.india_fii_dii_holdings_engine import analyze_tickers_shareholding
+
+        def _parse(s: str) -> date_cls:
+            return date_cls.fromisoformat(str(s).strip()[:10])
+
+        try:
+            fd, td = _parse(from_date), _parse(to_date)
+        except ValueError:
+            return json_safe({"error": "Invalid from_date / to_date (use YYYY-MM-DD)."})
+
+        resolved = self.universe.resolve("india", tickers)
+
+        def _run():
+            return analyze_tickers_shareholding(resolved, fd, td)
+
+        return json_safe(await asyncio.to_thread(_run))
+
     async def stock_upgrade_downgrade(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
         from app.market_pulse.stock_upgrade_downgrade_engine import scan_tickers
 
@@ -995,6 +1021,7 @@ class CommandCenterService:
                 {"id": "one_click_scalping", "label": "One-Click Scalping Setup"},
                 {"id": "one_click_swing", "label": "One-Click Swing Setup"},
                 {"id": "fundamental_analysis", "label": "Fundamental Analysis (screener.in)"},
+                {"id": "india_fii_dii_holdings", "label": "India FII-DII Holding — Ownership · P&L · Valuation · Deals"},
                 {"id": "mutual_fund_holdings", "label": "Mutual Fund Holdings Tracker"},
                 {"id": "etf_holdings", "label": "ETF Holdings — Stock-Level Trend (India · US · Crypto)"},
                 {"id": "smart_money_activity", "label": "Check Smart Money Activity — MF/ETF stake flow"},

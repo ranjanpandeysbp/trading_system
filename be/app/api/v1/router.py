@@ -38,6 +38,7 @@ from app.models.schemas import (
     CommandCenterMfHoldingsRequest,
     CommandCenterEtfIndiaHoldingsRequest,
     CommandCenterEtfYahooHoldingsRequest,
+    CommandCenterIndiaFiiDiiHoldingsRequest,
     CommandCenterSmartMoneyActivityRequest,
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
@@ -1156,6 +1157,19 @@ async def command_center_fundamental_analysis(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).fundamental_analysis(payload.tickers)
+
+
+@router.post("/command-center/india-fii-dii-holdings")
+async def command_center_india_fii_dii_holdings(
+    payload: CommandCenterIndiaFiiDiiHoldingsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).india_fii_dii_holdings(
+        payload.tickers,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+    )
 
 
 @router.post("/command-center/upgrade-downgrade")

@@ -8,6 +8,7 @@ import {
   type MutualFundAmc,
   type MutualFundScheme,
 } from '../../api/client'
+import { CollapsibleScrollSection } from './CollapsibleScrollSection'
 import { HoldingsTrendResults, type HoldingsAnalysisResult } from './HoldingsTrendResults'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
@@ -55,6 +56,10 @@ export function MutualFundHoldingsPanel() {
   const [amcFilter, setAmcFilter] = useState('')
   const [showHow, setShowHow] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [amcsOpen, setAmcsOpen] = useState(true)
+  const [fundsOpen, setFundsOpen] = useState(true)
+  const [resultsOpen, setResultsOpen] = useState(true)
+  const [fundSectionOpen, setFundSectionOpen] = useState<Record<number, boolean>>({})
 
   const amcsQuery = useQuery({
     queryKey: ['mf-amcs'],
@@ -215,50 +220,63 @@ export function MutualFundHoldingsPanel() {
         )}
 
         {amcs.length > 0 && (
-          <div className="mt-4 space-y-3">
-            <FormField label={`Select AMC(s) — ${amcs.length} loaded`}>
-              <input
-                className="mb-2 w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                placeholder="Filter by name…"
-                value={amcFilter}
-                onChange={(e) => setAmcFilter(e.target.value)}
-              />
-              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-slate-800 p-2">
-                {filteredAmcs.map((a) => {
-                  const id = amcKey(a)
-                  return (
-                    <Chip key={id} selected={selectedAmcIds.includes(id)} onClick={() => toggleAmc(id)}>
-                      {a.Name}
-                      {a.AUM != null ? ` · ₹${fmtAum(a.AUM)} Cr` : ''}
-                    </Chip>
-                  )
-                })}
-              </div>
-            </FormField>
-            {selectedAmcIds.length > 0 && (
-              <p className="text-xs text-slate-500">{selectedAmcIds.length} AMC(s) selected</p>
-            )}
+          <div className="mt-4">
+            <CollapsibleScrollSection
+              title={`AMC list — ${amcs.length} loaded`}
+              subtitle={`${selectedAmcIds.length} selected · filter + scroll inside`}
+              open={amcsOpen}
+              onToggle={() => setAmcsOpen((v) => !v)}
+              maxHeightClass="max-h-56"
+            >
+              <FormField label="Filter AMCs">
+                <input
+                  className="mb-2 w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  placeholder="Filter by name…"
+                  value={amcFilter}
+                  onChange={(e) => setAmcFilter(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {filteredAmcs.map((a) => {
+                    const id = amcKey(a)
+                    return (
+                      <Chip key={id} selected={selectedAmcIds.includes(id)} onClick={() => toggleAmc(id)}>
+                        {a.Name}
+                        {a.AUM != null ? ` · ₹${fmtAum(a.AUM)} Cr` : ''}
+                      </Chip>
+                    )
+                  })}
+                </div>
+              </FormField>
+            </CollapsibleScrollSection>
           </div>
         )}
       </Card>
 
       {loadedAmcIds.length > 0 && (
         <Card>
-          <p className="mb-3 text-xs text-slate-500">
-            {selectedSchemes.length} fund(s) selected across AMCs.
-          </p>
-          <div className="space-y-6">
-            {loadedAmcIds.map((amcId) => {
-              const schemes = schemesByAmc[amcId] ?? []
-              const selected = selectedSchemeIds[amcId] ?? []
-              const amcName = amcNames.get(amcId) ?? String(amcId)
-              return (
-                <div key={amcId}>
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <h4 className="text-sm font-semibold text-white">
-                      {amcName} — {schemes.length} equity scheme(s)
-                    </h4>
-                    <div className="flex gap-2">
+          <CollapsibleScrollSection
+            title={`Fund schemes — ${selectedSchemes.length} selected`}
+            subtitle={`${loadedAmcIds.length} AMC(s) with schemes · collapse to skip scrolling`}
+            open={fundsOpen}
+            onToggle={() => setFundsOpen((v) => !v)}
+            scroll={false}
+          >
+            <div className="space-y-3">
+              {loadedAmcIds.map((amcId) => {
+                const schemes = schemesByAmc[amcId] ?? []
+                const selected = selectedSchemeIds[amcId] ?? []
+                const amcName = amcNames.get(amcId) ?? String(amcId)
+                const sectionOpen = fundSectionOpen[amcId] ?? true
+                return (
+                  <CollapsibleScrollSection
+                    key={amcId}
+                    title={`${amcName} — ${schemes.length} equity scheme(s)`}
+                    subtitle={`${selected.length} selected`}
+                    open={sectionOpen}
+                    onToggle={() => setFundSectionOpen((prev) => ({ ...prev, [amcId]: !sectionOpen }))}
+                    maxHeightClass="max-h-64"
+                  >
+                    <div className="mb-2 flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -276,90 +294,93 @@ export function MutualFundHoldingsPanel() {
                         Clear
                       </Button>
                     </div>
-                  </div>
-                  {!schemes.length ? (
-                    <p className="text-xs text-slate-500">No schemes found for this AMC.</p>
-                  ) : (
-                    <DataTable minWidth={720}>
-                      <thead>
-                        <tr>
-                          <Th>Select</Th>
-                          <Th>Scheme</Th>
-                          <Th>Category</Th>
-                          <Th>NAV</Th>
-                          <Th>Return %</Th>
-                          <Th>AUM (₹ Cr)</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {schemes.map((s) => {
-                          const sid = schemeKey(s)
-                          const checked = selected.includes(sid)
-                          return (
-                            <tr key={sid} className="border-t border-slate-800/80">
-                              <Td>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleScheme(amcId, sid)}
-                                />
-                              </Td>
-                              <Td className="font-medium text-slate-100">{s.Name}</Td>
-                              <Td>{s.Description ?? '—'}</Td>
-                              <Td>{fmtPct(s.NAV)}</Td>
-                              <Td>{fmtPct(s.Return)}</Td>
-                              <Td>{fmtAum(s.AUM)}</Td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </DataTable>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {selectedSchemes.length > 0 ? (
-            <div className="mt-6 space-y-4 border-t border-slate-800 pt-4">
-              <p className="text-sm text-emerald-400/90">
-                Selected {selectedSchemes.length} fund(s):{' '}
-                <span className="text-slate-300">{selectedSchemes.map((s) => s.label).join(', ')}</span>
-              </p>
-              <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
-                <FormField label="From date">
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                  />
-                </FormField>
-                <FormField label="To date">
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                  />
-                </FormField>
-                <div className="flex items-end">
-                  <Button
-                    className="w-full"
-                    onClick={() => analyzeMutation.mutate()}
-                    disabled={analyzeMutation.isPending}
-                  >
-                    {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze Holding Change'}
-                  </Button>
-                </div>
-              </div>
-              {analyzeMutation.isError && (
-                <Alert type="error">{apiErrorMessage(analyzeMutation.error)}</Alert>
-              )}
+                    {!schemes.length ? (
+                      <p className="text-xs text-slate-500">No schemes found for this AMC.</p>
+                    ) : (
+                      <DataTable minWidth={720}>
+                        <thead>
+                          <tr>
+                            <Th>Select</Th>
+                            <Th>Scheme</Th>
+                            <Th>Category</Th>
+                            <Th>NAV</Th>
+                            <Th>Return %</Th>
+                            <Th>AUM (₹ Cr)</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {schemes.map((s) => {
+                            const sid = schemeKey(s)
+                            const checked = selected.includes(sid)
+                            return (
+                              <tr key={sid} className="border-t border-slate-800/80">
+                                <Td>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleScheme(amcId, sid)}
+                                  />
+                                </Td>
+                                <Td className="font-medium text-slate-100">{s.Name}</Td>
+                                <Td>{s.Description ?? '—'}</Td>
+                                <Td>{fmtPct(s.NAV)}</Td>
+                                <Td>{fmtPct(s.Return)}</Td>
+                                <Td>{fmtAum(s.AUM)}</Td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </DataTable>
+                    )}
+                  </CollapsibleScrollSection>
+                )
+              })}
             </div>
-          ) : (
-            <p className="mt-4 text-sm text-slate-500">Select one or more mutual funds from the table(s) above.</p>
-          )}
+
+            {selectedSchemes.length > 0 ? (
+              <div className="mt-4 space-y-4 border-t border-slate-800 pt-4">
+                <p className="max-h-16 overflow-y-auto text-sm text-emerald-400/90">
+                  Selected {selectedSchemes.length} fund(s):{' '}
+                  <span className="text-slate-300">{selectedSchemes.map((s) => s.label).join(', ')}</span>
+                </p>
+                <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
+                  <FormField label="From date">
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="To date">
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
+                  </FormField>
+                  <div className="flex items-end">
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        setResultsOpen(true)
+                        analyzeMutation.mutate()
+                      }}
+                      disabled={analyzeMutation.isPending}
+                    >
+                      {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze Holding Change'}
+                    </Button>
+                  </div>
+                </div>
+                {analyzeMutation.isError && (
+                  <Alert type="error">{apiErrorMessage(analyzeMutation.error)}</Alert>
+                )}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">Select one or more mutual funds from the table(s) above.</p>
+            )}
+          </CollapsibleScrollSection>
         </Card>
       )}
 
@@ -367,18 +388,26 @@ export function MutualFundHoldingsPanel() {
 
       {analysis && !analyzeMutation.isPending && (
         <Card>
-          {analysis.error ? (
-            <Alert type="error">{analysis.error}</Alert>
-          ) : (
-            <HoldingsTrendResults
-              data={analysis}
-              fundNoun="Funds"
-              askSection="command-center/mutual_fund_holdings"
-              askTitle="Mutual Fund Holdings"
-              marketType="india"
-              resolveName
-            />
-          )}
+          <CollapsibleScrollSection
+            title="Analysis results"
+            subtitle={analysis.error ? 'Error' : `${analysis.overall?.length ?? 0} stocks · scroll or collapse`}
+            open={resultsOpen}
+            onToggle={() => setResultsOpen((v) => !v)}
+            maxHeightClass="max-h-[70vh]"
+          >
+            {analysis.error ? (
+              <Alert type="error">{analysis.error}</Alert>
+            ) : (
+              <HoldingsTrendResults
+                data={analysis}
+                fundNoun="Funds"
+                askSection="command-center/mutual_fund_holdings"
+                askTitle="Mutual Fund Holdings"
+                marketType="india"
+                resolveName
+              />
+            )}
+          </CollapsibleScrollSection>
         </Card>
       )}
     </div>
