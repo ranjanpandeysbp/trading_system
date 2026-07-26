@@ -86,23 +86,55 @@ function CollapsibleSection({
   )
 }
 
-function signalBadge(signal: string) {
-  const s = signal.toUpperCase()
-  if (s === 'ADD_LONG' || s === 'BULLISH') {
-    return <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400">{s.replace('_', ' ')}</span>
+function toTradeBias(signal: string, bias: string): 'LONG' | 'SHORT' | 'WAIT' {
+  const s = (signal || bias || '').toUpperCase()
+  if (s === 'ADD_LONG' || s === 'BULLISH' || s === 'LONG') return 'LONG'
+  if (s === 'SELL_AVOID' || s === 'BEARISH' || s === 'SHORT') return 'SHORT'
+  return 'WAIT'
+}
+
+function signalBadge(signal: string, bias?: string) {
+  const trade = toTradeBias(signal, bias ?? '')
+  if (trade === 'LONG') {
+    return (
+      <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+        LONG
+      </span>
+    )
   }
-  if (s === 'SELL_AVOID' || s === 'BEARISH') {
-    return <span className="rounded bg-rose-500/15 px-2 py-0.5 text-xs font-medium text-rose-400">{s.replace('_', ' ')}</span>
+  if (trade === 'SHORT') {
+    return (
+      <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-xs font-semibold text-rose-300">
+        SHORT
+      </span>
+    )
   }
-  return <span className="rounded bg-slate-500/15 px-2 py-0.5 text-xs font-medium text-slate-400">WAIT</span>
+  return (
+    <span className="rounded-md bg-slate-500/20 px-2 py-0.5 text-xs font-semibold text-slate-300">
+      WAIT
+    </span>
+  )
 }
 
 function ResultRow({ r, market }: { r: SmartMoneyTickerResult; market: WatchlistMarket }) {
+  const trade = toTradeBias(r.signal, r.bias)
+  const detail =
+    r.summary
+    || (!r.found
+      ? 'Ticker not found in selected fund/ETF holdings for this date range.'
+      : 'No clear stake-flow edge.')
   return (
-    <tr>
+    <tr className="align-top">
       <Td className="font-medium text-white">{r.ticker}</Td>
-      <Td>{signalBadge(r.signal)}</Td>
-      <Td className="text-xs text-slate-300">{r.bias}</Td>
+      <Td>
+        {signalBadge(r.signal, r.bias)}
+        {(r.signal === 'ADD_LONG' || r.signal === 'SELL_AVOID') && (
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
+            {r.signal.replace('_', ' ')}
+          </div>
+        )}
+      </Td>
+      <Td className="text-xs text-slate-300">{trade}</Td>
       <Td className="text-xs">{r.found ? (r.overall_trend ?? '—') : 'not found'}</Td>
       <Td className="text-xs tabular-nums">
         {r.avg_change_pct != null ? `${r.avg_change_pct > 0 ? '+' : ''}${r.avg_change_pct.toFixed(3)}%` : '—'}
@@ -111,12 +143,12 @@ function ResultRow({ r, market }: { r: SmartMoneyTickerResult; market: Watchlist
         {r.schemes_increasing ?? 0}↑ / {r.schemes_decreasing ?? 0}↓
         {r.n_schemes != null ? ` · ${r.n_schemes} funds` : ''}
       </Td>
-      <Td className="max-w-md text-xs text-slate-400" title={r.summary}>{r.summary}</Td>
+      <Td className="max-w-md text-xs leading-relaxed text-slate-400" title={detail}>{detail}</Td>
       <Td>
         <AddToWatchlistButton
           ticker={r.ticker}
           displayName={r.ticker}
-          notes={`Smart money · ${r.signal} · ${r.overall_trend ?? ''} · ${r.summary ?? ''}`.slice(0, 240)}
+          notes={`Smart money · ${trade} · ${r.overall_trend ?? ''} · ${detail}`.slice(0, 240)}
           marketType={market}
           compact
         />
@@ -757,11 +789,20 @@ export function SmartMoneyActivityPanel() {
       {result && !scanMutation.isPending && (
         <Card>
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="font-medium text-white">Results</h3>
+            <div>
+              <h3 className="font-medium text-white">Trade bias by ticker</h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                LONG = funds accumulating · SHORT = funds distributing · WAIT = mixed/flat or not found.
+              </p>
+            </div>
             {summary && (
               <p className="text-xs text-slate-500">
-                {summary.found}/{summary.tickers} found · Bullish {summary.bullish} · Bearish{' '}
-                {summary.bearish} · Wait {summary.wait}
+                {summary.found}/{summary.tickers} found ·{' '}
+                <span className="text-emerald-400">{summary.bullish} long</span>
+                {' · '}
+                <span className="text-rose-400">{summary.bearish} short</span>
+                {' · '}
+                <span className="text-slate-400">{summary.wait} wait</span>
               </p>
             )}
           </div>
@@ -784,12 +825,12 @@ export function SmartMoneyActivityPanel() {
               <thead>
                 <tr>
                   <Th>Ticker</Th>
-                  <Th>Signal</Th>
                   <Th>Bias</Th>
+                  <Th>View</Th>
                   <Th>Trend</Th>
                   <Th>Avg Δ stake</Th>
                   <Th>Funds</Th>
-                  <Th>Summary</Th>
+                  <Th>Reasoning</Th>
                   <Th>Watch</Th>
                 </tr>
               </thead>
