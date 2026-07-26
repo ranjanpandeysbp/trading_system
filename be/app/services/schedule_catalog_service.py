@@ -36,6 +36,7 @@ _COMMAND_CENTER_SECTIONS: list[tuple[str, str]] = [
     ("fundamental_analysis", "Fundamental Analysis (screener.in)"),
     ("mutual_fund_holdings", "Mutual Fund Holdings Tracker"),
     ("etf_holdings", "ETF Holdings — Stock-Level Trend (India · US · Crypto)"),
+    ("smart_money_activity", "Check Smart Money Activity — MF/ETF stake flow"),
     ("detect_sector_rotation", "Detect Sector Rotation — CRS · Hull · Pullback"),
     ("stock_upgrade_downgrade", "Upgrade/Downgrade & Corporate Actions"),
     ("investigation_strategies", "Ticker Investigation — Select Strategy"),

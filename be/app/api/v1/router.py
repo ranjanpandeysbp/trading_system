@@ -38,6 +38,7 @@ from app.models.schemas import (
     CommandCenterMfHoldingsRequest,
     CommandCenterEtfIndiaHoldingsRequest,
     CommandCenterEtfYahooHoldingsRequest,
+    CommandCenterSmartMoneyActivityRequest,
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
@@ -1123,6 +1124,28 @@ async def command_center_etf_holdings_yahoo(
     """US (INDMoney + NPORT) or Crypto (SEC NPORT) holdings trend."""
     return await CommandCenterService(SettingsService(db)).etf_us_holdings_change(
         payload.market, payload.symbols, payload.symbol_names, payload.from_date, payload.to_date,
+    )
+
+
+@router.post("/command-center/smart-money-activity")
+async def command_center_smart_money_activity(
+    payload: CommandCenterSmartMoneyActivityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).smart_money_activity(
+        payload.tickers,
+        asset_class=payload.asset_class,
+        source=payload.source,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+        amc_ids=payload.amc_ids or None,
+        mf_scheme_ids=payload.mf_scheme_ids or None,
+        mf_scheme_names=payload.mf_scheme_names or None,
+        etf_scheme_ids=payload.etf_scheme_ids or None,
+        etf_scheme_names=payload.etf_scheme_names or None,
+        etf_symbols=payload.etf_symbols or None,
+        etf_symbol_names=payload.etf_symbol_names or None,
     )
 
 

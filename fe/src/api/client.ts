@@ -837,6 +837,54 @@ export const runEtfYahooHoldingsChange = (payload: {
   to_date: string
 }) => api.post('/command-center/etf/holdings/yahoo', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export type SmartMoneyTickerResult = {
+  ticker: string
+  found?: boolean
+  signal: string
+  bias: string
+  summary: string
+  overall_trend?: string
+  avg_change_pct?: number
+  schemes_increasing?: number
+  schemes_decreasing?: number
+  n_schemes?: number
+  matched_stocks?: string[]
+  sources?: string[]
+  sector?: string
+  stock?: string
+}
+
+export type SmartMoneyActivityResult = {
+  error?: string
+  market?: string
+  source?: string
+  from_date?: string
+  to_date?: string
+  tickers?: string[]
+  preferred_amcs?: Array<{ id: number; name: string }>
+  notes?: string[]
+  summary?: { tickers: number; found: number; bullish: number; bearish: number; wait: number }
+  results?: SmartMoneyTickerResult[]
+}
+
+export const runSmartMoneyActivity = (payload: {
+  tickers: string[]
+  asset_class: 'india' | 'us' | 'crypto'
+  source: 'mutual_fund' | 'etf' | 'both'
+  from_date: string
+  to_date: string
+  amc_ids?: number[]
+  mf_scheme_ids?: number[]
+  mf_scheme_names?: Record<number, string>
+  etf_scheme_ids?: number[]
+  etf_scheme_names?: Record<number, string>
+  etf_symbols?: string[]
+  etf_symbol_names?: Record<string, string>
+}) =>
+  api.post<SmartMoneyActivityResult>('/command-center/smart-money-activity', payload, {
+    timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
+
 export const fetchDetectSectorRotationUniverse = (market: 'india' | 'us' | 'crypto' = 'india') =>
   api.get<{ market: string; sectors: string[] }>('/command-center/detect-sector-rotation/universe', {
     params: { market },

@@ -631,6 +631,48 @@ class CommandCenterService:
     # Back-compat alias
     etf_yahoo_holdings_change = etf_us_holdings_change
 
+    async def smart_money_activity(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        source: str = "both",
+        from_date: str,
+        to_date: str,
+        amc_ids: list[int] | None = None,
+        mf_scheme_ids: list[int] | None = None,
+        mf_scheme_names: dict[int, str] | None = None,
+        etf_scheme_ids: list[int] | None = None,
+        etf_scheme_names: dict[int, str] | None = None,
+        etf_symbols: list[str] | None = None,
+        etf_symbol_names: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        from datetime import date as date_cls
+
+        from app.market_pulse.smart_money_activity_engine import check_smart_money_activity
+
+        market = (asset_class or "india").lower()
+        if market not in ("india", "us", "crypto"):
+            market = "india"
+
+        def _run():
+            return check_smart_money_activity(
+                tickers,
+                market=market,
+                source=source,
+                from_date=date_cls.fromisoformat(from_date),
+                to_date=date_cls.fromisoformat(to_date),
+                amc_ids=amc_ids or None,
+                mf_scheme_ids=mf_scheme_ids or None,
+                mf_scheme_names=mf_scheme_names or None,
+                etf_scheme_ids=etf_scheme_ids or None,
+                etf_scheme_names=etf_scheme_names or None,
+                etf_symbols=etf_symbols or None,
+                etf_symbol_names=etf_symbol_names or None,
+            )
+
+        return json_safe(await asyncio.to_thread(_run))
+
     async def fundamental_analysis(self, tickers: list[str]) -> dict[str, Any]:
         from app.market_pulse.fundamental_analysis_engine import analyze_tickers
 
@@ -955,6 +997,7 @@ class CommandCenterService:
                 {"id": "fundamental_analysis", "label": "Fundamental Analysis (screener.in)"},
                 {"id": "mutual_fund_holdings", "label": "Mutual Fund Holdings Tracker"},
                 {"id": "etf_holdings", "label": "ETF Holdings — Stock-Level Trend (India · US · Crypto)"},
+                {"id": "smart_money_activity", "label": "Check Smart Money Activity — MF/ETF stake flow"},
                 {"id": "detect_sector_rotation", "label": "Detect Sector Rotation — CRS · Hull · Pullback"},
                 {"id": "stock_upgrade_downgrade", "label": "Upgrade/Downgrade & Corporate Actions"},
                 {"id": "investigation_strategies", "label": "Ticker Investigation — Select Strategy"},

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { Activity, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -49,6 +49,7 @@ import { CommandCenterResults } from '../components/command-center/CommandCenter
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { MutualFundHoldingsPanel } from '../components/command-center/MutualFundHoldingsPanel'
 import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
+import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -83,6 +84,7 @@ const TABS = [
   { id: 'fundamental_analysis', label: 'Fundamental Analysis', icon: BarChart3 },
   { id: 'mutual_fund_holdings', label: 'Mutual Fund Holdings', icon: Landmark },
   { id: 'etf_holdings', label: 'ETF Holdings', icon: Package },
+  { id: 'smart_money_activity', label: 'Check Smart Money Activity', icon: Activity },
   { id: 'detect_sector_rotation', label: 'Detect Sector Rotation', icon: RefreshCw },
   { id: 'stock_upgrade_downgrade', label: 'Upgrade/Downgrade', icon: Newspaper },
   { id: 'investigation_strategies', label: 'Investigate + Strategy', icon: Search },
@@ -398,6 +400,8 @@ export default function CommandCenter() {
         <MutualFundHoldingsPanel />
       ) : tab === 'etf_holdings' ? (
         <EtfHoldingsPanel />
+      ) : tab === 'smart_money_activity' ? (
+        <SmartMoneyActivityPanel />
       ) : tab === 'detect_sector_rotation' ? (
         <DetectSectorRotationPanel />
       ) : tab === 'tomorrow_outlook' ? (
@@ -807,7 +811,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'detect_sector_rotation' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

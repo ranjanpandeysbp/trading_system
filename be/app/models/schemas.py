@@ -330,6 +330,22 @@ class CommandCenterEtfYahooHoldingsRequest(BaseModel):
     to_date: str
 
 
+class CommandCenterSmartMoneyActivityRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto"] = "india"
+    source: Literal["mutual_fund", "etf", "both"] = "both"
+    from_date: str
+    to_date: str
+    # Optional manual selection — when set, overrides preferred-AMC auto universe
+    amc_ids: list[int] = Field(default_factory=list)
+    mf_scheme_ids: list[int] = Field(default_factory=list)
+    mf_scheme_names: dict[int, str] = Field(default_factory=dict)
+    etf_scheme_ids: list[int] = Field(default_factory=list)
+    etf_scheme_names: dict[int, str] = Field(default_factory=dict)
+    etf_symbols: list[str] = Field(default_factory=list)
+    etf_symbol_names: dict[str, str] = Field(default_factory=dict)
+
+
 class CommandCenterInvestigateStrategiesRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto"] = "india"
