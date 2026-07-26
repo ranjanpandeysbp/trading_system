@@ -26,6 +26,7 @@ For one or more NSE tickers, derives:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import pandas as pd
@@ -37,17 +38,90 @@ logger = logging.getLogger(__name__)
 from app.market_pulse.dhan_stock_engine import fetch_dhan_enrichment
 
 _BASE = "https://www.screener.in/company"
+_HOME = "https://www.screener.in/"
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.screener.in/",
+    "Connection": "keep-alive",
 }
-_TIMEOUT = 20
+_TIMEOUT = 30
+_MAX_RETRIES = 3
 
 # Holding-% swing (percentage points) over the lookback window below which we call it STABLE.
 _HOLDING_FLAT_PP = 0.5
 _HOLDING_LOOKBACK_QUARTERS = 4  # ~12 months of quarterly shareholding disclosures
+
+_session: requests.Session | None = None
+
+
+def _screener_session() -> requests.Session:
+    """Shared session so cookies from a warm-up hit are reused."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update(_HEADERS)
+        try:
+            _session.get(_HOME, timeout=_TIMEOUT)
+        except Exception as exc:
+            logger.debug("screener.in warm-up failed: %s", exc)
+    return _session
+
+
+def fetch_screener_html(ticker: str) -> tuple[str | None, str | None]:
+    """Fetch screener.in's company page HTML. Tries consolidated financials first,
+    falls back to standalone for companies without a consolidated filing.
+
+    Retries on transient HTTP/network failures. Returns (html, url) or (None, None).
+    """
+    ticker = ticker.strip().upper()
+    session = _screener_session()
+    last_err = ""
+    for suffix in ("consolidated/", ""):
+        url = f"{_BASE}/{ticker}/{suffix}"
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                resp = session.get(url, timeout=_TIMEOUT, allow_redirects=True)
+                status = resp.status_code
+                text = resp.text or ""
+                if status == 200 and text:
+                    # Prefer pages with company stats; shareholding alone is enough for FII/DII.
+                    if "top-ratios" in text or 'id="shareholding"' in text or "Shareholding" in text:
+                        return text, url
+                    last_err = f"HTTP 200 but page missing company data markers ({url})"
+                elif status in (403, 429, 503):
+                    last_err = f"HTTP {status} from screener.in (blocked/rate-limited)"
+                    # Cool down then retry; re-warm session on hard blocks.
+                    if attempt < _MAX_RETRIES:
+                        time.sleep(1.5 * attempt)
+                        if status == 403:
+                            try:
+                                session.get(_HOME, timeout=_TIMEOUT)
+                            except Exception:
+                                pass
+                        continue
+                else:
+                    last_err = f"HTTP {status} for {url}"
+            except requests.Timeout:
+                last_err = f"Timeout fetching {url}"
+            except requests.RequestException as exc:
+                last_err = f"Network error: {exc}"
+            except Exception as exc:
+                last_err = f"Fetch error: {exc}"
+            if attempt < _MAX_RETRIES:
+                time.sleep(0.8 * attempt)
+        # try next suffix
+    logger.warning("screener.in fetch failed for %s — %s", ticker, last_err or "unknown")
+    # Stash last error on the function for callers that want a richer message.
+    fetch_screener_html.last_error = last_err  # type: ignore[attr-defined]
+    return None, None
+
+
+fetch_screener_html.last_error = ""  # type: ignore[attr-defined]
 
 
 def _clean_num(text: str | None) -> float | None:
@@ -60,21 +134,6 @@ def _clean_num(text: str | None) -> float | None:
         return float(t)
     except ValueError:
         return None
-
-
-def fetch_screener_html(ticker: str) -> tuple[str | None, str | None]:
-    """Fetch screener.in's company page HTML. Tries consolidated financials first,
-    falls back to standalone for companies without a consolidated filing."""
-    ticker = ticker.strip().upper()
-    for suffix in ("consolidated/", ""):
-        url = f"{_BASE}/{ticker}/{suffix}"
-        try:
-            resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
-            if resp.status_code == 200 and resp.text and "top-ratios" in resp.text:
-                return resp.text, url
-        except Exception as exc:
-            logger.debug("screener.in fetch failed for %s (%s): %s", ticker, url, exc)
-    return None, None
 
 
 def _parse_top_ratios(soup: BeautifulSoup) -> dict[str, dict[str, Any]]:
@@ -402,7 +461,11 @@ def analyze_ticker(ticker: str) -> dict[str, Any]:
         return {
             "ticker": ticker,
             "verdict": "ERROR",
-            "error": f"Could not fetch screener.in data for '{ticker}'. Check the NSE symbol.",
+            "error": (
+                f"Could not fetch screener.in data for '{ticker}'. "
+                f"{getattr(fetch_screener_html, 'last_error', '') or 'network/HTTP failure'}. "
+                "Check backend network access to screener.in and retry."
+            ),
         }
 
     soup = BeautifulSoup(html, "lxml")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from calendar import monthrange
 from datetime import date
 from typing import Any, Callable
@@ -766,9 +767,13 @@ def analyze_ticker_shareholding(
     ticker = _normalize_ticker(ticker)
     html, url = fetch_screener_html(ticker)
     if not html:
+        detail = getattr(fetch_screener_html, "last_error", "") or "network/HTTP failure"
         return {
             "ticker": ticker,
-            "error": f"Could not fetch screener.in data for '{ticker}'. Check the NSE symbol.",
+            "error": (
+                f"Could not fetch screener.in data for '{ticker}'. {detail}. "
+                "Check network access from the backend, wait a few seconds if rate-limited, and retry."
+            ),
         }
 
     soup = BeautifulSoup(html, "html.parser")
@@ -944,6 +949,9 @@ def analyze_tickers_shareholding(
     for i, ticker in enumerate(clean):
         if progress_callback:
             progress_callback(i / total, f"Analyzing — {ticker}")
+        if i > 0:
+            # Polite delay — screener.in rate-limits bursts from the same IP.
+            time.sleep(0.6)
         results.append(analyze_ticker_shareholding(ticker, from_date, to_date))
 
     if progress_callback:
