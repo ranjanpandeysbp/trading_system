@@ -148,6 +148,13 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
     if df.empty or len(df) < cfg.min_bars:
         return None
     work = _compute_indicators(df)
+    from app.market_pulse.vol_regime import compute_vol_regime
+
+    vol_regime = compute_vol_regime(work)
+    # EXTREME-regime breakouts/leans are the least trustworthy case in this
+    # engine — blow-off/panic tapes exhaust fast, so conviction is actively
+    # suppressed here rather than merely dampened like every other factor.
+    vol_regime_cap = 0.75 if (vol_regime and vol_regime.regime == "EXTREME") else 1.4
     row = work.iloc[-1]
     lb = min(cfg.slope_lookback, len(work) - 1)
     prior = work.iloc[-1 - lb]
@@ -212,7 +219,7 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
         # allowed to swing further from the middle on the same signals.
         adx_conviction = 0.7 + (adx if not pd.isna(adx) else 0.0) / 100.0
         vol_conviction = 0.6 + 0.5 * vol_ratio
-        conviction = max(0.6, min(1.4, (adx_conviction + vol_conviction) / 2.0))
+        conviction = max(0.6, min(vol_regime_cap, (adx_conviction + vol_conviction) / 2.0))
         up_score = 50.0 + (up_score - 50.0) * conviction
         up_score = max(10.0, min(90.0, up_score))
         breakout_up_pct = round(up_score, 1)
@@ -268,7 +275,7 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
             pro = _pro_breakout_signals(df, price)
             up += pro["up_adj"]
             reasons.extend(pro["reasons"])
-            vol_conviction = max(0.6, min(1.4, 0.6 + 0.5 * vol_ratio))
+            vol_conviction = max(0.6, min(vol_regime_cap, 0.6 + 0.5 * vol_ratio))
             up = 50.0 + (up - 50.0) * vol_conviction
             up = max(15.0, min(95.0, up))
             breakout_up_pct = round(up, 1)
@@ -287,7 +294,7 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
             pro = _pro_breakout_signals(df, price)
             down -= pro["up_adj"]
             reasons.extend(pro["reasons"])
-            vol_conviction = max(0.6, min(1.4, 0.6 + 0.5 * vol_ratio))
+            vol_conviction = max(0.6, min(vol_regime_cap, 0.6 + 0.5 * vol_ratio))
             down = 50.0 + (down - 50.0) * vol_conviction
             down = max(15.0, min(95.0, down))
             breakout_down_pct = round(down, 1)
@@ -317,6 +324,13 @@ def analyze_timeframe(df_raw: pd.DataFrame, timeframe: str, cfg: MomentumConfig)
         "breakout_up_pct": breakout_up_pct,
         "breakout_down_pct": breakout_down_pct,
         "confidence_continue_pct": confidence_continue_pct,
+        "vol_regime": (
+            {
+                "regime": vol_regime.regime, "atr_pct": vol_regime.atr_pct,
+                "atr_pct_rank": vol_regime.atr_pct_rank,
+            }
+            if vol_regime else None
+        ),
         "reasons": reasons,
     }
 

@@ -79,7 +79,11 @@ def fetch_mtf_data(
     exchange: str = "NSE",
     limit: int = 300,
 ) -> pd.DataFrame:
-    """Fetch OHLCV for one timeframe via Groww/CoinDCX with yfinance fallback."""
+    """Fetch OHLCV for one timeframe via Groww/CoinDCX with yfinance fallback.
+    `fetch_data_for_gap_scan` already drops a still-forming last bar for `tf`;
+    the 4h path re-checks after resampling since a freshly-bucketed 4h bar
+    built from partial finer-resolution data can itself be still-forming
+    even though its source bars were each individually closed."""
     df = fetch_data_for_gap_scan(symbol, tf, market, groww_token, exchange, limit=limit)
     df = normalize_ohlcv(df)
     if df.empty:
@@ -88,6 +92,8 @@ def fetch_mtf_data(
         # Ensure 4H bars when API returned finer resolution
         if len(df) > limit * 2:
             df = _resample_4h(df)
+            from app.market_pulse.bar_utils import last_closed_bar
+            df = last_closed_bar(df, tf)
     return df.tail(limit)
 
 

@@ -498,7 +498,24 @@ def fetch_index_ohlcv_for_interval(
     groww_token: str = "",
     exchange: str = "NSE",
 ) -> pd.DataFrame | None:
-    """Unified index OHLC: Groww → verified Yahoo → constituent proxy."""
+    """Unified index OHLC: Groww → verified Yahoo → constituent proxy. The
+    final row is dropped if it's a still-forming candle for `tf_key` (see
+    bar_utils.py) — this path previously bypassed that gate entirely, unlike
+    every other OHLCV fetcher in the app."""
+    from app.market_pulse.bar_utils import last_closed_bar
+
+    df = _fetch_index_ohlcv_for_interval_raw(index_name, tf_key, limit, groww_token=groww_token, exchange=exchange)
+    return last_closed_bar(df, tf_key) if df is not None else None
+
+
+def _fetch_index_ohlcv_for_interval_raw(
+    index_name: str,
+    tf_key: str,
+    limit: int = 400,
+    *,
+    groww_token: str = "",
+    exchange: str = "NSE",
+) -> pd.DataFrame | None:
     name = (index_name or "").strip()
     if not name:
         return None

@@ -43,9 +43,13 @@ from typing import Any
 import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan, fetch_ohlcv_yfinance
+from app.market_pulse.indicators import add_ema
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.price_action import _calc_atr, detect_candlestick_patterns, detect_support_resistance
 from app.trading_hubs.smc_liquidity_engine import LiquidityConfig, implement_liquidity_strategy
+
+# Canonical finer->coarser timeframe order for the higher-timeframe veto below.
+_TIMEFRAME_ORDER = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"]
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +244,10 @@ def analyze_ticker(
     df_norm = normalize_ohlcv(df)
     n = len(df_norm)
 
+    ema_work = add_ema(df_norm.copy(), 50)
+    ema50 = ema_work["ema_50"].iloc[-1]
+    trend_context = ("ABOVE_EMA50" if price > ema50 else "BELOW_EMA50") if not pd.isna(ema50) else None
+
     liq_cfg = LiquidityConfig(execution_tf=timeframe, use_mtf=False, strategy_mode="Both")
     work, events, bull_fvgs, bear_fvgs = implement_liquidity_strategy(df_norm, liq_cfg)
 
@@ -256,6 +264,7 @@ def analyze_ticker(
             "status": "NO_SETUP",
             "trap_low": None, "trap_bars_ago": None,
             "entry_zone": None, "stop_loss": None, "target": None,
+            "trend_context": trend_context,
             "reasons": [
                 "No sell-side liquidity sweep/grab detected in the recent structure — the chain hasn't "
                 "started (Step 3 hasn't fired yet).",
@@ -339,6 +348,7 @@ def analyze_ticker(
         "entry_zone": {"top": round(zone["top"], 6), "bottom": round(zone["bottom"], 6)} if zone else None,
         "stop_loss": stop_loss,
         "target": target_out,
+        "trend_context": trend_context,
         "reasons": reasons,
         "steps": {
             "selling_exhaustion": step1_ok,
@@ -348,6 +358,37 @@ def analyze_ticker(
             "entry": step5_ok,
         },
     }
+
+
+def _apply_htf_veto(per_tf: dict[str, dict[str, Any]]) -> None:
+    """No CONFIRMED_ENTRY unless a strictly higher timeframe isn't in a
+    downtrend — a "real bottom" on 15m while the 1d is in a waterfall
+    decline is a falling-knife trap this chain would otherwise happily
+    confirm. Downgrades to PENDING_ENTRY (the setup/trap read on this
+    timeframe is still valid, just not yet safe to trigger) rather than
+    discarding the analysis. Mutates `per_tf` in place."""
+    tf_rank = {tf: i for i, tf in enumerate(_TIMEFRAME_ORDER)}
+    valid = {tf: r for tf, r in per_tf.items() if not r.get("error")}
+    if len(valid) < 2:
+        return
+    for tf, r in valid.items():
+        if r.get("status") != "CONFIRMED_ENTRY":
+            continue
+        my_rank = tf_rank.get(tf)
+        if my_rank is None:
+            continue
+        for other_tf, other in valid.items():
+            other_rank = tf_rank.get(other_tf)
+            if other_rank is None or other_rank <= my_rank:
+                continue
+            if other.get("trend_context") == "BELOW_EMA50":
+                r["status"] = "PENDING_ENTRY"
+                r["reasons"].append(
+                    f"⚠️ Downgraded from Confirmed Entry: the higher {other_tf} timeframe is still in a "
+                    "downtrend (below its 50-EMA) — this looks more like a falling-knife bounce than a "
+                    "real bottom until the bigger picture turns too."
+                )
+                break  # one higher-timeframe downtrend is enough to downgrade
 
 
 def analyze_ticker_multi_tf(
@@ -360,6 +401,7 @@ def analyze_ticker_multi_tf(
         except Exception as exc:
             logger.debug("Real Bottom analysis failed for %s %s: %s", ticker, tf, exc)
             per_tf[tf] = {"ticker": ticker, "market": market, "timeframe": tf, "error": str(exc)[:200]}
+    _apply_htf_veto(per_tf)
     return {"ticker": ticker, "market": market, "per_tf": per_tf}
 
 

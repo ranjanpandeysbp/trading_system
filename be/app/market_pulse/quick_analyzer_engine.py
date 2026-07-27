@@ -456,9 +456,21 @@ def compute_technical_snapshot(df_raw: pd.DataFrame, min_bars: int = _TECH_MIN_B
     for row in indicator_rows:
         row.setdefault("description", describe_indicator(row["indicator"]))
 
+    from app.market_pulse.vol_regime import compute_vol_regime
+
+    vol_regime = compute_vol_regime(work)
+
     return {
         "price": round(price, 4),
         "atr": round(atr, 4) if atr is not None else None,
+        "vol_regime": (
+            {
+                "regime": vol_regime.regime, "atr_pct": vol_regime.atr_pct,
+                "atr_pct_rank": vol_regime.atr_pct_rank,
+                "rr_multiplier": vol_regime.rr_multiplier, "size_multiplier": vol_regime.size_multiplier,
+            }
+            if vol_regime else None
+        ),
         "ema": ema_rows,
         "sma": sma_rows,
         "indicators": indicator_rows,
@@ -574,14 +586,21 @@ def classify_quick_setup(
         breakout_down_pct = round(100.0 - up_pct, 1)
         reasons.insert(0, f"⚖️ Breakout lean: {breakout_up_pct:.0f}% chance of breaking UP vs {breakout_down_pct:.0f}% DOWN")
 
-    sl_pct = tp_pct = None
+    sl_pct = tp_pct = entry_price = size_multiplier = None
     if direction in ("LONG", "SHORT") and entry_snapshot:
         atr = entry_snapshot.get("atr")
         price = entry_snapshot.get("price")
         if atr and price:
+            entry_price = price
+            vol_regime = entry_snapshot.get("vol_regime") or {}
+            regime = vol_regime.get("regime", "NORMAL")
+            rr_mult = vol_regime.get("rr_multiplier", 1.0)
+            size_multiplier = vol_regime.get("size_multiplier", 1.0)
+            rr_ratio = round(_RR_RATIO * rr_mult, 2)
             sl_pct = round(min(8.0, max(0.3, atr * _SL_ATR_MULT / price * 100)), 2)
-            tp_pct = round(sl_pct * _RR_RATIO, 2)
-            reasons.append(f"Stop {sl_pct}% (ATR×{_SL_ATR_MULT} on the finest selected timeframe) · Target {tp_pct}% (1:{_RR_RATIO:.0f} R:R)")
+            tp_pct = round(sl_pct * rr_ratio, 2)
+            regime_note = f", {regime.lower()}-vol regime" if regime != "NORMAL" else ""
+            reasons.append(f"Stop {sl_pct}% (ATR×{_SL_ATR_MULT} on the finest selected timeframe) · Target {tp_pct}% (1:{rr_ratio:.2g} R:R{regime_note})")
 
     return {
         "direction": direction,
@@ -589,6 +608,8 @@ def classify_quick_setup(
         "score": round(score, 2),
         "sl_pct": sl_pct,
         "tp_pct": tp_pct,
+        "entry_price": entry_price,
+        "size_multiplier": size_multiplier,
         "breakout_up_pct": breakout_up_pct,
         "breakout_down_pct": breakout_down_pct,
         "ema_bullish": ema_bull, "ema_bearish": ema_bear, "ema_total": ema_total,

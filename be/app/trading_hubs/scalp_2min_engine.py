@@ -68,7 +68,13 @@ class Scalp2MinConfig:
 # ---------------------------------------------------------------------------
 
 def _fetch_2min_ohlcv(index_name: str, *, groww_token: str = "", exchange: str = "NSE", limit: int = 300) -> pd.DataFrame:
-    """1-minute index OHLC resampled to 2-minute bars (no native '2m' feed is wired up)."""
+    """1-minute index OHLC resampled to 2-minute bars (no native '2m' feed is
+    wired up). `fetch_index_ohlcv_for_interval` already drops a still-forming
+    1m bar, but a freshly-bucketed 2m bar built from a partial pair of 1m
+    bars can itself still be forming even though its source bars were each
+    individually closed — re-checked after the resample."""
+    from app.market_pulse.bar_utils import last_closed_bar
+
     df_1m = fetch_index_ohlcv_for_interval(
         index_name, "1m", limit=limit * 2 + 60, groww_token=groww_token, exchange=exchange,
     )
@@ -78,6 +84,7 @@ def _fetch_2min_ohlcv(index_name: str, *, groww_token: str = "", exchange: str =
     if "volume" in df_1m.columns:
         agg["volume"] = "sum"
     resampled = df_1m.resample("2min").agg(agg).dropna(subset=["open", "high", "low", "close"])
+    resampled = last_closed_bar(resampled, "2m")
     return resampled.tail(limit)
 
 

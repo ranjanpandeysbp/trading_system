@@ -74,11 +74,17 @@ def _yfinance_symbol(symbol: str, is_crypto: bool, market: str = "") -> str:
 
 
 def fetch_ohlcv_yfinance(symbol: str, tf_key: str, is_crypto: bool = False, limit: int = 300, market: str = "") -> pd.DataFrame:
-    """
-    Fetch OHLCV data from yfinance for gap analysis.
-    Returns a DataFrame with columns: open, high, low, close, volume
-    indexed by datetime.
-    """
+    """Fetch OHLCV data from yfinance for gap analysis. Returns a DataFrame
+    with columns open/high/low/close/volume indexed by datetime, with the
+    final row dropped if it's a still-forming candle for `tf_key` (yfinance
+    does return the current partial intraday candle during market hours)."""
+    from app.market_pulse.bar_utils import last_closed_bar
+
+    df = _fetch_ohlcv_yfinance_raw(symbol, tf_key, is_crypto=is_crypto, limit=limit, market=market)
+    return last_closed_bar(df, tf_key)
+
+
+def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False, limit: int = 300, market: str = "") -> pd.DataFrame:
     try:
         import yfinance as yf
 
@@ -157,11 +163,28 @@ def fetch_data_for_gap_scan(
     exchange: str = "NSE",
     limit: int = 300,
 ) -> pd.DataFrame:
+    """Unified data fetcher for gap scanning — and, by extension, for nearly
+    every scanning engine in this app, since they all fetch through here.
+
+    Tries Groww/CoinDCX APIs first; falls back to yfinance. Returns OHLCV
+    DataFrame or empty DataFrame on failure. The final row is dropped if
+    it's a still-forming candle for `timeframe` (see bar_utils.py) so every
+    caller scores confirmed bars only, without needing its own repaint gate.
     """
-    Unified data fetcher for gap scanning.
-    Tries Groww/CoinDCX APIs first; falls back to yfinance.
-    Returns OHLCV DataFrame or empty DataFrame on failure.
-    """
+    from app.market_pulse.bar_utils import last_closed_bar
+
+    df = _fetch_data_for_gap_scan_raw(symbol, timeframe, market, groww_token, exchange, limit=limit)
+    return last_closed_bar(df, timeframe)
+
+
+def _fetch_data_for_gap_scan_raw(
+    symbol: str,
+    timeframe: str,
+    market: str,
+    groww_token: str = "",
+    exchange: str = "NSE",
+    limit: int = 300,
+) -> pd.DataFrame:
     is_crypto = "CoinDCX" in market or "crypto" in market.lower()
     from app.market_pulse.ticker_utils import is_us_market
     is_us = is_us_market(market)

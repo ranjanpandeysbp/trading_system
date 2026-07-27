@@ -36,9 +36,17 @@ def _pair_to_display(pair: str) -> str:
 
 
 def fetch_change_24h() -> list[dict[str, Any]]:
-    """All CoinDCX USDT-margined pairs' 24h % change, high, low, volume.
+    """All CoinDCX USDT-margined pairs' 24h % change, high, low, volume, plus
+    a real `volatility_pct` (24h high-low range as % of price) — signed
+    `percent_change` tells you direction, not how much a pair actually
+    whipped around; a pair can end the day flat with a 20% high-low swing.
+    This tab is named "24Hrs Volatile Crypto", so `volatility_pct` is what a
+    volatility-seeking user (vol-selling, breakout, range plays) actually
+    wants to rank by — kept as an added field rather than changing the
+    default sort, since the existing gainers/losers view is its own
+    legitimate use case.
 
-    Sorted most-positive-change first, most-negative last.
+    Sorted most-positive-change first, most-negative last (unchanged).
     """
     try:
         resp = requests.get(
@@ -74,6 +82,7 @@ def fetch_change_24h() -> list[dict[str, Any]]:
         low = _to_float(item.get("low"))
         vol = _to_float(item.get("vol"))
         prev_close = price / (1 + pct_change / 100) if price and pct_change is not None and pct_change != -100 else None
+        volatility_pct = (high - low) / price * 100 if price and high is not None and low is not None else None
         out.append({
             "pair": pair,
             "ticker": _pair_to_display(pair),
@@ -82,6 +91,7 @@ def fetch_change_24h() -> list[dict[str, Any]]:
             "high": high,
             "low": low,
             "vol": vol,
+            "volatility_pct": round(volatility_pct, 2) if volatility_pct is not None else None,
             "day_bias": quote_bias(price, high, low, prev_close=prev_close, volume=vol),
         })
     out.sort(key=lambda r: (r["percent_change"] if r["percent_change"] is not None else -1e18), reverse=True)

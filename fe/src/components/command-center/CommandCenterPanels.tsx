@@ -696,6 +696,13 @@ function MomentumPanel({ data }: { data: Row }) {
             />
           </div>
 
+          <p className="text-xs text-amber-500/80">
+            Calibration check (walk-forward, 15 India stocks, ~9,300 signals, 2%/10-day target-stop): this
+            confidence score showed no meaningful difference in realized win rate between its highest bucket
+            (48.4%) and lowest (50.5%) — treat the number as a rough directional lean, not a validated
+            probability, until it's been recalibrated.
+          </p>
+
           {r.alignment != null && <p className="text-sm text-slate-400">{String(r.alignment)}</p>}
 
           {((r.reasons as string[]) ?? []).length > 0 && (
@@ -1118,6 +1125,13 @@ function WeakStrongPanel({ data }: { data: Row }) {
           {errors.map((e) => `${String(e.ticker)} · ${String(e.timeframe)}: ${String(e.error)}`).join(' · ')}
         </Alert>
       )}
+
+      <p className="text-xs text-amber-500/80">
+        Calibration check (walk-forward, 15 India stocks, ~6,400 signals, ATR-scaled target/stop): confidence
+        showed no meaningful difference in realized win rate between its highest bucket (50.0%) and the bulk
+        of the distribution (~49–51%) — treat the score as a rough directional lean, not a validated
+        probability, until it's been recalibrated.
+      </p>
 
       <div>
         <p className="mb-2 text-sm font-semibold text-slate-300">🟢 Strong — {strong.length}</p>
@@ -1920,7 +1934,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                   <>
                     <p className="mt-1 text-xs text-emerald-400">🟢 {patBullish.length} bullish pattern(s) formed:</p>
                     {patBullish.map((p, i) => (
-                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability{p.volume_confirmed === true ? ', volume-confirmed' : p.volume_confirmed === false ? ', thin volume' : ''}]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
                     ))}
                   </>
                 )}
@@ -1928,7 +1942,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                   <>
                     <p className="mt-1 text-xs text-rose-400">🔴 {patBearish.length} bearish pattern(s) formed:</p>
                     {patBearish.map((p, i) => (
-                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability{p.volume_confirmed === true ? ', volume-confirmed' : p.volume_confirmed === false ? ', thin volume' : ''}]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
                     ))}
                   </>
                 )}
@@ -1936,7 +1950,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                   <>
                     <p className="mt-1 text-xs text-slate-400">⚪ {patNeutral.length} neutral/indecision pattern(s):</p>
                     {patNeutral.map((p, i) => (
-                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
+                      <p key={i} className="text-xs text-slate-500">· <strong>{String(p.name ?? '—')}</strong> [{String(p.reliability ?? '—')} reliability{p.volume_confirmed === true ? ', volume-confirmed' : p.volume_confirmed === false ? ', thin volume' : ''}]{p.bars_ago != null ? ` (${String(p.bars_ago)} bar(s) ago)` : ''} — {String(p.description ?? p.notes ?? '')}</p>
                     ))}
                   </>
                 )}
@@ -3140,6 +3154,11 @@ function StockUpgradeDowngradePanel({ data }: { data: Row }) {
           {String(r.item_count ?? 0)} item(s) · Latest target {String(consensus.latest_target ?? '—')} ·
           {' '}Buy/Sell/Hold {String(consensus.buy ?? 0)}/{String(consensus.sell ?? 0)}/{String(consensus.hold ?? 0)}
         </p>
+        {consensus.weighted_buy != null && (
+          <p className="mt-1 text-xs text-slate-500">
+            Brokerage-tier &amp; recency-weighted (bulge-bracket &amp; same-day calls count more than an unrated/older one): Buy {fmtNum(consensus.weighted_buy, 1)} · Sell {fmtNum(consensus.weighted_sell, 1)} · Hold {fmtNum(consensus.weighted_hold, 1)}
+          </p>
+        )}
         {sitesChecked.length > 0 && (
           <p className="mt-2 text-xs text-slate-500">Sites checked: {sitesChecked.map((s) => `✅ ${s}`).join('  ')}</p>
         )}
@@ -3305,7 +3324,12 @@ function CoinDcxTile({ row }: { row: Row }) {
   return (
     <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800/60 bg-slate-900/40 shadow-sm">
       <div className="flex min-h-[128px] flex-col justify-between p-2.5" style={{ background: bg, color: fg }}>
-        <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+        <div>
+          <div className="text-base font-bold">{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
+          {row.volatility_pct != null && (
+            <div className="text-[10px] opacity-85">{(row.volatility_pct as number).toFixed(2)}% 24h range</div>
+          )}
+        </div>
         <div>
           <div className="text-[10px] opacity-85">Ticker name</div>
           <div className="flex items-center gap-1.5">
@@ -3363,14 +3387,25 @@ function CoinDcxTile({ row }: { row: Row }) {
 
 function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
   const rows = (data.rows as Row[]) ?? []
-  const [direction, setDirection] = useState<'gainers' | 'losers'>('gainers')
+  const [direction, setDirection] = useState<'gainers' | 'losers' | 'volatile'>('gainers')
   const [topN, setTopN] = useState<number | 'all'>(50)
 
   if (!rows.length) return <p className="text-sm text-slate-500">No data returned right now.</p>
 
+  // "Most volatile" ranks by real 24h high-low range %, not signed % change —
+  // a pair can close flat with a huge intraday swing; gainers/losers alone
+  // would never surface that, despite this tab being named for volatility.
+  const byVolatility = [...rows].sort((a, b) => {
+    const av = a.volatility_pct as number | null
+    const bv = b.volatility_pct as number | null
+    return (bv ?? -1) - (av ?? -1)
+  })
+
   const shown = direction === 'losers'
     ? [...rows].reverse().slice(0, topN === 'all' ? undefined : topN)
-    : rows.slice(0, topN === 'all' ? undefined : topN)
+    : direction === 'volatile'
+      ? byVolatility.slice(0, topN === 'all' ? undefined : topN)
+      : rows.slice(0, topN === 'all' ? undefined : topN)
 
   return (
     <div className="space-y-4">
@@ -3378,6 +3413,7 @@ function CoinDcx24hVolatilityPanel({ data }: { data: Row }) {
         <div className="flex gap-1.5">
           <Chip selected={direction === 'gainers'} onClick={() => setDirection('gainers')}>Top gainers</Chip>
           <Chip selected={direction === 'losers'} onClick={() => setDirection('losers')}>Top losers</Chip>
+          <Chip selected={direction === 'volatile'} onClick={() => setDirection('volatile')}>Most volatile (range %)</Chip>
         </div>
         <div className="flex gap-1.5">
           {[25, 50, 100, 200].map((n) => (
@@ -4463,6 +4499,26 @@ function QuickAnalyzerPanel({ data }: { data: Row }) {
               <ul className="mt-2 space-y-1 text-sm text-slate-300">
                 {(setup.reasons as string[]).map((rr, i) => <li key={i} className="flex gap-2"><span className="text-slate-500">•</span>{rr}</li>)}
               </ul>
+            )}
+            {setup.position_size != null && (
+              <div className="mt-3 rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Suggested position — sized off your paper account</p>
+                <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                  <div><p className="text-xs text-slate-500">Quantity</p><p className="font-medium text-white">{fmtNum((setup.position_size as Row).quantity, 0)}</p></div>
+                  <div><p className="text-xs text-slate-500">Notional</p><p className="font-medium text-white">₹{fmtNum((setup.position_size as Row).notional, 0)}</p></div>
+                  <div><p className="text-xs text-slate-500">Risk if stopped</p><p className="font-medium text-white">₹{fmtNum((setup.position_size as Row).risk_amount, 0)} ({fmtNum((setup.position_size as Row).risk_pct_of_equity, 2)}%)</p></div>
+                  <div><p className="text-xs text-slate-500">Portfolio risk already open</p><p className="font-medium text-white">{fmtNum((setup.position_size as Row).portfolio_open_risk_pct, 2)}%</p></div>
+                </div>
+                {Boolean((setup.position_size as Row).already_holding) && (
+                  <p className="mt-2 text-xs text-amber-400">You already hold a position in this ticker — check total exposure before adding more.</p>
+                )}
+                {Boolean((setup.position_size as Row).portfolio_at_risk_cap) && (
+                  <p className="mt-2 text-xs text-rose-400">Total open portfolio risk is already at/above the 6% cap — consider skipping new entries until existing risk comes down.</p>
+                )}
+                {Boolean((setup.position_size as Row).capped_by_cash) && (
+                  <p className="mt-2 text-xs text-slate-500">Size capped by available cash, not the risk formula.</p>
+                )}
+              </div>
             )}
             {(faCombo || ocCombo) && setup.technical_direction != null && (
               <p className="mt-2 text-xs text-slate-500">

@@ -318,6 +318,58 @@ def analyze_ticker_timeframe(
     }
 
 
+def _apply_htf_gate(results: list[dict[str, Any]]) -> None:
+    """Downgrade ACTIONABLE to WATCH when a strictly higher timeframe's
+    primary EMA disagrees — EMA crosses are the classic whipsaw trap in
+    chop, and a 1h breakout fighting the 1d EMA stack is a much weaker
+    signal than the single-timeframe bucket alone would suggest. Only
+    applies when the scan actually covers more than one timeframe for the
+    ticker (mutates `results` in place; no-op otherwise)."""
+    tf_rank = {tf: i for i, tf in enumerate(TIMEFRAME_OPTIONS)}
+    by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        if not r.get("error"):
+            by_ticker.setdefault(r["ticker"], []).append(r)
+
+    for rows in by_ticker.values():
+        if len(rows) < 2:
+            continue
+        for r in rows:
+            act = r.get("actionability") or {}
+            if act.get("bucket") != "ACTIONABLE" or act.get("direction") not in ("LONG", "SHORT"):
+                continue
+            my_rank = tf_rank.get(r["timeframe"])
+            if my_rank is None:
+                continue
+            by_period = {e["ema_period"]: e for e in (r.get("ema_summary") or [])}
+            primary = next((by_period[p] for p in _PRIMARY_EMA_PREFERENCE if p in by_period), None)
+            if not primary:
+                continue
+            primary_period = primary["ema_period"]
+
+            for other in rows:
+                other_rank = tf_rank.get(other["timeframe"])
+                if other_rank is None or other_rank <= my_rank:
+                    continue  # not a strictly higher timeframe than this signal
+                other_primary = {e["ema_period"]: e for e in (other.get("ema_summary") or [])}.get(primary_period)
+                if not other_primary:
+                    continue
+                htf_status = other_primary["status_to"]
+                conflict = (
+                    (act["direction"] == "LONG" and htf_status == "BELOW")
+                    or (act["direction"] == "SHORT" and htf_status == "ABOVE")
+                )
+                if conflict:
+                    act["bucket"] = "WATCH"
+                    act["confidence_pct"] = _BUCKET_BASE_CONFIDENCE["WATCH"]
+                    act["reason"] = (
+                        f"{act.get('reason', '')} Downgraded from ACTIONABLE: the higher {other['timeframe']} "
+                        f"timeframe's EMA {primary_period} is still {htf_status.lower()} price — this cross is "
+                        "fighting the bigger trend, a classic whipsaw setup."
+                    )
+                    break  # one higher-timeframe conflict is enough to downgrade
+
+
 def analyze_scan(
     tickers: list[str], market: str, cfg: EmaPositionConfig,
     from_date: date, to_date: date, *, groww_token: str = "", exchange: str = "NSE",
@@ -334,6 +386,7 @@ def analyze_scan(
             results.append({"ticker": ticker, "timeframe": tf, "error": str(exc)[:200]})
         if progress_callback:
             progress_callback(i / total, f"{ticker} · {tf}")
+    _apply_htf_gate(results)
     return results
 
 

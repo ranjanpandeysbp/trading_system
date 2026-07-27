@@ -530,8 +530,15 @@ def _implied_spot_for_price(
 
 def _build_trade_plan(
     action: str, chain: dict, spot: float, t_years: float, expiry: str, cfg: OptionShortLongConfig,
+    vol_regime: dict | None = None,
 ) -> dict[str, Any] | None:
-    """action: BUY_CALL / BUY_PUT / SELL_CALL / SELL_PUT."""
+    """action: BUY_CALL / BUY_PUT / SELL_CALL / SELL_PUT.
+
+    `vol_regime` (see vol_regime.py) flexes how much profit-taking patience
+    the plan allows: in a calm/trending regime it's worth waiting for a
+    bigger move (buyer) or more decay (seller) before taking profit; in an
+    extreme-vol regime, blow-off moves reverse fast, so both sides should
+    take profit sooner rather than hold out for the full target."""
     side = "call" if "CALL" in action else "put"
     is_buy = action.startswith("BUY")
     target_delta = cfg.buy_delta_target if is_buy else cfg.sell_delta_target
@@ -543,16 +550,18 @@ def _build_trade_plan(
     strike, premium, iv = leg["strike"], leg["premium"], leg.get("iv") or 0
     vol = max(iv, 1.0) / 100.0
     half_t = max(t_years * 0.5, 1 / 365.0)
+    rr_mult = (vol_regime or {}).get("rr_multiplier", 1.0)
+    regime_label = (vol_regime or {}).get("regime")
 
     if is_buy:
         stop_premium = round(premium * (1 - _BUY_STOP_LOSS_PCT), 2)
-        target_premium = round(premium * (1 + _BUY_TAKE_PROFIT_PCT), 2)
+        target_premium = round(premium * (1 + _BUY_TAKE_PROFIT_PCT * rr_mult), 2)
         stop_spot = _implied_spot_for_price(stop_premium, strike, half_t, vol, cfg.risk_free_rate, side, spot)
         target_spot = _implied_spot_for_price(target_premium, strike, half_t, vol, cfg.risk_free_rate, side, spot)
         max_loss_note = f"Max loss is capped at the premium paid (₹{premium:,.2f}/share) if you never average up — defined risk."
     else:
         stop_premium = round(premium * _SELL_STOP_LOSS_MULT, 2)
-        target_premium = round(premium * (1 - _SELL_TAKE_PROFIT_PCT), 2)
+        target_premium = round(premium * (1 - _SELL_TAKE_PROFIT_PCT * rr_mult), 2)
         stop_spot = _implied_spot_for_price(stop_premium, strike, half_t, vol, cfg.risk_free_rate, side, spot)
         target_spot = _implied_spot_for_price(target_premium, strike, half_t, vol, cfg.risk_free_rate, side, spot)
         max_loss_note = (
@@ -566,6 +575,7 @@ def _build_trade_plan(
         "stop_premium": stop_premium, "target_premium": target_premium,
         "stop_underlying": stop_spot, "target_underlying": target_spot,
         "is_buy": is_buy, "max_loss_note": max_loss_note,
+        "vol_regime": regime_label,
         "reward_risk_ratio": (
             round(abs(target_premium - premium) / max(abs(premium - stop_premium), 0.01), 2)
         ),
@@ -641,6 +651,11 @@ def analyze_ticker(
     skew = iv_skew_read(chain, spot)
     fii_dii = fii_dii if fii_dii is not None else fetch_fii_dii_sentiment()
 
+    from app.market_pulse.vol_regime import compute_vol_regime
+
+    vr = compute_vol_regime(df)
+    vol_regime = {"regime": vr.regime, "rr_multiplier": vr.rr_multiplier} if vr else None
+
     try:
         mom = analyze_timeframe(df, "1d", MomentumConfig()) or {}
     except Exception as exc:
@@ -659,7 +674,7 @@ def analyze_ticker(
     t_years = days_to_expiry / 365.0
 
     action = _decide_action(confluence["direction"], vol_env)
-    trade_plan = _build_trade_plan(action, expiry_chain, spot, t_years, expiry, cfg) if action else None
+    trade_plan = _build_trade_plan(action, expiry_chain, spot, t_years, expiry, cfg, vol_regime) if action else None
     payoff = build_payoff_curve(trade_plan, spot, cfg) if trade_plan else None
 
     reasons = [
@@ -738,6 +753,11 @@ def analyze_ticker_expiries(
     price_chg_pct = _daily_price_change_pct(df)
     fii_dii = fii_dii if fii_dii is not None else fetch_fii_dii_sentiment()
 
+    from app.market_pulse.vol_regime import compute_vol_regime
+
+    vr = compute_vol_regime(df)
+    vol_regime = {"regime": vr.regime, "rr_multiplier": vr.rr_multiplier} if vr else None
+
     try:
         mom = analyze_timeframe(df, "1d", MomentumConfig()) or {}
     except Exception as exc:
@@ -777,7 +797,7 @@ def analyze_ticker_expiries(
         t_years = days_to_expiry / 365.0
 
         action = _decide_action(confluence["direction"], vol_env)
-        trade_plan = _build_trade_plan(action, chain, spot, t_years, expiry, cfg) if action else None
+        trade_plan = _build_trade_plan(action, chain, spot, t_years, expiry, cfg, vol_regime) if action else None
         payoff = build_payoff_curve(trade_plan, spot, cfg) if trade_plan else None
 
         reasons = [

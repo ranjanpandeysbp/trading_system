@@ -47,9 +47,10 @@ async def _attach_day_range(
 
 
 class CommandCenterService:
-    def __init__(self, settings: SettingsService):
+    def __init__(self, settings: SettingsService, db: Any = None):
         self.settings = settings
         self.universe = TickerUniverseService()
+        self.db = db
 
     async def _ctx(self) -> tuple[str, str, str]:
         token = await self.settings.get_groww_token() or ""
@@ -892,6 +893,7 @@ class CommandCenterService:
         to_date: str | None = None,
         include_fundamentals: bool = False,
         include_option_chain: bool = False,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         from datetime import date as date_cls, timedelta
 
@@ -922,7 +924,66 @@ class CommandCenterService:
             return results
 
         results = await asyncio.to_thread(_run)
-        return json_safe({"market": market, "results": results})
+        portfolio = await self._attach_position_sizing(results, market)
+        return json_safe({"market": market, "results": results, "portfolio": portfolio})
+
+    async def _attach_position_sizing(self, results: list[dict[str, Any]], market: str) -> dict[str, Any] | None:
+        """Add a `position_size` block to each result's `setup` using real
+        account equity/cash and current open-position risk — the fix for
+        "every tab says what to buy and never how much." India-only for now
+        (paper trading is INR-denominated); other markets get no sizing
+        block rather than a wrong one."""
+        if self.db is None:
+            return None
+        try:
+            from app.data.yfinance_provider import normalize_ticker
+            from app.market_pulse.risk_engine import portfolio_open_risk, size_position
+            from app.market_pulse.ticker_utils import is_crypto_market, is_us_market
+            from app.services.paper_trading_service import PaperTradingService
+
+            if is_us_market(market) or is_crypto_market(market):
+                return None  # paper trading is INR-denominated — no sizing block rather than a wrong one
+
+            pts = PaperTradingService(self.db, self.settings)
+            account = await pts._get_or_create_account()
+            portfolio = await portfolio_open_risk(self.db, account.id)
+            if not portfolio.get("available"):
+                return None
+            equity = portfolio["equity"]
+            cash = portfolio["cash_balance"]
+            # position tickers are stored .NS-normalized (see paper_trading_service) —
+            # normalize the same way here so "RELIANCE" matches an open "RELIANCE.NS".
+            held_normalized = {normalize_ticker(t) for t in portfolio["same_ticker_counts"]}
+            for r in results:
+                setup = r.get("setup") or {}
+                if setup.get("direction") not in ("LONG", "SHORT"):
+                    continue
+                entry = setup.get("entry_price")
+                sl_pct = setup.get("sl_pct")
+                if not entry or not sl_pct:
+                    continue
+                stop = entry * (1 - sl_pct / 100.0) if setup["direction"] == "LONG" else entry * (1 + sl_pct / 100.0)
+                sized = size_position(
+                    entry, stop, equity,
+                    size_multiplier=setup.get("size_multiplier") or 1.0,
+                    available_cash=cash,
+                )
+                if sized:
+                    setup["position_size"] = {
+                        "quantity": sized.quantity,
+                        "notional": sized.notional,
+                        "risk_amount": sized.risk_amount,
+                        "risk_pct_of_equity": sized.risk_pct_of_equity,
+                        "capped_by_cash": sized.capped_by_cash,
+                        "portfolio_open_risk_pct": portfolio["total_open_risk_pct"],
+                        "already_holding": normalize_ticker(r.get("ticker") or "") in held_normalized,
+                        "portfolio_at_risk_cap": portfolio["at_risk_cap"],
+                    }
+            return portfolio
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("Position sizing failed: %s", exc)
+            return None
 
     async def option_chain(self, symbol: str, is_index: bool) -> dict[str, Any]:
         from app.market_pulse.option_chain_engine import (

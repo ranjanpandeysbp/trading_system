@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan, fetch_ohlcv_yfinance
-from app.market_pulse.indicators import add_obv, add_rsi
+from app.market_pulse.indicators import add_ema, add_obv, add_rsi
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,17 @@ _LOOKBACK_BARS = 500
 _MIN_BARS = 80
 _SWING_WINDOW = 5
 _DIVERGENCE_LOOKBACK = 60
+
+# A divergence needs both legs to actually move, not just tick — without this,
+# two swing points 0.05% apart in price and 0.3 RSI points apart would count
+# the same as a real divergence. Price leg is relative (%), oscillator legs
+# are on their own natural scale (RSI points / % of the lookback's OBV range).
+_MIN_PRICE_DELTA_PCT = 0.3
+_MIN_RSI_DELTA = 2.0
+_MIN_OBV_DELTA_PCT_OF_RANGE = 3.0
+
+# Canonical finer->coarser timeframe order for the higher-timeframe veto below.
+_TIMEFRAME_ORDER = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"]
 
 
 def _fetch_ohlcv(
@@ -76,10 +87,15 @@ def _swing_points_1d(values: np.ndarray, window: int) -> tuple[list[int], list[i
     return highs_idx, lows_idx
 
 
-def _divergence_for(price: np.ndarray, osc: np.ndarray, *, window: int, lookback: int) -> dict[str, Any]:
+def _divergence_for(
+    price: np.ndarray, osc: np.ndarray, *, window: int, lookback: int, min_osc_delta: float = 0.0,
+) -> dict[str, Any]:
     """Bullish (positive) / bearish (negative) divergence between price and one
     oscillator series, comparing the last two swing lows (bullish) / swing highs
-    (bearish) within the lookback window."""
+    (bearish) within the lookback window. Both legs must move by a real amount —
+    a sign disagreement alone isn't enough, or two swing points a fraction of a
+    percent apart in price and a fraction of an RSI point apart in the
+    oscillator would count the same as a genuine divergence."""
     n = len(price)
     start = max(0, n - lookback)
     p = price[start:]
@@ -90,7 +106,12 @@ def _divergence_for(price: np.ndarray, osc: np.ndarray, *, window: int, lookback
 
     if len(lows_idx) >= 2:
         i1, i2 = lows_idx[-2], lows_idx[-1]
-        if not (np.isnan(o[i1]) or np.isnan(o[i2])) and p[i2] < p[i1] and o[i2] > o[i1]:
+        price_delta_pct = abs(p[i2] - p[i1]) / p[i1] * 100 if p[i1] else 0.0
+        osc_delta = abs(o[i2] - o[i1]) if not (np.isnan(o[i1]) or np.isnan(o[i2])) else 0.0
+        if (
+            not (np.isnan(o[i1]) or np.isnan(o[i2])) and p[i2] < p[i1] and o[i2] > o[i1]
+            and price_delta_pct >= _MIN_PRICE_DELTA_PCT and osc_delta >= min_osc_delta
+        ):
             out["bullish"] = {
                 "price_1": round(float(p[i1]), 4), "price_2": round(float(p[i2]), 4),
                 "osc_1": round(float(o[i1]), 4), "osc_2": round(float(o[i2]), 4),
@@ -99,7 +120,12 @@ def _divergence_for(price: np.ndarray, osc: np.ndarray, *, window: int, lookback
 
     if len(highs_idx) >= 2:
         i1, i2 = highs_idx[-2], highs_idx[-1]
-        if not (np.isnan(o[i1]) or np.isnan(o[i2])) and p[i2] > p[i1] and o[i2] < o[i1]:
+        price_delta_pct = abs(p[i2] - p[i1]) / p[i1] * 100 if p[i1] else 0.0
+        osc_delta = abs(o[i2] - o[i1]) if not (np.isnan(o[i1]) or np.isnan(o[i2])) else 0.0
+        if (
+            not (np.isnan(o[i1]) or np.isnan(o[i2])) and p[i2] > p[i1] and o[i2] < o[i1]
+            and price_delta_pct >= _MIN_PRICE_DELTA_PCT and osc_delta >= min_osc_delta
+        ):
             out["bearish"] = {
                 "price_1": round(float(p[i1]), 4), "price_2": round(float(p[i2]), 4),
                 "osc_1": round(float(o[i1]), 4), "osc_2": round(float(o[i2]), 4),
@@ -186,27 +212,83 @@ def analyze_ticker(
 
     work = add_rsi(df.copy(), 14)
     work = add_obv(work)
+    work = add_ema(work, 50)
     close = work["close"].values
 
-    rsi_div = _divergence_for(close, work["rsi_14"].values, window=_SWING_WINDOW, lookback=_DIVERGENCE_LOOKBACK)
-    vol_div = _divergence_for(close, work["obv"].values, window=_SWING_WINDOW, lookback=_DIVERGENCE_LOOKBACK)
+    lookback_start = max(0, len(work) - _DIVERGENCE_LOOKBACK)
+    obv_window = work["obv"].values[lookback_start:]
+    obv_range = float(np.nanmax(obv_window) - np.nanmin(obv_window)) if len(obv_window) else 0.0
+    min_obv_delta = obv_range * _MIN_OBV_DELTA_PCT_OF_RANGE / 100.0
+
+    rsi_div = _divergence_for(
+        close, work["rsi_14"].values, window=_SWING_WINDOW, lookback=_DIVERGENCE_LOOKBACK,
+        min_osc_delta=_MIN_RSI_DELTA,
+    )
+    vol_div = _divergence_for(
+        close, work["obv"].values, window=_SWING_WINDOW, lookback=_DIVERGENCE_LOOKBACK,
+        min_osc_delta=min_obv_delta,
+    )
     bias, confidence, reasons = _classify(rsi_div, vol_div)
+
+    last_price = float(work["close"].iloc[-1])
+    ema50 = work["ema_50"].iloc[-1]
+    trend_context = ("ABOVE_EMA50" if last_price > ema50 else "BELOW_EMA50") if not pd.isna(ema50) else None
 
     return {
         "ticker": ticker, "market": market, "timeframe": timeframe,
-        "price": float(work["close"].iloc[-1]),
+        "price": last_price,
         "bias": bias,
         "confidence_pct": confidence,
         "rsi_divergence": rsi_div,
         "volume_divergence": vol_div,
+        "trend_context": trend_context,
         "reasons": reasons,
     }
+
+
+def _apply_htf_veto(per_tf: dict[str, dict[str, Any]]) -> None:
+    """Discount (not delete) a divergence bias that fights a strictly higher
+    timeframe's EMA-50 trend — a 15m bearish divergence against a strongly
+    bullish 1d chart is a classic "don't fight the trend" trap; the read
+    isn't worthless, but it's a lower-probability counter-trend fade, not a
+    full-confidence reversal call. Mutates `per_tf` in place."""
+    tf_rank = {tf: i for i, tf in enumerate(_TIMEFRAME_ORDER)}
+    valid = {tf: r for tf, r in per_tf.items() if not r.get("error")}
+    if len(valid) < 2:
+        return
+    for tf, r in valid.items():
+        if r.get("bias") not in ("BULLISH", "BEARISH"):
+            continue
+        my_rank = tf_rank.get(tf)
+        if my_rank is None:
+            continue
+        for other_tf, other in valid.items():
+            other_rank = tf_rank.get(other_tf)
+            if other_rank is None or other_rank <= my_rank:
+                continue
+            htf_trend = other.get("trend_context")
+            if not htf_trend:
+                continue
+            conflict = (
+                (r["bias"] == "BULLISH" and htf_trend == "BELOW_EMA50")
+                or (r["bias"] == "BEARISH" and htf_trend == "ABOVE_EMA50")
+            )
+            if conflict:
+                r["confidence_pct"] = round(r["confidence_pct"] * 0.6, 1)
+                r["reasons"].append(
+                    f"⚠️ Counter-trend: the higher {other_tf} timeframe is still {htf_trend.replace('_', ' ').lower()} "
+                    "— this divergence is fighting the bigger trend, a lower-probability fade rather than a "
+                    "full-confidence reversal. Confidence discounted accordingly."
+                )
+                break  # one higher-timeframe conflict is enough to discount
 
 
 def analyze_ticker_multi_tf(
     ticker: str, timeframes: list[str], market: str, *, groww_token: str = "", exchange: str = "NSE",
 ) -> dict[str, Any]:
-    """One ticker, independently analyzed **per selected timeframe**."""
+    """One ticker, independently analyzed **per selected timeframe**, then a
+    higher-timeframe veto discounts any bias that fights a coarser
+    timeframe's prevailing trend."""
     per_tf: dict[str, dict[str, Any]] = {}
     for tf in timeframes:
         try:
@@ -214,6 +296,7 @@ def analyze_ticker_multi_tf(
         except Exception as exc:
             logger.debug("Divergence analysis failed for %s %s: %s", ticker, tf, exc)
             per_tf[tf] = {"ticker": ticker, "market": market, "timeframe": tf, "error": str(exc)[:200]}
+    _apply_htf_veto(per_tf)
     return {"ticker": ticker, "market": market, "per_tf": per_tf}
 
 

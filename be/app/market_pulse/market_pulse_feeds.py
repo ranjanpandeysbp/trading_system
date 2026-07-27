@@ -395,13 +395,53 @@ def filter_analyst_calls_for_ticker(
     return matched[:max_calls]
 
 
+# Brokerage tier -> weight, so a bulge-bracket call and an unrated aggregator
+# blurb don't count the same toward consensus. Tiers reflect real
+# market-moving influence (global bulge-bracket > large India/regional desk >
+# smaller regional desk > unrated/unknown), not a judgment on research
+# quality — this only affects the weighted consensus verdict below; raw
+# buy/sell/hold counts are left untouched for transparency.
+_BROKERAGE_TIER_WEIGHT = {
+    # Tier 1 — global bulge-bracket
+    "Goldman Sachs": 3.0, "Morgan Stanley": 3.0, "JPMorgan": 3.0, "Bank of America": 3.0,
+    "BofA": 3.0, "Citi": 3.0, "UBS": 3.0, "Credit Suisse": 3.0, "Deutsche Bank": 3.0,
+    "Barclays": 3.0, "Nomura": 3.0, "Macquarie": 3.0, "Jefferies": 3.0, "CLSA": 3.0,
+    "RBC": 3.0, "Wells Fargo": 3.0,
+    # Tier 2 — large India / established regional desks
+    "Motilal Oswal": 2.0, "ICICI Securities": 2.0, "HDFC Securities": 2.0,
+    "Kotak": 2.0, "Axis Capital": 2.0, "Edelweiss": 2.0,
+    # Tier 3 — smaller regional desks
+    "Emkay": 1.0, "Sharekhan": 1.0, "Prabhudas Lilladher": 1.0, "Nirmal Bang": 1.0,
+    "Angel One": 1.0, "Wedbush": 1.0,
+}
+_UNRATED_BROKERAGE_WEIGHT = 0.6  # unattributed / unmatched source — likely an aggregator, not a named desk
+_RECENCY_HALF_LIFE_HOURS = 96.0  # a call's weight halves every ~4 days; floors at 0.15 so old calls still count a little
+
+
+def _call_weight(call: dict) -> float:
+    brokerage_w = _BROKERAGE_TIER_WEIGHT.get(call.get("brokerage", "—"), _UNRATED_BROKERAGE_WEIGHT)
+    age_hours = call.get("age_hours")
+    if age_hours is None:
+        recency_w = 1.0
+    else:
+        try:
+            recency_w = max(0.15, 0.5 ** (float(age_hours) / _RECENCY_HALF_LIFE_HOURS))
+        except (TypeError, ValueError):
+            recency_w = 1.0
+    return brokerage_w * recency_w
+
+
 def summarize_analyst_consensus(calls: list[dict]) -> dict:
-    """Aggregate buy/sell/hold and upgrade/downgrade counts."""
+    """Aggregate buy/sell/hold and upgrade/downgrade counts, plus a
+    brokerage-tier- and recency-weighted consensus verdict — a same-day
+    bulge-bracket downgrade should move the needle more than a three-week-old
+    unrated blog's "buy", not count identically to it."""
     if not calls:
         return {
             "buy": 0, "sell": 0, "hold": 0,
             "upgrades": 0, "downgrades": 0, "target_raises": 0, "target_cuts": 0,
             "consensus": "NO DATA",
+            "weighted_buy": 0.0, "weighted_sell": 0.0, "weighted_hold": 0.0,
             "latest_target": "—",
             "call_count": 0,
         }
@@ -413,11 +453,15 @@ def summarize_analyst_consensus(calls: list[dict]) -> dict:
     target_raises = sum(1 for c in calls if c.get("call_type") == "TARGET_RAISE")
     target_cuts = sum(1 for c in calls if c.get("call_type") == "TARGET_CUT")
 
-    if buy > sell and buy >= hold:
+    weighted_buy = sum(_call_weight(c) for c in calls if c.get("action") == "BUY")
+    weighted_sell = sum(_call_weight(c) for c in calls if c.get("action") == "SELL")
+    weighted_hold = sum(_call_weight(c) for c in calls if c.get("action") == "HOLD")
+
+    if weighted_buy > weighted_sell and weighted_buy >= weighted_hold:
         consensus = "BULLISH"
-    elif sell > buy and sell >= hold:
+    elif weighted_sell > weighted_buy and weighted_sell >= weighted_hold:
         consensus = "BEARISH"
-    elif hold >= buy and hold >= sell:
+    elif weighted_hold >= weighted_buy and weighted_hold >= weighted_sell:
         consensus = "NEUTRAL"
     else:
         consensus = "MIXED"
@@ -438,6 +482,9 @@ def summarize_analyst_consensus(calls: list[dict]) -> dict:
         "target_raises": target_raises,
         "target_cuts": target_cuts,
         "consensus": consensus,
+        "weighted_buy": round(weighted_buy, 2),
+        "weighted_sell": round(weighted_sell, 2),
+        "weighted_hold": round(weighted_hold, 2),
         "latest_target": latest_target,
         "call_count": len(calls),
     }

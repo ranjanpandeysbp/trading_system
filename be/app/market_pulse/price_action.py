@@ -884,11 +884,20 @@ def _validate_corrective(pivots, close):
 # 7. CANDLESTICK PATTERN RECOGNITION
 # ==========================================================================
 
+_CANDLESTICK_DOWNGRADE = {"VERY HIGH": "HIGH", "HIGH": "MODERATE", "MODERATE": "LOW"}
+
+
 def detect_candlestick_patterns(df):
     """
     Detect candlestick patterns in the last ~10 bars.
 
-    Returns list of {name, type, bias, bar_idx, reliability, description}
+    Volume is the single biggest tell separating a real reversal candle from
+    noise, so every pattern is checked against its own 20-bar average volume:
+    a pattern on below-average volume gets its reliability tier downgraded
+    one notch (and `volume_confirmed=False`) rather than being discarded
+    outright — a thin-volume Hammer is a weaker signal, not a fake one.
+
+    Returns list of {name, type, bias, bar_idx, reliability, volume_confirmed, description}
     """
     patterns = []
     if df.empty or len(df) < 5:
@@ -899,6 +908,20 @@ def detect_candlestick_patterns(df):
     l = df["low"].values.astype(float)
     c = df["close"].values.astype(float)
     n = len(df)
+
+    has_volume = "volume" in df.columns and float(df["volume"].tail(20).sum()) > 0
+    vol = df["volume"].values.astype(float) if has_volume else None
+    vol_avg = df["volume"].rolling(20, min_periods=5).mean().values if has_volume else None
+
+    def _append(pattern: dict) -> None:
+        idx = pattern["bar_idx"]
+        confirmed = None
+        if has_volume and vol_avg is not None and not pd.isna(vol_avg[idx]) and vol_avg[idx] > 0:
+            confirmed = bool(vol[idx] >= vol_avg[idx] * 1.1)
+            if not confirmed:
+                pattern["reliability"] = _CANDLESTICK_DOWNGRADE.get(pattern["reliability"], pattern["reliability"])
+        pattern["volume_confirmed"] = confirmed
+        patterns.append(pattern)
 
     # Only scan last 10 bars
     start = max(3, n - 10)
@@ -919,7 +942,7 @@ def detect_candlestick_patterns(df):
         # ── Single candle patterns ──
         # Doji
         if body_ratio < 0.1:
-            patterns.append({
+            _append({
                 "name": "Doji", "type": "single",
                 "bias": "NEUTRAL", "bar_idx": i, "bars_ago": bars_ago,
                 "reliability": "MODERATE",
@@ -928,7 +951,7 @@ def detect_candlestick_patterns(df):
 
         # Hammer (bullish reversal at bottom)
         elif lower_wick > body * 2 and upper_wick < body * 0.5 and i > 1 and c[i-1] < o[i-1]:
-            patterns.append({
+            _append({
                 "name": "Hammer", "type": "single",
                 "bias": "BULLISH", "bar_idx": i, "bars_ago": bars_ago,
                 "reliability": "HIGH",
@@ -937,7 +960,7 @@ def detect_candlestick_patterns(df):
 
         # Shooting Star (bearish reversal at top)
         elif upper_wick > body * 2 and lower_wick < body * 0.5 and i > 1 and c[i-1] > o[i-1]:
-            patterns.append({
+            _append({
                 "name": "Shooting Star", "type": "single",
                 "bias": "BEARISH", "bar_idx": i, "bars_ago": bars_ago,
                 "reliability": "HIGH",
@@ -947,7 +970,7 @@ def detect_candlestick_patterns(df):
         # Marubozu (strong momentum)
         elif body_ratio > 0.9:
             bias = "BULLISH" if is_bullish else "BEARISH"
-            patterns.append({
+            _append({
                 "name": f"{'Bullish' if is_bullish else 'Bearish'} Marubozu", "type": "single",
                 "bias": bias, "bar_idx": i, "bars_ago": bars_ago,
                 "reliability": "HIGH",
@@ -961,7 +984,7 @@ def detect_candlestick_patterns(df):
 
             # Bullish Engulfing
             if not prev_bullish and is_bullish and c[i] > o[i-1] and o[i] < c[i-1] and body > prev_body:
-                patterns.append({
+                _append({
                     "name": "Bullish Engulfing", "type": "double",
                     "bias": "BULLISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "HIGH",
@@ -970,7 +993,7 @@ def detect_candlestick_patterns(df):
 
             # Bearish Engulfing
             elif prev_bullish and not is_bullish and c[i] < o[i-1] and o[i] > c[i-1] and body > prev_body:
-                patterns.append({
+                _append({
                     "name": "Bearish Engulfing", "type": "double",
                     "bias": "BEARISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "HIGH",
@@ -979,7 +1002,7 @@ def detect_candlestick_patterns(df):
 
             # Piercing Line
             if not prev_bullish and is_bullish and o[i] < l[i-1] and c[i] > (o[i-1] + c[i-1]) / 2:
-                patterns.append({
+                _append({
                     "name": "Piercing Line", "type": "double",
                     "bias": "BULLISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "MODERATE",
@@ -988,7 +1011,7 @@ def detect_candlestick_patterns(df):
 
             # Dark Cloud Cover
             if prev_bullish and not is_bullish and o[i] > h[i-1] and c[i] < (o[i-1] + c[i-1]) / 2:
-                patterns.append({
+                _append({
                     "name": "Dark Cloud Cover", "type": "double",
                     "bias": "BEARISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "MODERATE",
@@ -1001,7 +1024,7 @@ def detect_candlestick_patterns(df):
             prev2_bearish = c[i-2] < o[i-2]
             prev1_small = abs(c[i-1] - o[i-1]) / (h[i-1] - l[i-1] + 1e-10) < 0.3
             if prev2_bearish and prev1_small and is_bullish and c[i] > (o[i-2] + c[i-2]) / 2:
-                patterns.append({
+                _append({
                     "name": "Morning Star", "type": "triple",
                     "bias": "BULLISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "VERY HIGH",
@@ -1011,7 +1034,7 @@ def detect_candlestick_patterns(df):
             # Evening Star
             prev2_bullish = c[i-2] > o[i-2]
             if prev2_bullish and prev1_small and not is_bullish and c[i] < (o[i-2] + c[i-2]) / 2:
-                patterns.append({
+                _append({
                     "name": "Evening Star", "type": "triple",
                     "bias": "BEARISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "VERY HIGH",
@@ -1021,7 +1044,7 @@ def detect_candlestick_patterns(df):
             # Three White Soldiers
             if (c[i] > o[i] and c[i-1] > o[i-1] and c[i-2] > o[i-2] and
                 c[i] > c[i-1] > c[i-2] and o[i] > o[i-1] > o[i-2]):
-                patterns.append({
+                _append({
                     "name": "Three White Soldiers", "type": "triple",
                     "bias": "BULLISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "VERY HIGH",
@@ -1031,7 +1054,7 @@ def detect_candlestick_patterns(df):
             # Three Black Crows
             if (c[i] < o[i] and c[i-1] < o[i-1] and c[i-2] < o[i-2] and
                 c[i] < c[i-1] < c[i-2] and o[i] < o[i-1] < o[i-2]):
-                patterns.append({
+                _append({
                     "name": "Three Black Crows", "type": "triple",
                     "bias": "BEARISH", "bar_idx": i, "bars_ago": bars_ago,
                     "reliability": "VERY HIGH",

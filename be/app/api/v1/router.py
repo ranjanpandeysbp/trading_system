@@ -72,7 +72,10 @@ from app.models.schemas import (
     StrategyLabBacktestRequest,
     StrategyLabMultiComboRequest,
     StrategyLabScreenerRequest,
+    StrategyLeaderboardRequest,
+    SaveBacktestReportRequest,
     TokenResponse,
+    Swing5ScanRequest,
     TradingHubScanRequest,
     TaScreenerRunRequest,
     UserLogin,
@@ -93,6 +96,7 @@ from app.services.paper_trading_service import PaperTradingService
 from app.services.scanner_service import ScannerService
 from app.services.seasonality_service import SeasonalityService
 from app.services.strategy_lab_service import StrategyLabService
+from app.services.strategy_leaderboard_service import StrategyLeaderboardService
 from app.services.ta_screener_service import TaScreenerService
 from app.services.etf_ta_service import EtfTaService
 from app.services.trading_hub_service import TradingHubService
@@ -1324,7 +1328,7 @@ async def command_center_quick_analyzer(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await CommandCenterService(SettingsService(db)).quick_analyzer(
+    return await CommandCenterService(SettingsService(db), db).quick_analyzer(
         payload.tickers,
         payload.timeframes,
         asset_class=payload.asset_class,
@@ -1332,6 +1336,7 @@ async def command_center_quick_analyzer(
         to_date=payload.to_date,
         include_fundamentals=payload.include_fundamentals,
         include_option_chain=payload.include_option_chain,
+        user_id=current_user.id,
     )
 
 
@@ -1436,6 +1441,107 @@ async def strategy_lab_screener(
 ):
     service = StrategyLabService(SettingsService(db))
     return await service.screener_scan(payload.model_dump())
+
+
+@router.get("/strategy-lab/leaderboard/catalog")
+async def strategy_leaderboard_catalog(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLeaderboardService(SettingsService(db))
+    return await service.strategies_catalog()
+
+
+@router.post("/strategy-lab/leaderboard/run")
+async def strategy_leaderboard_run(
+    payload: StrategyLeaderboardRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Synchronous run — fine for a quick 1-2 strategy / 1 ticker check, but
+    a full leaderboard across many strategies can take minutes; prefer
+    /leaderboard/start + polling /leaderboard/jobs/{id} for that."""
+    service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.run(
+        payload.tickers, payload.timeframes,
+        asset_class=payload.asset_class, strategy_ids=payload.strategy_ids,
+        bars=payload.bars, forward_bars=payload.forward_bars,
+    )
+
+
+@router.post("/strategy-lab/leaderboard/start")
+async def strategy_leaderboard_start(
+    payload: StrategyLeaderboardRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off a leaderboard run as a background job and return immediately
+    with a job id — the right shape for a computation that can take minutes.
+    Poll GET /strategy-lab/leaderboard/jobs/{id} for progress and the
+    eventual result."""
+    from app.services.strategy_leaderboard_jobs import create_job, run_leaderboard_job
+
+    job = create_job()
+    run_leaderboard_job(
+        job.id, payload.tickers, payload.timeframes,
+        asset_class=payload.asset_class, strategy_ids=payload.strategy_ids,
+        bars=payload.bars, forward_bars=payload.forward_bars,
+    )
+    return {"job_id": job.id, "status": job.status}
+
+
+@router.get("/strategy-lab/leaderboard/jobs/{job_id}")
+async def strategy_leaderboard_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.strategy_leaderboard_jobs import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return {
+        "job_id": job.id, "status": job.status, "progress": job.progress,
+        "progress_note": job.progress_note, "result": job.result, "error": job.error,
+    }
+
+
+@router.post("/strategy-lab/leaderboard/reports")
+async def strategy_leaderboard_save_report(
+    payload: SaveBacktestReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.save_report(payload.name, payload.payload, user_id=current_user.id)
+
+
+@router.get("/strategy-lab/leaderboard/reports")
+async def strategy_leaderboard_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.list_reports(user_id=current_user.id)
+
+
+@router.get("/strategy-lab/leaderboard/reports/{report_id}")
+async def strategy_leaderboard_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.get_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/strategy-lab/leaderboard/reports/{report_id}")
+async def strategy_leaderboard_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.delete_report(report_id, user_id=current_user.id)
 
 
 @router.post("/seasonality/analyze")
@@ -1792,13 +1898,33 @@ async def trading_hubs_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    service = TradingHubService(SettingsService(db))
+    service = TradingHubService(SettingsService(db), db)
     return await service.scan(
         payload.section_id,
         payload.tickers,
         asset_class=payload.asset_class,
         config=payload.config,
         run_bt=payload.run_backtest,
+        user_id=current_user.id,
+    )
+
+
+@router.post("/trading-hubs/swing-5/scan")
+async def trading_hubs_swing5_scan(
+    payload: Swing5ScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Swing Trading — 5 Strategies: multi-strategy/multi-timeframe scan,
+    kept as its own endpoint since its {strategy: {hits, misses, errors}}
+    shape doesn't fit the generic /trading-hubs/scan results-list contract."""
+    service = TradingHubService(SettingsService(db), db)
+    return await service.scan_swing5(
+        payload.tickers,
+        payload.timeframes,
+        payload.strategies,
+        asset_class=payload.asset_class,
+        config=payload.config,
     )
 
 
