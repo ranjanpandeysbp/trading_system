@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { DataTable, SortableTh, Td } from '../ui/Table'
+import { DataTable, SortableTh, Td, Th } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 
 type Row = Record<string, unknown>
 
@@ -59,12 +60,30 @@ function compareRows(a: Row, b: Row, key: SortKey): number {
   }
 }
 
-export function TradingHubResultsPanel({ data }: { data: Row }) {
+// Walk-forward calibration notes (15 India stocks, ATR-scaled target/stop) for
+// the Trading Hub sections that have actually been checked against history so
+// far — most of the other 28 sections have never been backtested at all, so
+// there's nothing calibrated to report for them yet.
+const CALIBRATION_NOTES: Record<string, string> = {
+  swing_trading_st:
+    "Calibration check: the Mean-Reversion mode never fired once across 15 stocks over ~3 years — each entry " +
+    "condition (RSI<30, 2x volume, reversal candle) occurs individually, but the three together essentially " +
+    "never do on liquid large-caps. The Continuation-Breakout mode fired 334 times at a pooled 46.9% win rate " +
+    "(1:1 ATR-scaled target/stop) — no confidence bucket above the dominant 65-75% one had enough samples to " +
+    "trust. Treat both modes' confidence scores as unvalidated until recalibrated.",
+  swing_trading_st_simple_steal:
+    "Calibration check (walk-forward, 15 India stocks, 145 signals, ATR-scaled target/stop): pooled win rate " +
+    "43.6% — below breakeven at this test's 1:1 ratio. Treat the confidence score as unvalidated, not a " +
+    "probability, until recalibrated.",
+}
+
+export function TradingHubResultsPanel({ data, sectionId }: { data: Row; sectionId?: string }) {
   const results = (data.results as Row[]) ?? []
   const entries = (data.entries as Row[]) ?? []
   const [selected, setSelected] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('confidence_pct')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const calibrationNote = sectionId ? CALIBRATION_NOTES[sectionId] : undefined
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -93,6 +112,7 @@ export function TradingHubResultsPanel({ data }: { data: Row }) {
 
   return (
     <div className="space-y-4">
+      {calibrationNote && <p className="text-xs text-amber-500/80">{calibrationNote}</p>}
       <div className="flex flex-wrap gap-3 text-sm text-slate-400">
         {data.entry_count != null && (
           <span>Actionable: <strong className="text-white">{String(data.entry_count)}</strong></span>
@@ -125,6 +145,7 @@ export function TradingHubResultsPanel({ data }: { data: Row }) {
             <SortableTh active={sortKey === 'last_close'} direction={sortDir} onSort={() => handleSort('last_close')}>
               Last
             </SortableTh>
+            <Th>Watch</Th>
           </tr>
         </thead>
         <tbody>
@@ -132,6 +153,10 @@ export function TradingHubResultsPanel({ data }: { data: Row }) {
             const live = rowLive(r)
             const ticker = rowTicker(r) || '—'
             const err = r.error ? String(r.error) : null
+            // sl_pct/tp_pct are 0 (not null) when there's no live signal — entry
+            // == stop == target in that placeholder state, so treat an exact
+            // zero as "no real level" rather than rendering a meaningless -0/+0.
+            const actionable = live.sl_pct != null && Number(live.sl_pct) !== 0
             return (
               <tr
                 key={ticker}
@@ -143,10 +168,15 @@ export function TradingHubResultsPanel({ data }: { data: Row }) {
                   {err ?? String(live.verdict ?? '—')}
                 </Td>
                 <Td>{live.confidence_pct != null ? `${live.confidence_pct}%` : '—'}</Td>
-                <Td>{live.sl_pct != null ? `-${live.sl_pct}` : '—'}</Td>
-                <Td>{live.tp_pct != null ? `+${live.tp_pct}` : '—'}</Td>
-                <Td className="max-w-[10rem] truncate text-xs">{String(live.hold_duration ?? '—')}</Td>
+                <Td>{actionable ? `-${live.sl_pct}` : '—'}</Td>
+                <Td>{actionable ? `+${live.tp_pct}` : '—'}</Td>
+                <Td className="max-w-[10rem] truncate text-xs">{actionable ? String(live.hold_duration ?? '—') : '—'}</Td>
                 <Td>{r.last_close != null ? `₹${Number(r.last_close).toFixed(2)}` : '—'}</Td>
+                <Td>
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <AddToWatchlistButton ticker={ticker} compact />
+                  </span>
+                </Td>
               </tr>
             )
           })}
@@ -166,6 +196,29 @@ export function TradingHubResultsPanel({ data }: { data: Row }) {
               {((selectedRow.live as Row)?.phase != null) && (
                 <p>Phase: <strong>{String((selectedRow.live as Row).phase)}</strong></p>
               )}
+              {((selectedRow.live as Row)?.position_size != null) && (() => {
+                const ps = (selectedRow.live as Row).position_size as Row
+                return (
+                  <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Suggested position — sized off your paper account</p>
+                    <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                      <div><p className="text-xs text-slate-500">Quantity</p><p className="font-medium text-white">{String(ps.quantity)}</p></div>
+                      <div><p className="text-xs text-slate-500">Notional</p><p className="font-medium text-white">₹{Number(ps.notional).toLocaleString('en-IN')}</p></div>
+                      <div><p className="text-xs text-slate-500">Risk if stopped</p><p className="font-medium text-white">₹{Number(ps.risk_amount).toLocaleString('en-IN')} ({Number(ps.risk_pct_of_equity).toFixed(2)}%)</p></div>
+                      <div><p className="text-xs text-slate-500">Portfolio risk already open</p><p className="font-medium text-white">{Number(ps.portfolio_open_risk_pct).toFixed(2)}%</p></div>
+                    </div>
+                    {Boolean(ps.already_holding) && (
+                      <p className="mt-2 text-xs text-amber-400">You already hold a position in this ticker — check total exposure before adding more.</p>
+                    )}
+                    {Boolean(ps.portfolio_at_risk_cap) && (
+                      <p className="mt-2 text-xs text-rose-400">Total open portfolio risk is already at/above the 6% cap — consider skipping new entries until existing risk comes down.</p>
+                    )}
+                    {Boolean(ps.capped_by_cash) && (
+                      <p className="mt-2 text-xs text-slate-500">Size capped by available cash, not the risk formula.</p>
+                    )}
+                  </div>
+                )
+              })()}
               {(selectedRow.backtest as Row | undefined)?.pnl_pct != null && (
                 <p className="text-slate-400">
                   Backtest PnL: {Number((selectedRow.backtest as Row).pnl_pct).toFixed(2)}%

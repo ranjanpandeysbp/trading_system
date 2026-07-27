@@ -22,9 +22,12 @@ from app.trading_hubs import (
     scalp_livefree_fx_engine,
     scalp_smc_engine,
     scalp_sr_mss_engine,
+    scalp_weekly_engine,
+    weekly_candle_continuation_engine,
     sc_fvg_engine,
     smb_snp_engine,
     smc_cisd_engine,
+    smc_htf_zone_sweep_engine,
     smc_golden_bullet_engine,
     smc_lewiskelly_engine,
     smc_liquidity_engine,
@@ -32,7 +35,9 @@ from app.trading_hubs import (
     smc_sc_best_engine,
     smc_ttg_sniper_engine,
     smc_weekly_sweep_cisd_engine,
+    swing_5_strategies_engine,
     swing_trading_st_engine,
+    swing_trend_breakout_engine,
     swing_trading_st_ha_ema_engine,
     swing_trading_st_kiss_engine,
     swing_trading_st_mtf_mss_engine,
@@ -55,6 +60,10 @@ def _section(
     config_options: dict[str, Any] | None = None,
     fixed_universe: list[str] | None = None,
     fixed_universe_label: str | None = None,
+    multi_strategy: bool = False,
+    strategy_keys: list[str] | None = None,
+    strategy_labels: dict[str, str] | None = None,
+    timeframe_options: list[str] | None = None,
 ) -> HubSection:
     return {
         "id": id,
@@ -68,6 +77,14 @@ def _section(
         # ignores client-selected tickers (engine uses this fixed list instead).
         "fixed_universe": fixed_universe,
         "fixed_universe_label": fixed_universe_label,
+        # When set, this section is a multi-strategy/multi-timeframe scanner
+        # (e.g. Swing 5 Strategies) that doesn't fit the generic single-config
+        # scan flow — the FE routes it to a dedicated panel + endpoint instead
+        # of the standard run_section_scan path.
+        "multi_strategy": multi_strategy,
+        "strategy_keys": strategy_keys or [],
+        "strategy_labels": strategy_labels or {},
+        "timeframe_options": timeframe_options or [],
     }
 
 
@@ -239,6 +256,68 @@ HUB_SECTIONS: list[HubSection] = [
         config_cls=scalp_sr_mss_engine.SrMssConfig,
     ),
     _section(
+        id="scalp_weekly",
+        hub="scalping",
+        label="Scalp - Weekly",
+        description="Previous week's high/low as a liquidity box — false-breakout fade on a lower timeframe.",
+        module=scalp_weekly_engine,
+        config_cls=scalp_weekly_engine.ScalpWeeklyConfig,
+        config_options={
+            "execution_tf": {
+                "type": "select",
+                "label": "Execution timeframe",
+                "choices": [{"value": v, "label": v} for v in scalp_weekly_engine.LTF_OPTIONS],
+                "default": "1h",
+            },
+        },
+    ),
+    _section(
+        id="weekly_candle_continuation",
+        hub="scalping",
+        label="Weekly Candle Continuation",
+        description=(
+            "Trades WITH market makers extending a trend, not against it: first break of the weekly "
+            "high/low is not an entry — wait for a pullback off that push, then a strong displacement "
+            "close beyond the confirmation level triggers continuation in the original direction."
+        ),
+        module=weekly_candle_continuation_engine,
+        config_cls=weekly_candle_continuation_engine.WeeklyCandleContinuationConfig,
+        config_options={
+            "entry_tf": {
+                "type": "select",
+                "label": "Entry timeframe",
+                "choices": [{"value": v, "label": v} for v in weekly_candle_continuation_engine.ENTRY_TF_OPTIONS],
+                "default": "1h",
+            },
+        },
+    ),
+    _section(
+        id="smc_htf_zone_sweep",
+        hub="smart_money",
+        label="HTF Zone + LTF Liquidity Sweep",
+        description=(
+            "HTF (1h/4h) trend + fresh FVG/Order Block zone -> wait for pullback into the zone -> "
+            "LTF (5m/15m) liquidity grab (stop-hunt wick) confirms entry. Trades with institutional flow, "
+            "not against it — never enters at the obvious level, only after the sweep."
+        ),
+        module=smc_htf_zone_sweep_engine,
+        config_cls=smc_htf_zone_sweep_engine.SMCZoneSweepConfig,
+        config_options={
+            "htf_tf": {
+                "type": "select",
+                "label": "HTF (structure + zone)",
+                "choices": [{"value": v, "label": v} for v in smc_htf_zone_sweep_engine.HTF_OPTIONS],
+                "default": "1h",
+            },
+            "ltf_tf": {
+                "type": "select",
+                "label": "LTF (liquidity grab confirmation)",
+                "choices": [{"value": v, "label": v} for v in smc_htf_zone_sweep_engine.LTF_OPTIONS],
+                "default": "15m",
+            },
+        },
+    ),
+    _section(
         id="smc_liquidity",
         hub="smart_money",
         label="SMC Liquidity (Sweeps/Grabs/FVG)",
@@ -289,6 +368,54 @@ HUB_SECTIONS: list[HubSection] = [
         description="Trendline across swing highs/lows projects a measured-move target, confirmed by Bollinger Bands.",
         module=swing_trading_st_simple_steal_engine,
         config_cls=swing_trading_st_simple_steal_engine.SimpleStealConfig,
+    ),
+    _section(
+        id="swing_5_strategies",
+        hub="swing",
+        label="Swing Trading — 5 Strategies",
+        description=(
+            "Breakouts · Episodic Pivots (Gap and Go) · Pullbacks · Uptrending Bounces · Bottom Bounces "
+            "(falling knife) — five long-only swing setups from a professional trader's breakdown. Pick "
+            "one or more strategies and one or more timeframes to scan."
+        ),
+        module=swing_5_strategies_engine,
+        config_cls=swing_5_strategies_engine.Swing5Config,
+        multi_strategy=True,
+        strategy_keys=swing_5_strategies_engine.STRATEGY_KEYS,
+        strategy_labels=swing_5_strategies_engine.STRATEGY_LABELS,
+        timeframe_options=swing_5_strategies_engine.TIMEFRAME_OPTIONS,
+    ),
+    _section(
+        id="swing_trend_breakout",
+        hub="swing",
+        label="Trend Following Breakout (Index Filter)",
+        description=(
+            "Index above its 20 SMA -> momentum leader near its 52-week high with a confirmed weekly "
+            "uptrend -> daily swing-high breakout after a pullback. Long-only; works just as well on "
+            "sectoral/index ETFs as individual stocks."
+        ),
+        module=swing_trend_breakout_engine,
+        config_cls=swing_trend_breakout_engine.SwingTrendBreakoutConfig,
+        config_options={
+            "market_filter": {
+                "type": "select",
+                "label": "Market trend filter (index 20 SMA)",
+                "choices": [
+                    {"value": "on", "label": "On — require Nifty/SPY/BTC above its 20 SMA"},
+                    {"value": "off", "label": "Off — scan regardless of market trend"},
+                ],
+                "default": "on",
+            },
+            "stop_method": {
+                "type": "select",
+                "label": "Stop-loss method",
+                "choices": [
+                    {"value": "breakout_candle_low", "label": "Breakout candle low (tighter)"},
+                    {"value": "swing_low", "label": "Recent swing low (wider)"},
+                ],
+                "default": "breakout_candle_low",
+            },
+        },
     ),
     _section(
         id="intraday_mtf_breakout_retest",
@@ -446,6 +573,10 @@ def list_hubs_payload() -> dict:
                 "config_options": s["config_options"],
                 "fixed_universe": s.get("fixed_universe"),
                 "fixed_universe_label": s.get("fixed_universe_label"),
+                "multi_strategy": s.get("multi_strategy", False),
+                "strategy_keys": s.get("strategy_keys") or [],
+                "strategy_labels": s.get("strategy_labels") or {},
+                "timeframe_options": s.get("timeframe_options") or [],
             }
             for s in HUB_SECTIONS
             if s["hub"] == hub_id
@@ -467,6 +598,8 @@ def run_section_scan(
     section = get_section(section_id)
     if not section:
         return {"error": f"Unknown section: {section_id}"}
+    if section.get("multi_strategy"):
+        return {"error": f"{section_id} is a multi-strategy section — use its dedicated scan endpoint instead."}
     mod = section["module"]
     cfg = build_config(section["config_cls"], config)
     kwargs: dict[str, Any] = {

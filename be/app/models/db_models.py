@@ -181,3 +181,16 @@ class WatchlistItem(Base):
     added_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SavedBacktestReport(Base):
+    __tablename__ = "saved_backtest_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(200))
+    asset_class: Mapped[str] = mapped_column(String(16))
+    tickers: Mapped[str] = mapped_column(Text)  # comma-separated
+    timeframes: Mapped[str] = mapped_column(Text)  # comma-separated
+    payload_json: Mapped[str] = mapped_column(Text)  # full leaderboard result, JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Beaker, Grid3X3, ListFilter, BookOpen } from 'lucide-react'
+import { Beaker, Grid3X3, ListFilter, BookOpen, Trophy } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchStrategyLabPresets,
@@ -11,6 +11,8 @@ import {
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import type { AssetClass } from '../components/command-center/AssetClassTickerPicker'
+import { LeaderboardPanel } from '../components/strategy-lab/LeaderboardPanel'
+import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -21,6 +23,7 @@ import { StatCard } from '../components/ui/StatCard'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 const TABS = [
+  { id: 'leaderboard', label: 'Strategy Leaderboard', icon: Trophy },
   { id: 'builder', label: 'Builder & Tester', icon: Beaker },
   { id: 'multi_combo', label: 'Multi-Combo', icon: Grid3X3 },
   { id: 'screener', label: 'Advanced Screener', icon: ListFilter },
@@ -162,7 +165,11 @@ export default function StrategyLab() {
   const result = tab === 'presets' ? presetsQuery.data : mutation.data
   const loading = tab === 'presets' ? presetsQuery.isLoading : mutation.isPending
 
+  const watchlistMarket: WatchlistMarket =
+    assetClass === 'us' || assetClass === 'commodity' ? 'us' : assetClass === 'crypto' ? 'crypto' : 'india'
+
   return (
+    <WatchlistMarketProvider market={watchlistMarket}>
     <div>
       <PageHeader
         title="Strategy Lab"
@@ -171,7 +178,15 @@ export default function StrategyLab() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map(({ id, label, icon: Icon }) => (
-          <Chip key={id} selected={tab === id} onClick={() => { setTab(id); setError('') }}>
+          <Chip
+            key={id}
+            selected={tab === id}
+            onClick={() => {
+              setTab(id)
+              setError('')
+              if (id === 'leaderboard' && assetClass === 'commodity') setAssetClass('india')
+            }}
+          >
             <span className="inline-flex items-center gap-1.5">
               <Icon size={14} />
               {label}
@@ -186,11 +201,11 @@ export default function StrategyLab() {
             <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
             <option value="us">🇺🇸 US stocks (Yahoo)</option>
             <option value="crypto">₿ Crypto (CoinDCX)</option>
-            <option value="commodity">🛢️ Commodity futures</option>
+            {tab !== 'leaderboard' && <option value="commodity">🛢️ Commodity futures</option>}
           </Select>
         </FormField>
 
-        {tab !== 'presets' && (
+        {tab !== 'presets' && tab !== 'leaderboard' && (
           <>
             {tab === 'builder' && (
               <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -315,6 +330,8 @@ export default function StrategyLab() {
         )}
       </Card>
 
+      {tab === 'leaderboard' && <LeaderboardPanel assetClass={assetClass} />}
+
       {loading && <Loading message="Fetching data and running analysis…" />}
 
       {!loading && result && tab === 'builder' && (
@@ -341,13 +358,14 @@ export default function StrategyLab() {
         </Card>
       )}
 
-      {result && tab !== 'presets' && (
+      {result && tab !== 'presets' && tab !== 'leaderboard' && (
         <AskAIPanel
           context={buildAskContext(TABS.find((t) => t.id === tab)?.label ?? tab, result)}
           section={`strategy-lab/${tab}`}
         />
       )}
     </div>
+    </WatchlistMarketProvider>
   )
 }
 

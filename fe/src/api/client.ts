@@ -395,6 +395,33 @@ export const runStrategyLabMultiCombo = (payload: Record<string, unknown>) =>
 export const runStrategyLabScreener = (payload: Record<string, unknown>) =>
   api.post('/strategy-lab/screener', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const fetchLeaderboardCatalog = () =>
+  api.get('/strategy-lab/leaderboard/catalog').then((r) => r.data)
+
+export const startLeaderboardJob = (payload: {
+  tickers: string[]
+  timeframes?: string[]
+  asset_class?: 'india' | 'us' | 'crypto'
+  strategy_ids?: string[] | null
+  bars?: number
+  forward_bars?: number
+}) => api.post('/strategy-lab/leaderboard/start', payload).then((r) => r.data)
+
+export const fetchLeaderboardJob = (jobId: string) =>
+  api.get(`/strategy-lab/leaderboard/jobs/${jobId}`).then((r) => r.data)
+
+export const saveLeaderboardReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/strategy-lab/leaderboard/reports', payload).then((r) => r.data)
+
+export const fetchLeaderboardReports = () =>
+  api.get('/strategy-lab/leaderboard/reports').then((r) => r.data)
+
+export const fetchLeaderboardReport = (reportId: number) =>
+  api.get(`/strategy-lab/leaderboard/reports/${reportId}`).then((r) => r.data)
+
+export const deleteLeaderboardReport = (reportId: number) =>
+  api.delete(`/strategy-lab/leaderboard/reports/${reportId}`).then((r) => r.data)
+
 export const runSeasonalityAnalyze = (payload: {
   tickers: string[]
   years?: number
@@ -502,6 +529,12 @@ export interface TradingHubSection {
   /** When set, scan ignores the ticker picker and always uses this India-index list. */
   fixed_universe?: string[] | null
   fixed_universe_label?: string | null
+  /** When set, this is a multi-strategy/multi-timeframe section (e.g. Swing 5
+   * Strategies) rendered by its own dedicated panel instead of the generic one. */
+  multi_strategy?: boolean
+  strategy_keys?: string[]
+  strategy_labels?: Record<string, string>
+  timeframe_options?: string[]
 }
 
 export interface TradingHub {
@@ -521,6 +554,14 @@ export const runTradingHubScan = (payload: {
   config?: Record<string, unknown>
   run_backtest?: boolean
 }) => api.post('/trading-hubs/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runSwing5Scan = (payload: {
+  tickers: string[]
+  timeframes: string[]
+  strategies: string[]
+  asset_class?: string
+  config?: Record<string, unknown>
+}) => api.post('/trading-hubs/swing-5/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchEtfTaUniverse = () =>
   api.get<{ presets: Record<string, string[]>; default_symbols: string[]; shop_39: string[]; master_backup: string[] }>(

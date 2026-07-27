@@ -151,7 +151,15 @@ def _opening_range_levels(
     market: str,
     or_minutes: int,
 ) -> tuple[float, float] | None:
-    """High/low of the first `or_minutes` session bars."""
+    """High/low of the first `or_minutes` session bars. Callers evaluating
+    "today" live must check the window has actually elapsed *before* calling
+    this (see `_evaluate_today_phase`) — this helper itself has no wall-clock
+    awareness, so it can't tell "still forming" from "genuinely thin data on
+    a low-liquidity day" on its own. It only returns a range built from
+    bars actually inside [session_open, or_end); it no longer falls back to
+    `day_bars.head(or_minutes)` on thin data, since that could silently
+    return a range built from however few bars exist — including a single
+    bar — mislabeled as a complete `or_minutes`-wide range."""
     if day_bars.empty:
         return None
     mode = session_mode_for_market(market)
@@ -165,8 +173,6 @@ def _opening_range_levels(
     session_open = first_ts.replace(hour=open_t.hour, minute=open_t.minute, second=0, microsecond=0)
     or_end = session_open + timedelta(minutes=or_minutes)
     or_bars = day_bars[(day_bars.index >= session_open) & (day_bars.index < or_end)]
-    if len(or_bars) < max(1, or_minutes // 2):
-        or_bars = day_bars.head(or_minutes)
     if or_bars.empty:
         return None
     return float(or_bars["high"].max()), float(or_bars["low"].min())

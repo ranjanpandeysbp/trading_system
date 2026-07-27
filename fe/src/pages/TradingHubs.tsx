@@ -14,6 +14,8 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { TradingHubResultsPanel } from '../components/trading-hubs/TradingHubPanels'
+import { Swing5Panel } from '../components/trading-hubs/Swing5Panel'
+import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -38,6 +40,7 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   swing_trading_st_kiss: 'Weekly bias + 1h execution',
   swing_trading_st_ha_ema: 'Daily bias + 5m execution',
   swing_trading_st_simple_steal: 'Daily',
+  swing_trend_breakout: 'Daily (weekly + index-daily context)',
   intraday_alpha_945: '30m opening range + Daily trend filter',
   intraday_7_wasted: 'Daily bias + 5m opening range + 1m execution',
   intraday_fib945: '30m opening-range bias + 5m execution',
@@ -52,8 +55,11 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_livefree_fx: 'HTF 1D/4H/1H · 15m sessions · 5m sweep + BoS',
   scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
   scalp_sr_mss: '1h HTF zone + 1m MSS entry',
+  scalp_weekly: 'Weekly range (from daily) + configurable execution timeframe (15m/1h/4h)',
   scalp_2min: '2m (1m resampled) · Nifty 50 / Bank Nifty / Sensex only',
+  weekly_candle_continuation: 'Configurable (entry timeframe selectable below)',
   smc_cisd: '1h bias + 15m execution',
+  smc_htf_zone_sweep: 'Configurable (HTF/LTF selectable below)',
   smc_weekly_sweep_cisd: 'Weekly HTF sweep + 15m execution',
   smc_mtf_day_plan: '4h HTF + 1h MTF + 15m LTF day plan',
   smc_golden_bullet: '1h HTF + 15m NY kill-zone execution',
@@ -146,7 +152,11 @@ export default function TradingHubs() {
     onSuccess: () => setError(''),
   })
 
+  const watchlistMarket: WatchlistMarket =
+    assetClass === 'us' || assetClass === 'commodity' ? 'us' : assetClass === 'crypto' ? 'crypto' : 'india'
+
   return (
+    <WatchlistMarketProvider market={watchlistMarket}>
     <div>
       <PageHeader
         title="Trading Hubs"
@@ -183,10 +193,12 @@ export default function TradingHubs() {
         {activeSection && (
           <div className="mb-4">
             <p className="text-sm text-slate-400">{activeSection.description}</p>
-            <p className="mt-1 text-xs text-slate-500">
-              🕒 Fixed timeframe: <span className="text-slate-300">{SECTION_TIMEFRAME_LABEL[activeSection.id] ?? 'Per strategy definition'}</span>
-              {' — not user-adjustable, this strategy always trades this timeframe.'}
-            </p>
+            {!activeSection.multi_strategy && (
+              <p className="mt-1 text-xs text-slate-500">
+                🕒 Fixed timeframe: <span className="text-slate-300">{SECTION_TIMEFRAME_LABEL[activeSection.id] ?? 'Per strategy definition'}</span>
+                {' — not user-adjustable, this strategy always trades this timeframe.'}
+              </p>
+            )}
           </div>
         )}
 
@@ -222,43 +234,59 @@ export default function TradingHubs() {
           </>
         )}
 
-        {activeSection && Object.entries(activeSection.config_options ?? {}).map(([key, opt]) => (
-          <div key={key} className="mt-4">
-            <FormField label={opt.label}>
-              {opt.type === 'select' && opt.choices ? (
-                <Select value={config[key] ?? opt.default ?? ''} onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}>
-                  {opt.choices.map((ch) => (
-                    <option key={ch.value} value={ch.value}>{ch.label}</option>
-                  ))}
-                </Select>
-              ) : null}
-            </FormField>
+        {activeSection?.multi_strategy ? (
+          <div className="mt-4">
+            <Swing5Panel
+              tickers={scanTickers}
+              assetClass={assetClass}
+              strategyKeys={activeSection.strategy_keys ?? []}
+              strategyLabels={activeSection.strategy_labels ?? {}}
+              timeframeOptions={activeSection.timeframe_options ?? []}
+            />
           </div>
-        ))}
+        ) : (
+          <>
+            {activeSection && Object.entries(activeSection.config_options ?? {}).map(([key, opt]) => (
+              <div key={key} className="mt-4">
+                <FormField label={opt.label}>
+                  {opt.type === 'select' && opt.choices ? (
+                    <Select value={config[key] ?? opt.default ?? ''} onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}>
+                      {opt.choices.map((ch) => (
+                        <option key={ch.value} value={ch.value}>{ch.label}</option>
+                      ))}
+                    </Select>
+                  ) : null}
+                </FormField>
+              </div>
+            ))}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length}>
-            {scanMutation.isPending
-              ? `Scanning ${scanTickers.length} ticker${scanTickers.length === 1 ? '' : 's'}…`
-              : `Run live scan${scanTickers.length ? ` (${scanTickers.length})` : ''}`}
-          </Button>
-          {scanTickers.length > 0 && (
-            <span className="text-xs text-slate-500">No ticker count limit — full selected universe is scanned.</span>
-          )}
-        </div>
-        {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length}>
+                {scanMutation.isPending
+                  ? `Scanning ${scanTickers.length} ticker${scanTickers.length === 1 ? '' : 's'}…`
+                  : `Run live scan${scanTickers.length ? ` (${scanTickers.length})` : ''}`}
+              </Button>
+              {scanTickers.length > 0 && (
+                <span className="text-xs text-slate-500">No ticker count limit — full selected universe is scanned.</span>
+              )}
+            </div>
+            {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          </>
+        )}
       </Card>
 
       {hubsQ.isLoading && <Loading message="Loading trading hubs…" />}
-      {scanMutation.isPending && (
+
+      {!activeSection?.multi_strategy && scanMutation.isPending && (
         <Loading message="Running live scan — fetching OHLCV from Groww/yfinance (1–3 min)…" />
       )}
 
-      {!scanMutation.isPending && scanMutation.data && (
+      {!activeSection?.multi_strategy && !scanMutation.isPending && scanMutation.data && (
         <Card>
-          <TradingHubResultsPanel data={scanMutation.data as Record<string, unknown>} />
+          <TradingHubResultsPanel data={scanMutation.data as Record<string, unknown>} sectionId={sectionId} />
         </Card>
       )}
     </div>
+    </WatchlistMarketProvider>
   )
 }

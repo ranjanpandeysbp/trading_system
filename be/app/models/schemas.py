@@ -423,6 +423,14 @@ class TradingHubScanRequest(BaseModel):
     run_backtest: bool = False
 
 
+class Swing5ScanRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframes: list[str] = Field(default_factory=lambda: ["1d"])
+    strategies: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    config: dict[str, Any] | None = None
+
+
 class EtfTaScanRequest(BaseModel):
     symbols: list[str] | None = None
     exchange: str = "NSE"
@@ -504,6 +512,20 @@ class StrategyLabScreenerRequest(BaseModel):
     market: str | None = None
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     screener_preset: str | None = None
+
+
+class StrategyLeaderboardRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    timeframes: list[str] = Field(default_factory=lambda: ["1d"])
+    asset_class: Literal["india", "us", "crypto"] = "india"
+    strategy_ids: list[str] | None = None
+    bars: int = Field(350, ge=150, le=2000)
+    forward_bars: int = Field(10, ge=3, le=60)
+
+
+class SaveBacktestReportRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    payload: dict[str, Any]
 
 
 class SeasonalityRequest(BaseModel):

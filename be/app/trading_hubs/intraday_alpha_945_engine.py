@@ -177,6 +177,18 @@ def _candle_dict_from_bars(
     }
 
 
+def _opening_range_window_elapsed(session_day: pd.Timestamp) -> bool:
+    """False only when `session_day` is today and the 30-minute opening-range
+    window hasn't finished yet — a past session's window is always complete
+    by definition. Callers use this to distinguish "not ready yet" (stop,
+    don't substitute a different day) from "no data for this day" (fine to
+    fall back further)."""
+    open_ts = _ist_time_on_date(session_day, INDIA_MARKET_OPEN)
+    range_end = open_ts + pd.Timedelta(minutes=OPENING_RANGE_MINUTES)
+    now = pd.Timestamp.now(tz=IST_TZ)
+    return not (session_day.normalize() == now.normalize() and now < range_end)
+
+
 def _build_opening_range_for_day(work: pd.DataFrame, session_day: pd.Timestamp) -> dict[str, Any] | None:
     open_ts = _ist_time_on_date(session_day, INDIA_MARKET_OPEN)
     range_end = open_ts + pd.Timedelta(minutes=OPENING_RANGE_MINUTES)
@@ -225,16 +237,31 @@ def get_opening_30m_candle(
     df_intraday: pd.DataFrame,
     session_day: pd.Timestamp | None = None,
 ) -> dict[str, Any] | None:
-    """First 30-minute candle 09:15–09:45 IST (or aggregated from 5m/15m/30m)."""
+    """First 30-minute candle 09:15–09:45 IST (or aggregated from 5m/15m/30m).
+
+    When `session_day` is explicitly today and its window hasn't finished
+    yet, returns None rather than a partial-window candle built from
+    whatever bars happen to exist so far. The no-`session_day` "most recent
+    day" lookup applies the same rule to today specifically — if today has
+    bars but isn't ready, this stops and returns None rather than silently
+    substituting an older day's opening range, which would answer a
+    different question than "what's today's opening range" without saying so.
+    """
     work = _ensure_ist_index(df_intraday)
     if work.empty:
         return None
 
     if session_day is not None:
         day = session_day.tz_convert(IST_TZ).normalize() if session_day.tzinfo else session_day.tz_localize(IST_TZ).normalize()
+        if not _opening_range_window_elapsed(day):
+            return None
         return _build_opening_range_for_day(work, day)
 
-    for day in _recent_ist_session_days(work):
+    recent_days = _recent_ist_session_days(work)
+    if recent_days and not _opening_range_window_elapsed(recent_days[0]):
+        return None  # today has bars but the OR window isn't finished — don't substitute an older day
+
+    for day in recent_days:
         candle = _build_opening_range_for_day(work, day)
         if candle:
             return candle
