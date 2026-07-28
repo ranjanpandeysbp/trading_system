@@ -1,10 +1,16 @@
 import { useCallback, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { apiErrorMessage, runOptionsDeltaNeutral, runOptionsDoubleCalendar, runOptionsGokulChhabra } from '../api/client'
+import {
+  apiErrorMessage,
+  runOptionsDeltaNeutral,
+  runOptionsDoubleCalendar,
+  runOptionsGokulChhabra,
+  runOptionsZeroToHero,
+} from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
-import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -16,6 +22,7 @@ const SECTIONS = [
   { id: 'double_calendar', label: '📅 Double Calendar' },
   { id: 'delta_neutral', label: '🎰 Delta Neutral' },
   { id: 'gokul_chhabra', label: '🎯 Gokul Chhabra 3m ITM' },
+  { id: 'zero_to_hero', label: '🚀 Zero to Hero' },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
@@ -87,6 +94,34 @@ missed the initial breakout.
 
 Initial stop: a 3-minute candle closing beyond SuperTrend. At 1:1 R:R move the stop to cost-to-cost.
 Target at least 1:2. Execute by buying ITM options targeting delta 0.60–0.75 from the live NSE chain.
+
+Research / education only — not financial advice.`
+
+const ZERO_TO_HERO_EXPLANATION = `"Zero to Hero" intraday option buying strategy — AbhishekXTrades (https://www.youtube.com/watch?v=slAtZyGfAlI).
+
+Step 1 — Mark levels: on a 15-minute chart, draw a line at the previous trading day's high and low.
+Only the previous day matters, not older history.
+
+Step 2 — Bias: trading above the previous day's high -> buy-side (Call) setups only. Trading below the
+previous day's low -> sell-side (Put) setups only. Trading between the two is a sideways trap zone where
+option buyers lose money — take no trades there.
+
+Step 3 — Entry: wait for a pullback against your bias to close (a red candle while buying, a green candle
+while selling), then wait for a later candle to close back through that pullback candle's OPEN in your
+bias direction. A pullback should resolve in 1-2 candles — if three same-colour pullback candles form in a
+row, the setup is cancelled (that's a trend reversal, not a pullback).
+
+Step 4 — Stop-loss & exit: stop just beyond the entry candle's extreme (low for a buy, high for a sell),
+with a small buffer so an exact double-top/bottom wick doesn't stop you out. The moment the trade reaches
+1:1 risk:reward, book ~50-60% of the position. Put NO fixed target on the remainder — let it run, uncapped,
+until 3:15 PM IST. Some days it gives back the 1:1 gain on the runner; on trending days it captures a
+200-400 point Nifty move. If stopped out before 1:1, you can re-enter on a fresh setup; once 1:1 is
+already booked, don't re-enter that session's move.
+
+Fixed universe: Nifty 50 / Bank Nifty (futures proxied via index OHLC), since this is specifically an
+index option-buying strategy. This scanner reports whether a fresh entry signal exists right now — it
+does not track your own open position, so use the reasons/exit rule shown as your manual management
+checklist for the 1:1 partial-book and re-entry rules above.
 
 Research / education only — not financial advice.`
 
@@ -214,9 +249,34 @@ export default function Options() {
   const gkData = runGkMutation.data as Record<string, unknown> | undefined
   const gkAskContext = gkData ? buildAskContext('Gokul Chhabra', gkData) : ''
 
+  const [zthError, setZthError] = useState('')
+  const [zthTf, setZthTf] = useState('15m')
+  const [zthSlBuffer, setZthSlBuffer] = useState(0.05)
+  const [zthMaxPullback, setZthMaxPullback] = useState(3)
+  const [zthPartialRr, setZthPartialRr] = useState(1.0)
+  const [zthPartialPct, setZthPartialPct] = useState(55)
+  const [zthSessionEnd, setZthSessionEnd] = useState('15:15')
+
+  const runZthMutation = useMutation({
+    mutationFn: () =>
+      runOptionsZeroToHero({
+        tickers: ['Nifty 50', 'Bank Nifty'],
+        execution_tf: zthTf,
+        sl_buffer_pct: zthSlBuffer,
+        max_pullback_candles: zthMaxPullback,
+        partial_book_rr: zthPartialRr,
+        partial_book_pct: zthPartialPct,
+        session_end: zthSessionEnd,
+      }),
+    onSuccess: () => setZthError(''),
+    onError: (e) => setZthError(apiErrorMessage(e)),
+  })
+  const zthData = runZthMutation.data as Record<string, unknown> | undefined
+  const zthAskContext = zthData ? buildAskContext('Zero to Hero', zthData) : ''
+
   return (
     <div>
-      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Gokul Chhabra 3m ITM · India · US · Crypto · Commodities" />
+      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Gokul Chhabra 3m ITM · Zero to Hero · India · US · Crypto · Commodities" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
@@ -478,6 +538,82 @@ export default function Options() {
 
           {gkAskContext && !runGkMutation.isPending && (
             <AskAIPanel context={gkAskContext} section="options/gokul_chhabra" />
+          )}
+        </div>
+      )}
+
+      {section === 'zero_to_hero' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Previous day's high/low sets the bias on a 15-minute chart — buy-side above the high, sell-side
+            below the low, no trades in between. Enter on a pullback-and-reversal-through-open, book ~55% at
+            1:1, let the rest ride uncapped to 15:15 IST.
+          </p>
+
+          <CollapsibleSection title="📖 How Zero to Hero works">
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{ZERO_TO_HERO_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <div className="rounded-lg border border-slate-700/80 bg-slate-900/50 px-4 py-3">
+              <p className="text-sm font-medium text-slate-200">Fixed universe — India index options</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Always scans <span className="text-slate-300">Nifty 50 · Bank Nifty</span> (futures proxied via index OHLC).
+                No Crypto / US ticker picker for this strategy.
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <CollapsibleSection title="⚙️ Parameters">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Execution timeframe">
+                    <select
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                      value={zthTf}
+                      onChange={(e) => setZthTf(e.target.value)}
+                    >
+                      <option value="5m">5 minutes</option>
+                      <option value="15m">15 minutes</option>
+                      <option value="30m">30 minutes</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Max pullback candles (3-candle rule)">
+                    <Input type="number" min={2} max={5} value={zthMaxPullback} onChange={(e) => setZthMaxPullback(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="SL buffer beyond entry candle (%)">
+                    <Input type="number" step={0.01} min={0} max={1} value={zthSlBuffer} onChange={(e) => setZthSlBuffer(Number(e.target.value))} />
+                  </FormField>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Partial book at R:R">
+                    <Input type="number" step={0.25} min={0.5} max={2} value={zthPartialRr} onChange={(e) => setZthPartialRr(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Partial book size (%)">
+                    <Input type="number" min={10} max={100} value={zthPartialPct} onChange={(e) => setZthPartialPct(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Flat / let-it-ride-until (IST)">
+                    <Input value={zthSessionEnd} onChange={(e) => setZthSessionEnd(e.target.value)} />
+                  </FormField>
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            <Button className="mt-4" onClick={() => runZthMutation.mutate()} disabled={runZthMutation.isPending}>
+              {runZthMutation.isPending ? 'Scanning…' : '🔍 Scan Zero to Hero setups'}
+            </Button>
+            {zthError && <div className="mt-3"><Alert type="error">{zthError}</Alert></div>}
+          </Card>
+
+          {runZthMutation.isPending && <Loading message="Scanning previous-day-range pullback setups…" />}
+
+          {zthData && !runZthMutation.isPending && (
+            <Card>
+              <ZeroToHeroPanel data={zthData} />
+            </Card>
+          )}
+
+          {zthAskContext && !runZthMutation.isPending && (
+            <AskAIPanel context={zthAskContext} section="options/zero_to_hero" />
           )}
         </div>
       )}

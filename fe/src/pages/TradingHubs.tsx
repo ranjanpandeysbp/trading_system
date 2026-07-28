@@ -56,6 +56,7 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
   scalp_sr_mss: '1h HTF zone + 1m MSS entry',
   scalp_weekly: 'Weekly range (from daily) + configurable execution timeframe (15m/1h/4h)',
+  scalp_ichimoku_crash: 'Configurable (1h/4h/1d selectable below) — crypto (ETH/BTC) or any market',
   scalp_2min: '2m (1m resampled) · Nifty 50 / Bank Nifty / Sensex only',
   weekly_candle_continuation: 'Configurable (entry timeframe selectable below)',
   smc_cisd: '1h bias + 15m execution',

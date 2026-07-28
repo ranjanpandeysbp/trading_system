@@ -43,6 +43,7 @@ class OptionsService:
                 {"id": "double_calendar", "label": "📅 Double Calendar — Theta-Positive Income Spread"},
                 {"id": "delta_neutral", "label": "🎰 Delta Neutral — Iron Condor / Iron Fly"},
                 {"id": "gokul_chhabra", "label": "🎯 Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"},
+                {"id": "zero_to_hero", "label": "🚀 Zero to Hero — Previous Day High/Low Option Buying"},
             ],
         }
 
@@ -141,6 +142,27 @@ class OptionsService:
             return scan_universe(
                 names, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
             )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = "india"
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def zero_to_hero(
+        self, *, tickers: list[str] | None = None, exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ticker_utils import market_currency
+        from app.market_pulse.zero_to_hero_engine import INDEX_NAMES, ZeroToHeroConfig, scan_universe
+
+        market, default_exchange = await self._asset_ctx("india")
+        _, token, _ = await self._ctx()
+        cfg = ZeroToHeroConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+        names = [n for n in (tickers or INDEX_NAMES) if n in INDEX_NAMES] or list(INDEX_NAMES)
+
+        def _run():
+            return scan_universe(names, market, cfg=cfg, groww_token=token, exchange=resolved_exchange)
 
         payload = await asyncio.to_thread(_run)
         payload["asset_class"] = "india"

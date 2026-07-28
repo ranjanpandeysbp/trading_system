@@ -38,6 +38,7 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "smc_weekly_sweep_cisd": ["15m"],
     "smc_mtf_day_plan": ["15m", "5m"],
     "smc_golden_bullet": ["15m"],
+    "scalp_ichimoku_crash": ["1h", "4h", "1d"],
 }
 
 _HUB_MIN_BARS: dict[str, int] = {
@@ -54,6 +55,7 @@ _HUB_MIN_BARS: dict[str, int] = {
     "smc_weekly_sweep_cisd": 80,
     "smc_mtf_day_plan": 60,
     "smc_golden_bullet": 80,
+    "scalp_ichimoku_crash": 120,
 }
 
 TA_STRATEGIES: list[dict[str, Any]] = [

@@ -683,3 +683,14 @@ class OptionsGokulChhabraRequest(BaseModel):
     min_rr: float = 2.0
     target_delta_min: float = 0.60
     target_delta_max: float = 0.75
+
+
+class OptionsZeroToHeroRequest(BaseModel):
+    tickers: list[str] | None = None  # ignored — fixed Nifty 50 / Bank Nifty universe
+    exchange: str | None = None
+    execution_tf: str = "15m"
+    sl_buffer_pct: float = 0.05
+    max_pullback_candles: int = 3
+    partial_book_rr: float = 1.0
+    partial_book_pct: float = 55.0
+    session_end: str = "15:15"

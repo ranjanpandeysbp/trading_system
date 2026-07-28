@@ -60,6 +60,7 @@ from app.models.schemas import (
     OptionsDoubleCalendarPnlRequest,
     OptionsDoubleCalendarRequest,
     OptionsGokulChhabraRequest,
+    OptionsZeroToHeroRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -2150,5 +2151,25 @@ async def options_gokul_chhabra(
             "min_rr": payload.min_rr,
             "target_delta_min": payload.target_delta_min,
             "target_delta_max": payload.target_delta_max,
+        },
+    )
+
+
+@router.post("/options/zero-to-hero")
+async def options_zero_to_hero(
+    payload: OptionsZeroToHeroRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).zero_to_hero(
+        tickers=payload.tickers,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "execution_tf": payload.execution_tf,
+            "sl_buffer_pct": payload.sl_buffer_pct,
+            "max_pullback_candles": payload.max_pullback_candles,
+            "partial_book_rr": payload.partial_book_rr,
+            "partial_book_pct": payload.partial_book_pct,
+            "session_end": payload.session_end,
         },
     )

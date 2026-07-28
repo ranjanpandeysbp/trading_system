@@ -16,6 +16,7 @@ from app.trading_hubs import (
     scalp_2min_engine,
     scalp_arc_engine,
     scalp_crt_fvg_engine,
+    scalp_ichimoku_crash_engine,
     scalp_multi_indicator_engine,
     scalp_rectangle_engine,
     scalp_heikin_ashi_engine,
@@ -268,6 +269,26 @@ HUB_SECTIONS: list[HubSection] = [
                 "label": "Execution timeframe",
                 "choices": [{"value": v, "label": v} for v in scalp_weekly_engine.LTF_OPTIONS],
                 "default": "1h",
+            },
+        },
+    ),
+    _section(
+        id="scalp_ichimoku_crash",
+        hub="scalping",
+        label="Ichimoku Crash Predictor",
+        description=(
+            "4-condition Ichimoku Cloud alignment (Tenkan/Kijun cross, Chikou confirmation, cloud "
+            "resistance) for catching crash-scale moves — AbhishekXTrades. "
+            "Video: https://www.youtube.com/watch?v=TqqqxCpPxoM"
+        ),
+        module=scalp_ichimoku_crash_engine,
+        config_cls=scalp_ichimoku_crash_engine.IchimokuCrashConfig,
+        config_options={
+            "execution_tf": {
+                "type": "select",
+                "label": "Execution timeframe",
+                "choices": [{"value": v, "label": v} for v in scalp_ichimoku_crash_engine.EXECUTION_TF_OPTIONS],
+                "default": "4h",
             },
         },
     ),

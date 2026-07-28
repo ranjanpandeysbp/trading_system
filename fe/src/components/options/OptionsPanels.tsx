@@ -477,3 +477,76 @@ export function GokulChhabraPanel({ data }: { data: Row }) {
     </div>
   )
 }
+
+function ZeroToHeroResultCard({ result, index, currency }: { result: Row; index: number; currency: string }) {
+  const [open, setOpen] = useState(index === 0)
+  const live = (result.live as Row) ?? {}
+  const plan = (live.trade_plan as Row) ?? null
+  const reasons = (live.reasons as string[]) ?? []
+  const verdict = String(live.verdict ?? 'WAIT')
+  const take = Boolean(live.take_trade)
+  const badge = take
+    ? (String(live.direction) === 'SHORT' ? '🔴 BUY PUT' : '🟢 BUY CALL')
+    : '⚪ WAIT'
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+      >
+        <span className="text-sm font-medium text-white">
+          {String(result.ticker ?? '—')} · {badge} · bias {String(live.phase ?? '—')} · conf {fmtNum(live.confidence_pct, 0)}%
+        </span>
+        {open ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-slate-800/60 px-3 py-3 text-sm text-slate-300">
+          <p>
+            Spot {currency}{fmtNum(result.last_close)} · Verdict <strong className="text-white">{verdict}</strong>
+            {live.sl_pct != null && <> · SL -{fmtNum(live.sl_pct)}%</>}
+            {live.tp_pct != null && <> · 1:1 book +{fmtNum(live.tp_pct)}%</>}
+          </p>
+          <p className="text-xs text-slate-400">
+            Prev day high {fmtNum(live.prev_day_high)} · Prev day low {fmtNum(live.prev_day_low)}
+          </p>
+          {take && (
+            <p className="text-xs text-emerald-300/90">
+              Entry {fmtNum(live.entry_price)} · Stop {fmtNum(live.stop_price)} · Book ~55% at {fmtNum(live.target_price)}
+            </p>
+          )}
+          {plan && (
+            <p className="text-xs text-slate-400">{String(plan.exit_rule ?? '')}</p>
+          )}
+          {reasons.map((r) => (
+            <p key={r} className="text-xs text-slate-500">· {r}</p>
+          ))}
+          {Boolean(result.error) && <p className="text-xs text-rose-400">{String(result.error)}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ZeroToHeroPanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const currency = String(data.currency ?? '₹')
+  if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3 text-sm text-slate-400">
+        {data.entry_count != null && (
+          <span>Actionable: <strong className="text-white">{String(data.entry_count)}</strong></span>
+        )}
+        {data.strategy != null && <span>Strategy: <strong className="text-white">{String(data.strategy)}</strong></span>}
+      </div>
+      <div className="space-y-2">
+        {results.map((res, i) => (
+          <ZeroToHeroResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} />
+        ))}
+      </div>
+    </div>
+  )
+}

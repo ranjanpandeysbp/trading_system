@@ -1042,3 +1042,14 @@ export const runOptionsGokulChhabra = (payload?: {
   target_delta_min?: number
   target_delta_max?: number
 }) => api.post('/options/gokul-chhabra', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsZeroToHero = (payload?: {
+  tickers?: string[]
+  exchange?: string
+  execution_tf?: string
+  sl_buffer_pct?: number
+  max_pullback_candles?: number
+  partial_book_rr?: number
+  partial_book_pct?: number
+  session_end?: string
+}) => api.post('/options/zero-to-hero', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
