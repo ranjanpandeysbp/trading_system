@@ -113,6 +113,131 @@ def _fetch_nse_index_constituent_quotes_once(index_name: str) -> list[dict]:
         return []
 
 
+_NSE_52W_HIGH_URL = "https://www.nseindia.com/api/live-analysis-data-52weekhighstock"
+_NSE_52W_LOW_URL = "https://www.nseindia.com/api/live-analysis-data-52weeklowstock"
+
+
+def _parse_nse_52w_row(item: dict) -> dict:
+    return {
+        "symbol": (item.get("symbol") or "").strip(),
+        "company_name": item.get("comapnyName") or item.get("companyName") or "",
+        "series": item.get("series") or "",
+        "ltp": _parse_nse_float(item, "ltp", "lastPrice"),
+        "level_52w": _parse_nse_float(item, "new52WHL"),
+        "prev_level_52w": _parse_nse_float(item, "prev52WHL"),
+        "prev_close": _parse_nse_float(item, "prevClose"),
+        "prev_date": item.get("prevHLDate") or "",
+        "pct_chg": _parse_nse_float(item, "pChange"),
+        "chg": _parse_nse_float(item, "change"),
+    }
+
+
+def _fetch_nse_52w_list(url: str, referer_path: str) -> dict:
+    """One of NSE's own market-wide 52-week high/low screener pages —
+    https://www.nseindia.com/market-data/52-week-high-equity-market and
+    .../52-week-low-equity-market — rather than a heuristic tolerance-based
+    approximation from index-constituent quotes."""
+    try:
+        session = requests.Session()
+        _warm_nse_session(session, referer_path)
+        resp = session.get(url, timeout=20)
+        if resp.status_code != 200:
+            return {"rows": [], "as_of": None}
+        payload = resp.json()
+        rows = [_parse_nse_52w_row(item) for item in payload.get("data", []) if item.get("symbol")]
+        return {"rows": rows, "as_of": payload.get("timestamp")}
+    except Exception as e:
+        logger.error(f"NSE 52W list error ({url}): {e}")
+        return {"rows": [], "as_of": None}
+
+
+def fetch_nse_52w_high_list() -> dict:
+    return _fetch_nse_52w_list(_NSE_52W_HIGH_URL, "/market-data/52-week-high-equity-market")
+
+
+def fetch_nse_52w_low_list() -> dict:
+    return _fetch_nse_52w_list(_NSE_52W_LOW_URL, "/market-data/52-week-low-equity-market")
+
+
+def _others_row(q: dict) -> dict:
+    last = q.get("last")
+    yh = q.get("year_high")
+    yl = q.get("year_low")
+    pct_below_high = (yh - last) / yh * 100 if yh and last else None
+    pct_above_low = (last - yl) / yl * 100 if yl and last else None
+    return {
+        "symbol": q["symbol"],
+        "ltp": last,
+        "pct_chg": q.get("pct_chg"),
+        "year_high": yh,
+        "year_low": yl,
+        "pct_below_52w_high": pct_below_high,
+        "pct_above_52w_low": pct_above_low,
+    }
+
+
+def scan_market_52w_extremes(index_name: str | None = None) -> dict:
+    """Stocks NSE itself reports as having made a new 52-week high or low
+    today — the authoritative exchange-wide lists, optionally filtered down
+    to one index's constituents (reusing the same index-membership lookup
+    the tolerance-based scanner uses). When filtered to an index, the
+    remaining constituents (neither a new high nor low today) are returned
+    separately as `others`, with each one's own distance from its 52-week
+    high/low for context — skipped for the unfiltered whole-market view
+    since that would mean thousands of rows."""
+    high_payload = fetch_nse_52w_high_list()
+    low_payload = fetch_nse_52w_low_list()
+    highs = list(high_payload["rows"])
+    lows = list(low_payload["rows"])
+    others: list[dict] = []
+
+    label = "NSE Market (All Series)"
+    constituent_count: int | None = None
+    if index_name and index_name.strip().upper() not in ("ALL", "NSE MARKET", "MARKET", ""):
+        symbols = set(get_index_constituent_symbols(index_name) or [])
+        if not symbols:
+            key = _constituent_key_for_index(index_name)
+            if key:
+                symbols = set(INDEX_OPTIONS.get(key) or [])
+        if symbols:
+            highs = [r for r in highs if r["symbol"] in symbols]
+            lows = [r for r in lows if r["symbol"] in symbols]
+            constituent_count = len(symbols)
+            label = index_name
+
+            hit_symbols = {r["symbol"] for r in highs} | {r["symbol"] for r in lows}
+            other_symbols = sorted(symbols - hit_symbols)
+            if other_symbols:
+                # NSE's per-index quote endpoint (equity-stockIndices) is
+                # unreliable/rate-limited for this — yfinance's own 1-year
+                # high/low is a steadier source for "how close is this one
+                # to its own 52-week extreme" context.
+                yf_map = _fetch_52w_extremes_yfinance(tuple(other_symbols))
+                for sym in other_symbols:
+                    yf = yf_map.get(sym) or {}
+                    others.append(_others_row({
+                        "symbol": sym,
+                        "last": yf.get("last"),
+                        "year_high": yf.get("year_high"),
+                        "year_low": yf.get("year_low"),
+                        "pct_chg": None,
+                    }))
+            others.sort(key=lambda r: r.get("pct_below_52w_high") if r.get("pct_below_52w_high") is not None else 999)
+
+    highs.sort(key=lambda r: r.get("pct_chg") or 0, reverse=True)
+    lows.sort(key=lambda r: r.get("pct_chg") or 0)
+
+    return {
+        "index": label,
+        "constituent_count": constituent_count if constituent_count is not None else (len(highs) + len(lows)),
+        "at_52w_high": highs,
+        "at_52w_low": lows,
+        "others": others,
+        "as_of": high_payload.get("as_of") or low_payload.get("as_of"),
+        "source": "NSE 52-week high/low market screener (nseindia.com/market-data)",
+    }
+
+
 def _yf_extremes_from_df(df: pd.DataFrame) -> dict[str, float] | None:
     if df is None or df.empty:
         return None

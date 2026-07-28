@@ -74,6 +74,7 @@ from app.models.schemas import (
     StrategyLabScreenerRequest,
     StrategyLeaderboardRequest,
     SaveBacktestReportRequest,
+    BacktesterLeaderboardRequest,
     TokenResponse,
     Swing5ScanRequest,
     TradingHubScanRequest,
@@ -97,6 +98,7 @@ from app.services.scanner_service import ScannerService
 from app.services.seasonality_service import SeasonalityService
 from app.services.strategy_lab_service import StrategyLabService
 from app.services.strategy_leaderboard_service import StrategyLeaderboardService
+from app.services.backtester_leaderboard_service import BacktesterLeaderboardService
 from app.services.ta_screener_service import TaScreenerService
 from app.services.etf_ta_service import EtfTaService
 from app.services.trading_hub_service import TradingHubService
@@ -1541,6 +1543,93 @@ async def strategy_leaderboard_delete_report(
     current_user: User = Depends(get_current_user),
 ):
     service = StrategyLeaderboardService(SettingsService(db), db)
+    return await service.delete_report(report_id, user_id=current_user.id)
+
+
+@router.get("/backtester/leaderboard/catalog")
+async def backtester_leaderboard_catalog(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Full backtestable catalog — built-in indicator strategies, Trading
+    Hub engines, TA screeners, and Strategy Lab presets — grouped by
+    category, the same catalog the single-ticker Backtester page uses."""
+    service = BacktesterLeaderboardService(SettingsService(db))
+    return await service.catalog()
+
+
+@router.post("/backtester/leaderboard/start")
+async def backtester_leaderboard_start(
+    payload: BacktesterLeaderboardRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off a multi-ticker x multi-strategy backtest as a background job
+    and return immediately with a job id. Poll GET
+    /backtester/leaderboard/jobs/{id} for progress and the eventual result."""
+    from app.services.backtester_leaderboard_jobs import create_job, run_backtester_job
+
+    job = create_job()
+    run_backtester_job(
+        job.id, payload.tickers, payload.strategy_ids,
+        asset_class=payload.asset_class, timeframe=payload.timeframe,
+        period=payload.period, costs_pct=payload.costs_pct,
+        bars=payload.bars, forward_bars=payload.forward_bars,
+    )
+    return {"job_id": job.id, "status": job.status}
+
+
+@router.get("/backtester/leaderboard/jobs/{job_id}")
+async def backtester_leaderboard_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.backtester_leaderboard_jobs import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return {
+        "job_id": job.id, "status": job.status, "progress": job.progress,
+        "progress_note": job.progress_note, "result": job.result, "error": job.error,
+    }
+
+
+@router.post("/backtester/leaderboard/reports")
+async def backtester_leaderboard_save_report(
+    payload: SaveBacktestReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = BacktesterLeaderboardService(SettingsService(db), db)
+    return await service.save_report(payload.name, payload.payload, user_id=current_user.id)
+
+
+@router.get("/backtester/leaderboard/reports")
+async def backtester_leaderboard_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = BacktesterLeaderboardService(SettingsService(db), db)
+    return await service.list_reports(user_id=current_user.id)
+
+
+@router.get("/backtester/leaderboard/reports/{report_id}")
+async def backtester_leaderboard_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = BacktesterLeaderboardService(SettingsService(db), db)
+    return await service.get_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/backtester/leaderboard/reports/{report_id}")
+async def backtester_leaderboard_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = BacktesterLeaderboardService(SettingsService(db), db)
     return await service.delete_report(report_id, user_id=current_user.id)
 
 

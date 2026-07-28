@@ -445,7 +445,7 @@ class MarketPulseService:
 
         def _fetch():
             try:
-                return w52.scan_index_52w_extremes(index_name)
+                return w52.scan_market_52w_extremes(index_name)
             except Exception as e:
                 return {"error": str(e), "at_52w_high": [], "at_52w_low": []}
 

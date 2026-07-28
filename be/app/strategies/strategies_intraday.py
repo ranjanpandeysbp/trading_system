@@ -15,22 +15,25 @@ from app.strategies.indicators import (
 
 def orb_15min_with_retest(df: pd.DataFrame, range_minutes: int = 15, retest_tolerance: float = 0.001) -> pd.DataFrame:
     out = df.copy()
-    out["date"] = out.index.date
-    or_high = out.groupby("date")["high"].transform(lambda s: s.iloc[:range_minutes].max())
-    or_low = out.groupby("date")["low"].transform(lambda s: s.iloc[:range_minutes].min())
+    # Named "_grp_date", not "date" — the incoming index is itself named
+    # "date" (normalize_ohlcv), and a same-named column makes every
+    # groupby("date") below ambiguous (pandas can't tell index vs column).
+    out["_grp_date"] = out.index.date
+    or_high = out.groupby("_grp_date")["high"].transform(lambda s: s.iloc[:range_minutes].max())
+    or_low = out.groupby("_grp_date")["low"].transform(lambda s: s.iloc[:range_minutes].min())
     out["or_high"], out["or_low"] = or_high, or_low
-    bar_number = out.groupby("date").cumcount()
+    bar_number = out.groupby("_grp_date").cumcount()
     after_range = bar_number >= range_minutes
-    broke_up = ((out["close"] > out["or_high"]) & after_range).groupby(out["date"]).cumsum() > 0
-    broke_down = ((out["close"] < out["or_low"]) & after_range).groupby(out["date"]).cumsum() > 0
+    broke_up = ((out["close"] > out["or_high"]) & after_range).groupby(out["_grp_date"]).cumsum() > 0
+    broke_down = ((out["close"] < out["or_low"]) & after_range).groupby(out["_grp_date"]).cumsum() > 0
     retest_up = broke_up & (out["low"] <= out["or_high"] * (1 + retest_tolerance)) & (out["close"] > out["or_high"])
     retest_down = broke_down & (out["high"] >= out["or_low"] * (1 - retest_tolerance)) & (out["close"] < out["or_low"])
-    first_retest_up = retest_up & ~retest_up.groupby(out["date"]).shift(1).fillna(False)
-    first_retest_down = retest_down & ~retest_down.groupby(out["date"]).shift(1).fillna(False)
+    first_retest_up = retest_up & ~retest_up.groupby(out["_grp_date"]).shift(1).fillna(False)
+    first_retest_down = retest_down & ~retest_down.groupby(out["_grp_date"]).shift(1).fillna(False)
     out["signal"] = 0
     out.loc[first_retest_up, "signal"] = 1
     out.loc[first_retest_down, "signal"] = -1
-    out.drop(columns=["date"], inplace=True)
+    out.drop(columns=["_grp_date"], inplace=True)
     return out
 
 

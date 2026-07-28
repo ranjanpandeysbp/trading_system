@@ -11,11 +11,11 @@ import {
   saveLeaderboardReport,
   startLeaderboardJob,
 } from '../../api/client'
-import type { AssetClass } from '../command-center/AssetClassTickerPicker'
+import { AssetClassTickerPicker, type AssetClass, type TickerPickerValue } from '../command-center/AssetClassTickerPicker'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
-import { FormField, Input, Textarea } from '../ui/Form'
+import { FormField, Input } from '../ui/Form'
 import { Alert, Loading } from '../ui/Feedback'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
@@ -75,7 +75,7 @@ function fmtPct(v: number | null | undefined, digits = 1): string {
 
 export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
   const queryClient = useQueryClient()
-  const [tickers, setTickers] = useState('RELIANCE, TCS')
+  const [tickers, setTickers] = useState<string[]>([])
   const [selectedTfs, setSelectedTfs] = useState<string[]>(['1d'])
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [strategiesInit, setStrategiesInit] = useState(false)
@@ -160,8 +160,6 @@ export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
     },
   })
 
-  const tickerList = tickers.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
-
   const toggleTf = (tf: string) =>
     setSelectedTfs((prev) => (prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]))
 
@@ -169,12 +167,12 @@ export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
     setStrategyIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
 
   const runJob = () => {
-    if (!tickerList.length) { setError('Enter at least one ticker'); return }
+    if (!tickers.length) { setError('Enter at least one ticker'); return }
     if (!strategyIds.length) { setError('Select at least one strategy'); return }
     startMutation.mutate({
-      tickers: tickerList,
+      tickers: tickers,
       timeframes: selectedTfs.length ? selectedTfs : ['1d'],
-      asset_class: assetClass === 'commodity' ? 'india' : assetClass,
+      asset_class: assetClass,
       strategy_ids: strategyIds,
       bars,
       forward_bars: forwardBars,
@@ -192,8 +190,13 @@ export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
     <div className="space-y-4">
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Tickers (comma-separated)">
-            <Textarea rows={2} value={tickers} onChange={(e) => setTickers(e.target.value)} />
+          <FormField label="Tickers">
+            <AssetClassTickerPicker
+              key={assetClass}
+              assetClass={assetClass}
+              showDurations={false}
+              onChange={(v: TickerPickerValue) => setTickers(v.tickers)}
+            />
           </FormField>
           <div className="space-y-3">
             <div>
@@ -247,7 +250,7 @@ export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
           <Button onClick={runJob} disabled={running}>
             <span className="inline-flex items-center gap-1.5">
               <Play size={14} />
-              {running ? 'Running…' : `Run leaderboard (${tickerList.length} × ${strategyIds.length} strategies)`}
+              {running ? 'Running…' : `Run leaderboard (${tickers.length} × ${strategyIds.length} strategies)`}
             </span>
           </Button>
           <Button variant="secondary" onClick={() => setShowReports((v) => !v)}>

@@ -3,7 +3,6 @@ import pandas as pd
 
 from app.strategies.backtest import backtest_signals
 from app.strategies.indicators import atr, rsi
-from app.strategies.registry import STRATEGY_META
 
 
 def compute_sl_tp(df: pd.DataFrame, signal: int, category: str) -> tuple[float, float]:
@@ -27,7 +26,7 @@ def compute_sl_tp(df: pd.DataFrame, signal: int, category: str) -> tuple[float, 
 def compute_confidence(
     df: pd.DataFrame,
     signal: int,
-    strategy_name: str,
+    strategy_label: str,
     category: str,
     mini_backtest_win_rate: float | None = None,
 ) -> tuple[float, str]:
@@ -56,7 +55,7 @@ def compute_confidence(
 
     action = "buy" if signal == 1 else "sell"
     rationale = (
-        f"{STRATEGY_META[strategy_name]['name']} triggered {action} on latest bar. "
+        f"{strategy_label} triggered {action} on latest bar. "
         f"RSI={rsi_val:.1f}, volume {vol_ratio:.1f}x avg"
     )
     if mini_backtest_win_rate is not None:
@@ -67,14 +66,14 @@ def compute_confidence(
 def enrich_signal(
     df: pd.DataFrame,
     signal: int,
-    strategy_name: str,
+    strategy_label: str,
     category: str,
     costs_pct: float = 0.0008,
 ) -> dict:
     sl_pct, tp_pct = compute_sl_tp(df, signal, category)
     mini_stats = backtest_signals(df.tail(min(500, len(df))), costs_pct=costs_pct)
     win_rate = mini_stats.get("win_rate_pct")
-    confidence, rationale = compute_confidence(df, signal, strategy_name, category, win_rate)
+    confidence, rationale = compute_confidence(df, signal, strategy_label, category, win_rate)
     return {
         "sl_pct": sl_pct,
         "tp_pct": tp_pct,

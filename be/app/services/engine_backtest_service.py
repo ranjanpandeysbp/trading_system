@@ -27,7 +27,7 @@ from app.services.ta_screener_service import (
 from app.strategies.backtest import backtest_signals
 from app.strategies.engine_strategies import ENGINE_STRATEGY_META, engine_runner_kind
 from app.strategies.preset_strategies import is_preset_strategy, preset_for_id
-from app.trading_hubs.registry import build_config, get_section
+from app.trading_hubs.registry import build_config, get_section, run_section_scan
 
 _PERIOD_DAYS = {
     "7d": 7,
@@ -51,6 +51,8 @@ _BARS_PER_DAY: dict[str, float] = {
     "4h": 1.6,
     "1d": 1,
     "1wk": 0.2,
+    "1w": 0.2,       # alias — mtf_scanner_engine/YF_TF_MAP use "1w", engine_strategies/presets use "1wk"
+    "1M": 1 / 21,    # ~1 bar per trading month
 }
 
 _BUY_TOKENS = frozenset({
@@ -72,8 +74,10 @@ def _period_to_limit(period: str, timeframe: str) -> int:
         m = re.match(r"^(\d+)d$", period)
         days = int(m.group(1)) if m else 365
     bars_per_day = _BARS_PER_DAY.get(timeframe, 1)
-    if timeframe == "1wk":
+    if timeframe in ("1wk", "1w"):
         return max(52, int(days / 7) + 10)
+    if timeframe == "1M":
+        return max(24, int(days / 30) + 6)
     return max(100, int(days * bars_per_day) + 50)
 
 
@@ -249,11 +253,24 @@ class EngineBacktestService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
 
+    async def _asset_ctx(self, asset_class: str) -> tuple[str, str, str]:
+        """Return (market, exchange, groww_token) for the given asset class."""
+        from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+
+        cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
+        market = str(cfg["market"])
+        if asset_class == "india":
+            exchange = await self.settings.get_groww_exchange()
+            token = await self.settings.get_groww_token() or ""
+        else:
+            exchange = str(cfg.get("exchange") or "NSE")
+            token = ""
+        return market, exchange, token
+
     async def run(self, request: BacktestRequest) -> dict[str, Any]:
-        groww_token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
+        asset_class = request.asset_class or "india"
+        market, exchange, groww_token = await self._asset_ctx(asset_class)
         costs_pct = request.costs_pct or await self.settings.get_costs_pct()
-        market = GROWW_MARKET
         period = request.period or "2y"
         limit = _period_to_limit(period, request.timeframe)
         kind = engine_runner_kind(request.strategy)
@@ -264,11 +281,11 @@ class EngineBacktestService:
             )
         if kind == "ta_native_bt":
             return await self._run_ta_native_backtest(
-                request, groww_token, exchange, costs_pct, period, limit,
+                request, market, groww_token, exchange, costs_pct, period, limit,
             )
         if kind == "rolling_ta_screener":
             return await self._run_rolling_ta_screener_backtest(
-                request, groww_token, exchange, costs_pct, period, limit,
+                request, market, groww_token, exchange, costs_pct, period, limit,
             )
 
         if kind == "analyze_bt":
@@ -351,13 +368,13 @@ class EngineBacktestService:
     async def _run_ta_native_backtest(
         self,
         request: BacktestRequest,
+        market: str,
         groww_token: str,
         exchange: str,
         costs_pct: float,
         period: str,
         limit: int,
     ) -> dict[str, Any]:
-        market = await self.settings.get_default_market()
         tf = request.timeframe or _DEFAULT_TF.get(request.strategy, "1d")
 
         def _run():
@@ -440,13 +457,13 @@ class EngineBacktestService:
     async def _run_rolling_ta_screener_backtest(
         self,
         request: BacktestRequest,
+        market: str,
         groww_token: str,
         exchange: str,
         costs_pct: float,
         period: str,
         limit: int,
     ) -> dict[str, Any]:
-        market = await self.settings.get_default_market()
         meta = ENGINE_STRATEGY_META.get(request.strategy, {})
         tf = request.timeframe or meta.get("default_tf") or _DEFAULT_TF.get(request.strategy, "15m")
         min_bars = int(meta.get("min_bars", 80))
@@ -719,6 +736,273 @@ class EngineBacktestService:
             return work
 
         raise ValueError(f"No signal-frame builder for {strategy_id}")
+
+    async def latest_signal(
+        self,
+        strategy_id: str,
+        ticker: str,
+        timeframe: str,
+        *,
+        market: str,
+        groww_token: str,
+        exchange: str,
+        bars: int,
+        costs_pct: float,
+    ) -> dict[str, Any]:
+        """Live BUY/SELL/HOLD signal for the *latest* bar — used by the
+        Scanner's live scan, not the backtester. Where the strategy already
+        exposes a per-bar signal series (signal_df kind, presets) the result
+        is enriched exactly like a rule-based strategy (ATR SL/TP + mini-
+        backtest confidence). Everything else reuses the strategy's own
+        single "current state" evaluator — the same function its dedicated
+        live-scan page already calls — so no new signal logic is invented."""
+        if is_preset_strategy(strategy_id):
+            return await self._latest_preset_signal(strategy_id, ticker, timeframe, groww_token, exchange, bars, costs_pct)
+
+        kind = engine_runner_kind(strategy_id)
+        if kind == "signal_df":
+            return await self._latest_signal_df_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
+        if kind == "analyze_bt":
+            return await self._latest_hub_section_signal(strategy_id, ticker, market, groww_token, exchange)
+        if kind in ("ta_native_bt", "rolling_ta_screener"):
+            return await self._latest_ta_screener_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars)
+        if kind == "rolling_mtf":
+            return await self._latest_mtf_signal(ticker, timeframe, market, groww_token, exchange, bars)
+        return await self._latest_sentiment_signal(ticker, timeframe, market, groww_token, exchange, bars)
+
+    async def _latest_preset_signal(
+        self, strategy_id: str, ticker: str, timeframe: str,
+        groww_token: str, exchange: str, bars: int, costs_pct: float,
+    ) -> dict[str, Any]:
+        from app.services.signal_enricher import enrich_signal
+        from app.strategies.preset_strategies import PRESET_ID_TO_MARKET
+
+        preset = preset_for_id(strategy_id)
+        if not preset:
+            raise ValueError(f"Unknown preset strategy: {strategy_id}")
+        mkt = PRESET_ID_TO_MARKET.get(strategy_id, GROWW_MARKET)
+
+        def _run():
+            set_groww_token(groww_token)
+            tf = timeframe or preset.get("recommended_timeframe", "1d")
+            df = fetch_data_for_gap_scan(ticker, tf, mkt, groww_token, exchange, limit=bars)
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < 30:
+                raise ValueError(f"Insufficient data for {ticker} ({tf})")
+            df = calculate_dynamic_indicators(df, preset["indicators"])
+            bt = run_true_backtest(
+                df, preset["entry_rules"], preset.get("exit_rules") or [],
+                initial_capital=100_000.0, commission=float(costs_pct),
+                sl_pct=float(preset.get("recommended_sl") or 0), tp_pct=float(preset.get("recommended_tp") or 0),
+            )
+            return bt
+
+        bt = await asyncio.to_thread(_run)
+        df_result = bt.get("df")
+        if df_result is None or df_result.empty or "buy_signal" not in df_result.columns:
+            raise ValueError("Preset produced no signal frame.")
+
+        frame = df_result.copy()
+        frame["signal"] = frame["buy_signal"].astype(int)  # presets are long-only
+        last_signal = int(frame["signal"].iloc[-1])
+        if last_signal == 0:
+            return {
+                "action": "HOLD", "price": float(frame["close"].iloc[-1]),
+                "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No active entry on latest bar.",
+                "timestamp": str(frame.index[-1]),
+            }
+        enriched = enrich_signal(frame, last_signal, preset.get("description") or strategy_id, "swing", costs_pct)
+        return {
+            "action": "BUY", "price": float(frame["close"].iloc[-1]),
+            "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],
+            "confidence_pct": enriched["confidence_pct"], "rationale": enriched["rationale"],
+            "timestamp": str(frame.index[-1]),
+        }
+
+    async def _latest_signal_df_signal(
+        self, strategy_id: str, ticker: str, timeframe: str,
+        market: str, groww_token: str, exchange: str, bars: int, costs_pct: float,
+    ) -> dict[str, Any]:
+        from app.services.signal_enricher import enrich_signal
+
+        section = get_section(strategy_id)
+        if not section:
+            raise ValueError(f"Unknown hub strategy: {strategy_id}")
+        mod = section["module"]
+        cfg = build_config(section["config_cls"], None)
+        if hasattr(cfg, "execution_tf"):
+            cfg.execution_tf = timeframe
+
+        work = await self._build_signal_frame(strategy_id, mod, cfg, ticker, market, groww_token, exchange, bars)
+        if work.empty:
+            raise ValueError(f"No data for {ticker} ({timeframe}).")
+        work = _normalize_signal_column(work)
+        last_signal = int(work["signal"].iloc[-1])
+        if last_signal == 0:
+            return {
+                "action": "HOLD", "price": float(work["close"].iloc[-1]),
+                "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No active signal on latest bar.",
+                "timestamp": str(work.index[-1]),
+            }
+        category = ENGINE_STRATEGY_META.get(strategy_id, {}).get("category", "th_intraday")
+        enrich_cat = "scalping" if "scalping" in category else "swing" if "swing" in category else "intraday"
+        enriched = enrich_signal(work, last_signal, section.get("label", strategy_id), enrich_cat, costs_pct)
+        return {
+            "action": "BUY" if last_signal == 1 else "SELL", "price": float(work["close"].iloc[-1]),
+            "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],
+            "confidence_pct": enriched["confidence_pct"], "rationale": enriched["rationale"],
+            "timestamp": str(work.index[-1]),
+        }
+
+    async def _latest_hub_section_signal(
+        self, strategy_id: str, ticker: str, market: str, groww_token: str, exchange: str,
+    ) -> dict[str, Any]:
+        def _run():
+            set_groww_token(groww_token)
+            return run_section_scan(
+                strategy_id, [ticker], market=market, groww_token=groww_token, exchange=exchange, run_bt=False,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        if payload.get("error"):
+            raise ValueError(payload["error"])
+        results = payload.get("results") or []
+        row = next((r for r in results if r.get("ticker") == ticker), results[0] if results else None)
+        if not row or row.get("error"):
+            raise ValueError((row or {}).get("error") or "No live scan result.")
+
+        live = row.get("live") or {}
+        direction = str(live.get("direction") or "").upper()
+        take = bool(live.get("take_trade", True))
+        action = "BUY" if direction == "LONG" and take else "SELL" if direction == "SHORT" and take else "HOLD"
+        price = float(live.get("entry_price") or row.get("last_close") or 0)
+        if action == "HOLD":
+            return {
+                "action": "HOLD", "price": price, "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": str(live.get("verdict") or "No active entry on latest bar."),
+                "timestamp": "",
+            }
+        reasons = live.get("reasons")
+        rationale = "; ".join(str(r) for r in reasons[:3]) if isinstance(reasons, list) and reasons else str(
+            live.get("verdict") or "Trading Hub live evaluation."
+        )
+        return {
+            "action": action, "price": price,
+            "sl_pct": float(live.get("sl_pct") or 0), "tp_pct": float(live.get("tp_pct") or 0),
+            "confidence_pct": float(live.get("confidence_pct") or 0), "rationale": rationale,
+            "timestamp": "",
+        }
+
+    async def _latest_ta_screener_signal(
+        self, strategy_id: str, ticker: str, timeframe: str,
+        market: str, groww_token: str, exchange: str, bars: int,
+    ) -> dict[str, Any]:
+        from app.services.signal_enricher import compute_sl_tp
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(ticker, timeframe, market, groww_token, exchange, limit=bars)
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {ticker}")
+            result = evaluate_screener_on_df(
+                strategy_id, ticker, df, market=market, timeframe=timeframe,
+                groww_token=groww_token, exchange=exchange,
+            )
+            if result.get("error"):
+                raise ValueError(result["error"])
+            return result, df
+
+        result, df = await asyncio.to_thread(_run)
+        actionable = is_actionable_result(result)
+        verdict = str(result.get("verdict") or "").upper()
+        direction = str(result.get("direction") or result.get("bias") or "").upper()
+        price = float(df["close"].iloc[-1])
+        if not actionable:
+            return {
+                "action": "HOLD", "price": price, "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No actionable setup on latest bar.", "timestamp": str(df.index[-1]),
+            }
+
+        action = "SELL" if ("SELL" in verdict or "SHORT" in verdict or "SHORT" in direction or "BEARISH" in direction) else "BUY"
+        sl_pct = result.get("sl_pct")
+        tp_pct = result.get("tp_pct")
+        if not sl_pct or not tp_pct:
+            est_sl, est_tp = compute_sl_tp(df, 1 if action == "BUY" else -1, "intraday")
+            sl_pct = float(sl_pct or est_sl)
+            tp_pct = float(tp_pct or est_tp)
+        confidence = float(result.get("confidence_pct") or result.get("confidence") or 0)
+        rationale = str(result.get("rationale") or result.get("reason") or result.get("verdict") or "TA screener live evaluation.")
+        return {
+            "action": action, "price": price, "sl_pct": sl_pct, "tp_pct": tp_pct,
+            "confidence_pct": confidence, "rationale": rationale, "timestamp": str(df.index[-1]),
+        }
+
+    async def _latest_mtf_signal(
+        self, ticker: str, timeframe: str, market: str, groww_token: str, exchange: str, bars: int,
+    ) -> dict[str, Any]:
+        from app.services.signal_enricher import compute_sl_tp
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(ticker, timeframe, market, groww_token, exchange, limit=bars)
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {ticker}")
+            result = analyze_timeframe(df, timeframe)
+            return result, df
+
+        result, df = await asyncio.to_thread(_run)
+        if not result:
+            raise ValueError("MTF analysis returned no result.")
+        composite = float(result.get("composite", 50))
+        conf = float(result.get("confidence", 0))
+        action = "BUY" if composite >= 62 and conf >= 50 else "SELL" if composite <= 38 and conf >= 50 else "HOLD"
+        price = float(df["close"].iloc[-1])
+        if action == "HOLD":
+            return {
+                "action": "HOLD", "price": price, "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No composite confluence on latest bar.", "timestamp": str(df.index[-1]),
+            }
+        sl_pct, tp_pct = compute_sl_tp(df, 1 if action == "BUY" else -1, "intraday")
+        return {
+            "action": action, "price": price, "sl_pct": sl_pct, "tp_pct": tp_pct,
+            "confidence_pct": conf, "rationale": f"MTF composite score {composite:.0f}/100, confidence {conf:.0f}%.",
+            "timestamp": str(df.index[-1]),
+        }
+
+    async def _latest_sentiment_signal(
+        self, ticker: str, timeframe: str, market: str, groww_token: str, exchange: str, bars: int,
+    ) -> dict[str, Any]:
+        from app.services.signal_enricher import compute_sl_tp
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(ticker, timeframe, market, groww_token, exchange, limit=bars)
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {ticker}")
+            result = analyze_ticker_sentiment(df, market=market, timeframe=timeframe)
+            return result, df
+
+        result, df = await asyncio.to_thread(_run)
+        sig_label = str(result.get("trade_signal", "WAIT"))
+        conf = float(result.get("trade_confidence", 0) or 0)
+        action = "BUY" if sig_label == "BUY" and conf >= 50 else "SELL" if sig_label == "SELL" and conf >= 50 else "HOLD"
+        price = float(df["close"].iloc[-1])
+        if action == "HOLD":
+            return {
+                "action": "HOLD", "price": price, "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No actionable sentiment signal.", "timestamp": str(df.index[-1]),
+            }
+        sl_pct, tp_pct = compute_sl_tp(df, 1 if action == "BUY" else -1, "intraday")
+        return {
+            "action": action, "price": price, "sl_pct": sl_pct, "tp_pct": tp_pct,
+            "confidence_pct": conf, "rationale": f"Sentiment {sig_label}, confidence {conf:.0f}%.",
+            "timestamp": str(df.index[-1]),
+        }
 
     async def _run_rolling_backtest(
         self,

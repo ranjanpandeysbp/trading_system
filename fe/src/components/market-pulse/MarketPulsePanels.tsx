@@ -1,7 +1,8 @@
 import { StatCard } from '../ui/StatCard'
-import { DataTable, Td, SortableTh, useSort } from '../ui/Table'
+import { DataTable, Td, Th, SortableTh, useSort } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 
 type Row = Record<string, unknown>
 
@@ -500,66 +501,121 @@ export function StockRotationPanel({ data }: { data: Row }) {
 export function Week52Panel({ data }: { data: Row }) {
   const highs = (data.at_52w_high as Row[]) ?? []
   const lows = (data.at_52w_low as Row[]) ?? []
+  const others = (data.others as Row[]) ?? []
+  const othersSort = useSort(others, {
+    symbol: (r) => String(r.symbol ?? ''),
+    ltp: (r) => Number(r.ltp),
+    year_high: (r) => Number(r.year_high),
+    year_low: (r) => Number(r.year_low),
+    pct_below_high: (r) => Number(r.pct_below_52w_high),
+    pct_above_low: (r) => Number(r.pct_above_52w_low),
+  }, 'pct_below_high', 'asc')
   const highsSort = useSort(highs, {
     symbol: (r) => String(r.symbol ?? ''),
-    ltp: (r) => Number(r.ltp ?? r.last),
-    high_52w: (r) => Number(r.high_52w),
-    dist: (r) => Number(r.dist_from_high_pct ?? r.pct_from_high),
-  })
+    ltp: (r) => Number(r.ltp),
+    level_52w: (r) => Number(r.level_52w),
+    pct_chg: (r) => Number(r.pct_chg),
+  }, 'pct_chg', 'desc')
   const lowsSort = useSort(lows, {
     symbol: (r) => String(r.symbol ?? ''),
-    ltp: (r) => Number(r.ltp ?? r.last),
-    low_52w: (r) => Number(r.low_52w),
-    dist: (r) => Number(r.dist_from_low_pct ?? r.pct_from_low),
-  })
+    ltp: (r) => Number(r.ltp),
+    level_52w: (r) => Number(r.level_52w),
+    pct_chg: (r) => Number(r.pct_chg),
+  }, 'pct_chg', 'asc')
   if (data.error) return <Alert type="error">{String(data.error)}</Alert>
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400">{String(data.index)} · {Number(data.constituent_count)} constituents scanned</p>
+      <p className="text-sm text-slate-400">
+        {String(data.index)} · {Number(data.constituent_count)} constituents · source: {String(data.source ?? 'NSE')}
+        {data.as_of ? ` · as of ${String(data.as_of)}` : ''}
+      </p>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="min-w-0">
-          <h4 className="mb-2 text-sm font-medium text-emerald-400">Near 52W High</h4>
+          <h4 className="mb-2 text-sm font-medium text-emerald-400">New 52W High today ({highs.length})</h4>
           <DataTable>
             <thead><tr>
               <SortableTh active={highsSort.sortKey === 'symbol'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('symbol')}>Symbol</SortableTh>
               <SortableTh active={highsSort.sortKey === 'ltp'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('ltp')}>LTP</SortableTh>
-              <SortableTh active={highsSort.sortKey === 'high_52w'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('high_52w')}>High</SortableTh>
-              <SortableTh active={highsSort.sortKey === 'dist'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('dist')}>Dist %</SortableTh>
+              <SortableTh active={highsSort.sortKey === 'level_52w'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('level_52w')}>52W High</SortableTh>
+              <SortableTh active={highsSort.sortKey === 'pct_chg'} direction={highsSort.sortDir} onSort={() => highsSort.handleSort('pct_chg')}>Chg %</SortableTh>
+              <Th>Watch</Th>
             </tr></thead>
             <tbody>
-              {highsSort.sorted.slice(0, 15).map((r) => (
-                <tr key={String(r.symbol)}>
-                  <Td>{String(r.symbol)}</Td>
-                  <Td>{fmtPrice(Number(r.ltp ?? r.last))}</Td>
-                  <Td>{fmtPrice(Number(r.high_52w))}</Td>
-                  <Td>{fmtPct(Number(r.dist_from_high_pct ?? r.pct_from_high))}</Td>
+              {highsSort.sorted.slice(0, 25).map((r) => (
+                <tr key={String(r.symbol)} title={String(r.company_name ?? '')}>
+                  <Td>{String(r.symbol)}{r.series && r.series !== 'EQ' ? <span className="ml-1 text-[10px] text-slate-500">{String(r.series)}</span> : null}</Td>
+                  <Td>{fmtPrice(Number(r.ltp))}</Td>
+                  <Td>{fmtPrice(Number(r.level_52w))}</Td>
+                  <Td className={pctClass(Number(r.pct_chg))}>{fmtPct(Number(r.pct_chg))}</Td>
+                  <Td><AddToWatchlistButton ticker={String(r.symbol)} marketType="india" compact /></Td>
                 </tr>
               ))}
+              {!highs.length && (
+                <tr><Td colSpan={5} className="text-center text-slate-500">None today.</Td></tr>
+              )}
             </tbody>
           </DataTable>
         </div>
         <div className="min-w-0">
-          <h4 className="mb-2 text-sm font-medium text-rose-400">Near 52W Low</h4>
+          <h4 className="mb-2 text-sm font-medium text-rose-400">New 52W Low today ({lows.length})</h4>
           <DataTable>
             <thead><tr>
               <SortableTh active={lowsSort.sortKey === 'symbol'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('symbol')}>Symbol</SortableTh>
               <SortableTh active={lowsSort.sortKey === 'ltp'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('ltp')}>LTP</SortableTh>
-              <SortableTh active={lowsSort.sortKey === 'low_52w'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('low_52w')}>Low</SortableTh>
-              <SortableTh active={lowsSort.sortKey === 'dist'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('dist')}>Dist %</SortableTh>
+              <SortableTh active={lowsSort.sortKey === 'level_52w'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('level_52w')}>52W Low</SortableTh>
+              <SortableTh active={lowsSort.sortKey === 'pct_chg'} direction={lowsSort.sortDir} onSort={() => lowsSort.handleSort('pct_chg')}>Chg %</SortableTh>
+              <Th>Watch</Th>
             </tr></thead>
             <tbody>
-              {lowsSort.sorted.slice(0, 15).map((r) => (
+              {lowsSort.sorted.slice(0, 25).map((r) => (
+                <tr key={String(r.symbol)} title={String(r.company_name ?? '')}>
+                  <Td>{String(r.symbol)}{r.series && r.series !== 'EQ' ? <span className="ml-1 text-[10px] text-slate-500">{String(r.series)}</span> : null}</Td>
+                  <Td>{fmtPrice(Number(r.ltp))}</Td>
+                  <Td>{fmtPrice(Number(r.level_52w))}</Td>
+                  <Td className={pctClass(Number(r.pct_chg))}>{fmtPct(Number(r.pct_chg))}</Td>
+                  <Td><AddToWatchlistButton ticker={String(r.symbol)} marketType="india" compact /></Td>
+                </tr>
+              ))}
+              {!lows.length && (
+                <tr><Td colSpan={5} className="text-center text-slate-500">None today.</Td></tr>
+              )}
+            </tbody>
+          </DataTable>
+        </div>
+      </div>
+
+      {others.length > 0 && (
+        <div className="min-w-0">
+          <h4 className="mb-2 text-sm font-medium text-slate-300">Others — not at a 52W extreme today ({others.length})</h4>
+          <p className="mb-2 text-xs text-slate-500">
+            Remaining constituents of {String(data.index)}, ranked by how close each is to its own 52-week high (own 1-year high/low via Yahoo Finance).
+          </p>
+          <DataTable>
+            <thead><tr>
+              <SortableTh active={othersSort.sortKey === 'symbol'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('symbol')}>Symbol</SortableTh>
+              <SortableTh active={othersSort.sortKey === 'ltp'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('ltp')}>LTP</SortableTh>
+              <SortableTh active={othersSort.sortKey === 'year_high'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('year_high')}>52W High</SortableTh>
+              <SortableTh active={othersSort.sortKey === 'pct_below_high'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('pct_below_high')}>% below high</SortableTh>
+              <SortableTh active={othersSort.sortKey === 'year_low'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('year_low')}>52W Low</SortableTh>
+              <SortableTh active={othersSort.sortKey === 'pct_above_low'} direction={othersSort.sortDir} onSort={() => othersSort.handleSort('pct_above_low')}>% above low</SortableTh>
+              <Th>Watch</Th>
+            </tr></thead>
+            <tbody>
+              {othersSort.sorted.map((r) => (
                 <tr key={String(r.symbol)}>
                   <Td>{String(r.symbol)}</Td>
-                  <Td>{fmtPrice(Number(r.ltp ?? r.last))}</Td>
-                  <Td>{fmtPrice(Number(r.low_52w))}</Td>
-                  <Td>{fmtPct(Number(r.dist_from_low_pct ?? r.pct_from_low))}</Td>
+                  <Td>{fmtPrice(Number(r.ltp))}</Td>
+                  <Td>{fmtPrice(Number(r.year_high))}</Td>
+                  <Td>{fmtPct(Number(r.pct_below_52w_high))}</Td>
+                  <Td>{fmtPrice(Number(r.year_low))}</Td>
+                  <Td>{fmtPct(Number(r.pct_above_52w_low))}</Td>
+                  <Td><AddToWatchlistButton ticker={String(r.symbol)} marketType="india" compact /></Td>
                 </tr>
               ))}
             </tbody>
           </DataTable>
         </div>
-      </div>
+      )}
     </div>
   )
 }

@@ -23,21 +23,24 @@ def vwap_bounce_scalp(df: pd.DataFrame, atr_period: int = 14, atr_mult: float = 
 
 def orb_1min_scalp(df: pd.DataFrame, range_minutes: int = 5) -> pd.DataFrame:
     out = df.copy()
-    out["date"] = out.index.date
-    or_high = out.groupby("date")["high"].transform(lambda s: s.iloc[:range_minutes].max())
-    or_low = out.groupby("date")["low"].transform(lambda s: s.iloc[:range_minutes].min())
+    # Named "_grp_date", not "date" — the incoming index is itself named
+    # "date" (normalize_ohlcv), and a same-named column makes every
+    # groupby("date") below ambiguous (pandas can't tell index vs column).
+    out["_grp_date"] = out.index.date
+    or_high = out.groupby("_grp_date")["high"].transform(lambda s: s.iloc[:range_minutes].max())
+    or_low = out.groupby("_grp_date")["low"].transform(lambda s: s.iloc[:range_minutes].min())
     out["or_high"], out["or_low"] = or_high, or_low
     vol_avg = out["volume"].rolling(20, min_periods=1).mean()
     vol_confirm = out["volume"] > vol_avg
-    bar_number = out.groupby("date").cumcount()
+    bar_number = out.groupby("_grp_date").cumcount()
     breakout_up = (out["close"] > out["or_high"]) & vol_confirm & (bar_number >= range_minutes)
     breakout_down = (out["close"] < out["or_low"]) & vol_confirm & (bar_number >= range_minutes)
-    first_up = breakout_up & ~breakout_up.groupby(out["date"]).shift(1).fillna(False)
-    first_down = breakout_down & ~breakout_down.groupby(out["date"]).shift(1).fillna(False)
+    first_up = breakout_up & ~breakout_up.groupby(out["_grp_date"]).shift(1).fillna(False)
+    first_down = breakout_down & ~breakout_down.groupby(out["_grp_date"]).shift(1).fillna(False)
     out["signal"] = 0
     out.loc[first_up, "signal"] = 1
     out.loc[first_down, "signal"] = -1
-    out.drop(columns=["date"], inplace=True)
+    out.drop(columns=["_grp_date"], inplace=True)
     return out
 
 

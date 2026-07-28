@@ -195,15 +195,46 @@ export const runScan = (payload: {
   strategies: string[]
   timeframes: string[]
   asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
+  bars?: number
 }) =>
-  api.post<{ signals: ScanSignal[]; scanned_at: string }>('/scanner/scan', payload).then((r) => r.data)
+  api.post<{ signals: ScanSignal[]; scanned_at: string }>('/scanner/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 export const runBacktest = (payload: {
   ticker: string
   strategy: string
   timeframe: string
   period?: string
   costs_pct?: number
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
 }) => api.post('/backtest/run', payload).then((r) => r.data)
+
+export const fetchBacktesterLeaderboardCatalog = () =>
+  api.get<{ categories: StrategyCategoryInfo[] }>('/backtester/leaderboard/catalog').then((r) => r.data)
+
+export const startBacktesterLeaderboardJob = (payload: {
+  tickers: string[]
+  strategy_ids: string[]
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
+  timeframe?: string
+  period?: string
+  costs_pct?: number
+  bars?: number
+  forward_bars?: number
+}) => api.post('/backtester/leaderboard/start', payload).then((r) => r.data)
+
+export const fetchBacktesterLeaderboardJob = (jobId: string) =>
+  api.get(`/backtester/leaderboard/jobs/${jobId}`).then((r) => r.data)
+
+export const saveBacktesterReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/backtester/leaderboard/reports', payload).then((r) => r.data)
+
+export const fetchBacktesterReports = () =>
+  api.get('/backtester/leaderboard/reports').then((r) => r.data)
+
+export const fetchBacktesterReport = (reportId: number) =>
+  api.get(`/backtester/leaderboard/reports/${reportId}`).then((r) => r.data)
+
+export const deleteBacktesterReport = (reportId: number) =>
+  api.delete(`/backtester/leaderboard/reports/${reportId}`).then((r) => r.data)
 export const getSettings = () => api.get<{
   data_provider: string
   groww_token_set: boolean
@@ -401,7 +432,7 @@ export const fetchLeaderboardCatalog = () =>
 export const startLeaderboardJob = (payload: {
   tickers: string[]
   timeframes?: string[]
-  asset_class?: 'india' | 'us' | 'crypto'
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
   strategy_ids?: string[] | null
   bars?: number
   forward_bars?: number

@@ -89,8 +89,23 @@ TA_STRATEGIES: list[dict[str, Any]] = [
 ENGINE_STRATEGY_META: dict[str, dict[str, Any]] = {}
 ENGINE_RUNNER_KIND: dict[str, str] = {}
 
+# These sections are "current-state" evaluators (they return the latest
+# signal, not a vectorized full-history series) and are multi-strategy or
+# multi-dataframe shaped — none of the existing runner kinds (analyze_bt's
+# run_bt flag, signal_df's single-df builder, rolling_sentiment's generic
+# composite score) actually exercise their real logic. Showing a backtest
+# for them via the generic fallback would silently test the WRONG thing, so
+# they're excluded here rather than faked; they still have a proper live
+# scan via /trading-hubs/scan.
+_NO_GENERIC_BACKTEST: frozenset[str] = frozenset({
+    "swing_5_strategies", "scalp_weekly", "swing_trend_breakout",
+    "smc_htf_zone_sweep", "weekly_candle_continuation",
+})
+
 for section in HUB_SECTIONS:
     sid = section["id"]
+    if sid in _NO_GENERIC_BACKTEST:
+        continue
     hub = section["hub"]
     cat_id = _HUB_CATEGORY_MAP[hub]
     hub_label = HUB_META[hub]["label"]

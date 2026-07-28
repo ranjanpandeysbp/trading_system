@@ -1,7 +1,8 @@
 import pandas as pd
 
-from app.data.factory import DataProviderFactory
-from app.data.ohlcv_utils import normalize_ohlcv_index
+from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.models.schemas import BacktestRequest
 from app.services.engine_backtest_service import EngineBacktestService
 from app.services.settings_service import SettingsService
@@ -14,24 +15,54 @@ from app.strategies.registry import (
     uses_engine_backtest,
 )
 
+_PERIOD_DAYS = {
+    "7d": 7, "30d": 30, "60d": 60, "90d": 90, "180d": 180,
+    "1y": 365, "2y": 730, "5y": 1825, "10y": 3650,
+}
+_BARS_PER_DAY: dict[str, float] = {
+    "1m": 375, "3m": 125, "5m": 75, "15m": 25, "30m": 13, "1h": 6.5, "4h": 1.6, "1d": 1,
+    "1wk": 0.2, "1w": 0.2, "1M": 1 / 21,
+}
+
+
+def _period_to_limit(period: str, timeframe: str) -> int:
+    days = _PERIOD_DAYS.get(period, 365)
+    if timeframe in ("1wk", "1w"):
+        return max(52, int(days / 7) + 10)
+    if timeframe == "1M":
+        return max(24, int(days / 30) + 6)
+    return max(100, int(days * _BARS_PER_DAY.get(timeframe, 1)) + 50)
+
 
 class BacktestService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
 
+    async def _asset_ctx(self, asset_class: str) -> tuple[str, str, str]:
+        """Return (market, exchange, groww_token) for the given asset class."""
+        cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
+        market = str(cfg["market"])
+        if asset_class == "india":
+            exchange = await self.settings.get_groww_exchange()
+            token = await self.settings.get_groww_token() or ""
+        else:
+            exchange = str(cfg.get("exchange") or "NSE")
+            token = ""
+        return market, exchange, token
+
     async def run(self, request: BacktestRequest) -> dict:
         if uses_engine_backtest(request.strategy):
             return await EngineBacktestService(self.settings).run(request)
 
-        provider = await DataProviderFactory.get_provider(self.settings)
+        asset_class = request.asset_class or "india"
+        market, exchange, token = await self._asset_ctx(asset_class)
         costs_pct = request.costs_pct or await self.settings.get_costs_pct()
-        benchmark_ticker = await self.settings.get_benchmark_ticker()
         period = request.period or default_backtest_period(request.timeframe)
         min_bars = min_bars_for_strategy(request.strategy)
+        limit = _period_to_limit(period, request.timeframe)
 
-        df = normalize_ohlcv_index(
-            await provider.fetch_ohlcv(request.ticker, interval=request.timeframe, period=period),
-            request.timeframe,
+        df = normalize_ohlcv(
+            fetch_data_for_gap_scan(request.ticker, request.timeframe, market, token, exchange, limit=limit),
         )
         if df.empty:
             raise ValueError(f"No data for {request.ticker} (period={period}, timeframe={request.timeframe})")
@@ -43,11 +74,14 @@ class BacktestService:
             )
 
         fn = get_strategy(request.strategy)
+        benchmark_ticker = None
         try:
             if needs_benchmark(request.strategy):
-                benchmark_df = normalize_ohlcv_index(
-                    await provider.fetch_ohlcv(benchmark_ticker, interval=request.timeframe, period=period),
-                    request.timeframe,
+                from app.market_pulse.weak_strong_engine import _benchmark_symbol
+
+                benchmark_ticker, _ = _benchmark_symbol(market)
+                benchmark_df = normalize_ohlcv(
+                    fetch_data_for_gap_scan(benchmark_ticker, request.timeframe, market, token, exchange, limit=limit),
                 )
                 if benchmark_df.empty:
                     raise ValueError(f"No benchmark data for {benchmark_ticker}")

@@ -5,7 +5,7 @@ import { Radar, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   executeSignal,
-  fetchScannerCategories,
+  fetchBacktesterLeaderboardCatalog,
   runScan,
   type ScanSignal,
 } from '../api/client'
@@ -19,15 +19,17 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Chip } from '../components/ui/Chip'
-import { FormField, Select } from '../components/ui/Form'
+import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, ConfidenceBar, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td } from '../components/ui/Table'
 
-const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1d']
+const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d', '1wk', '1M']
 
 type SortKey = 'ticker' | 'strategy' | 'timeframe' | 'action' | 'price' | 'day_high' | 'day_low' | 'sl_pct' | 'tp_pct' | 'confidence_pct'
 
-const TF_ORDER: Record<string, number> = { '1m': 1, '3m': 2, '5m': 3, '15m': 4, '1d': 5 }
+const TF_ORDER: Record<string, number> = {
+  '1m': 1, '3m': 2, '5m': 3, '15m': 4, '30m': 5, '1h': 6, '4h': 7, '1d': 8, '1wk': 9, '1M': 10,
+}
 const ACTION_ORDER = { BUY: 0, SELL: 1, HOLD: 2 }
 
 function formatPrice(value?: number | null, assetClass: AssetClass = 'india') {
@@ -75,6 +77,7 @@ export default function Scanner() {
     return fromUrl ? [fromUrl] : []
   })
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(['15m', '1d'])
+  const [bars, setBars] = useState(350)
   const [signals, setSignals] = useState<ScanSignal[]>([])
   const [sortKey, setSortKey] = useState<SortKey>('confidence_pct')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -97,27 +100,20 @@ export default function Scanner() {
   }, [signals, sortKey, sortDir])
 
   const {
-    data: categories,
+    data: catalog,
     isLoading: categoriesLoading,
     isError: categoriesError,
     error: categoriesFetchError,
-  } = useQuery({ queryKey: ['scanner-categories'], queryFn: fetchScannerCategories })
+  } = useQuery({ queryKey: ['bt-catalog'], queryFn: fetchBacktesterLeaderboardCatalog })
 
-  const strategies = categories?.flatMap((c) => c.strategies) ?? []
-
-  const [initialized, setInitialized] = useState(false)
+  const categories = catalog?.categories ?? []
+  const strategies = categories.flatMap((c) => c.strategies)
+  const totalStrategyCount = categories.reduce((n, c) => n + c.strategy_count, 0)
 
   useEffect(() => {
     const fromUrl = searchParams.get('strategy')
-    if (fromUrl) {
-      setSelectedStrategies([fromUrl])
-      return
-    }
-    if (strategies.length && !initialized) {
-      setSelectedStrategies(strategies.map((s) => s.id))
-      setInitialized(true)
-    }
-  }, [searchParams, strategies, initialized])
+    if (fromUrl) setSelectedStrategies([fromUrl])
+  }, [searchParams])
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => {
     setPicker(v)
@@ -160,6 +156,7 @@ export default function Scanner() {
       strategies: selectedStrategies,
       timeframes: selectedTimeframes,
       asset_class: assetClass,
+      bars,
     })
   }
 
@@ -213,7 +210,11 @@ export default function Scanner() {
             </div>
           </FormField>
 
-          <FormField label={`Strategies (${selectedStrategies.length} selected)`}>
+          <FormField label="History bars">
+            <Input type="number" min={150} max={2000} step={50} value={bars} onChange={(e) => setBars(Number(e.target.value))} />
+          </FormField>
+
+          <FormField label={`Strategies (${selectedStrategies.length} of ${totalStrategyCount} selected)`}>
             {categoriesLoading && <Loading message="Loading strategies…" />}
             {categoriesError && (
               <Alert type="error">{apiErrorMessage(categoriesFetchError)}</Alert>
@@ -221,7 +222,7 @@ export default function Scanner() {
             {!categoriesLoading && !categoriesError && (
               <>
                 <div className="max-h-56 space-y-3 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/20 p-3">
-                  {categories?.map((cat) => (
+                  {categories.map((cat) => (
                     <div key={cat.id}>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                         {cat.label} · {cat.timeframes.join(', ')}

@@ -74,6 +74,7 @@ class ScanRequest(BaseModel):
     strategies: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    bars: int | None = Field(None, ge=150, le=2000)
 
 
 class ScanSignal(BaseModel):
@@ -105,6 +106,7 @@ class BacktestRequest(BaseModel):
     timeframe: str = "1d"
     period: str | None = None
     costs_pct: float = 0.0008
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class BacktestResponse(BaseModel):
@@ -517,7 +519,7 @@ class StrategyLabScreenerRequest(BaseModel):
 class StrategyLeaderboardRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(default_factory=lambda: ["1d"])
-    asset_class: Literal["india", "us", "crypto"] = "india"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     strategy_ids: list[str] | None = None
     bars: int = Field(350, ge=150, le=2000)
     forward_bars: int = Field(10, ge=3, le=60)
@@ -526,6 +528,17 @@ class StrategyLeaderboardRequest(BaseModel):
 class SaveBacktestReportRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     payload: dict[str, Any]
+
+
+class BacktesterLeaderboardRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    strategy_ids: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframe: str | None = None
+    period: str | None = None
+    costs_pct: float | None = None
+    bars: int = Field(350, ge=150, le=2000)
+    forward_bars: int = Field(10, ge=3, le=60)
 
 
 class SeasonalityRequest(BaseModel):
