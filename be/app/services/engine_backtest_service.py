@@ -735,6 +735,96 @@ class EngineBacktestService:
             )
             return work
 
+        if strategy_id == "scalp_ichimoku_crash":
+            df = fetch_data_for_gap_scan(ticker, cfg.execution_tf, market, groww_token, exchange, limit=limit)
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < cfg.min_bars:
+                from app.market_pulse.gap_trading import fetch_ohlcv_yfinance
+
+                is_crypto = "CoinDCX" in market
+                df = normalize_ohlcv(
+                    fetch_ohlcv_yfinance(ticker, cfg.execution_tf, is_crypto=is_crypto, limit=limit, market=market),
+                )
+            work = mod.add_ichimoku(df, cfg)
+            signals = mod.scan_ichimoku_crash_signals(work, cfg)
+            frame = work.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
+        if strategy_id == "swing_trend_velocity":
+            df = fetch_data_for_gap_scan(ticker, "1d", market, groww_token, exchange, limit=limit)
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < cfg.min_bars:
+                from app.market_pulse.gap_trading import fetch_ohlcv_yfinance
+
+                is_crypto = "CoinDCX" in market
+                df = normalize_ohlcv(
+                    fetch_ohlcv_yfinance(ticker, "1d", is_crypto=is_crypto, limit=limit, market=market),
+                )
+            work = mod.add_trend_velocity_indicators(df, cfg)
+            frame = work.copy()
+            signal_vals = []
+            for i in range(len(work)):
+                alloc, _phase = mod._target_allocation(work.iloc[i], cfg)
+                signal_vals.append(1 if alloc > 0 else -1 if alloc < 0 else 0)
+            frame["signal"] = signal_vals
+            return frame
+
+        if strategy_id == "swing_bb_vwap_reversal":
+            # Note: HTF bias is a single "current" snapshot (matching the live
+            # engine's own simplification) reused across the whole backtest
+            # window, not recomputed bar-by-bar — a known approximation.
+            htf_df = mod._fetch_tf(ticker, cfg.htf_tf, market, groww_token=groww_token, exchange=exchange, limit=cfg.htf_lookback)
+            if htf_df.empty or len(htf_df) < cfg.min_htf_bars:
+                raise ValueError(f"Insufficient {cfg.htf_tf} data for the HTF trend bias.")
+            htf_bias, _htf_price, _htf_vwap = mod.htf_bias_from_df(htf_df)
+
+            ltf_df = mod._fetch_tf(ticker, cfg.execution_tf, market, groww_token=groww_token, exchange=exchange, limit=limit)
+            if ltf_df.empty:
+                raise ValueError(f"Insufficient {cfg.execution_tf} data.")
+            work = mod._add_vwap_close(ltf_df)
+            work = mod.add_bollinger_bands(work, period=cfg.bb_length, std_dev=cfg.bb_mult, col="close")
+            upper_col = f"bb_upper_{cfg.bb_length}_{cfg.bb_mult}"
+            lower_col = f"bb_lower_{cfg.bb_length}_{cfg.bb_mult}"
+            signals = mod.scan_bb_vwap_signals(work, cfg, htf_bias, upper_col, lower_col)
+            frame = work.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
+        if strategy_id == "smc_liquidity_silver_bullet":
+            # Note: like the BB+VWAP entry above, the HTF structure bias is a
+            # single "current" snapshot reused across the whole backtest
+            # window rather than recomputed bar-by-bar.
+            profile = mod._session_profile_for_market(market, cfg.session_profile)
+            htf_df = mod._fetch_tf(ticker, cfg.htf_tf, market, groww_token=groww_token, exchange=exchange, limit=cfg.htf_lookback)
+            if htf_df.empty or len(htf_df) < cfg.min_htf_bars:
+                raise ValueError(f"Insufficient {cfg.htf_tf} data for the HTF structure bias.")
+            htf_smc = mod.to_smc_ohlc(htf_df)
+            htf_swings = mod.find_fractal_swings(htf_smc, cfg.fractal_window)
+            htf_breaks = mod.detect_structure_breaks(htf_smc, htf_swings)
+            htf_bias_enum = mod.current_bias(htf_breaks)
+            htf_bias_label = htf_bias_enum.value.upper() if htf_breaks else "NEUTRAL"
+
+            ltf_df = mod._fetch_tf(ticker, cfg.execution_tf, market, groww_token=groww_token, exchange=exchange, limit=limit)
+            if ltf_df.empty:
+                raise ValueError(f"Insufficient {cfg.execution_tf} data.")
+            ltf_tz = mod._ensure_tz(ltf_df, mod._tz_for_profile(profile))
+            if ltf_tz.empty:
+                raise ValueError("Could not timezone-normalize the execution timeframe data.")
+            signals, _live_state = mod.scan_liquidity_silver_bullet_signals(ltf_tz, cfg, profile)
+            frame = ltf_tz.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
         raise ValueError(f"No signal-frame builder for {strategy_id}")
 
     async def latest_signal(

@@ -18,6 +18,7 @@ from app.trading_hubs import (
     scalp_crt_fvg_engine,
     scalp_ichimoku_crash_engine,
     scalp_multi_indicator_engine,
+    scalp_ny_open_bias_engine,
     scalp_rectangle_engine,
     scalp_heikin_ashi_engine,
     scalp_livefree_fx_engine,
@@ -32,13 +33,16 @@ from app.trading_hubs import (
     smc_golden_bullet_engine,
     smc_lewiskelly_engine,
     smc_liquidity_engine,
+    smc_liquidity_silver_bullet_engine,
     smc_mtf_day_plan_engine,
     smc_sc_best_engine,
     smc_ttg_sniper_engine,
     smc_weekly_sweep_cisd_engine,
     swing_5_strategies_engine,
+    swing_bb_vwap_reversal_engine,
     swing_trading_st_engine,
     swing_trend_breakout_engine,
+    swing_trend_velocity_engine,
     swing_trading_st_ha_ema_engine,
     swing_trading_st_kiss_engine,
     swing_trading_st_mtf_mss_engine,
@@ -217,6 +221,33 @@ HUB_SECTIONS: list[HubSection] = [
         config_cls=smc_golden_bullet_engine.GoldenBulletConfig,
     ),
     _section(
+        id="smc_liquidity_silver_bullet",
+        hub="smart_money",
+        label="Liquidity, Inducement & Silver Bullet",
+        description=(
+            "HTF structure bias, then the executable Silver Bullet sequence: liquidity sweep of the day's "
+            "high/low during the London or NY session, Market Structure Shift confirmation, entry on the "
+            "Fair Value Gap formed during that shift, stop beyond the order block. Min 1:2 R:R. "
+            "Video: https://www.youtube.com/watch?v=xnEioNLgNMM"
+        ),
+        module=smc_liquidity_silver_bullet_engine,
+        config_cls=smc_liquidity_silver_bullet_engine.LiquiditySilverBulletConfig,
+        config_options={
+            "htf_tf": {
+                "type": "select",
+                "label": "Higher timeframe (structure bias)",
+                "choices": [{"value": v, "label": v} for v in smc_liquidity_silver_bullet_engine.HTF_OPTIONS],
+                "default": "4h",
+            },
+            "execution_tf": {
+                "type": "select",
+                "label": "Execution timeframe (sweep/MSS/FVG)",
+                "choices": [{"value": v, "label": v} for v in smc_liquidity_silver_bullet_engine.LTF_OPTIONS],
+                "default": "15m",
+            },
+        },
+    ),
+    _section(
         id="scalp_arc",
         hub="scalping",
         label="ARC Method Scalping",
@@ -289,6 +320,30 @@ HUB_SECTIONS: list[HubSection] = [
                 "label": "Execution timeframe",
                 "choices": [{"value": v, "label": v} for v in scalp_ichimoku_crash_engine.EXECUTION_TF_OPTIONS],
                 "default": "4h",
+            },
+        },
+    ),
+    _section(
+        id="scalp_ny_open_bias",
+        hub="scalping",
+        label="NY Open 1H Bias",
+        description=(
+            "The 9:00 AM ET 1-hour candle sets the day's bias (green -> longs only, red -> shorts only), "
+            "executed on the 1-minute chart via one of three entry styles: first-5-minute break & retest, "
+            "previous day high/low break & retest, or the one-candle-rule support/resistance hold. "
+            "Min 1:2 R:R. Video: https://www.youtube.com/watch?v=qhF61rJBOyE — Scarface Trades."
+        ),
+        module=scalp_ny_open_bias_engine,
+        config_cls=scalp_ny_open_bias_engine.NyOpenBiasConfig,
+        config_options={
+            "entry_style": {
+                "type": "select",
+                "label": "Entry style",
+                "choices": [
+                    {"value": v, "label": scalp_ny_open_bias_engine.ENTRY_STYLE_LABELS[v]}
+                    for v in scalp_ny_open_bias_engine.ENTRY_STYLE_OPTIONS
+                ],
+                "default": "five_min_break_retest",
             },
         },
     ),
@@ -435,6 +490,47 @@ HUB_SECTIONS: list[HubSection] = [
                     {"value": "swing_low", "label": "Recent swing low (wider)"},
                 ],
                 "default": "breakout_candle_low",
+            },
+        },
+    ),
+    _section(
+        id="swing_trend_velocity",
+        hub="swing",
+        label="Trend Velocity — 50/250 MA + ROC Scale-Out",
+        description=(
+            "Systematic position-trading system (Malik's \"White Light\" bot): golden rule is price above "
+            "BOTH the 50-day and 250-day moving averages for long (mirror for short), with a rate-of-change "
+            "deceleration check that scales the position down without abandoning the trend. Low-frequency, "
+            "held for months to years, no tactical stop-loss. Video: https://www.youtube.com/watch?v=pBS5vrqrUjk"
+        ),
+        module=swing_trend_velocity_engine,
+        config_cls=swing_trend_velocity_engine.TrendVelocityConfig,
+    ),
+    _section(
+        id="swing_bb_vwap_reversal",
+        hub="swing",
+        label="BB + VWAP Reversal",
+        description=(
+            "Bollinger Bands(20, mult 1) + VWAP(source Close) multi-timeframe reversal. HTF (1h/4h) sets "
+            "the bias; on the LTF (5m/15m), a candle opening above VWAP and closing below the lower band "
+            "shorts, the mirror opening below VWAP and closing above the upper band buys. Book ~50% at "
+            "1:2, trail toward 1:3 while price holds the correct side of VWAP. "
+            "Video: https://www.youtube.com/watch?v=5s_6CLbEa2g"
+        ),
+        module=swing_bb_vwap_reversal_engine,
+        config_cls=swing_bb_vwap_reversal_engine.BbVwapReversalConfig,
+        config_options={
+            "htf_tf": {
+                "type": "select",
+                "label": "Higher timeframe (trend bias)",
+                "choices": [{"value": v, "label": v} for v in swing_bb_vwap_reversal_engine.HTF_OPTIONS],
+                "default": "1h",
+            },
+            "execution_tf": {
+                "type": "select",
+                "label": "Execution timeframe (entry trigger)",
+                "choices": [{"value": v, "label": v} for v in swing_bb_vwap_reversal_engine.LTF_OPTIONS],
+                "default": "15m",
             },
         },
     ),

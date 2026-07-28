@@ -39,6 +39,10 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "smc_mtf_day_plan": ["15m", "5m"],
     "smc_golden_bullet": ["15m"],
     "scalp_ichimoku_crash": ["1h", "4h", "1d"],
+    "swing_trend_velocity": ["1d"],
+    "swing_bb_vwap_reversal": ["5m", "15m"],
+    "smc_liquidity_silver_bullet": ["5m", "15m"],
+    "scalp_ny_open_bias": ["1m"],
 }
 
 _HUB_MIN_BARS: dict[str, int] = {
@@ -56,6 +60,10 @@ _HUB_MIN_BARS: dict[str, int] = {
     "smc_mtf_day_plan": 60,
     "smc_golden_bullet": 80,
     "scalp_ichimoku_crash": 120,
+    "swing_trend_velocity": 280,
+    "swing_bb_vwap_reversal": 30,
+    "smc_liquidity_silver_bullet": 60,
+    "scalp_ny_open_bias": 40,
 }
 
 TA_STRATEGIES: list[dict[str, Any]] = [
@@ -120,6 +128,7 @@ for section in HUB_SECTIONS:
         "swing_trading_st_supertrend",
         "swing_trading_st_kiss",
         "swing_trading_st_ha_ema",
+        "scalp_ny_open_bias",
     }:
         runner = "analyze_bt"
     elif sid in {
@@ -129,6 +138,10 @@ for section in HUB_SECTIONS:
         "smc_cisd",
         "smc_weekly_sweep_cisd",
         "smc_golden_bullet",
+        "scalp_ichimoku_crash",
+        "swing_trend_velocity",
+        "swing_bb_vwap_reversal",
+        "smc_liquidity_silver_bullet",
     }:
         runner = "signal_df"
     else:
