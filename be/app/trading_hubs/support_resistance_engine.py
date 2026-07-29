@@ -150,6 +150,69 @@ def find_active_zones(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> dic
 
 
 # ---------------------------------------------------------------------------
+# Trendline: connects the two most recent higher-lows (ascending) or the two
+# most recent lower-highs (descending) — the simple, standard TA construction.
+# Only returned when the swings actually support a clean, monotonic trend.
+# ---------------------------------------------------------------------------
+
+def find_trendlines(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> list[dict[str, Any]]:
+    swung = _swing_columns(df_htf, cfg.swing_window)
+    n = len(df_htf)
+    start = max(0, n - cfg.zone_lookback_bars)
+    window = swung.iloc[start:]
+
+    lows = window["swing_low"].dropna()
+    highs = window["swing_high"].dropna()
+    lines: list[dict[str, Any]] = []
+
+    if len(lows) >= 2:
+        i1, i2 = lows.index[-2], lows.index[-1]
+        p1, p2 = float(lows.iloc[-2]), float(lows.iloc[-1])
+        if p2 > p1:  # higher low -> ascending support trendline
+            slope = (p2 - p1) / max(1, (df_htf.index.get_loc(i2) - df_htf.index.get_loc(i1)))
+            proj_price = p2 + slope * (n - 1 - df_htf.index.get_loc(i2))
+            lines.append({
+                "type": "ascending",
+                "points": [
+                    {"time": str(i1), "price": round(p1, 6)},
+                    {"time": str(i2), "price": round(p2, 6)},
+                    {"time": str(df_htf.index[-1]), "price": round(float(proj_price), 6)},
+                ],
+            })
+
+    if len(highs) >= 2:
+        i1, i2 = highs.index[-2], highs.index[-1]
+        p1, p2 = float(highs.iloc[-2]), float(highs.iloc[-1])
+        if p2 < p1:  # lower high -> descending resistance trendline
+            slope = (p2 - p1) / max(1, (df_htf.index.get_loc(i2) - df_htf.index.get_loc(i1)))
+            proj_price = p2 + slope * (n - 1 - df_htf.index.get_loc(i2))
+            lines.append({
+                "type": "descending",
+                "points": [
+                    {"time": str(i1), "price": round(p1, 6)},
+                    {"time": str(i2), "price": round(p2, 6)},
+                    {"time": str(df_htf.index[-1]), "price": round(float(proj_price), 6)},
+                ],
+            })
+
+    return lines
+
+
+def build_chart_data(df_htf: pd.DataFrame, cfg: SupportResistanceConfig, *, max_bars: int = 120) -> list[dict[str, Any]]:
+    tail = df_htf.iloc[-max_bars:]
+    return [
+        {
+            "time": str(idx),
+            "open": round(float(bar["open"]), 6),
+            "high": round(float(bar["high"]), 6),
+            "low": round(float(bar["low"]), 6),
+            "close": round(float(bar["close"]), 6),
+        }
+        for idx, bar in tail.iterrows()
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Step 4: LTF market-structure-break confirmation after a zone tap
 # ---------------------------------------------------------------------------
 
@@ -298,6 +361,8 @@ def evaluate_live_signal(pipeline: dict[str, Any], cfg: SupportResistanceConfig)
         "target_price": round(target, 6),
         "support_zone": [round(support["bottom"], 6), round(support["top"], 6)] if support else None,
         "resistance_zone": [round(resistance["bottom"], 6), round(resistance["top"], 6)] if resistance else None,
+        "trendlines": find_trendlines(htf, cfg),
+        "chart_data": build_chart_data(htf, cfg),
         "htf": cfg.htf,
         "ltf": cfg.ltf,
         "reasons": reasons,

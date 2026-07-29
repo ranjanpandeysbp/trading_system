@@ -3,6 +3,7 @@ import { DataTable, SortableTh, Td, Th } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import { SupportResistanceChart, type SRChartBar, type SRTrendline } from './SupportResistanceChart'
 
 type Row = Record<string, unknown>
 
@@ -190,6 +191,15 @@ export function TradingHubResultsPanel({ data, sectionId }: { data: Row; section
             <Alert type="error">{String(selectedRow.error)}</Alert>
           ) : (
             <div className="space-y-2 text-sm text-slate-300">
+              {sectionId === 'support_resistance' && Boolean((selectedRow.live as Row)?.chart_data) && (
+                <SupportResistanceChart
+                  chartData={(selectedRow.live as Row).chart_data as unknown as SRChartBar[]}
+                  supportZone={((selectedRow.live as Row).support_zone as [number, number] | null) ?? null}
+                  resistanceZone={((selectedRow.live as Row).resistance_zone as [number, number] | null) ?? null}
+                  trendlines={((selectedRow.live as Row).trendlines as unknown as SRTrendline[]) ?? []}
+                  lastClose={selectedRow.last_close as number | undefined}
+                />
+              )}
               {((selectedRow.live as Row)?.reasons as string[] | undefined)?.map((reason) => (
                 <p key={reason}>· {reason}</p>
               ))}
