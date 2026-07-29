@@ -255,15 +255,63 @@ def _yf_extremes_from_df(df: pd.DataFrame) -> dict[str, float] | None:
     }
 
 
+def _fetch_52w_extremes_groww(symbols: list[str], token: str) -> dict[str, dict]:
+    """1-year daily high/low/last via Groww — tried first when a token is
+    configured (fetch_data_for_gap_scan itself falls back to Groww's public
+    charting endpoint on auth failure before giving up), concurrently since
+    Groww's OHLCV API is per-symbol, unlike yfinance's batch download."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+    from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
+    from app.market_pulse.ticker_utils import GROWW_MARKET
+
+    out: dict[str, dict] = {}
+    if not symbols or not token:
+        return out
+
+    def _one(sym: str) -> tuple[str, dict | None]:
+        try:
+            df = normalize_ohlcv(fetch_data_for_gap_scan(sym, "1d", GROWW_MARKET, token, "NSE", limit=260))
+            return sym, _yf_extremes_from_df(df)
+        except Exception:
+            return sym, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for fut in as_completed([ex.submit(_one, s) for s in symbols]):
+            sym, stats = fut.result()
+            if stats:
+                out[sym] = {
+                    "symbol": sym,
+                    "last": stats["last"],
+                    "year_high": stats["year_high"],
+                    "year_low": stats["year_low"],
+                    "pct_chg": None,
+                    "source": "groww",
+                }
+    return out
+
+
 def _fetch_52w_extremes_yfinance(symbols: tuple[str, ...]) -> dict[str, dict]:
-    """1-year daily high/low/last via Yahoo Finance (.NS tickers)."""
+    """1-year daily high/low/last — Groww first (if a token is configured
+    for the active request, via the groww_auth contextvar), yfinance
+    (.NS tickers) fallback for whatever Groww didn't cover."""
     if not symbols:
         return {}
-    out: dict[str, dict] = {}
     unique = list(dict.fromkeys(symbols))
+
+    from app.market_pulse.groww_auth import get_active_groww_token
+
+    token = get_active_groww_token()
+    out: dict[str, dict] = _fetch_52w_extremes_groww(unique, token) if token else {}
+
+    remaining = [s for s in unique if s not in out]
+    if not remaining:
+        return out
+
     chunk_size = 40
-    for start in range(0, len(unique), chunk_size):
-        chunk = unique[start:start + chunk_size]
+    for start in range(0, len(remaining), chunk_size):
+        chunk = remaining[start:start + chunk_size]
         tickers = [stock_symbol_to_yf(s) for s in chunk]
         try:
             raw = yf.download(

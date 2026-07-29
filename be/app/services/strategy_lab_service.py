@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pandas as pd
+
 from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
 from app.market_pulse.engine import run_true_backtest
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
@@ -224,6 +226,21 @@ class StrategyLabService:
             metrics = result.get("metrics") or {}
             trades = result.get("trades")
             trade_list = trades.to_dict(orient="records") if trades is not None and not trades.empty else []
+
+            equity = result.get("equity_curve")
+            equity_points: list[dict[str, Any]] = []
+            if equity is not None and not equity.empty:
+                # Downsample long series so the response stays light — a chart
+                # doesn't need every bar, just the shape of the curve.
+                step = max(1, len(equity) // 300)
+                sampled = equity.iloc[::step]
+                if sampled.index[-1] != equity.index[-1]:
+                    sampled = pd.concat([sampled, equity.iloc[[-1]]])
+                equity_points = [
+                    {"date": str(idx), "equity": round(float(val), 2)}
+                    for idx, val in sampled.items()
+                ]
+
             return {
                 "ticker": ticker,
                 "timeframe": tf,
@@ -233,6 +250,7 @@ class StrategyLabService:
                 "metrics": metrics,
                 "trades": trade_list[-50:],
                 "trade_count": len(trade_list),
+                "equity_curve": equity_points,
             }
 
         return json_safe(await asyncio.to_thread(_run))

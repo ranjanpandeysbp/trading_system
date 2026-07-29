@@ -398,7 +398,7 @@ function SchedulesPanel() {
           </FormField>
           <FormField label="Market">
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {(['india', 'us', 'crypto'] as AssetClass[]).map((m) => (
+              {(['india', 'us', 'crypto', 'commodity'] as AssetClass[]).map((m) => (
                 <Chip key={m} selected={market === m} onClick={() => { setMarket(m); setPicker({ tickers: [], durations: ['1d'] }) }}>{m}</Chip>
               ))}
             </div>

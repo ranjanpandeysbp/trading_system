@@ -1,16 +1,37 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
-const nav = [
+type NavChild = { to: string; label: string }
+type NavEntry = { to: string; label: string; shortLabel: string; icon: typeof LayoutDashboard; children?: NavChild[] }
+
+const nav: NavEntry[] = [
   { to: '/', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
   { to: '/command-center', label: 'Command Center', shortLabel: 'Command', icon: Compass },
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
   { to: '/market-pulse', label: 'Market Pulse', shortLabel: 'Pulse', icon: Activity },
   { to: '/etf-ta-in', label: 'ETF TA IN', shortLabel: 'ETF', icon: Landmark },
   { to: '/trading-hubs', label: 'Trading Hubs', shortLabel: 'Hubs', icon: Layers },
+  {
+    to: '/trade-candidate',
+    label: 'Trade Candidate',
+    shortLabel: 'Candidate',
+    icon: Target,
+    children: [
+      { to: '/trade-candidate/configure', label: 'Configure' },
+      { to: '/trade-candidate/signals-crypto', label: 'Live Signals · Crypto' },
+      { to: '/trade-candidate/signals-india', label: 'Live Signals · India' },
+      { to: '/trade-candidate/signals-us', label: 'Live Signals · US' },
+      { to: '/trade-candidate/signals-commodity', label: 'Live Signals · Commodities' },
+      { to: '/trade-candidate/setups', label: 'Saved Setups' },
+      { to: '/trade-candidate/history-crypto', label: 'Trigger History · Crypto' },
+      { to: '/trade-candidate/history-india', label: 'Trigger History · India' },
+      { to: '/trade-candidate/history-us', label: 'Trigger History · US' },
+      { to: '/trade-candidate/history-commodity', label: 'Trigger History · Commodities' },
+    ],
+  },
   { to: '/options', label: 'Options', shortLabel: 'Options', icon: Calculator },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
   { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
@@ -24,26 +45,85 @@ const nav = [
 ]
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation()
+  const [openGroup, setOpenGroup] = useState<string | null>(
+    () => nav.find((n) => n.children?.some((c) => location.pathname.startsWith(c.to)))?.to ?? null,
+  )
+
+  // Auto-open the group containing the active route (e.g. landing here via a
+  // link elsewhere), but this must not fight the toggle button below — once
+  // opened this way, clicking the header still has to be able to close it
+  // even while a child route is active.
+  useEffect(() => {
+    const match = nav.find((n) => n.children?.some((c) => location.pathname.startsWith(c.to)))
+    if (match) setOpenGroup(match.to)
+  }, [location.pathname])
+
   return (
     <>
-      {nav.map(({ to, label, icon: Icon }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={to === '/'}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${
-              isActive
-                ? 'bg-blue-500/15 text-blue-400 shadow-sm shadow-blue-500/10'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`
-          }
-        >
-          <Icon size={18} strokeWidth={2} className="shrink-0" />
-          <span>{label}</span>
-        </NavLink>
-      ))}
+      {nav.map(({ to, label, icon: Icon, children }) => {
+        const groupActive = Boolean(children?.some((c) => location.pathname.startsWith(c.to)))
+        const expanded = openGroup === to
+
+        if (children) {
+          return (
+            <div key={to}>
+              <button
+                type="button"
+                onClick={() => setOpenGroup((prev) => (prev === to ? null : to))}
+                className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-all ${
+                  groupActive
+                    ? 'bg-blue-500/15 text-blue-400 shadow-sm shadow-blue-500/10'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                }`}
+              >
+                <Icon size={18} strokeWidth={2} className="shrink-0" />
+                <span className="flex-1">{label}</span>
+                <ChevronDown size={15} className={`shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </button>
+              {expanded && (
+                <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-800/80 pl-4">
+                  {children.map((c) => (
+                    <NavLink
+                      key={c.to}
+                      to={c.to}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        `rounded-lg px-3 py-2 text-sm transition-all ${
+                          isActive
+                            ? 'bg-blue-500/15 text-blue-400'
+                            : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                        }`
+                      }
+                    >
+                      {c.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-blue-500/15 text-blue-400 shadow-sm shadow-blue-500/10'
+                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+              }`
+            }
+          >
+            <Icon size={18} strokeWidth={2} className="shrink-0" />
+            <span>{label}</span>
+          </NavLink>
+        )
+      })}
     </>
   )
 }

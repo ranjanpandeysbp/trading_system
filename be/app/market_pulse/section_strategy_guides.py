@@ -1198,6 +1198,68 @@ Multi-TF: execution TF + optional HTF bias. Conf / SL% / TP% / hold on every row
 Modes: Sweep/Grab · FVG Rebalance · Both. Conf / SL% / TP% / hold on every row.
 """,
 
+    "footprint": """
+### Footprint — order-flow confirmation at key levels
+[I Studied Order Flow Trading for 5 Years — Footprint Charts Beat Everything](https://www.youtube.com/watch?v=kcglxDJ_ZF0)
+
+**Important:** this app has OHLCV candles, not real bid/ask tick data. Buy/sell volume per bar is estimated from
+where the close sits within its own high-low range (the same proxy the Scanner's Order Flow Imbalance strategy
+already uses) — an honest approximation, not real Level 2 depth.
+
+| Step | What it checks |
+|------|------|
+| **1. Delta** | Buyers minus estimated sellers over the recent bars — who's winning. |
+| **2. Imbalances** | 3+ stacked bars where one side overwhelms the other — an institutional "fingerprint". |
+| **3. Absorption** | High volume, small body — a wall quietly absorbing the aggressive side at the level. |
+
+**Strict order of operations:** only fires once price taps a key HTF level AND all three steps confirm, in order.
+Partial confirmation shows as WATCH with exactly which step is still missing.
+
+**When to use:** as confirmation at levels you already care about — not a standalone signal generator.
+""",
+
+    "support_resistance": """
+### Support and Resistance — break, retest, confirm
+[The Strategy That Made Me My First $1,000,000 Trading](https://www.youtube.com/watch?v=d5T-k_-ejd0&t=29s)
+
+**The core idea:** resistance is a "roof" where sellers have stepped in before; support is a "floor" where buyers
+have stepped in before. A strongly-broken roof often becomes the new floor on the next visit (and the mirror image
+for a broken floor becoming a new roof).
+
+| Step | Rule |
+|------|------|
+| **1. Draw zones, not lines** | HTF resistance zone = highest wick down to highest body in a rejection cluster; support zone = lowest wick up to lowest body. |
+| **2. Break and retest** | A strongly broken zone flips role for the next visit — old resistance becomes new support, and vice versa. |
+| **3. Alert, don't stare** | Nothing happens until price actually taps back into a zone. |
+| **4. LTF confirmation** | After the tap, wait for a clean break of the most recent LTF lower high (longs) or higher low (shorts) — never enter on the tap alone. |
+| **5. Entry** | At the structure break. Stop beyond the zone. Target the next recent structural high/low. |
+
+**When to use:** a deliberately low-screen-time strategy across every asset class this hub supports (India via Groww,
+US, Crypto, Commodities) — set the zone, walk away, engage only once price taps it and structure confirms.
+""",
+
+    "smc_five_filter": """
+### 5 SMC Filter — the 5 checks that separate A+ trades from bad ones
+[The 5 Smart Money Filters That Separate A+ Trades From Bad Trades](https://www.youtube.com/watch?v=uzeLz80FVVY&t=54s)
+
+| Filter | What it checks |
+|---|---|
+| **1. Permission** | Price must come from an UNMITIGATED higher-timeframe supply/demand zone — that zone alone tells you which side you're allowed to trade (demand = buys only, supply = sells only). |
+| **2. Footprint** | The zone's origin must be a liquidity sweep of a prior swing, followed by a sharp displacement — the real fingerprint of smart money, not random consolidation. |
+| **3. Inefficiency** | An unfilled Fair Value Gap must sit in the same leg — the imbalance that makes the zone "magnetic". |
+| **4. Location** | The zone must sit in the discount half of the range for buys, or the premium half for sells. Mid-range setups are rejected outright. |
+| **5. Exit Test** | There must be untouched higher-timeframe liquidity ahead of price, far enough away to clear a minimum reward:risk. No target room = no trade. |
+
+All 5 must pass together for a setup to count as A+ — the live scan shows each filter's pass/fail individually.
+
+**3 entry models, once a setup passes all 5 filters:**
+- **Aggressive** — enter the moment price is inside the zone (limit at the zone midpoint), stop just beyond the zone. Rarely misses a trade, but no reversal confirmation.
+- **Conservative** — wait for price to tap the zone AND a lower-timeframe Change of Character (ChoCh) to confirm the reversal. Tighter stop, better R:R.
+- **Ultra-Conservative** — stacks a second confirmation on top of Conservative: after the ChoCh, also wait for a same-direction lower-timeframe continuation Fair Value Gap. Exceptional R:R and precision, but the most frequently missed entries of the three.
+
+**When to use:** when you want the strategy to say no far more often than yes.
+""",
+
     "smc_ttg_sniper": """
 ### SM — TTG Sniper Entry (Liquidity Sweep + Order Block + FVG)
 [TTG Sniper Entry methodology](https://www.youtube.com/watch?v=MypSrcfiqtM&t=32s) — mechanical 5-step entry:

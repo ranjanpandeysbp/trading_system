@@ -16,16 +16,16 @@ import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
 
 type OrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
-type PaperAssetClass = 'india' | 'us' | 'crypto'
+type PaperAssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 
 function currencySymbol(assetClass?: string): string {
-  if (assetClass === 'us') return '$'
+  if (assetClass === 'us' || assetClass === 'commodity') return '$'
   if (assetClass === 'crypto') return ''
   return '₹'
 }
 
 const ASSET_CLASS_LABEL: Record<string, string> = {
-  india: '🇮🇳 India', us: '🇺🇸 US', crypto: '₿ Crypto',
+  india: '🇮🇳 India', us: '🇺🇸 US', crypto: '₿ Crypto', commodity: '🛢️ Commodity',
 }
 
 const ORDER_TYPE_LABEL: Record<string, string> = {
@@ -211,6 +211,7 @@ export default function PaperTrading() {
               <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
               <option value="us">🇺🇸 US stocks (Yahoo)</option>
               <option value="crypto">₿ Crypto (CoinDCX)</option>
+              <option value="commodity">🛢️ Commodity futures</option>
             </Select>
           </FormField>
 

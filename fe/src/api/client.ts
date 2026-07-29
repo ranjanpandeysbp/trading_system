@@ -179,7 +179,7 @@ export interface PlaceOrderPayload {
   order_type?: 'market' | 'limit' | 'stop' | 'stop_limit'
   limit_price?: number
   trigger_price?: number
-  asset_class?: 'india' | 'us' | 'crypto'
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
 }
 
 export interface ModifyOrderPayload {
@@ -433,6 +433,60 @@ export const runStrategyLabMultiCombo = (payload: Record<string, unknown>) =>
 export const runStrategyLabScreener = (payload: Record<string, unknown>) =>
   api.post('/strategy-lab/screener', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export interface CustomStrategy {
+  id: number
+  name: string
+  market: string
+  asset_class: string
+  description: string | null
+  timeframe: string
+  indicators: Array<Record<string, unknown>>
+  entry_rules: Array<Record<string, unknown>>
+  exit_rules: Array<Record<string, unknown>>
+  entry_mode: 'AND' | 'OR'
+  exit_mode: 'AND' | 'OR'
+  direction_mode: 'long_only' | 'short_only' | 'long_short'
+  position_sizing: 'pct_of_capital' | 'risk_pct'
+  capital_allocation_pct: number
+  risk_pct: number
+  sl_pct: number
+  tp_pct: number
+  source: 'manual' | 'ai'
+  created_at: string | null
+  updated_at: string | null
+}
+
+export const fetchCustomStrategies = (market?: string) =>
+  api.get<{ strategies: CustomStrategy[] }>('/strategy-lab/custom-strategies', { params: market ? { market } : undefined }).then((r) => r.data)
+
+export const createCustomStrategy = (payload: Record<string, unknown>) =>
+  api.post<CustomStrategy>('/strategy-lab/custom-strategies', payload).then((r) => r.data)
+
+export const updateCustomStrategy = (id: number, payload: Record<string, unknown>) =>
+  api.patch<CustomStrategy>(`/strategy-lab/custom-strategies/${id}`, payload).then((r) => r.data)
+
+export const deleteCustomStrategy = (id: number) =>
+  api.delete(`/strategy-lab/custom-strategies/${id}`).then((r) => r.data)
+
+export interface AIGeneratedStrategy {
+  name: string
+  description: string
+  recommended_timeframe: string
+  recommended_sl: number | null
+  recommended_tp: number | null
+  direction_mode: 'long_only' | 'short_only' | 'long_short'
+  indicators: Array<Record<string, unknown>>
+  entry_rules: Array<Record<string, unknown>>
+  exit_rules: Array<Record<string, unknown>>
+  entry_mode: 'AND' | 'OR'
+  exit_mode: 'AND' | 'OR'
+  provider: string
+  model: string
+}
+
+export const aiGenerateStrategy = (payload: { text: string; market: string; asset_class: string; strategy_name?: string }) =>
+  api.post<AIGeneratedStrategy>('/strategy-lab/ai-generate', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const fetchLeaderboardCatalog = () =>
   api.get('/strategy-lab/leaderboard/catalog').then((r) => r.data)
 
@@ -554,10 +608,92 @@ export const deleteAlertScheduleHit = (id: number) =>
 export const deleteAlertScheduleHits = (payload: { ids?: number[]; delete_all?: boolean; schedule_id?: number }) =>
   api.post('/alerts/schedule-hits/delete', payload).then((r) => r.data)
 
+export interface TradeCandidate {
+  id: number
+  name: string
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  ticker: string
+  timeframe: string
+  strategies: string[]
+  enabled: boolean
+  last_checked_at: string | null
+  created_at: string | null
+}
+
+export interface TradeCandidateCheckResult {
+  candidate_id: number
+  name: string
+  ticker: string
+  timeframe: string
+  asset_class: string
+  results: Array<{
+    strategy_id: string
+    strategy_label: string
+    action: 'BUY' | 'SELL' | 'HOLD'
+    confidence_pct: number
+    sl_pct: number
+    tp_pct: number
+    price: number
+    rationale: string
+    timestamp: string
+  }>
+  hits_created: number
+  checked_at: string
+}
+
+export interface TradeCandidateHit {
+  id: number
+  candidate_id: number
+  candidate_name: string
+  ticker: string
+  timeframe: string
+  asset_class: string
+  strategy_id: string
+  strategy_label: string
+  verdict: 'BUY' | 'SELL'
+  confidence_pct: number
+  price: number | null
+  rationale: string
+  bar_asof: string
+  created_at: string | null
+}
+
+export const fetchTradeCandidates = () =>
+  api.get<{ candidates: TradeCandidate[] }>('/trade-candidates').then((r) => r.data)
+
+export const createTradeCandidate = (payload: {
+  name?: string
+  asset_class: string
+  ticker: string
+  timeframe: string
+  strategies: string[]
+  enabled?: boolean
+}) => api.post<TradeCandidate>('/trade-candidates', payload).then((r) => r.data)
+
+export const updateTradeCandidate = (id: number, payload: Record<string, unknown>) =>
+  api.patch<TradeCandidate>(`/trade-candidates/${id}`, payload).then((r) => r.data)
+
+export const deleteTradeCandidate = (id: number) =>
+  api.delete(`/trade-candidates/${id}`).then((r) => r.data)
+
+export const checkTradeCandidate = (id: number) =>
+  api.post<TradeCandidateCheckResult>(`/trade-candidates/${id}/check`, null, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchTradeCandidateHits = (params?: { candidate_id?: number; limit?: number }) =>
+  api.get<{ hits: TradeCandidateHit[] }>('/trade-candidates/hits', { params }).then((r) => r.data)
+
+export const deleteTradeCandidateHit = (id: number) =>
+  api.delete(`/trade-candidates/hits/${id}`).then((r) => r.data)
+
+export const deleteTradeCandidateHits = (payload: { ids?: number[]; delete_all?: boolean; candidate_id?: number }) =>
+  api.post('/trade-candidates/hits/delete', payload).then((r) => r.data)
+
 export interface TradingHubSection {
   id: string
   label: string
   description: string
+  /** Optional extended documentation (markdown-ish text) shown in a collapsible panel. */
+  guide?: string | null
   config_options: Record<string, {
     type: string
     label: string

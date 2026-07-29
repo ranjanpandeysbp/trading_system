@@ -75,9 +75,15 @@ from app.models.schemas import (
     StrategyLabScreenerRequest,
     StrategyLeaderboardRequest,
     SaveBacktestReportRequest,
+    AIStrategyGenerateRequest,
     BacktesterLeaderboardRequest,
+    CustomStrategyCreate,
+    CustomStrategyUpdate,
     TokenResponse,
     Swing5ScanRequest,
+    TradeCandidateCreate,
+    TradeCandidateHitsDelete,
+    TradeCandidateUpdate,
     TradingHubScanRequest,
     TaScreenerRunRequest,
     UserLogin,
@@ -1461,6 +1467,73 @@ async def strategy_lab_screener(
     return await service.screener_scan(payload.model_dump())
 
 
+@router.get("/strategy-lab/custom-strategies")
+async def custom_strategies_list(
+    market: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.custom_strategy_service import CustomStrategyService
+
+    return {"strategies": await CustomStrategyService(db, SettingsService(db)).list_strategies(current_user.id, market=market)}
+
+
+@router.post("/strategy-lab/custom-strategies")
+async def custom_strategies_create(
+    payload: CustomStrategyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.custom_strategy_service import CustomStrategyService
+
+    return await CustomStrategyService(db, SettingsService(db)).create_strategy(current_user.id, payload.model_dump())
+
+
+@router.patch("/strategy-lab/custom-strategies/{strategy_id}")
+async def custom_strategies_update(
+    strategy_id: int,
+    payload: CustomStrategyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.custom_strategy_service import CustomStrategyService
+
+    row = await CustomStrategyService(db, SettingsService(db)).update_strategy(
+        current_user.id, strategy_id, payload.model_dump(exclude_unset=True),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Custom strategy not found")
+    return row
+
+
+@router.delete("/strategy-lab/custom-strategies/{strategy_id}")
+async def custom_strategies_delete(
+    strategy_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.custom_strategy_service import CustomStrategyService
+
+    ok = await CustomStrategyService(db, SettingsService(db)).delete_strategy(current_user.id, strategy_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Custom strategy not found")
+    return {"deleted": True}
+
+
+@router.post("/strategy-lab/ai-generate")
+async def strategy_lab_ai_generate(
+    payload: AIStrategyGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.custom_strategy_service import CustomStrategyService
+
+    try:
+        return await CustomStrategyService(db, SettingsService(db)).ai_generate(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/strategy-lab/leaderboard/catalog")
 async def strategy_leaderboard_catalog(
     db: AsyncSession = Depends(get_db),
@@ -1898,6 +1971,125 @@ async def alerts_schedule_hits_delete_bulk(
     svc = ScheduleAlertsService(db, SettingsService(db))
     if payload.delete_all:
         n = await svc.delete_all_hits(current_user.id, schedule_id=payload.schedule_id)
+        return {"deleted": n, "all": True}
+    n = await svc.delete_hits(current_user.id, payload.ids or [])
+    return {"deleted": n, "ids": payload.ids or []}
+
+
+# ── Trade Candidate hub ──────────────────────────────────────────────────
+
+@router.get("/trade-candidates")
+async def trade_candidates_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    return {"candidates": await TradeCandidateService(db, SettingsService(db)).list_candidates(current_user.id)}
+
+
+@router.post("/trade-candidates")
+async def trade_candidates_create(
+    payload: TradeCandidateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    try:
+        return await TradeCandidateService(db, SettingsService(db)).create_candidate(
+            current_user.id, payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/trade-candidates/{candidate_id}")
+async def trade_candidates_update(
+    candidate_id: int,
+    payload: TradeCandidateUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    row = await TradeCandidateService(db, SettingsService(db)).update_candidate(
+        current_user.id, candidate_id, payload.model_dump(exclude_unset=True),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Trade candidate not found")
+    return row
+
+
+@router.delete("/trade-candidates/{candidate_id}")
+async def trade_candidates_delete(
+    candidate_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    ok = await TradeCandidateService(db, SettingsService(db)).delete_candidate(current_user.id, candidate_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Trade candidate not found")
+    return {"deleted": True}
+
+
+@router.post("/trade-candidates/{candidate_id}/check")
+async def trade_candidates_check(
+    candidate_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    result = await TradeCandidateService(db, SettingsService(db)).check_candidate(current_user.id, candidate_id)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/trade-candidates/hits")
+async def trade_candidates_hits(
+    candidate_id: int | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    return {
+        "hits": await TradeCandidateService(db, SettingsService(db)).list_hits(
+            current_user.id, limit=limit, candidate_id=candidate_id,
+        )
+    }
+
+
+@router.delete("/trade-candidates/hits/{hit_id}")
+async def trade_candidates_hit_delete(
+    hit_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    ok = await TradeCandidateService(db, SettingsService(db)).delete_hit(current_user.id, hit_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Hit not found")
+    return {"deleted": True, "id": hit_id}
+
+
+@router.post("/trade-candidates/hits/delete")
+async def trade_candidates_hits_delete_bulk(
+    payload: TradeCandidateHitsDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.trade_candidate_service import TradeCandidateService
+
+    svc = TradeCandidateService(db, SettingsService(db))
+    if payload.delete_all:
+        n = await svc.delete_all_hits(current_user.id, candidate_id=payload.candidate_id)
         return {"deleted": n, "all": True}
     n = await svc.delete_hits(current_user.id, payload.ids or [])
     return {"deleted": n, "ids": payload.ids or []}

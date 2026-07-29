@@ -302,7 +302,10 @@ class MarketPulseService:
     async def mtf_bias(self, tickers: list[str], *, is_crypto: bool = False) -> dict:
         import app.market_pulse.mtf_intraday_bias_engine as eng
 
+        token = "" if is_crypto else await self._groww_token()
+
         def _fetch():
+            set_groww_token(token)
             try:
                 return eng.analyze_universe(list(tickers), is_crypto=is_crypto)
             except Exception as e:
@@ -442,8 +445,10 @@ class MarketPulseService:
         import app.market_pulse.week52_high_low as w52
 
         attach_clear_stubs(w52)
+        token = await self._groww_token()
 
         def _fetch():
+            set_groww_token(token)
             try:
                 return w52.scan_market_52w_extremes(index_name)
             except Exception as e:

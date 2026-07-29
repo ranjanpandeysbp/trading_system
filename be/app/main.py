@@ -2,6 +2,17 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
+# pandas_ta (unmaintained) still does `from numpy import NaN` internally —
+# numpy 2.0 removed that alias entirely, so every `import pandas_ta` in the
+# app silently fails inside its own try/except blocks, degrading several
+# indicators (CMF, ADX, Ichimoku, MACD, VWAP position, SMC helpers) across
+# market_pulse without ever surfacing as a visible error. Restore the alias
+# once, here, before anything else has a chance to import pandas_ta.
+import numpy as _np
+
+if not hasattr(_np, "NaN"):
+    _np.NaN = _np.nan  # type: ignore[attr-defined]
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

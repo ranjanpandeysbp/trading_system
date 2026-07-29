@@ -332,7 +332,7 @@ class ScheduleAlertsService:
         timeframes = _parse_json_list(sched.timeframes_json)
         strategies = _parse_json_list(sched.strategies_json)
         market = (sched.market or "india").lower()
-        if market not in ("india", "us", "crypto"):
+        if market not in ("india", "us", "crypto", "commodity"):
             market = "india"
 
         if not tickers or not timeframes or not strategies:

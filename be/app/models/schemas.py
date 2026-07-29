@@ -192,7 +192,7 @@ class PlaceOrderRequest(BaseModel):
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
     limit_price: float | None = None
     trigger_price: float | None = None
-    asset_class: Literal["india", "us", "crypto"] = "india"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class ModifyOrderRequest(BaseModel):
@@ -566,7 +566,7 @@ class AlertMonitorCreate(BaseModel):
 
 class AlertScheduleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
-    market: Literal["india", "us", "crypto"] = "india"
+    market: Literal["india", "us", "crypto", "commodity"] = "india"
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(..., min_length=1)
     strategies: list[str] = Field(..., min_length=1)
@@ -595,6 +595,73 @@ class AlertScheduleHitsDelete(BaseModel):
     ids: list[int] = []
     delete_all: bool = False
     schedule_id: int | None = None
+
+
+class CustomStrategyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    market: str
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    description: str | None = None
+    timeframe: str = "1d"
+    indicators: list[dict[str, Any]] = Field(default_factory=list)
+    entry_rules: list[dict[str, Any]] = Field(default_factory=list)
+    exit_rules: list[dict[str, Any]] = Field(default_factory=list)
+    entry_mode: Literal["AND", "OR"] = "AND"
+    exit_mode: Literal["AND", "OR"] = "AND"
+    direction_mode: Literal["long_only", "short_only", "long_short"] = "long_only"
+    position_sizing: Literal["pct_of_capital", "risk_pct"] = "pct_of_capital"
+    capital_allocation_pct: float = 95.0
+    risk_pct: float = 1.0
+    sl_pct: float = 0.0
+    tp_pct: float = 0.0
+    source: Literal["manual", "ai"] = "manual"
+
+
+class CustomStrategyUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    timeframe: str | None = None
+    indicators: list[dict[str, Any]] | None = None
+    entry_rules: list[dict[str, Any]] | None = None
+    exit_rules: list[dict[str, Any]] | None = None
+    entry_mode: Literal["AND", "OR"] | None = None
+    exit_mode: Literal["AND", "OR"] | None = None
+    direction_mode: Literal["long_only", "short_only", "long_short"] | None = None
+    position_sizing: Literal["pct_of_capital", "risk_pct"] | None = None
+    capital_allocation_pct: float | None = None
+    risk_pct: float | None = None
+    sl_pct: float | None = None
+    tp_pct: float | None = None
+
+
+class AIStrategyGenerateRequest(BaseModel):
+    text: str = Field(..., min_length=10)
+    market: str
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    strategy_name: str | None = None
+
+
+class TradeCandidateCreate(BaseModel):
+    name: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    ticker: str = Field(..., min_length=1)
+    timeframe: str = Field(..., min_length=1)
+    strategies: list[str] = Field(..., min_length=1)
+    enabled: bool = True
+
+
+class TradeCandidateUpdate(BaseModel):
+    name: str | None = None
+    ticker: str | None = None
+    timeframe: str | None = None
+    strategies: list[str] | None = None
+    enabled: bool | None = None
+
+
+class TradeCandidateHitsDelete(BaseModel):
+    ids: list[int] = []
+    delete_all: bool = False
+    candidate_id: int | None = None
 
 
 class AlertNotifyConfigUpdate(BaseModel):

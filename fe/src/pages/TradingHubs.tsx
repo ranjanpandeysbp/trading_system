@@ -204,6 +204,14 @@ export default function TradingHubs() {
                 {' — not user-adjustable, this strategy always trades this timeframe.'}
               </p>
             )}
+            {activeSection.guide && (
+              <details className="mt-3 rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
+                <summary className="cursor-pointer text-sm font-medium text-slate-200">
+                  What this strategy does
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{activeSection.guide}</pre>
+              </details>
+            )}
           </div>
         )}
 

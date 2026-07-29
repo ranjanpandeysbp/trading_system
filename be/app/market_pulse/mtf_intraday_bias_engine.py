@@ -219,12 +219,38 @@ def _crypto_close_bias_label(bias: str) -> str:
 def fetch_data(
     yf_symbol: str,
     timeframe_config: dict[str, dict[str, Any]] | None = None,
+    *,
+    ticker: str | None = None,
+    is_crypto: bool = False,
 ) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
     cfg = timeframe_config or build_timeframe_config()
     frames: dict[str, pd.DataFrame] = {}
+
+    # Groww first for India equities (each role/timeframe fetched individually —
+    # Groww's OHLCV API is per-symbol, unlike yfinance's single multi-role call
+    # shape here anyway), yfinance for whatever a role doesn't cover below.
+    if not is_crypto and ticker:
+        from app.market_pulse.groww_auth import get_active_groww_token
+
+        token = get_active_groww_token()
+        if token:
+            from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+            from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
+            from app.market_pulse.ticker_utils import GROWW_MARKET
+
+            for role, meta in cfg.items():
+                try:
+                    df = normalize_ohlcv(fetch_data_for_gap_scan(ticker, meta["interval"], GROWW_MARKET, token, "NSE", limit=300))
+                    if df is not None and not df.empty and len(df) >= 20:
+                        frames[role] = df
+                except Exception as exc:
+                    logger.debug("MTF bias Groww fetch %s @ %s: %s", ticker, role, exc)
+
     for role, meta in cfg.items():
+        if role in frames:
+            continue
         try:
             df = yf.download(
                 yf_symbol,
@@ -734,7 +760,7 @@ def analyze_ticker(
 ) -> dict[str, Any]:
     tf_cfg = timeframe_config or build_timeframe_config()
     yf_sym = resolve_yf_symbol(ticker, is_crypto=is_crypto)
-    frames = fetch_data(yf_sym, tf_cfg)
+    frames = fetch_data(yf_sym, tf_cfg, ticker=ticker, is_crypto=is_crypto)
     if not frames:
         return {"error": f"No data for {ticker}", "ticker": ticker, "yf_symbol": yf_sym}
 

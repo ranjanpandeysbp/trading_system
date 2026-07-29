@@ -4,6 +4,7 @@ import { Beaker, Grid3X3, ListFilter, BookOpen, Trophy } from 'lucide-react'
 import { fetchStrategyLabPresets, fetchStrategyLabSections } from '../api/client'
 import { type AssetClass } from '../components/command-center/AssetClassTickerPicker'
 import { LeaderboardPanel } from '../components/strategy-lab/LeaderboardPanel'
+import { BuilderTester } from '../components/strategy-lab/BuilderTester'
 import { StrategyCatalogLeaderboard } from '../components/backtester/StrategyCatalogLeaderboard'
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -84,15 +85,7 @@ export default function StrategyLab() {
 
       {tab === 'leaderboard' && <LeaderboardPanel assetClass={assetClass} />}
 
-      {tab === 'builder' && (
-        <StrategyCatalogLeaderboard
-          key={assetClass}
-          assetClass={assetClass}
-          tickerMode="single"
-          heading="Test one ticker against any number of strategies from the full catalog — walk-forward backtested."
-          runLabel="Run backtest"
-        />
-      )}
+      {tab === 'builder' && <BuilderTester key={assetClass} assetClass={assetClass} />}
 
       {tab === 'multi_combo' && (
         <StrategyCatalogLeaderboard

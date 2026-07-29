@@ -43,6 +43,9 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "swing_bb_vwap_reversal": ["5m", "15m"],
     "smc_liquidity_silver_bullet": ["5m", "15m"],
     "scalp_ny_open_bias": ["1m"],
+    "smc_five_filter": ["1m", "5m", "15m", "30m", "1h"],
+    "support_resistance": ["1m", "5m", "15m"],
+    "footprint": ["1m", "5m", "15m"],
 }
 
 _HUB_MIN_BARS: dict[str, int] = {
@@ -64,6 +67,9 @@ _HUB_MIN_BARS: dict[str, int] = {
     "swing_bb_vwap_reversal": 30,
     "smc_liquidity_silver_bullet": 60,
     "scalp_ny_open_bias": 40,
+    "smc_five_filter": 80,
+    "support_resistance": 80,
+    "footprint": 80,
 }
 
 TA_STRATEGIES: list[dict[str, Any]] = [
@@ -129,6 +135,9 @@ for section in HUB_SECTIONS:
         "swing_trading_st_kiss",
         "swing_trading_st_ha_ema",
         "scalp_ny_open_bias",
+        "smc_five_filter",
+        "support_resistance",
+        "footprint",
     }:
         runner = "analyze_bt"
     elif sid in {
@@ -164,6 +173,59 @@ for section in HUB_SECTIONS:
         "engine": True,
         "hub": hub,
     }
+
+if "smc_five_filter" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["smc_five_filter"].update({
+        "indicators": ["HTF Order Block", "Fair Value Gap", "Liquidity Sweep", "Swing High/Low (discount/premium)"],
+        "entry_rules": [
+            "Permission: latest UNMITIGATED HTF supply/demand zone exists (demand → longs only, supply → shorts only).",
+            "Footprint: the zone's origin candle was preceded by a validated liquidity sweep of a prior HTF swing.",
+            "Inefficiency: an unfilled Fair Value Gap sits in the same leg as the zone.",
+            "Location: zone sits in the discount half of the leg for longs, or the premium half for shorts.",
+            "Exit Test: untouched HTF liquidity ahead of price clears the minimum reward:risk.",
+            "Aggressive entry: price taps the zone — enter immediately at the zone midpoint.",
+            "Conservative entry: price taps the zone AND an LTF Change of Character confirms the reversal.",
+            "Ultra-Conservative entry: Conservative confirmation AND a stacked same-direction LTF continuation FVG.",
+        ],
+        "exit_rules": [
+            "Stop beyond the HTF zone edge (or the sweep extreme).",
+            "Target = the Exit Test's untouched HTF liquidity level.",
+            "Exit if price closes back beyond the zone stop — setup invalidated.",
+        ],
+    })
+
+if "support_resistance" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["support_resistance"].update({
+        "indicators": ["HTF Support/Resistance Zone", "Break-and-Retest Role Flip", "LTF Swing Structure"],
+        "entry_rules": [
+            "HTF zone identified from wick-to-body rejection clusters, not exact price lines.",
+            "Break-and-retest: a zone broken since it formed flips role (old resistance → new support, and vice versa).",
+            "Price must tap back into the active zone (with a small buffer) before anything else is considered.",
+            "LTF confirmation: after the tap, price must cleanly break the most recent lower high (longs) or higher low (shorts) — never enter on the tap alone.",
+        ],
+        "exit_rules": [
+            "Stop beyond the zone edge (or the pre-entry extreme).",
+            "Target = the next recent structural high/low, usually the opposing zone.",
+            "Exit if price closes back beyond the zone stop — setup invalidated.",
+        ],
+    })
+
+if "footprint" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["footprint"].update({
+        "indicators": ["OHLCV Delta Proxy", "Stacked Imbalance Detector", "Absorption Detector (volume z-score + body/ATR)", "HTF Support/Resistance Zone"],
+        "entry_rules": [
+            "Price must first tap into a key HTF support/resistance zone.",
+            "Step 1 Delta: net estimated buy/sell volume over the recent bars must favor the reversal direction.",
+            "Step 2 Imbalances: 3+ stacked bars where one side overwhelms the other, in the same direction as Delta.",
+            "Step 3 Absorption: a high-volume, small-body bar confirming the opposing side is being absorbed at the zone.",
+            "All three steps must confirm, in order, before entry.",
+        ],
+        "exit_rules": [
+            "Stop beyond the zone edge.",
+            "Target = the opposing key level.",
+            "Exit if price closes back beyond the zone stop — setup invalidated.",
+        ],
+    })
 
 for ta in TA_STRATEGIES:
     ENGINE_RUNNER_KIND[ta["id"]] = ta["runner"]

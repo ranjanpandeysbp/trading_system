@@ -38,6 +38,17 @@ PHASE_NONE = "NO_SETUP"
 
 INDIA_SESSION_OPEN = (9, 15)
 
+_PANDAS_RESAMPLE_RULE = {
+    "1m": "1min", "3m": "3min", "5m": "5min", "15m": "15min", "30m": "30min",
+    "1h": "1h", "4h": "4h", "1d": "1D", "1wk": "1W", "1M": "1ME",
+}
+
+
+def _resample_rule(tf: str) -> str:
+    """App timeframe strings ("15m") aren't valid pandas resample offset
+    aliases in recent pandas (bare "m" now means month-end, not minutes)."""
+    return _PANDAS_RESAMPLE_RULE.get(tf, tf)
+
 
 @dataclass
 class VwapFadeConfig:
@@ -83,19 +94,19 @@ def calculate_vwap_and_bands(df: pd.DataFrame, std_mult: float = 1.0) -> pd.Data
     else:
         work.index = work.index.tz_convert(IST_TZ)
 
-    work["date"] = work.index.date
+    work["_grp_date"] = work.index.date
     tp = (work["high"] + work["low"] + work["close"]) / 3.0
     vol = work["volume"].replace(0, np.nan).fillna(1.0)
     work["tp_vol"] = tp * vol
-    work["cum_vol"] = work.groupby("date")["volume"].transform(
+    work["cum_vol"] = work.groupby("_grp_date")["volume"].transform(
         lambda s: s.replace(0, np.nan).fillna(1).cumsum()
     )
-    work["cum_tp_vol"] = work.groupby("date")["tp_vol"].cumsum()
+    work["cum_tp_vol"] = work.groupby("_grp_date")["tp_vol"].cumsum()
     work["vwap"] = work["cum_tp_vol"] / work["cum_vol"]
 
     work["sq_diff"] = (work["close"] - work["vwap"]) ** 2
-    work["cum_sq_diff"] = work.groupby("date")["sq_diff"].cumsum()
-    n = work.groupby("date").cumcount() + 1
+    work["cum_sq_diff"] = work.groupby("_grp_date")["sq_diff"].cumsum()
+    n = work.groupby("_grp_date").cumcount() + 1
     work["std_dev"] = np.sqrt(work["cum_sq_diff"] / n)
     work["upper_band"] = work["vwap"] + std_mult * work["std_dev"]
     work["lower_band"] = work["vwap"] - std_mult * work["std_dev"]
@@ -230,7 +241,7 @@ def _htf_range_ok(
         work.index = work.index.tz_localize(IST_TZ)
     else:
         work.index = work.index.tz_convert(IST_TZ)
-    resampled = work.resample(cfg.bias_tf).agg({
+    resampled = work.resample(_resample_rule(cfg.bias_tf)).agg({
         "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
     }).dropna()
     if len(resampled) < 10:

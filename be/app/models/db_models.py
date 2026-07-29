@@ -196,3 +196,70 @@ class SavedBacktestReport(Base):
     timeframes: Mapped[str] = mapped_column(Text)  # comma-separated
     payload_json: Mapped[str] = mapped_column(Text)  # full leaderboard result, JSON-encoded
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TradeCandidate(Base):
+    """A saved setup: one ticker + one timeframe + one or more strategies,
+    checked live for BUY/SELL triggers on the Trade Candidate hub."""
+    __tablename__ = "trade_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    asset_class: Mapped[str] = mapped_column(String(16), default="india")  # india|us|crypto|commodity
+    ticker: Mapped[str] = mapped_column(String(32))
+    timeframe: Mapped[str] = mapped_column(String(8))
+    strategies_json: Mapped[str] = mapped_column(Text, default="[]")
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CustomStrategy(Base):
+    """A user-built Strategy Lab strategy — indicator + entry/exit rule set,
+    hand-built in the Builder or generated via the AI Strategy Creator."""
+    __tablename__ = "custom_strategies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    market: Mapped[str] = mapped_column(String(64))
+    asset_class: Mapped[str] = mapped_column(String(16), default="india")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="1d")
+    indicators_json: Mapped[str] = mapped_column(Text, default="[]")
+    entry_rules_json: Mapped[str] = mapped_column(Text, default="[]")
+    exit_rules_json: Mapped[str] = mapped_column(Text, default="[]")
+    entry_mode: Mapped[str] = mapped_column(String(8), default="AND")
+    exit_mode: Mapped[str] = mapped_column(String(8), default="AND")
+    direction_mode: Mapped[str] = mapped_column(String(16), default="long_only")
+    position_sizing: Mapped[str] = mapped_column(String(16), default="pct_of_capital")
+    capital_allocation_pct: Mapped[float] = mapped_column(Float, default=95.0)
+    risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
+    sl_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    tp_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[str] = mapped_column(String(8), default="manual")  # manual|ai
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TradeCandidateHit(Base):
+    """A logged BUY/SELL trigger from checking a TradeCandidate."""
+    __tablename__ = "trade_candidate_hits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    candidate_name: Mapped[str] = mapped_column(String(128))
+    ticker: Mapped[str] = mapped_column(String(32))
+    timeframe: Mapped[str] = mapped_column(String(8))
+    asset_class: Mapped[str] = mapped_column(String(16))
+    strategy_id: Mapped[str] = mapped_column(String(128))
+    strategy_label: Mapped[str] = mapped_column(String(256))
+    verdict: Mapped[str] = mapped_column(String(16), default="BUY")
+    confidence_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    bar_asof: Mapped[str] = mapped_column(String(64), default="")
+    dedupe_key: Mapped[str] = mapped_column(String(256), index=True, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
