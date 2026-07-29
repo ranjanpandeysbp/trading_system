@@ -44,7 +44,12 @@ const quickLinks = [
 ]
 
 export default function Dashboard() {
-  const { data: account, isLoading: accLoading } = useQuery({ queryKey: ['account'], queryFn: getAccount })
+  const { data: account, isLoading: accLoading } = useQuery({
+    queryKey: ['account'],
+    queryFn: getAccount,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+  })
   const { data: strategies } = useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
 
   const { sorted: sortedPositions, sortKey: posSortKey, sortDir: posSortDir, handleSort: handlePosSort } = useSort(

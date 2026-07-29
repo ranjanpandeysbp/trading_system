@@ -141,6 +141,8 @@ export interface AccountSummary {
     tp_pct?: number
     strategy?: string
     notes?: string | null
+    opened_at?: string | null
+    asset_class?: string
   }>
   recent_orders: Array<PaperOrderRow>
   pending_orders: Array<PaperOrderRow>
@@ -162,6 +164,7 @@ export interface PaperOrderRow {
   created_at: string
   filled_at?: string | null
   cancelled_at?: string | null
+  asset_class?: string
 }
 
 export interface PlaceOrderPayload {
@@ -176,6 +179,7 @@ export interface PlaceOrderPayload {
   order_type?: 'market' | 'limit' | 'stop' | 'stop_limit'
   limit_price?: number
   trigger_price?: number
+  asset_class?: 'india' | 'us' | 'crypto'
 }
 
 export interface ModifyOrderPayload {
@@ -269,11 +273,14 @@ export const askAI = (payload: {
   error: boolean
 }>('/ai/ask', payload, { timeout: 120_000 }).then((r) => r.data)
 export const getAccount = () => api.get<AccountSummary>('/paper/account').then((r) => r.data)
+export const fetchPaperPrice = (ticker: string, assetClass: string = 'india') =>
+  api.get<{ ticker: string; price: number }>('/paper/price', { params: { ticker, asset_class: assetClass } }).then((r) => r.data)
 export const placeOrder = (payload: PlaceOrderPayload) => api.post('/paper/orders', payload).then((r) => r.data)
 export const cancelOrder = (orderId: number) => api.post(`/paper/orders/${orderId}/cancel`).then((r) => r.data)
 export const modifyOrder = (orderId: number, payload: ModifyOrderPayload) =>
   api.post(`/paper/orders/${orderId}/modify`, payload).then((r) => r.data)
-export const executeSignal = (signal: ScanSignal) => api.post('/paper/execute-signal', signal).then((r) => r.data)
+export const executeSignal = (signal: ScanSignal & { asset_class?: string }) =>
+  api.post('/paper/execute-signal', signal).then((r) => r.data)
 export const resetAccount = () => api.post('/paper/reset').then((r) => r.data)
 
 // Market Pulse (India only) — scans can take 1–3 min (NSE/yfinance)

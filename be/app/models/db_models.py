@@ -54,6 +54,7 @@ class PaperPosition(Base):
     strategy: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    asset_class: Mapped[str] = mapped_column(String(16), default="india")
 
 
 class PaperOrder(Base):
@@ -77,6 +78,7 @@ class PaperOrder(Base):
     filled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    asset_class: Mapped[str] = mapped_column(String(16), default="india")
 
 
 class AlertMonitor(Base):

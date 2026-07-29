@@ -53,11 +53,15 @@ def _migrate_schema(conn) -> None:
         ):
             if col_name not in cols:
                 conn.execute(sa.text(f"ALTER TABLE paper_orders ADD COLUMN {col_name} {col_type}"))
+        if "asset_class" not in cols:
+            conn.execute(sa.text("ALTER TABLE paper_orders ADD COLUMN asset_class TEXT DEFAULT 'india'"))
 
     if "paper_positions" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("paper_positions")}
         if "notes" not in cols:
             conn.execute(sa.text("ALTER TABLE paper_positions ADD COLUMN notes TEXT"))
+        if "asset_class" not in cols:
+            conn.execute(sa.text("ALTER TABLE paper_positions ADD COLUMN asset_class TEXT DEFAULT 'india'"))
 
     if "watchlist_items" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("watchlist_items")}

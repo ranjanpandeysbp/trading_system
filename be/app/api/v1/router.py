@@ -310,6 +310,21 @@ async def get_paper_account(
     return await service.get_summary()
 
 
+@router.get("/paper/price")
+async def get_paper_price(
+    ticker: str,
+    asset_class: str = "india",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = PaperTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.get_price(ticker, asset_class)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not fetch a price for {ticker}: {exc}") from exc
+
+
 @router.post("/paper/orders")
 async def place_order(
     request: PlaceOrderRequest,

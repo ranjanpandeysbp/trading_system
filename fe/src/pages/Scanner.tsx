@@ -346,7 +346,7 @@ export default function Scanner() {
                     variant="secondary"
                     size="sm"
                     className="mt-3 w-full"
-                    onClick={() => tradeMutation.mutate(s)}
+                    onClick={() => tradeMutation.mutate({ ...s, asset_class: assetClass })}
                     disabled={tradeMutation.isPending}
                   >
                     Paper {s.action === 'BUY' ? 'Buy' : 'Sell'}
@@ -396,7 +396,7 @@ export default function Scanner() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => tradeMutation.mutate(s)}
+                        onClick={() => tradeMutation.mutate({ ...s, asset_class: assetClass })}
                         disabled={tradeMutation.isPending}
                       >
                         Paper {s.action === 'BUY' ? 'Buy' : 'Sell'}

@@ -38,12 +38,22 @@ class PaperTradingService:
         await self.db.refresh(account)
         return account
 
-    async def _get_market_price(self, ticker: str) -> float:
+    async def _get_market_price(self, ticker: str, asset_class: str = "india") -> float:
         return await fetch_market_price(
             ticker,
             groww_token=await self.settings.get_groww_token() or "",
             exchange=await self.settings.get_groww_exchange(),
+            asset_class=asset_class,
         )
+
+    @staticmethod
+    def _normalize_for_asset_class(ticker: str, asset_class: str) -> str:
+        return normalize_ticker(ticker) if asset_class == "india" else ticker.strip().upper()
+
+    async def get_price(self, ticker: str, asset_class: str = "india") -> dict:
+        ticker = self._normalize_for_asset_class(ticker, asset_class)
+        price = await self._get_market_price(ticker, asset_class)
+        return {"ticker": ticker, "price": round(price, 2)}
 
     @staticmethod
     def _stop_triggered(side: str, price: float, trigger_price: float) -> bool:
@@ -74,6 +84,7 @@ class PaperTradingService:
         sl_pct: float | None,
         tp_pct: float | None,
         notes: str | None = None,
+        asset_class: str = "india",
     ) -> int:
         """Mutates cash balance + position for a fill. Returns actual filled quantity."""
         cost = price * quantity
@@ -81,6 +92,7 @@ class PaperTradingService:
             select(PaperPosition).where(
                 PaperPosition.account_id == account.id,
                 PaperPosition.ticker == ticker,
+                PaperPosition.asset_class == asset_class,
             )
         )
         position = pos_result.scalar_one_or_none()
@@ -119,6 +131,7 @@ class PaperTradingService:
                             tp_pct=tp_pct,
                             strategy=strategy,
                             notes=(notes or "").strip() or None,
+                            asset_class=asset_class,
                         )
                     )
         else:
@@ -149,6 +162,7 @@ class PaperTradingService:
                         tp_pct=tp_pct,
                         strategy=strategy,
                         notes=(notes or "").strip() or None,
+                        asset_class=asset_class,
                     )
                 )
         return filled_qty
@@ -159,7 +173,7 @@ class PaperTradingService:
         )
         for o in result.scalars().all():
             try:
-                price = await self._get_market_price(o.ticker)
+                price = await self._get_market_price(o.ticker, o.asset_class)
             except Exception:
                 continue
 
@@ -180,6 +194,7 @@ class PaperTradingService:
                 filled_qty = await self._apply_fill(
                     account, o.ticker, o.side, o.quantity, fill_price,
                     strategy=o.strategy, sl_pct=o.sl_pct, tp_pct=o.tp_pct, notes=o.notes,
+                    asset_class=o.asset_class,
                 )
             except ValueError:
                 o.status = "cancelled"
@@ -200,7 +215,7 @@ class PaperTradingService:
             if not p.sl_pct and not p.tp_pct:
                 continue
             try:
-                price = await self._get_market_price(p.ticker)
+                price = await self._get_market_price(p.ticker, p.asset_class)
             except Exception:
                 continue
 
@@ -221,7 +236,10 @@ class PaperTradingService:
             close_side = "sell" if p.side == "long" else "buy"
             qty = p.quantity
             strategy = p.strategy
-            await self._apply_fill(account, p.ticker, close_side, qty, price, strategy=strategy, sl_pct=None, tp_pct=None)
+            await self._apply_fill(
+                account, p.ticker, close_side, qty, price,
+                strategy=strategy, sl_pct=None, tp_pct=None, asset_class=p.asset_class,
+            )
             self.db.add(
                 PaperOrder(
                     account_id=account.id,
@@ -235,6 +253,7 @@ class PaperTradingService:
                     notes=f"Auto {'stop-loss' if hit == 'sl' else 'take-profit'} exit.",
                     filled_price=price,
                     filled_at=datetime.utcnow(),
+                    asset_class=p.asset_class,
                 )
             )
         await self.db.commit()
@@ -263,7 +282,7 @@ class PaperTradingService:
         position_rows = []
         for p in positions:
             try:
-                ltp = await self._get_market_price(p.ticker)
+                ltp = await self._get_market_price(p.ticker, p.asset_class)
             except Exception:
                 ltp = p.avg_price
             mv = ltp * p.quantity
@@ -283,6 +302,8 @@ class PaperTradingService:
                 "tp_pct": p.tp_pct,
                 "strategy": p.strategy,
                 "notes": p.notes,
+                "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+                "asset_class": p.asset_class,
             })
 
         portfolio_value = account.cash_balance + position_value
@@ -306,6 +327,7 @@ class PaperTradingService:
                 "created_at": o.created_at.isoformat(),
                 "filled_at": o.filled_at.isoformat() if o.filled_at else None,
                 "cancelled_at": o.cancelled_at.isoformat() if o.cancelled_at else None,
+                "asset_class": o.asset_class,
             }
 
         return {
@@ -323,15 +345,17 @@ class PaperTradingService:
 
     async def place_order(self, req: PlaceOrderRequest) -> dict:
         account = await self._get_or_create_account()
-        ticker = normalize_ticker(req.ticker)
+        asset_class = req.asset_class or "india"
+        ticker = self._normalize_for_asset_class(req.ticker, asset_class)
 
         if req.order_type == "market":
             price = req.price
             if price is None:
-                price = await self._get_market_price(ticker)
+                price = await self._get_market_price(ticker, asset_class)
             filled_qty = await self._apply_fill(
                 account, ticker, req.side, req.quantity, price,
                 strategy=req.strategy, sl_pct=req.sl_pct, tp_pct=req.tp_pct, notes=req.notes,
+                asset_class=asset_class,
             )
             order = PaperOrder(
                 account_id=account.id,
@@ -347,6 +371,7 @@ class PaperTradingService:
                 tp_pct=req.tp_pct,
                 filled_price=price,
                 filled_at=datetime.utcnow(),
+                asset_class=asset_class,
             )
             self.db.add(order)
             await self.db.commit()
@@ -378,6 +403,7 @@ class PaperTradingService:
             tp_pct=req.tp_pct,
             limit_price=req.limit_price,
             trigger_price=req.trigger_price,
+            asset_class=asset_class,
         )
         self.db.add(order)
         await self.db.commit()
@@ -445,6 +471,7 @@ class PaperTradingService:
         if signal.get("action") not in ("BUY", "SELL"):
             raise ValueError("Signal action must be BUY or SELL")
         qty = max(1, int(10000 / signal["price"]))
+        asset_class = signal.get("asset_class") or "india"
         return await self.place_order(
             PlaceOrderRequest(
                 ticker=signal["ticker"],
@@ -454,5 +481,6 @@ class PaperTradingService:
                 strategy=signal.get("strategy"),
                 sl_pct=signal.get("sl_pct"),
                 tp_pct=signal.get("tp_pct"),
+                asset_class=asset_class,
             )
         )

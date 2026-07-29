@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw, ShoppingCart, X, Pencil, Check } from 'lucide-react'
 import {
-  getAccount, placeOrder, resetAccount, cancelOrder, modifyOrder,
+  getAccount, placeOrder, resetAccount, cancelOrder, modifyOrder, fetchPaperPrice,
   type PaperOrderRow, type PlaceOrderPayload,
 } from '../api/client'
+import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -15,10 +16,28 @@ import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
 
 type OrderType = 'market' | 'limit' | 'stop' | 'stop_limit'
+type PaperAssetClass = 'india' | 'us' | 'crypto'
+
+function currencySymbol(assetClass?: string): string {
+  if (assetClass === 'us') return '$'
+  if (assetClass === 'crypto') return ''
+  return '₹'
+}
+
+const ASSET_CLASS_LABEL: Record<string, string> = {
+  india: '🇮🇳 India', us: '🇺🇸 US', crypto: '₿ Crypto',
+}
 
 const ORDER_TYPE_LABEL: Record<string, string> = {
   market: 'Market', limit: 'Limit', stop: 'Stop', stop_limit: 'Stop-Limit',
   auto_sl: 'Auto SL', auto_tp: 'Auto TP',
+}
+
+const ORDER_TYPE_EXPLANATION: Record<OrderType, string> = {
+  market: 'Fills immediately at the current market price. Use this when you want in (or out) right now and don’t care about a precise entry level.',
+  limit: 'Stays pending until the price reaches your chosen level, then fills there (or better) — never worse. A buy limit fills at or below your price; a sell limit fills at or above it. Use this to enter/exit at a specific price without watching the market.',
+  stop: 'Stays pending until the price crosses your trigger level, then fills as a market order. A buy stop triggers when price rises to the trigger (breakout entry); a sell stop triggers when price falls to it (stop-loss on a long, or breakout-short entry). Useful for automatic downside protection or breakout entries.',
+  stop_limit: 'Combines both: once price crosses your trigger level, it places a limit order at your limit price instead of filling at market. Gives price control after the trigger, but can stay unfilled if price moves past the limit before it fills.',
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -41,6 +60,7 @@ function OrderTypeBadge({ orderType }: { orderType: string }) {
 
 export default function PaperTrading() {
   const qc = useQueryClient()
+  const [assetClass, setAssetClass] = useState<PaperAssetClass>('india')
   const [ticker, setTicker] = useState('RELIANCE')
   const [quantity, setQuantity] = useState(10)
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
@@ -53,7 +73,27 @@ export default function PaperTrading() {
   const [msg, setMsg] = useState('')
   const [confirming, setConfirming] = useState(false)
 
-  const { data: account, isLoading, isFetching, refetch } = useQuery({ queryKey: ['account'], queryFn: getAccount })
+  const handleAssetClassChange = (next: PaperAssetClass) => {
+    setAssetClass(next)
+    setTicker('')
+  }
+
+  const {
+    data: livePrice, isFetching: priceFetching, isError: priceError,
+  } = useQuery({
+    queryKey: ['paper-price', assetClass, ticker],
+    queryFn: () => fetchPaperPrice(ticker, assetClass),
+    enabled: ticker.length > 0,
+    staleTime: 10_000,
+    retry: false,
+  })
+
+  const { data: account, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['account'],
+    queryFn: getAccount,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+  })
 
   const orderMutation = useMutation({
     mutationFn: placeOrder,
@@ -95,6 +135,7 @@ export default function PaperTrading() {
     ltp: (r) => r.ltp,
     pnl_pct: (r) => r.pnl_pct,
     sl_pct: (r) => r.sl_pct,
+    opened_at: (r) => r.opened_at,
   })
 
   const {
@@ -128,6 +169,7 @@ export default function PaperTrading() {
     side,
     quantity,
     order_type: orderType,
+    asset_class: assetClass,
     ...(needsLimitPrice ? { limit_price: Number(limitPrice) } : {}),
     ...(needsTriggerPrice ? { trigger_price: Number(triggerPrice) } : {}),
     ...(slPct !== '' ? { sl_pct: Number(slPct) } : {}),
@@ -164,9 +206,34 @@ export default function PaperTrading() {
             <h3 className="font-semibold text-white">Place Order</h3>
           </div>
 
-          <FormField label="Ticker">
-            <Input value={ticker} onChange={(e) => setTicker(e.target.value)} />
+          <FormField label="Asset class">
+            <Select value={assetClass} onChange={(e) => handleAssetClassChange(e.target.value as PaperAssetClass)}>
+              <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+              <option value="us">🇺🇸 US stocks (Yahoo)</option>
+              <option value="crypto">₿ Crypto (CoinDCX)</option>
+            </Select>
           </FormField>
+
+          <FormField label="Ticker">
+            <AssetClassTickerPicker
+              key={assetClass}
+              assetClass={assetClass}
+              single
+              showDurations={false}
+              onChange={(v: TickerPickerValue) => { if (v.tickers[0]) setTicker(v.tickers[0]) }}
+            />
+          </FormField>
+          <p className="mb-4 text-xs text-slate-500">
+            {!ticker
+              ? null
+              : priceFetching
+                ? 'Fetching current price…'
+                : priceError
+                  ? <span className="text-rose-400">Could not fetch a price for this ticker.</span>
+                  : livePrice
+                    ? <>Current price: <span className="font-medium text-slate-300">{currencySymbol(assetClass)}{livePrice.price.toLocaleString('en-IN')}</span></>
+                    : null}
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Side">
               <Select value={side} onChange={(e) => setSide(e.target.value as 'buy' | 'sell')}>
@@ -183,6 +250,9 @@ export default function PaperTrading() {
               </Select>
             </FormField>
           </div>
+          <p className="mb-4 text-xs leading-relaxed text-slate-500">
+            {ORDER_TYPE_EXPLANATION[orderType]}
+          </p>
           <FormField label="Quantity">
             <Input type="number" value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value) || 1)} min={1} />
           </FormField>
@@ -251,11 +321,13 @@ export default function PaperTrading() {
               <thead>
                 <tr>
                   <SortableTh active={positionsSortKey === 'ticker'} direction={positionsSortDir} onSort={() => handlePositionsSort('ticker')}>Ticker</SortableTh>
+                  <Th>Asset</Th>
                   <SortableTh active={positionsSortKey === 'quantity'} direction={positionsSortDir} onSort={() => handlePositionsSort('quantity')}>Qty</SortableTh>
                   <SortableTh active={positionsSortKey === 'avg_price'} direction={positionsSortDir} onSort={() => handlePositionsSort('avg_price')}>Avg</SortableTh>
                   <SortableTh active={positionsSortKey === 'ltp'} direction={positionsSortDir} onSort={() => handlePositionsSort('ltp')}>LTP</SortableTh>
                   <SortableTh active={positionsSortKey === 'pnl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('pnl_pct')}>P&L</SortableTh>
                   <SortableTh active={positionsSortKey === 'sl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('sl_pct')}>SL/TP</SortableTh>
+                  <SortableTh active={positionsSortKey === 'opened_at'} direction={positionsSortDir} onSort={() => handlePositionsSort('opened_at')}>Opened</SortableTh>
                   <Th>Notes</Th>
                 </tr>
               </thead>
@@ -263,11 +335,13 @@ export default function PaperTrading() {
                 {sortedPositions.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-800/20">
                     <Td className="font-medium text-white">{p.ticker}</Td>
+                    <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[p.asset_class ?? 'india'] ?? p.asset_class}</Td>
                     <Td>{p.quantity}</Td>
-                    <Td>₹{p.avg_price}</Td>
-                    <Td>₹{p.ltp}</Td>
+                    <Td>{currencySymbol(p.asset_class)}{p.avg_price}</Td>
+                    <Td>{currencySymbol(p.asset_class)}{p.ltp}</Td>
                     <Td className={p.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{p.pnl_pct}%</Td>
                     <Td className="text-slate-500">{p.sl_pct ? `${p.sl_pct}/${p.tp_pct}%` : '—'}</Td>
+                    <Td className="text-slate-400">{p.opened_at ? new Date(p.opened_at).toLocaleString() : '—'}</Td>
                     <Td className="max-w-[200px] truncate text-slate-400">
                       <span title={p.notes ?? ''}>{p.notes || '—'}</span>
                     </Td>
@@ -288,6 +362,7 @@ export default function PaperTrading() {
             <thead>
               <tr>
                 <Th>Ticker</Th>
+                <Th>Asset</Th>
                 <Th>Side</Th>
                 <Th>Type</Th>
                 <Th>Qty</Th>
@@ -320,6 +395,7 @@ export default function PaperTrading() {
               <tr>
                 <SortableTh active={ordersSortKey === 'created_at'} direction={ordersSortDir} onSort={() => handleOrdersSort('created_at')}>Time</SortableTh>
                 <SortableTh active={ordersSortKey === 'ticker'} direction={ordersSortDir} onSort={() => handleOrdersSort('ticker')}>Ticker</SortableTh>
+                <Th>Asset</Th>
                 <SortableTh active={ordersSortKey === 'side'} direction={ordersSortDir} onSort={() => handleOrdersSort('side')}>Side</SortableTh>
                 <Th>Type</Th>
                 <SortableTh active={ordersSortKey === 'quantity'} direction={ordersSortDir} onSort={() => handleOrdersSort('quantity')}>Qty</SortableTh>
@@ -334,10 +410,11 @@ export default function PaperTrading() {
                 <tr key={o.id} className="hover:bg-slate-800/20">
                   <Td className="text-slate-400">{new Date(o.created_at).toLocaleString()}</Td>
                   <Td className="font-medium text-white">{o.ticker}</Td>
+                  <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[o.asset_class ?? 'india'] ?? o.asset_class}</Td>
                   <Td><Badge action={o.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
                   <Td><OrderTypeBadge orderType={o.order_type} /></Td>
                   <Td>{o.quantity}</Td>
-                  <Td className="tabular-nums">₹{o.filled_price ?? o.price}</Td>
+                  <Td className="tabular-nums">{currencySymbol(o.asset_class)}{o.filled_price ?? o.price}</Td>
                   <Td><StatusBadge status={o.status} /></Td>
                   <Td className="text-slate-500">{o.strategy ?? '—'}</Td>
                   <Td className="max-w-[200px] truncate text-slate-400">
@@ -353,6 +430,7 @@ export default function PaperTrading() {
       {confirming && (
         <OrderConfirmDialog
           ticker={ticker}
+          assetClass={assetClass}
           side={side}
           quantity={quantity}
           orderType={orderType}
@@ -387,6 +465,7 @@ function PendingOrderRow({
     return (
       <tr className="bg-slate-800/30">
         <Td className="font-medium text-white">{order.ticker}</Td>
+        <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[order.asset_class ?? 'india'] ?? order.asset_class}</Td>
         <Td><Badge action={order.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
         <Td><OrderTypeBadge orderType={order.order_type} /></Td>
         <Td><Input type="number" className="!w-20 !py-1" value={qty} onChange={(e) => setQty(parseInt(e.target.value) || 1)} /></Td>
@@ -428,11 +507,12 @@ function PendingOrderRow({
   return (
     <tr className="hover:bg-slate-800/20">
       <Td className="font-medium text-white">{order.ticker}</Td>
+      <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[order.asset_class ?? 'india'] ?? order.asset_class}</Td>
       <Td><Badge action={order.side === 'buy' ? 'BUY' : 'SELL'} /></Td>
       <Td><OrderTypeBadge orderType={order.order_type} /></Td>
       <Td>{order.quantity}</Td>
-      <Td className="tabular-nums">{order.limit_price != null ? `₹${order.limit_price}` : '—'}</Td>
-      <Td className="tabular-nums">{order.trigger_price != null ? `₹${order.trigger_price}` : '—'}</Td>
+      <Td className="tabular-nums">{order.limit_price != null ? `${currencySymbol(order.asset_class)}${order.limit_price}` : '—'}</Td>
+      <Td className="tabular-nums">{order.trigger_price != null ? `${currencySymbol(order.asset_class)}${order.trigger_price}` : '—'}</Td>
       <Td className="text-slate-400">{new Date(order.created_at).toLocaleString()}</Td>
       <Td>
         <div className="flex gap-1.5">
@@ -449,9 +529,10 @@ function PendingOrderRow({
 }
 
 function OrderConfirmDialog({
-  ticker, side, quantity, orderType, limitPrice, triggerPrice, slPct, tpPct, notes, submitting, onCancel, onConfirm,
+  ticker, assetClass, side, quantity, orderType, limitPrice, triggerPrice, slPct, tpPct, notes, submitting, onCancel, onConfirm,
 }: {
   ticker: string
+  assetClass: PaperAssetClass
   side: 'buy' | 'sell'
   quantity: number
   orderType: OrderType
@@ -464,6 +545,7 @@ function OrderConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const cur = currencySymbol(assetClass)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
       <Card className="w-full max-w-md">
@@ -476,6 +558,10 @@ function OrderConfirmDialog({
             </span>
           </div>
           <div className="flex justify-between">
+            <span className="text-slate-400">Asset class</span>
+            <span className="text-white">{ASSET_CLASS_LABEL[assetClass]}</span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-slate-400">Order Type</span>
             <span className="text-white">{ORDER_TYPE_LABEL[orderType]}</span>
           </div>
@@ -486,13 +572,13 @@ function OrderConfirmDialog({
           {limitPrice != null && (
             <div className="flex justify-between">
               <span className="text-slate-400">Limit Price</span>
-              <span className="text-white">₹{limitPrice}</span>
+              <span className="text-white">{cur}{limitPrice}</span>
             </div>
           )}
           {triggerPrice != null && (
             <div className="flex justify-between">
               <span className="text-slate-400">Trigger Price</span>
-              <span className="text-white">₹{triggerPrice}</span>
+              <span className="text-white">{cur}{triggerPrice}</span>
             </div>
           )}
           {slPct != null && (

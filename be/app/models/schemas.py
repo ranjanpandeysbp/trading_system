@@ -192,6 +192,7 @@ class PlaceOrderRequest(BaseModel):
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
     limit_price: float | None = None
     trigger_price: float | None = None
+    asset_class: Literal["india", "us", "crypto"] = "india"
 
 
 class ModifyOrderRequest(BaseModel):

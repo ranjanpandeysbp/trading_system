@@ -414,7 +414,6 @@ class ScheduleAlertsService:
                                 "tp_pct": sig.tp_pct,
                             },
                             price=float(sig.price) if sig.price else None,
-                            notify_buy_only=True,
                             cfg=cfg,
                         )
                         hits_created += created
@@ -463,7 +462,6 @@ class ScheduleAlertsService:
                             bar_asof=str(live.get("bar_time") or live.get("asof") or ""),
                             payload={"hub": hid, "live": {k: live.get(k) for k in ("phase", "signal", "verdict", "take_trade")}},
                             price=_safe_float(live.get("close") or live.get("price")),
-                            notify_buy_only=True,
                             cfg=cfg,
                         )
                         hits_created += created
@@ -513,7 +511,6 @@ class ScheduleAlertsService:
                             bar_asof=str(row.get("bar_time") or row.get("asof") or ""),
                             payload={"ta": tid, "verdict": row.get("verdict"), "phase": row.get("phase")},
                             price=_safe_float(row.get("close") or row.get("price")),
-                            notify_buy_only=True,
                             cfg=cfg,
                         )
                         hits_created += created
@@ -576,7 +573,6 @@ class ScheduleAlertsService:
         bar_asof: str,
         payload: dict[str, Any],
         price: float | None,
-        notify_buy_only: bool,
         cfg: NotifyConfig | None,
     ) -> tuple[int, int]:
         """Insert hit + optional notify. Returns (hits_created, notified)."""
@@ -589,14 +585,9 @@ class ScheduleAlertsService:
         if exists.scalar_one_or_none():
             return 0, 0
 
-        notify_this = (not notify_buy_only) or verdict == "BUY"
         tg_ok = email_ok = False
         notified = 0
-        if (
-            notify_this
-            and is_alerts_enabled()
-            and (sched.notify_telegram or sched.notify_email)
-        ):
+        if is_alerts_enabled() and (sched.notify_telegram or sched.notify_email):
             send_res = send_trade_setup_alert(
                 ticker=ticker,
                 timeframe=timeframe,
