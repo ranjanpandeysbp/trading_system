@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { ArrowRight, BarChart3, Search, Wallet, Layers, BookOpen } from 'lucide-react'
+import { ArrowRight, BarChart3, Search, Wallet, Layers, BookOpen, LineChart } from 'lucide-react'
 import { getAccount, fetchStrategies } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { StatCard } from '../components/ui/StatCard'
@@ -40,6 +40,14 @@ const quickLinks = [
     icon: Wallet,
     color: 'text-emerald-400',
     bg: 'bg-emerald-500/10',
+  },
+  {
+    to: '/trading-hubs?hub=swing&section=support_resistance',
+    title: 'Support & Resistance Analysis',
+    description: 'Break-and-retest zones, trendlines, EMA/RSI overlays, trade setups, breakout odds, candlestick patterns, and divergences.',
+    icon: LineChart,
+    color: 'text-cyan-400',
+    bg: 'bg-cyan-500/10',
   },
 ]
 

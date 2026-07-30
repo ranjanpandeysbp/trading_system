@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BarChart2, Clock, Crosshair, TrendingUp } from 'lucide-react'
 import {
@@ -92,9 +93,10 @@ function sectionHasFixedUniverse(section: TradingHubSection | undefined): boolea
 }
 
 export default function TradingHubs() {
+  const [searchParams] = useSearchParams()
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
-  const [hubId, setHubId] = useState('swing')
-  const [sectionId, setSectionId] = useState('')
+  const [hubId, setHubId] = useState(searchParams.get('hub') || 'swing')
+  const [sectionId, setSectionId] = useState(searchParams.get('section') || '')
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [config, setConfig] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
