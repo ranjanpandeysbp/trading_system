@@ -123,16 +123,9 @@ def _zone_from_swing(df: pd.DataFrame, idx: int, is_high: bool) -> dict[str, Any
     return {"top": float(body_bottom), "bottom": float(bar["low"]), "origin_index": idx}
 
 
-def find_active_zones(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> dict[str, dict[str, Any] | None]:
-    """Latest active support zone (below price) and resistance zone (above
-    price) — each may be an original zone, or an opposite zone that's been
-    broken-and-flipped per the break-and-retest rule."""
-    swung = _swing_columns(df_htf, cfg.swing_window)
+def _zone_candidates(df_htf: pd.DataFrame, swung: pd.DataFrame, start: int) -> list[dict[str, Any]]:
     n = len(df_htf)
-    start = max(0, n - cfg.zone_lookback_bars)
-    price = float(df_htf["close"].iloc[-1])
     closes = df_htf["close"].values
-
     candidates: list[dict[str, Any]] = []
     for i in range(start, n):
         if not pd.isna(swung["swing_high"].iloc[i]):
@@ -150,7 +143,10 @@ def find_active_zones(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> dic
             if len(after) and after.min() < zone["bottom"]:
                 role = "resistance"
             candidates.append({**zone, "role": role, "kind": "swing_low"})
+    return candidates
 
+
+def _pick_zones(candidates: list[dict[str, Any]], price: float) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     support = None
     resistance = None
     for z in sorted(candidates, key=lambda z: -z["origin_index"]):
@@ -160,6 +156,40 @@ def find_active_zones(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> dic
             resistance = z
         if support and resistance:
             break
+    return support, resistance
+
+
+def find_active_zones(df_htf: pd.DataFrame, cfg: SupportResistanceConfig) -> dict[str, dict[str, Any] | None]:
+    """Latest active support zone (below price) and resistance zone (above
+    price) — each may be an original zone, or an opposite zone that's been
+    broken-and-flipped per the break-and-retest rule.
+
+    Within the recent `zone_lookback_bars` window it's possible every
+    candidate on the correct side of price has already been broken-and-flipped
+    away (e.g. a strong rally leaves no resistance candidate above price in
+    that narrow window) even though an older, still-untouched swing level
+    exists further back. Rather than showing nothing, fall back to searching
+    the full available history for the nearest raw swing high/low on the
+    correct side of price, so a level is always surfaced when one exists.
+    """
+    swung = _swing_columns(df_htf, cfg.swing_window)
+    n = len(df_htf)
+    start = max(0, n - cfg.zone_lookback_bars)
+    price = float(df_htf["close"].iloc[-1])
+
+    candidates = _zone_candidates(df_htf, swung, start)
+    support, resistance = _pick_zones(candidates, price)
+
+    if (support is None or resistance is None) and start > 0:
+        full_candidates = _zone_candidates(df_htf, swung, 0)
+        if support is None:
+            lows_below = [z for z in full_candidates if z["kind"] == "swing_low" and z["top"] <= price]
+            if lows_below:
+                support = max(lows_below, key=lambda z: z["top"])
+        if resistance is None:
+            highs_above = [z for z in full_candidates if z["kind"] == "swing_high" and z["bottom"] >= price]
+            if highs_above:
+                resistance = min(highs_above, key=lambda z: z["bottom"])
 
     return {"support": support, "resistance": resistance}
 
