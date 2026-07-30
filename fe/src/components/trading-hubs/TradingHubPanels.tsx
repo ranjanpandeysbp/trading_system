@@ -3,7 +3,8 @@ import { DataTable, SortableTh, Td, Th } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
-import { SupportResistanceChart, type SRChartBar, type SRTrendline } from './SupportResistanceChart'
+import { type SRChartBar, type SRTrendline } from './SupportResistanceChart'
+import { SupportResistanceChartPanel } from './SupportResistanceChartPanel'
 
 type Row = Record<string, unknown>
 
@@ -78,7 +79,7 @@ const CALIBRATION_NOTES: Record<string, string> = {
     "probability, until recalibrated.",
 }
 
-export function TradingHubResultsPanel({ data, sectionId }: { data: Row; sectionId?: string }) {
+export function TradingHubResultsPanel({ data, sectionId, assetClass }: { data: Row; sectionId?: string; assetClass?: string }) {
   const results = (data.results as Row[]) ?? []
   const entries = (data.entries as Row[]) ?? []
   const [selected, setSelected] = useState<string | null>(null)
@@ -192,12 +193,17 @@ export function TradingHubResultsPanel({ data, sectionId }: { data: Row; section
           ) : (
             <div className="space-y-2 text-sm text-slate-300">
               {sectionId === 'support_resistance' && Boolean((selectedRow.live as Row)?.chart_data) && (
-                <SupportResistanceChart
-                  chartData={(selectedRow.live as Row).chart_data as unknown as SRChartBar[]}
-                  supportZone={((selectedRow.live as Row).support_zone as [number, number] | null) ?? null}
-                  resistanceZone={((selectedRow.live as Row).resistance_zone as [number, number] | null) ?? null}
-                  trendlines={((selectedRow.live as Row).trendlines as unknown as SRTrendline[]) ?? []}
+                <SupportResistanceChartPanel
+                  ticker={rowTicker(selectedRow)}
+                  assetClass={assetClass ?? 'india'}
+                  timeframe={String((selectedRow.live as Row)?.htf ?? '1d')}
                   lastClose={selectedRow.last_close as number | undefined}
+                  fallback={{
+                    chartData: (selectedRow.live as Row).chart_data as unknown as SRChartBar[],
+                    supportZone: ((selectedRow.live as Row).support_zone as [number, number] | null) ?? null,
+                    resistanceZone: ((selectedRow.live as Row).resistance_zone as [number, number] | null) ?? null,
+                    trendlines: ((selectedRow.live as Row).trendlines as unknown as SRTrendline[]) ?? [],
+                  }}
                 />
               )}
               {((selectedRow.live as Row)?.reasons as string[] | undefined)?.map((reason) => (

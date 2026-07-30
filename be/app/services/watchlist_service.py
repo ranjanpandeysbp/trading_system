@@ -127,30 +127,36 @@ class WatchlistService:
         token = await self.settings.get_groww_token() or ""
         exchange = await self.settings.get_groww_exchange()
 
-        def _quote_all():
+        def _quote_one(item: WatchlistItem) -> dict[str, Any]:
             from backtesting.data_fetcher import get_live_quote
 
-            rows = []
-            for item in items:
+            quote = {}
+            try:
+                quote = get_live_quote(item.ticker, market_label, exchange=exchange, groww_token=token) or {}
+            except Exception:
                 quote = {}
-                try:
-                    quote = get_live_quote(item.ticker, market_label, exchange=exchange, groww_token=token) or {}
-                except Exception:
-                    quote = {}
-                ltp = quote.get("ltp")
-                change_pct = quote.get("change_pct")
-                added_pct = None
-                if ltp is not None and item.added_price:
-                    added_pct = (float(ltp) - item.added_price) / item.added_price * 100
-                rows.append(
-                    {
-                        **self._item_dict(item),
-                        "ltp": ltp,
-                        "change_pct": change_pct,
-                        "change_since_added_pct": added_pct,
-                    }
-                )
-            return rows
+            ltp = quote.get("ltp")
+            change_pct = quote.get("change_pct")
+            added_pct = None
+            if ltp is not None and item.added_price:
+                added_pct = (float(ltp) - item.added_price) / item.added_price * 100
+            return {
+                **self._item_dict(item),
+                "ltp": ltp,
+                "change_pct": change_pct,
+                "change_since_added_pct": added_pct,
+            }
+
+        def _quote_all():
+            from concurrent.futures import ThreadPoolExecutor
+
+            # Each quote is its own blocking HTTP round trip (Groww + yfinance
+            # fallback) — fetching them concurrently instead of one-at-a-time
+            # both speeds up larger watchlists and stops one slow/failing
+            # ticker from delaying (or, via a shared-timeout illusion, seeming
+            # to sink) the rest of the list.
+            with ThreadPoolExecutor(max_workers=min(8, max(1, len(items)))) as ex:
+                return list(ex.map(_quote_one, items))
 
         rows = await asyncio.to_thread(_quote_all)
         return {**self._watchlist_dict(wl), "items": rows}

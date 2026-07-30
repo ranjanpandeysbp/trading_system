@@ -10,8 +10,8 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
             ₹
           </div>
           <div className="text-left">
-            <p className="text-lg font-bold text-white">IST Paper</p>
-            <p className="text-xs text-slate-500">Indian Equities Demo</p>
+            <p className="text-lg font-bold text-white">QueryMe</p>
+            <p className="text-xs text-slate-500">Trading &amp; Investing Buddy</p>
           </div>
         </Link>
         <h1 className="mt-6 text-2xl font-semibold text-white">{title}</h1>

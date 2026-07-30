@@ -195,6 +195,14 @@ class SavedBacktestReport(Base):
     tickers: Mapped[str] = mapped_column(Text)  # comma-separated
     timeframes: Mapped[str] = mapped_column(Text)  # comma-separated
     payload_json: Mapped[str] = mapped_column(Text)  # full leaderboard result, JSON-encoded
+    # Which leaderboard service saved this row — "strategy_leaderboard" (Strategy
+    # Lab's "Strategy Leaderboard" tab, payload rows shaped total_signals/
+    # overall_win_rate_pct) vs "backtester_leaderboard" (Multi-Combo/Screener/
+    # Builder, payload rows shaped num_trades/win_rate_pct/total_return_pct).
+    # Both services share this one table but their payload shapes are NOT
+    # interchangeable — without this filter a report saved from one shows up
+    # (and renders blank Win Rate/Signals) in the other's saved-reports list.
+    source: Mapped[str] = mapped_column(String(32), default="strategy_leaderboard", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

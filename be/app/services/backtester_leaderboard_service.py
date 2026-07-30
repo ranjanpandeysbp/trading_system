@@ -287,6 +287,7 @@ class BacktesterLeaderboardService:
             tickers=",".join(payload.get("tickers", [])),
             timeframes=str(payload.get("timeframe") or ""),
             payload_json=json.dumps(payload),
+            source="backtester_leaderboard",
         )
         self.db.add(report)
         await self.db.commit()
@@ -300,7 +301,9 @@ class BacktesterLeaderboardService:
 
         if self.db is None:
             return {"reports": []}
-        stmt = select(SavedBacktestReport).order_by(SavedBacktestReport.created_at.desc())
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "backtester_leaderboard"
+        ).order_by(SavedBacktestReport.created_at.desc())
         if user_id is not None:
             stmt = stmt.where(SavedBacktestReport.user_id == user_id)
         result = await self.db.execute(stmt)
@@ -323,7 +326,7 @@ class BacktesterLeaderboardService:
         if self.db is None:
             return {"error": "No database session available."}
         report = await self.db.get(SavedBacktestReport, report_id)
-        if not report or (user_id is not None and report.user_id not in (None, user_id)):
+        if not report or report.source != "backtester_leaderboard" or (user_id is not None and report.user_id not in (None, user_id)):
             return {"error": "Report not found."}
         return {
             "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
@@ -336,7 +339,7 @@ class BacktesterLeaderboardService:
         if self.db is None:
             return {"error": "No database session available."}
         report = await self.db.get(SavedBacktestReport, report_id)
-        if not report or (user_id is not None and report.user_id not in (None, user_id)):
+        if not report or report.source != "backtester_leaderboard" or (user_id is not None and report.user_id not in (None, user_id)):
             return {"error": "Report not found."}
         await self.db.delete(report)
         await self.db.commit()

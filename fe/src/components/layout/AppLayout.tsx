@@ -188,8 +188,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
               ₹
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base font-bold text-white">IST Paper</h1>
-              <p className="text-xs text-slate-500">Indian Equities Demo</p>
+              <h1 className="truncate text-base font-bold text-white">QueryMe</h1>
+              <p className="text-xs text-slate-500">Trading &amp; Investing Buddy</p>
             </div>
           </div>
           <button
@@ -256,7 +256,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 ₹
               </div>
               <span className="truncate font-semibold text-white">
-                {nav.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? 'IST Paper'}
+                {nav.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? 'QueryMe'}
               </span>
             </div>
             <div className="w-10" aria-hidden />

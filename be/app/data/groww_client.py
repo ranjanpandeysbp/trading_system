@@ -8,6 +8,7 @@ public Groww charting service (no token required).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 
 import httpx
@@ -236,12 +237,36 @@ def fetch_groww_live_quote(
         endpoints.append((f"{GROWW_WEB_API}/tr_live_indices/exchange/{exch}/segment/CASH/{sym}/latest", "value"))
 
     for url, price_key in endpoints:
+        body = None
+        # Groww's public feed is unauthenticated and occasionally flaky
+        # (timeouts, transient 5xx) — a couple of quick retries clears most
+        # of that before falling through to the next endpoint / yfinance,
+        # rather than a single blip silently blanking that ticker's row.
+        for attempt in range(3):
+            try:
+                with httpx.Client(timeout=6.0, follow_redirects=True) as client:
+                    r = client.get(url, headers=_GROWW_UA)
+                if r.status_code != 200:
+                    if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                        time.sleep(0.25 * (attempt + 1))
+                        continue
+                    body = None
+                    break
+                body = r.json()
+                break
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                logger.debug("Groww live quote attempt %d failed %s (%s): %s", attempt + 1, sym, url, exc)
+                if attempt < 2:
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+                body = None
+            except Exception as exc:
+                logger.debug("Groww live quote failed %s (%s): %s", sym, url, exc)
+                body = None
+                break
+        if body is None:
+            continue
         try:
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-                r = client.get(url, headers=_GROWW_UA)
-            if r.status_code != 200:
-                continue
-            body = r.json()
             price = None
             for field in (price_key, "ltp", "value"):
                 val = body.get(field)

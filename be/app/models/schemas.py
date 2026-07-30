@@ -426,6 +426,18 @@ class TradingHubScanRequest(BaseModel):
     run_backtest: bool = False
 
 
+class SupportResistanceChartRequest(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    timeframe: str = "1d"
+    ltf: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    include_volume: bool = True
+    ema_periods: list[int] = Field(default_factory=list)
+    include_rsi: bool = False
+
+
 class Swing5ScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(default_factory=lambda: ["1d"])

@@ -296,7 +296,7 @@ export default function TradingHubs() {
 
       {!activeSection?.multi_strategy && !scanMutation.isPending && scanMutation.data && (
         <Card>
-          <TradingHubResultsPanel data={scanMutation.data as Record<string, unknown>} sectionId={sectionId} />
+          <TradingHubResultsPanel data={scanMutation.data as Record<string, unknown>} sectionId={sectionId} assetClass={fixedUniverse ? 'india' : assetClass} />
         </Card>
       )}
     </div>

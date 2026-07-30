@@ -81,6 +81,7 @@ from app.models.schemas import (
     CustomStrategyUpdate,
     TokenResponse,
     Swing5ScanRequest,
+    SupportResistanceChartRequest,
     TradeCandidateCreate,
     TradeCandidateHitsDelete,
     TradeCandidateUpdate,
@@ -2204,6 +2205,43 @@ async def trading_hubs_scan(
         run_bt=payload.run_backtest,
         user_id=current_user.id,
     )
+
+
+@router.post("/trading-hubs/support-resistance/chart")
+async def support_resistance_chart(
+    payload: SupportResistanceChartRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    import asyncio
+
+    from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+    from app.trading_hubs.support_resistance_engine import SupportResistanceConfig, build_chart_payload
+
+    settings = SettingsService(db)
+    cfg_data = ASSET_CLASS_CONFIG.get(payload.asset_class) or ASSET_CLASS_CONFIG["india"]
+    market = str(cfg_data["market"])
+    if payload.asset_class == "india":
+        groww_token = await settings.get_groww_token() or ""
+        exchange = await settings.get_groww_exchange()
+    else:
+        groww_token = ""
+        exchange = str(cfg_data.get("exchange") or "NSE")
+
+    cfg = SupportResistanceConfig(htf=payload.timeframe)
+    result = await asyncio.to_thread(
+        build_chart_payload,
+        payload.ticker, market, cfg,
+        groww_token=groww_token, exchange=exchange,
+        start_date=payload.start_date, end_date=payload.end_date,
+        ltf=payload.ltf,
+        include_volume=payload.include_volume,
+        ema_periods=payload.ema_periods,
+        include_rsi=payload.include_rsi,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 @router.post("/trading-hubs/swing-5/scan")

@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_SUPPORT_RESISTANCE_URL = "https://www.youtube.com/watch?v=d5T-k_-ejd0&t=29s"
 
-HTF_OPTIONS = ["1h", "4h", "1d"]
-LTF_OPTIONS = ["1m", "5m", "15m"]
+HTF_OPTIONS = ["15m", "30m", "1h", "4h", "1d", "1wk"]
+LTF_OPTIONS = ["1m", "3m", "5m", "15m", "30m", "1h"]
 
 PHASE_NONE = "NO_SETUP"
 PHASE_ZONE_TAPPED = "ZONE_TAPPED"
@@ -70,6 +70,21 @@ class SupportResistanceConfig:
 # Shared low-level helpers (self-contained, matching the style of the other
 # hub engines rather than a shared library)
 # ---------------------------------------------------------------------------
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    high, low, close = df["high"], df["low"], df["close"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low).abs(),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(period, min_periods=max(2, period // 2)).mean()
+
 
 def _swing_columns(df: pd.DataFrame, window: int) -> pd.DataFrame:
     out = df.copy()
@@ -210,6 +225,533 @@ def build_chart_data(df_htf: pd.DataFrame, cfg: SupportResistanceConfig, *, max_
         }
         for idx, bar in tail.iterrows()
     ]
+
+
+# ---------------------------------------------------------------------------
+# Dedicated chart endpoint — date range + volume/EMA/RSI overlays, decoupled
+# from the fixed 120-bar live-signal snapshot above so a user can inspect a
+# wider window without re-running the strategy evaluation.
+# ---------------------------------------------------------------------------
+
+EMA_OVERLAY_OPTIONS = [5, 9, 20, 50, 200]
+_CHART_BARS_PER_DAY = {
+    "1m": 375, "3m": 125, "5m": 75, "15m": 25, "30m": 13, "1h": 7, "4h": 2, "1d": 1, "1wk": 1,
+}
+
+
+def _crossover_bars_ago(fast: pd.Series, slow: pd.Series) -> tuple[int, bool] | None:
+    """Bars since fast/slow last flipped which is on top, and the new direction
+    (True = fast now above slow). None if no crossover in the overlapping window."""
+    common = fast.dropna().index.intersection(slow.dropna().index)
+    if len(common) < 3:
+        return None
+    diff = (fast.loc[common] - slow.loc[common])
+    sign = diff.apply(lambda v: 1 if v > 0 else (-1 if v < 0 else 0))
+    flips = sign.index[(sign != sign.shift(1)) & (sign.shift(1) != 0) & (sign != 0)]
+    flips = [f for f in flips if f != sign.index[0]]
+    if not flips:
+        return None
+    last_flip = flips[-1]
+    bars_ago = len(sign) - 1 - list(sign.index).index(last_flip)
+    return bars_ago, bool(sign.loc[last_flip] > 0)
+
+
+# ---------------------------------------------------------------------------
+# Candlestick patterns, chart patterns (double top/bottom), and RSI divergence
+# ---------------------------------------------------------------------------
+
+def detect_candlestick_patterns(df: pd.DataFrame, lookback: int = 5) -> list[dict[str, Any]]:
+    """Well-known single/multi-candle patterns in the most recent bars."""
+    patterns: list[dict[str, Any]] = []
+    n = len(df)
+    if n < 3:
+        return patterns
+
+    opens, highs, lows, closes = df["open"].values, df["high"].values, df["low"].values, df["close"].values
+
+    for i in range(max(2, n - lookback), n):
+        o, h, l, c = opens[i], highs[i], lows[i], closes[i]
+        po, pc = opens[i - 1], closes[i - 1]
+        rng = h - l
+        if rng <= 0:
+            continue
+        body = abs(c - o)
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - l
+        bars_ago = n - 1 - i
+
+        if body <= rng * 0.1:
+            patterns.append({
+                "name": "Doji", "direction": "neutral", "bars_ago": bars_ago,
+                "note": "small body relative to its range — indecision between buyers and sellers",
+            })
+
+        if c > o and pc < po and o <= pc and c >= po:
+            patterns.append({
+                "name": "Bullish Engulfing", "direction": "bullish", "bars_ago": bars_ago,
+                "note": "this candle's body fully engulfs the prior bearish candle",
+            })
+        if c < o and pc > po and o >= pc and c <= po:
+            patterns.append({
+                "name": "Bearish Engulfing", "direction": "bearish", "bars_ago": bars_ago,
+                "note": "this candle's body fully engulfs the prior bullish candle",
+            })
+
+        if body > 0 and lower_wick >= body * 2 and upper_wick <= body * 0.5:
+            prior = closes[max(0, i - 5):i]
+            if len(prior) >= 2 and prior[-1] < prior[0]:
+                patterns.append({
+                    "name": "Hammer", "direction": "bullish", "bars_ago": bars_ago,
+                    "note": "long lower wick after a decline — buyers stepped in and rejected the lows",
+                })
+
+        if body > 0 and upper_wick >= body * 2 and lower_wick <= body * 0.5:
+            prior = closes[max(0, i - 5):i]
+            if len(prior) >= 2 and prior[-1] > prior[0]:
+                patterns.append({
+                    "name": "Shooting Star", "direction": "bearish", "bars_ago": bars_ago,
+                    "note": "long upper wick after an advance — sellers stepped in and rejected the highs",
+                })
+
+        if i >= 2:
+            o2, c2 = opens[i - 2], closes[i - 2]
+            body2, body1 = abs(c2 - o2), abs(pc - po)
+            if body2 > 0:
+                if c2 < o2 and body1 <= body2 * 0.5 and c > o and c >= (o2 + c2) / 2:
+                    patterns.append({
+                        "name": "Morning Star", "direction": "bullish", "bars_ago": bars_ago,
+                        "note": "3-candle bottoming reversal — long bearish candle, indecision, then a strong bullish close",
+                    })
+                if c2 > o2 and body1 <= body2 * 0.5 and c < o and c <= (o2 + c2) / 2:
+                    patterns.append({
+                        "name": "Evening Star", "direction": "bearish", "bars_ago": bars_ago,
+                        "note": "3-candle topping reversal — long bullish candle, indecision, then a strong bearish close",
+                    })
+
+    dedup: dict[str, dict[str, Any]] = {}
+    for p in patterns:
+        key = p["name"]
+        if key not in dedup or p["bars_ago"] < dedup[key]["bars_ago"]:
+            dedup[key] = p
+    return sorted(dedup.values(), key=lambda p: p["bars_ago"])
+
+
+def detect_chart_patterns(df: pd.DataFrame, cfg: SupportResistanceConfig) -> list[dict[str, Any]]:
+    """Double top / double bottom — the two most recent comparable swing
+    extremes, with price now trading back through the trough/peak between them."""
+    swung = _swing_columns(df, cfg.swing_window)
+    highs = swung["swing_high"].dropna()
+    lows = swung["swing_low"].dropna()
+    price = float(df["close"].iloc[-1])
+    patterns: list[dict[str, Any]] = []
+
+    if len(highs) >= 2:
+        h1, h2 = float(highs.iloc[-2]), float(highs.iloc[-1])
+        if max(h1, h2) > 0 and abs(h1 - h2) / max(h1, h2) <= 0.015 and price < min(h1, h2):
+            level = (h1 + h2) / 2
+            patterns.append({
+                "name": "Double Top", "direction": "bearish", "level": round(level, 6),
+                "note": f"two comparable swing highs near {level:,.4g} — a classic bearish reversal setup if the neckline gives way",
+            })
+
+    if len(lows) >= 2:
+        l1, l2 = float(lows.iloc[-2]), float(lows.iloc[-1])
+        if max(l1, l2) > 0 and abs(l1 - l2) / max(l1, l2) <= 0.015 and price > max(l1, l2):
+            level = (l1 + l2) / 2
+            patterns.append({
+                "name": "Double Bottom", "direction": "bullish", "level": round(level, 6),
+                "note": f"two comparable swing lows near {level:,.4g} — a classic bullish reversal setup if the neckline gives way",
+            })
+
+    return patterns
+
+
+def detect_rsi_divergence(df: pd.DataFrame, rsi_series: pd.Series | None, cfg: SupportResistanceConfig) -> list[dict[str, Any]]:
+    """Price vs. RSI divergence at the two most recent comparable swing points."""
+    if rsi_series is None:
+        return []
+    swung = _swing_columns(df, cfg.swing_window)
+    out: list[dict[str, Any]] = []
+
+    highs = swung["swing_high"].dropna()
+    if len(highs) >= 2:
+        i1, i2 = highs.index[-2], highs.index[-1]
+        p1, p2 = float(highs.loc[i1]), float(highs.loc[i2])
+        r1, r2 = rsi_series.get(i1), rsi_series.get(i2)
+        if r1 is not None and r2 is not None and pd.notna(r1) and pd.notna(r2) and p2 > p1 and r2 < r1:
+            out.append({
+                "name": "Bearish Divergence", "direction": "bearish",
+                "note": f"price made a higher high ({p1:,.4g} → {p2:,.4g}) but RSI made a lower high ({r1:.0f} → {r2:.0f}) — upside momentum is weakening",
+            })
+
+    lows = swung["swing_low"].dropna()
+    if len(lows) >= 2:
+        i1, i2 = lows.index[-2], lows.index[-1]
+        p1, p2 = float(lows.loc[i1]), float(lows.loc[i2])
+        r1, r2 = rsi_series.get(i1), rsi_series.get(i2)
+        if r1 is not None and r2 is not None and pd.notna(r1) and pd.notna(r2) and p2 < p1 and r2 > r1:
+            out.append({
+                "name": "Bullish Divergence", "direction": "bullish",
+                "note": f"price made a lower low ({p1:,.4g} → {p2:,.4g}) but RSI made a higher low ({r1:.0f} → {r2:.0f}) — downside momentum is weakening",
+            })
+
+    return out
+
+
+def build_observation_summary(
+    df: pd.DataFrame,
+    zones: dict[str, dict[str, Any] | None],
+    *,
+    ema_series: dict[int, pd.Series],
+    rsi_series: pd.Series | None,
+    include_volume: bool,
+) -> list[str]:
+    obs: list[str] = []
+    if df.empty:
+        return obs
+    price = float(df["close"].iloc[-1])
+
+    support, resistance = zones.get("support"), zones.get("resistance")
+    if support:
+        dist = (price - support["top"]) / price * 100
+        obs.append(
+            f"Price is {dist:.1f}% above the nearest support zone ({support['bottom']:,.4g}–{support['top']:,.4g})."
+            if dist >= 0 else
+            f"Price is inside/below the nearest support zone ({support['bottom']:,.4g}–{support['top']:,.4g}) — a break, not a bounce."
+        )
+    if resistance:
+        dist = (resistance["bottom"] - price) / price * 100
+        obs.append(
+            f"Price is {dist:.1f}% below the nearest resistance zone ({resistance['bottom']:,.4g}–{resistance['top']:,.4g})."
+            if dist >= 0 else
+            f"Price is inside/above the nearest resistance zone ({resistance['bottom']:,.4g}–{resistance['top']:,.4g}) — a break, not a rejection."
+        )
+    if not support and not resistance:
+        obs.append("No clear support/resistance zone found in the visible range.")
+
+    if include_volume and "volume" in df.columns and len(df) >= 20:
+        recent_vol = float(df["volume"].iloc[-5:].mean())
+        avg_vol = float(df["volume"].iloc[-20:].mean())
+        if avg_vol > 0:
+            pct = (recent_vol - avg_vol) / avg_vol * 100
+            if abs(pct) >= 15:
+                obs.append(
+                    f"Volume is running {abs(pct):.0f}% {'above' if pct > 0 else 'below'} its 20-bar average — "
+                    f"{'above-average participation backing recent moves' if pct > 0 else 'quiet trading, moves may lack conviction'}."
+                )
+            else:
+                obs.append("Volume is in line with its recent average — no unusual participation either way.")
+
+    if rsi_series is not None and not rsi_series.dropna().empty:
+        rsi_val = float(rsi_series.dropna().iloc[-1])
+        if rsi_val >= 70:
+            obs.append(f"RSI(14) is {rsi_val:.0f} — overbought, momentum stretched to the upside.")
+        elif rsi_val <= 30:
+            obs.append(f"RSI(14) is {rsi_val:.0f} — oversold, momentum stretched to the downside.")
+        else:
+            obs.append(f"RSI(14) is {rsi_val:.0f} — neutral, no extreme momentum either way.")
+
+    ema_last: dict[int, float] = {}
+    for period, series in sorted(ema_series.items()):
+        clean = series.dropna()
+        if clean.empty:
+            continue
+        val = float(clean.iloc[-1])
+        ema_last[period] = val
+        side = "above" if price > val else "below"
+        near = abs(price - val) / price * 100 < 0.5
+        obs.append(
+            f"Price is trading {side} its {period} EMA ({val:,.4g}){' — sitting right on it, acting as active support/resistance' if near else '.'}"
+        )
+
+    periods_sorted = sorted(ema_series.keys())
+    for i in range(len(periods_sorted)):
+        for j in range(i + 1, len(periods_sorted)):
+            fast_p, slow_p = periods_sorted[i], periods_sorted[j]
+            cross = _crossover_bars_ago(ema_series[fast_p], ema_series[slow_p])
+            if cross is None:
+                continue
+            bars_ago, fast_now_above = cross
+            if bars_ago > 20:
+                continue
+            direction = "bullish" if fast_now_above else "bearish"
+            obs.append(
+                f"{fast_p} EMA crossed {'above' if fast_now_above else 'below'} the {slow_p} EMA "
+                f"{bars_ago} bar(s) ago — {direction} crossover."
+            )
+
+    return obs
+
+
+# ---------------------------------------------------------------------------
+# Breakout / breakdown probability — a transparent, rules-based ESTIMATE
+# (not a trained model) blending momentum, volume, EMA structure, and how
+# many times the level has already been tested. Reported so it's clearly
+# a heuristic read of current conditions, not a statistical forecast.
+# ---------------------------------------------------------------------------
+
+def estimate_breakout_breakdown(
+    df: pd.DataFrame,
+    zones: dict[str, dict[str, Any] | None],
+    *,
+    ema_series: dict[int, pd.Series],
+    rsi_series: pd.Series | None,
+) -> dict[str, Any]:
+    price = float(df["close"].iloc[-1])
+    out: dict[str, Any] = {"breakout": None, "breakdown": None}
+    if df.empty:
+        return out
+
+    rsi_last = None
+    if rsi_series is not None and not rsi_series.dropna().empty:
+        rsi_last = float(rsi_series.dropna().iloc[-1])
+
+    vol_signal = 0.0
+    if "volume" in df.columns and len(df) >= 20:
+        recent_vol = float(df["volume"].iloc[-5:].mean())
+        avg_vol = float(df["volume"].iloc[-20:].mean())
+        if avg_vol > 0:
+            vol_signal = (recent_vol - avg_vol) / avg_vol
+
+    ema_last = {p: float(s.dropna().iloc[-1]) for p, s in ema_series.items() if not s.dropna().empty}
+    total_emas = len(ema_last)
+    above_emas = sum(1 for v in ema_last.values() if price > v)
+    below_emas = total_emas - above_emas
+
+    atr = _atr(df, 14)
+    atr_last = float(atr.dropna().iloc[-1]) if not atr.dropna().empty else None
+    tail = df.iloc[-40:]
+
+    resistance = zones.get("resistance")
+    if resistance:
+        dist_pct = (resistance["bottom"] - price) / price * 100
+        touches = int(((tail["high"] >= resistance["bottom"]) & (tail["low"] <= resistance["top"])).sum())
+        proximity_weight = _clamp(1 - abs(dist_pct) / 5, 0.2, 1.0)
+        signal = 0.0
+        if rsi_last is not None:
+            if 55 <= rsi_last <= 75:
+                signal += 12
+            elif rsi_last > 80:
+                signal -= 12
+            elif rsi_last < 45:
+                signal -= 8
+        signal += _clamp(vol_signal * 30, -15, 20)
+        if total_emas:
+            signal += (above_emas / total_emas - 0.5) * 30
+        if touches >= 2:
+            signal += 6
+        prob = round(_clamp(50 + signal * proximity_weight, 5, 90), 1)
+        move_pct = round(max((resistance["top"] - resistance["bottom"]), atr_last or 0) / price * 100 * 1.5, 2) if price else None
+        out["breakout"] = {
+            "level": round(resistance["bottom"], 6),
+            "probability_pct": prob,
+            "distance_pct": round(dist_pct, 2),
+            "touches_recent": touches,
+            "projected_move_pct": move_pct,
+        }
+
+    support = zones.get("support")
+    if support:
+        dist_pct = (price - support["top"]) / price * 100
+        touches = int(((tail["low"] <= support["top"]) & (tail["high"] >= support["bottom"])).sum())
+        proximity_weight = _clamp(1 - abs(dist_pct) / 5, 0.2, 1.0)
+        signal = 0.0
+        if rsi_last is not None:
+            if 25 <= rsi_last <= 45:
+                signal += 12
+            elif rsi_last < 20:
+                signal -= 12
+            elif rsi_last > 55:
+                signal -= 8
+        signal += _clamp(-vol_signal * 30, -15, 20)
+        if total_emas:
+            signal += (below_emas / total_emas - 0.5) * 30
+        if touches >= 2:
+            signal += 6
+        prob = round(_clamp(50 + signal * proximity_weight, 5, 90), 1)
+        move_pct = round(max((support["top"] - support["bottom"]), atr_last or 0) / price * 100 * 1.5, 2) if price else None
+        out["breakdown"] = {
+            "level": round(support["top"], 6),
+            "probability_pct": prob,
+            "distance_pct": round(dist_pct, 2),
+            "touches_recent": touches,
+            "projected_move_pct": move_pct,
+        }
+
+    return out
+
+
+def build_chart_payload(
+    ticker: str,
+    market: str,
+    cfg: SupportResistanceConfig,
+    *,
+    groww_token: str = "",
+    exchange: str = "NSE",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    ltf: str | None = None,
+    include_volume: bool = True,
+    ema_periods: list[int] | None = None,
+    include_rsi: bool = False,
+) -> dict[str, Any]:
+    """Chart data for the Support and Resistance UI — its own timeframe/date
+    range independent of the live-signal HTF/LTF pair, with optional volume,
+    EMA, and RSI overlays, plus a plain-English observation summary."""
+    is_crypto = "CoinDCX" in market
+    limit = cfg.lookback_bars
+    if start_date and end_date:
+        try:
+            days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 1
+        except Exception:
+            days = 180
+        bars_per_day = _CHART_BARS_PER_DAY.get(cfg.htf, 1)
+        limit = max(150, min(3000, int(days * bars_per_day * 1.3) + 50))
+
+    df = fetch_data_for_gap_scan(ticker, cfg.htf, market, groww_token, exchange, limit=limit)
+    df = normalize_ohlcv(df)
+    if df.empty or len(df) < cfg.min_bars:
+        df = normalize_ohlcv(fetch_ohlcv_yfinance(ticker, cfg.htf, is_crypto=is_crypto, limit=limit, market=market))
+    if df.empty:
+        return {"error": f"Insufficient {cfg.htf} data for {ticker}."}
+
+    if start_date:
+        df = df[df.index >= pd.Timestamp(start_date)]
+    if end_date:
+        df = df[df.index <= pd.Timestamp(end_date) + pd.Timedelta(days=1)]
+    if df.empty:
+        return {"error": "No bars in the selected date range."}
+    if not start_date and not end_date:
+        df = df.iloc[-min(len(df), 300):]
+
+    zones = find_active_zones(df, cfg)
+    trendlines = find_trendlines(df, cfg)
+
+    ema_series: dict[int, pd.Series] = {}
+    emas_out: dict[str, list[dict[str, Any]]] = {}
+    for period in sorted(set(p for p in (ema_periods or []) if p > 0)):
+        if period >= len(df):
+            continue
+        series = df["close"].ewm(span=period, adjust=False).mean()
+        ema_series[period] = series
+        emas_out[str(period)] = [
+            {"time": str(idx), "value": round(float(v), 6)} for idx, v in series.items()
+        ]
+
+    # Computed unconditionally (cheap) since the breakout/breakdown estimate
+    # below benefits from it even when the user hasn't toggled RSI ON for
+    # the chart itself — only the plotted `rsi_out` points respect the toggle.
+    rsi_series: pd.Series | None = None
+    rsi_out: list[dict[str, Any]] | None = None
+    if len(df) > 14:
+        from app.market_pulse.indicators import add_rsi
+
+        work = add_rsi(df.copy(), 14)
+        rsi_series = work["rsi_14"]
+        if include_rsi:
+            rsi_out = [
+                {"time": str(idx), "value": round(float(v), 2)}
+                for idx, v in rsi_series.items() if pd.notna(v)
+            ]
+
+    bars = [
+        {
+            "time": str(idx),
+            "open": round(float(bar["open"]), 6),
+            "high": round(float(bar["high"]), 6),
+            "low": round(float(bar["low"]), 6),
+            "close": round(float(bar["close"]), 6),
+            "volume": round(float(bar["volume"]), 2) if include_volume and "volume" in df.columns else None,
+        }
+        for idx, bar in df.iterrows()
+    ]
+
+    summary = build_observation_summary(
+        df, zones, ema_series=ema_series, rsi_series=rsi_series, include_volume=include_volume,
+    )
+
+    # Trade setup — always evaluated against CURRENT data, independent of any
+    # date range picked for the chart view above, so browsing history never
+    # produces a stale "live" verdict. Reuses the exact same strategy
+    # evaluation the live scan uses (Permission/tap/structure-break), just
+    # with the chart's own HTF/LTF pair.
+    trade_setup: dict[str, Any] | None = None
+    setup_cfg = SupportResistanceConfig(
+        htf=cfg.htf, ltf=ltf or cfg.ltf,
+        zone_lookback_bars=cfg.zone_lookback_bars, swing_window=cfg.swing_window,
+        lookback_bars=cfg.lookback_bars, min_bars=cfg.min_bars,
+    )
+    try:
+        setup_result = analyze_ticker(ticker, market, cfg=setup_cfg, groww_token=groww_token, exchange=exchange)
+    except Exception as exc:
+        setup_result = {"error": str(exc)[:200]}
+    if not setup_result.get("error"):
+        live = setup_result.get("live") or {}
+        trade_setup = {
+            "verdict": live.get("verdict"),
+            "direction": live.get("direction"),
+            "take_trade": bool(live.get("take_trade")),
+            "confidence_pct": live.get("confidence_pct"),
+            "sl_pct": live.get("sl_pct"),
+            "tp_pct": live.get("tp_pct"),
+            "hold_duration": live.get("hold_duration"),
+            "htf": setup_cfg.htf,
+            "ltf": setup_cfg.ltf,
+        }
+        summary.append(
+            f"Trade setup ({setup_cfg.ltf} entry / {setup_cfg.htf} zones, live): {trade_setup['verdict']} "
+            f"— {trade_setup['confidence_pct']}% confidence, SL {trade_setup['sl_pct']}%, TP {trade_setup['tp_pct']}%, "
+            f"stay in trade ~{trade_setup['hold_duration']}."
+        )
+
+    breakout_breakdown = estimate_breakout_breakdown(
+        df, zones, ema_series=ema_series, rsi_series=rsi_series,
+    )
+    bo, bd = breakout_breakdown.get("breakout"), breakout_breakdown.get("breakdown")
+    if bo:
+        summary.append(
+            f"Breakout above {bo['level']:,.4g} (resistance): ~{bo['probability_pct']:.0f}% likely from here "
+            f"(rules-based estimate, not a statistical forecast) — tested {bo['touches_recent']}x recently; "
+            f"if it breaks, a typical initial move is around {bo['projected_move_pct']:.1f}% higher."
+        )
+    if bd:
+        summary.append(
+            f"Breakdown below {bd['level']:,.4g} (support): ~{bd['probability_pct']:.0f}% likely from here "
+            f"(rules-based estimate, not a statistical forecast) — tested {bd['touches_recent']}x recently; "
+            f"if it breaks, a typical initial move is around {bd['projected_move_pct']:.1f}% lower."
+        )
+
+    candle_patterns = detect_candlestick_patterns(df)
+    for cp in candle_patterns:
+        when = "on the latest bar" if cp["bars_ago"] == 0 else f"{cp['bars_ago']} bar(s) ago"
+        summary.append(f"Candlestick pattern — {cp['name']} ({cp['direction']}) {when}: {cp['note']}.")
+
+    chart_patterns = detect_chart_patterns(df, cfg)
+    for pat in chart_patterns:
+        summary.append(f"Chart pattern — {pat['name']} ({pat['direction']}): {pat['note']}.")
+
+    divergences = detect_rsi_divergence(df, rsi_series, cfg)
+    for dv in divergences:
+        summary.append(f"{dv['name']}: {dv['note']}.")
+
+    return {
+        "ticker": ticker,
+        "timeframe": cfg.htf,
+        "chart_data": bars,
+        "support_zone": [round(zones["support"]["bottom"], 6), round(zones["support"]["top"], 6)] if zones.get("support") else None,
+        "resistance_zone": [round(zones["resistance"]["bottom"], 6), round(zones["resistance"]["top"], 6)] if zones.get("resistance") else None,
+        "trendlines": trendlines,
+        "emas": emas_out,
+        "rsi": rsi_out,
+        "trade_setup": trade_setup,
+        "breakout": bo,
+        "breakdown": bd,
+        "candlestick_patterns": candle_patterns,
+        "chart_patterns": chart_patterns,
+        "divergences": divergences,
+        "include_volume": include_volume,
+        "summary": summary,
+    }
 
 
 # ---------------------------------------------------------------------------

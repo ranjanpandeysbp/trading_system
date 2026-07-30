@@ -729,6 +729,77 @@ export const runTradingHubScan = (payload: {
   run_backtest?: boolean
 }) => api.post('/trading-hubs/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export interface SRTradeSetup {
+  verdict: string | null
+  direction: string | null
+  take_trade: boolean
+  confidence_pct: number | null
+  sl_pct: number | null
+  tp_pct: number | null
+  hold_duration: string | null
+  htf: string
+  ltf: string
+}
+
+export interface SRBreakoutEstimate {
+  level: number
+  probability_pct: number
+  distance_pct: number
+  touches_recent: number
+  projected_move_pct: number | null
+}
+
+export interface SRCandlestickPattern {
+  name: string
+  direction: 'bullish' | 'bearish' | 'neutral'
+  bars_ago: number
+  note: string
+}
+
+export interface SRChartPattern {
+  name: string
+  direction: 'bullish' | 'bearish'
+  level: number
+  note: string
+}
+
+export interface SRDivergence {
+  name: string
+  direction: 'bullish' | 'bearish'
+  note: string
+}
+
+export interface SRChartResponse {
+  ticker: string
+  timeframe: string
+  chart_data: Array<{ time: string; open: number; high: number; low: number; close: number; volume: number | null }>
+  support_zone: [number, number] | null
+  resistance_zone: [number, number] | null
+  trendlines: Array<{ type: 'ascending' | 'descending'; points: Array<{ time: string; price: number }> }>
+  emas: Record<string, Array<{ time: string; value: number }>>
+  rsi: Array<{ time: string; value: number }> | null
+  trade_setup: SRTradeSetup | null
+  breakout: SRBreakoutEstimate | null
+  breakdown: SRBreakoutEstimate | null
+  candlestick_patterns: SRCandlestickPattern[]
+  chart_patterns: SRChartPattern[]
+  divergences: SRDivergence[]
+  include_volume: boolean
+  summary: string[]
+}
+
+export const fetchSupportResistanceChart = (payload: {
+  ticker: string
+  asset_class: string
+  timeframe: string
+  ltf?: string | null
+  start_date?: string | null
+  end_date?: string | null
+  include_volume?: boolean
+  ema_periods?: number[]
+  include_rsi?: boolean
+}) => api.post<SRChartResponse>('/trading-hubs/support-resistance/chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runSwing5Scan = (payload: {
   tickers: string[]
   timeframes: string[]
