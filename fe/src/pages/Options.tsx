@@ -6,11 +6,12 @@ import {
   runOptionsDeltaNeutral,
   runOptionsDoubleCalendar,
   runOptionsGokulChhabra,
+  runOptionsHedging,
   runOptionsZeroToHero,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
-import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -21,6 +22,7 @@ import { Alert, Loading } from '../components/ui/Feedback'
 const SECTIONS = [
   { id: 'double_calendar', label: '📅 Double Calendar' },
   { id: 'delta_neutral', label: '🎰 Delta Neutral' },
+  { id: 'hedging', label: '🛡️ Hedging' },
   { id: 'gokul_chhabra', label: '🎯 Gokul Chhabra 3m ITM' },
   { id: 'zero_to_hero', label: '🚀 Zero to Hero' },
 ] as const
@@ -79,6 +81,39 @@ have no listed options-chain feed here, so strikes are placed by inverting Black
 priced with Black-Scholes using the underlying's own realized volatility as an IV proxy — every simulated
 leg is labeled "Simulated". The VIX/choppy gate reuses the same real India VIX / US VIX check as Double
 Calendar, plus a trend-strength (ADX) read.
+
+Heuristic framework, not a fill guarantee — research / education only, not financial advice.`
+
+const HEDGING_EXPLANATION = `Non-Directional Delta-Neutral Options Hedging — intraday income strategy from Vikas
+(https://www.youtube.com/watch?v=FXhudoBZ5SU). Profits from premium decay in a sideways market while capping
+catastrophic risk with hedges bought up front.
+
+Pre-requisite — chart Demand/Supply zones: on a 15-minute chart, the strong swing low below the session's
+opening price is your Demand Zone; the strong swing high above it is your Supply Zone. If no clear zone has
+formed yet (early session), this falls back to the 1-hour chart to find recent major reversal areas. Mark
+these BEFORE entering, so later decisions aren't "fake adjustments" made in the heat of the moment.
+
+Setup (Delta N): short one ATM Call + one ATM Put (each ~0.5 delta, canceling out — Delta Neutral at entry).
+Immediately buy deep OTM Call + Put hedges, ~4% away from spot (cheap, ~₹5-7 premium in the video's Nifty
+example) — this caps the max loss against a gap, black-swan move, or broker glitch.
+
+Adjustment — the crucial step: do NOT adjust on a small mark-to-market wiggle, and do NOT adjust just because
+price is touching a zone — wait for a candle to strictly CLOSE beyond the Demand/Supply zone. Once broken:
+exit the losing leg (the one whose delta spiked), keep the hedges exactly as they are, sell a fresh ATM leg on
+the broken side. This deliberately leaves a small residual delta rather than re-flattening to zero — a
+snap-back safety net if price returns to the original range. Maximum one adjustment per day.
+
+Risk management (the "brain" of the strategy): hard stop at 2-3% of TOTAL capital (not margin deployed) — exit
+everything immediately if touched. Take profit around 1-1.5% of total capital — an inverted risk:reward
+offset by a high win rate; frequent small losses are normal, large losses should only happen in extreme,
+unmanaged conditions. Size positions so the capital-based stop doesn't feel threatening — hedging needing
+less margin is not a reason to deploy all of it.
+
+Data sources: leg pricing/selection reuses this app's Delta-Neutral (Iron Fly) engine — live NSE option-chain
+for India, live Yahoo option chain for US, Black-Scholes-simulated (clearly labeled "Simulated") for
+Crypto/Commodities. Demand/Supply zones use this app's own OHLCV feed on the selected intraday timeframe —
+this app can't track your live open position, so the adjustment signal and P&L check are read-only tools, not
+an automated trade manager.
 
 Heuristic framework, not a fill guarantee — research / education only, not financial advice.`
 
@@ -224,6 +259,45 @@ export default function Options() {
   const dnData = runDnMutation.data as Record<string, unknown> | undefined
   const dnAskContext = dnData ? buildAskContext('Delta Neutral', dnData) : ''
 
+  const [hgAssetClass, setHgAssetClass] = useState<AssetClass>('india')
+  const [hgPicker, setHgPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
+  const [hgError, setHgError] = useState('')
+
+  const [hgDte, setHgDte] = useState(2)
+  const [hedgeDistancePct, setHedgeDistancePct] = useState(4.0)
+  const [zoneTf, setZoneTf] = useState('15m')
+  const [zoneFallbackTf, setZoneFallbackTf] = useState('1h')
+  const [totalCapital, setTotalCapital] = useState(500000)
+  const [hgTpPct, setHgTpPct] = useState(1.25)
+  const [hgSlPct, setHgSlPct] = useState(2.5)
+
+  const handleHgPickerChange = useCallback((v: TickerPickerValue) => setHgPicker(v), [])
+
+  const handleHgAssetClassChange = (next: AssetClass) => {
+    setHgAssetClass(next)
+    setHgPicker(DEFAULT_PICKER)
+    setHgError('')
+  }
+
+  const runHgMutation = useMutation({
+    mutationFn: () => {
+      const { tickers } = hgPicker
+      if (!tickers.length) throw new Error('Select at least one ticker')
+      return runOptionsHedging({
+        tickers, asset_class: hgAssetClass,
+        dte: hgDte, hedge_distance_pct: hedgeDistancePct,
+        zone_timeframe: zoneTf, zone_fallback_timeframe: zoneFallbackTf,
+        total_capital: totalCapital,
+        profit_target_pct_of_capital: hgTpPct / 100, max_loss_pct_of_capital: hgSlPct / 100,
+      })
+    },
+    onSuccess: () => setHgError(''),
+    onError: (e) => setHgError(apiErrorMessage(e)),
+  })
+
+  const hgData = runHgMutation.data as Record<string, unknown> | undefined
+  const hgAskContext = hgData ? buildAskContext('Hedging', hgData) : ''
+
   const [gkError, setGkError] = useState('')
   const [vwmaLen, setVwmaLen] = useState(20)
   const [stPeriod, setStPeriod] = useState(10)
@@ -276,7 +350,7 @@ export default function Options() {
 
   return (
     <div>
-      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Gokul Chhabra 3m ITM · Zero to Hero · India · US · Crypto · Commodities" />
+      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Hedging · Gokul Chhabra 3m ITM · Zero to Hero · India · US · Crypto · Commodities" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
@@ -471,6 +545,109 @@ export default function Options() {
 
           {dnAskContext && !runDnMutation.isPending && (
             <AskAIPanel context={dnAskContext} section="options/delta_neutral" />
+          )}
+        </div>
+      )}
+
+      {section === 'hedging' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Short ATM Call + Put, hedged with far-OTM Call + Put ~4% away — non-directional, intraday premium
+            decay. Chart Demand/Supply zones off the session open first; only adjust on a strict candle close
+            beyond a zone. Hard stop at 2-3% of total capital, take profit ~1-1.5%.
+          </p>
+
+          <CollapsibleSection title="📖 How the Hedging strategy works">
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{HEDGING_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <FormField label="Asset class">
+              <select
+                className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                value={hgAssetClass}
+                onChange={(e) => handleHgAssetClassChange(e.target.value as AssetClass)}
+              >
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+                <option value="commodity">🛢️ Commodity futures</option>
+              </select>
+            </FormField>
+
+            <AssetClassTickerPicker
+              key={hgAssetClass}
+              assetClass={hgAssetClass}
+              defaultSelectCount="All"
+              onChange={handleHgPickerChange}
+            />
+
+            <div className="mt-4">
+              <CollapsibleSection title="⚙️ Setup & Risk Management">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Target DTE (days, → nearest listed expiry)">
+                    <Input type="number" min={0} max={14} value={hgDte} onChange={(e) => setHgDte(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Hedge distance (% away from spot)">
+                    <Input type="number" step={0.5} min={1} max={15} value={hedgeDistancePct} onChange={(e) => setHedgeDistancePct(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Total capital">
+                    <Input type="number" min={1000} value={totalCapital} onChange={(e) => setTotalCapital(Number(e.target.value))} />
+                  </FormField>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-4">
+                  <FormField label="Zone timeframe">
+                    <select
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                      value={zoneTf}
+                      onChange={(e) => setZoneTf(e.target.value)}
+                    >
+                      <option value="15m">15 minutes</option>
+                      <option value="30m">30 minutes</option>
+                      <option value="1h">1 hour</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Fallback timeframe">
+                    <select
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                      value={zoneFallbackTf}
+                      onChange={(e) => setZoneFallbackTf(e.target.value)}
+                    >
+                      <option value="1h">1 hour</option>
+                      <option value="4h">4 hours</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Take profit (% of total capital)">
+                    <Input type="number" step={0.1} min={0.1} max={10} value={hgTpPct} onChange={(e) => setHgTpPct(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Hard stop (% of total capital)">
+                    <Input type="number" step={0.1} min={0.1} max={20} value={hgSlPct} onChange={(e) => setHgSlPct(Number(e.target.value))} />
+                  </FormField>
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            <Button className="mt-4" onClick={() => runHgMutation.mutate()} disabled={runHgMutation.isPending}>
+              {runHgMutation.isPending
+                ? `Building ${hgPicker.tickers.length || ''}…`
+                : `🛡️ Build Hedge${hgPicker.tickers.length ? ` (${hgPicker.tickers.length})` : ''}`}
+            </Button>
+            {hgError && <div className="mt-3"><Alert type="error">{hgError}</Alert></div>}
+          </Card>
+
+          {runHgMutation.isPending && <Loading message="Building Hedging setup…" />}
+
+          {hgData && !runHgMutation.isPending && (
+            <Card>
+              <HedgingPanel
+                data={hgData} totalCapital={totalCapital}
+                profitTargetPctOfCapital={hgTpPct / 100} maxLossPctOfCapital={hgSlPct / 100}
+              />
+            </Card>
+          )}
+
+          {hgAskContext && !runHgMutation.isPending && (
+            <AskAIPanel context={hgAskContext} section="options/hedging" />
           )}
         </div>
       )}

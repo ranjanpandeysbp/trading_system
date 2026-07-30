@@ -39,6 +39,9 @@ export function SupportResistanceChartPanel({
   const [includeVolume, setIncludeVolume] = useState(true)
   const [emaPeriods, setEmaPeriods] = useState<number[]>([20, 50])
   const [includeRsi, setIncludeRsi] = useState(false)
+  const [includeFibonacci, setIncludeFibonacci] = useState(false)
+  const [includeSupplyDemand, setIncludeSupplyDemand] = useState(false)
+  const [includeOrderBlocks, setIncludeOrderBlocks] = useState(false)
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
 
   const mut = useMutation({
@@ -53,6 +56,9 @@ export function SupportResistanceChartPanel({
         include_volume: includeVolume,
         ema_periods: emaPeriods,
         include_rsi: includeRsi,
+        include_fibonacci: includeFibonacci,
+        include_supply_demand: includeSupplyDemand,
+        include_order_blocks: includeOrderBlocks,
       }),
   })
 
@@ -105,6 +111,9 @@ export function SupportResistanceChartPanel({
             <Chip key={p} selected={emaPeriods.includes(p)} onClick={() => toggleEma(p)}>{p} EMA</Chip>
           ))}
           <Chip selected={includeRsi} onClick={() => { setIncludeRsi((v) => !v); }}>RSI</Chip>
+          <Chip selected={includeFibonacci} onClick={() => { setIncludeFibonacci((v) => !v); }}>Fibonacci retracement</Chip>
+          <Chip selected={includeSupplyDemand} onClick={() => { setIncludeSupplyDemand((v) => !v); }}>Supply/Demand zones</Chip>
+          <Chip selected={includeOrderBlocks} onClick={() => { setIncludeOrderBlocks((v) => !v); }}>Order blocks</Chip>
         </div>
       </div>
 
@@ -139,6 +148,14 @@ export function SupportResistanceChartPanel({
               <p className="font-medium text-white">{setup.hold_duration ?? '—'}</p>
             </div>
           </div>
+          {Boolean(setup.confluence_notes?.length) && (
+            <div className="mt-3 border-t border-slate-800/60 pt-2">
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Confluence</p>
+              <ul className="space-y-1 text-xs text-slate-400">
+                {setup.confluence_notes.map((n, i) => <li key={i}>• {n}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -169,6 +186,46 @@ export function SupportResistanceChartPanel({
                 <p className="mt-1 text-[11px] text-slate-500">
                   Tested {data.breakdown.touches_recent}x recently · {data.breakdown.distance_pct >= 0 ? `${data.breakdown.distance_pct.toFixed(1)}% away` : 'already inside the zone'}
                   {data.breakdown.projected_move_pct != null && ` · typical move ~${data.breakdown.projected_move_pct.toFixed(1)}% lower if it breaks`}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {Boolean((data?.bollinger && data.bollinger.signal !== 'none') || data?.fibonacci) && (
+        <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Bollinger &amp; Fibonacci <span className="normal-case text-slate-600">(extra confluence, not a replacement for the trade setup)</span>
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {data?.bollinger && data.bollinger.signal !== 'none' && (
+              <div className={`rounded-md border p-2.5 ${
+                data.bollinger.signal === 'bullish'
+                  ? 'border-emerald-500/20 bg-emerald-500/5'
+                  : 'border-rose-500/20 bg-rose-500/5'
+              }`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs font-medium ${data.bollinger.signal === 'bullish' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    Bollinger mean-reversion — {data.bollinger.signal}
+                  </p>
+                  <p className={`text-sm font-semibold ${data.bollinger.signal === 'bullish' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    %B {data.bollinger.percent_b.toFixed(2)}
+                  </p>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">{data.bollinger.note}</p>
+              </div>
+            )}
+            {data?.fibonacci && (
+              <div className={`rounded-md border p-2.5 ${data.fibonacci.at_key_level ? 'border-violet-500/30 bg-violet-500/5' : 'border-slate-700/40 bg-slate-800/30'}`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-violet-400">Fibonacci retracement ({data.fibonacci.trend})</p>
+                  <p className="text-sm font-semibold text-violet-400">{(data.fibonacci.nearest_level.ratio * 100).toFixed(1)}%</p>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Nearest level {data.fibonacci.nearest_level.price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  {data.fibonacci.at_key_level ? ' — price sitting right at this level.' : `, between swing ${data.fibonacci.swing_low.toLocaleString('en-IN', { maximumFractionDigits: 2 })}–${data.fibonacci.swing_high.toLocaleString('en-IN', { maximumFractionDigits: 2 })}.`}
                 </p>
               </div>
             )}
@@ -236,6 +293,9 @@ export function SupportResistanceChartPanel({
         emas={data?.emas}
         rsi={data?.rsi}
         chartType={chartType}
+        fibonacci={data?.fibonacci ?? null}
+        supplyDemandZones={data?.supply_demand_zones ?? []}
+        orderBlocks={data?.order_blocks ?? []}
       />
 
       {Boolean(data?.summary?.length) && (

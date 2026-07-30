@@ -39,6 +39,7 @@ from app.trading_hubs import (
     smc_sc_best_engine,
     smc_ttg_sniper_engine,
     footprint_engine,
+    reversal_strategy_engine,
     smc_weekly_sweep_cisd_engine,
     support_resistance_engine,
     swing_5_strategies_engine,
@@ -162,6 +163,65 @@ for a broken floor becoming a new roof) — this is the break-and-retest rule th
 
 **When to use:** a deliberately boring, low-screen-time strategy — you're meant to set the zone, walk away, and only
 engage once price taps it and structure confirms. Works the same way across every asset class this hub supports.
+""",
+    ),
+    _section(
+        id="reversal_strategy",
+        hub="swing",
+        label="Reversal Strategy",
+        description=(
+            "A 6-step counter-trend/range reversal checklist: Market Condition → Market Phase (run exhaustion) → "
+            "Support/Resistance (horizontal zones, round numbers, trendlines) → MACD Divergence → Deceleration → "
+            "Candlestick Trigger (Low/High Test, Tweezer, Doji, Inside Bar). Deliberately trades less — a choppy "
+            "market condition rejects the setup outright. Works across Groww India, US, Crypto, and Commodities."
+        ),
+        module=reversal_strategy_engine,
+        config_cls=reversal_strategy_engine.ReversalConfig,
+        config_options={
+            "timeframe": {
+                "type": "select",
+                "label": "Timeframe",
+                "choices": [{"value": v, "label": v} for v in reversal_strategy_engine.TIMEFRAME_OPTIONS],
+                "default": "1d",
+            },
+            "tp_mode": {
+                "type": "select",
+                "label": "Take-profit mode",
+                "choices": [
+                    {"value": "auto", "label": "Auto (50 EMA in a trend, next level while ranging)"},
+                    {"value": "ema_target", "label": "50 EMA target"},
+                    {"value": "range_target", "label": "Next major level target"},
+                ],
+                "default": "auto",
+            },
+        },
+        guide="""### Reversal Strategy — the 6-step counter-trend/range checklist
+[The ONLY Reversal Trading Strategy You'll Ever Need (Step-by-Step)](https://www.youtube.com/watch?v=Lz9XmfDLXxI&t=155s)
+
+**The core idea:** unlike trend-following, which leans on moving averages, reversal trading leans on momentum
+divergence and exhaustion at a level — you're betting the current move is running out of steam, not that it
+will continue.
+
+| Step | What it checks |
+|---|---|
+| **1. Market Condition** | Bullish (higher highs/higher lows), bearish (lower lows/lower highs), ranging (oscillating between a clear top and bottom), or choppy — choppy markets are skipped outright. |
+| **2. Market Phase** | Trends move in runs then pullbacks; a reversal wants the exhaustion of a run (an extended push, measured against ATR), not a fresh pullback already in progress. |
+| **3. Support/Resistance** | Horizontal zones from swing rejection clusters (with a note when price sits near a round-number "handle"), plus angular trendlines from the last two swing points. |
+| **4. MACD Divergence** | Price makes a new high/low that MACD does not confirm — momentum fading right at the level. |
+| **5. Deceleration** | Candle bodies get progressively smaller on approach to the level — the prevailing move visibly losing steam. |
+| **6. Candlestick Trigger** | The actual entry trigger: Low/High Test candle, Tweezer Top/Bottom, Doji, or Inside Bar on the signal candle. |
+
+**Execution:** entry a touch beyond the signal candle's extreme in the reversal direction; stop just beyond its
+opposite extreme (this app uses a small ATR-based buffer in place of the video's "3-5 pips", since it trades
+equities/crypto/commodities, not forex). Minimum 1:1 reward:risk is enforced.
+
+**Take profit — pick a mode:** *Auto* targets the 50 EMA when the market condition is trending (Option 1 from the
+video — price reverting to the mean it stretched away from), or the next major horizontal level when the market
+condition is ranging (Option 3). You can also pin it to one mode directly.
+
+**When to use:** a patience-first, sit-on-your-hands strategy — pending setups can go unconfirmed for days, and a
+choppy market condition means no trade at all. It complements (not replaces) the trend-following hubs elsewhere
+in Swing Trading.
 """,
     ),
     _section(

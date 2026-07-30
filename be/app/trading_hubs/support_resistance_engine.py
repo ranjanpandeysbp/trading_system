@@ -428,6 +428,201 @@ def detect_rsi_divergence(df: pd.DataFrame, rsi_series: pd.Series | None, cfg: S
     return out
 
 
+# ---------------------------------------------------------------------------
+# Bollinger Band mean-reversion check and Fibonacci retracement — a plain
+# stretch-vs-mean read and a standard swing-based retracement ladder,
+# offered as extra confluence context alongside the break-and-retest setup
+# (not a replacement for it).
+# ---------------------------------------------------------------------------
+
+def detect_bollinger_mean_reversion(df: pd.DataFrame, period: int = 20, std_mult: float = 2.0) -> dict[str, Any] | None:
+    """Price vs. its Bollinger Bands — flags when price is stretched far
+    enough from the mean that a reversion back toward it is the higher-odds
+    read (classic mean-reversion, independent of the break-and-retest trend
+    logic used elsewhere in this engine)."""
+    if len(df) < period:
+        return None
+    closes = df["close"]
+    mid = closes.rolling(period).mean()
+    std = closes.rolling(period).std()
+    if mid.dropna().empty or std.dropna().empty:
+        return None
+    mean = float(mid.iloc[-1])
+    sd = float(std.iloc[-1])
+    if sd <= 0 or pd.isna(mean):
+        return None
+    upper = mean + std_mult * sd
+    lower = mean - std_mult * sd
+    price = float(closes.iloc[-1])
+    percent_b = (price - lower) / (upper - lower) if upper > lower else 0.5
+
+    if percent_b >= 1.0:
+        signal = "bearish"
+        note = f"price ({price:,.4g}) is at/above the upper Bollinger Band ({upper:,.4g}) — stretched, favors a pullback toward the {period}-bar mean ({mean:,.4g})"
+    elif percent_b <= 0.0:
+        signal = "bullish"
+        note = f"price ({price:,.4g}) is at/below the lower Bollinger Band ({lower:,.4g}) — stretched, favors a bounce toward the {period}-bar mean ({mean:,.4g})"
+    elif percent_b >= 0.9:
+        signal = "bearish"
+        note = f"price is approaching the upper Bollinger Band ({upper:,.4g}) — extended, some mean-reversion risk toward {mean:,.4g}"
+    elif percent_b <= 0.1:
+        signal = "bullish"
+        note = f"price is approaching the lower Bollinger Band ({lower:,.4g}) — extended, some mean-reversion potential toward {mean:,.4g}"
+    else:
+        signal = "none"
+        note = f"price is trading inside its Bollinger Bands ({lower:,.4g}–{upper:,.4g}), not stretched enough for a mean-reversion read"
+
+    return {
+        "signal": signal,
+        "price": round(price, 6),
+        "mean": round(mean, 6),
+        "upper": round(upper, 6),
+        "lower": round(lower, 6),
+        "percent_b": round(percent_b, 3),
+        "note": note,
+    }
+
+
+_FIB_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+
+
+def compute_fibonacci_retracement(df: pd.DataFrame, cfg: SupportResistanceConfig) -> dict[str, Any] | None:
+    """Retracement ladder between the most recent swing high and swing low —
+    0% at whichever extreme formed last (the end of the current leg), 100%
+    at the one before it (the start of the leg), standard convention."""
+    swung = _swing_columns(df, cfg.swing_window)
+    n = len(df)
+    start = max(0, n - cfg.zone_lookback_bars)
+    window = swung.iloc[start:]
+    highs = window["swing_high"].dropna()
+    lows = window["swing_low"].dropna()
+    if highs.empty or lows.empty:
+        return None
+
+    hi_idx, hi_val = highs.index[-1], float(highs.iloc[-1])
+    lo_idx, lo_val = lows.index[-1], float(lows.iloc[-1])
+    if hi_val <= lo_val:
+        return None
+    hi_pos = df.index.get_loc(hi_idx)
+    lo_pos = df.index.get_loc(lo_idx)
+    if hi_pos == lo_pos:
+        return None
+
+    uptrend = hi_pos > lo_pos
+    start_price, end_price = (lo_val, hi_val) if uptrend else (hi_val, lo_val)
+    diff = end_price - start_price
+
+    levels = [{"ratio": r, "price": round(end_price - diff * r, 6)} for r in _FIB_RATIOS]
+    price_now = float(df["close"].iloc[-1])
+    nearest = min(levels, key=lambda lv: abs(lv["price"] - price_now))
+    at_key_level = price_now > 0 and abs(nearest["price"] - price_now) / price_now * 100 <= 0.5
+
+    return {
+        "trend": "uptrend" if uptrend else "downtrend",
+        "swing_low": round(lo_val, 6),
+        "swing_high": round(hi_val, 6),
+        "levels": levels,
+        "nearest_level": nearest,
+        "at_key_level": at_key_level,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Supply/Demand zones and Order Blocks — both optional overlays, distinct
+# from the break-and-retest zones above:
+#   - Supply/Demand: a short multi-bar "base" (tight-range consolidation)
+#     immediately followed by a strong displacement candle — the classic
+#     rally-base-drop / drop-base-rally construction.
+#   - Order Block: the single last opposite-colour candle right before a
+#     strong displacement candle — the standard SMC definition.
+# Both are only returned while still unmitigated (price hasn't traded back
+# through the zone since it formed), most-recent-first.
+# ---------------------------------------------------------------------------
+
+def _mitigated_since(df: pd.DataFrame, origin_idx: int, top: float, bottom: float) -> bool:
+    after = df.iloc[origin_idx + 1:]
+    if after.empty:
+        return False
+    return bool(((after["low"] <= top) & (after["high"] >= bottom)).any())
+
+
+def detect_supply_demand_zones(
+    df: pd.DataFrame, *, base_max_bars: int = 3, base_atr_mult: float = 0.6,
+    displacement_atr_mult: float = 1.8, max_zones: int = 5,
+) -> list[dict[str, Any]]:
+    n = len(df)
+    if n < 10:
+        return []
+    atr = _atr(df, 14)
+    highs, lows, opens, closes = df["high"].values, df["low"].values, df["open"].values, df["close"].values
+    ranges = highs - lows
+
+    zones: list[dict[str, Any]] = []
+    for i in range(1, n):
+        a = atr.iloc[i]
+        if pd.isna(a) or a <= 0 or ranges[i] < a * displacement_atr_mult:
+            continue
+        bullish = closes[i] > opens[i]
+
+        base_start = i - 1
+        floor_idx = max(0, i - base_max_bars)
+        while base_start > floor_idx and ranges[base_start] <= a * base_atr_mult:
+            base_start -= 1
+        if ranges[base_start] > a * base_atr_mult:
+            base_start += 1
+        if base_start >= i:
+            continue
+
+        top, bottom = float(highs[base_start:i].max()), float(lows[base_start:i].min())
+        zones.append({
+            "top": round(top, 6), "bottom": round(bottom, 6),
+            "type": "demand" if bullish else "supply",
+            "origin_time": str(df.index[base_start]),
+            "mitigated": _mitigated_since(df, i, top, bottom),
+        })
+
+    active = [z for z in zones if not z["mitigated"]]
+    active.sort(key=lambda z: z["origin_time"], reverse=True)
+    return active[:max_zones]
+
+
+def detect_order_blocks(
+    df: pd.DataFrame, *, displacement_atr_mult: float = 1.8, max_blocks: int = 5,
+) -> list[dict[str, Any]]:
+    n = len(df)
+    if n < 5:
+        return []
+    atr = _atr(df, 14)
+    highs, lows, opens, closes = df["high"].values, df["low"].values, df["open"].values, df["close"].values
+    ranges = highs - lows
+
+    blocks: list[dict[str, Any]] = []
+    for i in range(1, n):
+        a = atr.iloc[i]
+        if pd.isna(a) or a <= 0 or ranges[i] < a * displacement_atr_mult:
+            continue
+        impulse_bullish = closes[i] > opens[i]
+        prev = i - 1
+        prev_bullish = closes[prev] > opens[prev]
+        if impulse_bullish and not prev_bullish:
+            ob_type = "bullish"
+        elif not impulse_bullish and prev_bullish:
+            ob_type = "bearish"
+        else:
+            continue
+
+        top, bottom = float(highs[prev]), float(lows[prev])
+        blocks.append({
+            "top": round(top, 6), "bottom": round(bottom, 6), "type": ob_type,
+            "origin_time": str(df.index[prev]),
+            "mitigated": _mitigated_since(df, i, top, bottom),
+        })
+
+    active = [b for b in blocks if not b["mitigated"]]
+    active.sort(key=lambda b: b["origin_time"], reverse=True)
+    return active[:max_blocks]
+
+
 def build_observation_summary(
     df: pd.DataFrame,
     zones: dict[str, dict[str, Any] | None],
@@ -624,6 +819,9 @@ def build_chart_payload(
     include_volume: bool = True,
     ema_periods: list[int] | None = None,
     include_rsi: bool = False,
+    include_fibonacci: bool = False,
+    include_supply_demand: bool = False,
+    include_order_blocks: bool = False,
 ) -> dict[str, Any]:
     """Chart data for the Support and Resistance UI — its own timeframe/date
     range independent of the live-signal HTF/LTF pair, with optional volume,
@@ -700,6 +898,33 @@ def build_chart_payload(
         df, zones, ema_series=ema_series, rsi_series=rsi_series, include_volume=include_volume,
     )
 
+    bollinger = detect_bollinger_mean_reversion(df)
+    if bollinger and bollinger["signal"] != "none":
+        summary.append(f"Bollinger Bands (20, 2σ) — {bollinger['note']} (%B {bollinger['percent_b']:.2f}).")
+
+    fibonacci = compute_fibonacci_retracement(df, cfg) if include_fibonacci else None
+    if fibonacci:
+        nl = fibonacci["nearest_level"]
+        summary.append(
+            f"Fibonacci retracement of the recent {fibonacci['trend']} ({fibonacci['swing_low']:,.4g}–{fibonacci['swing_high']:,.4g}): "
+            f"price is nearest the {nl['ratio'] * 100:.1f}% level ({nl['price']:,.4g})"
+            + (" — sitting right at a key retracement zone." if fibonacci["at_key_level"] else ".")
+        )
+
+    supply_demand_zones = detect_supply_demand_zones(df) if include_supply_demand else []
+    for z in supply_demand_zones[:3]:
+        summary.append(
+            f"{'Demand' if z['type'] == 'demand' else 'Supply'} zone (base + breakout) at "
+            f"{z['bottom']:,.4g}–{z['top']:,.4g}, formed {z['origin_time']}."
+        )
+
+    order_blocks = detect_order_blocks(df) if include_order_blocks else []
+    for ob in order_blocks[:3]:
+        summary.append(
+            f"{'Bullish' if ob['type'] == 'bullish' else 'Bearish'} order block at "
+            f"{ob['bottom']:,.4g}–{ob['top']:,.4g}, formed {ob['origin_time']}."
+        )
+
     # Trade setup — always evaluated against CURRENT data, independent of any
     # date range picked for the chart view above, so browsing history never
     # produces a stale "live" verdict. Reuses the exact same strategy
@@ -733,6 +958,26 @@ def build_chart_payload(
             f"— {trade_setup['confidence_pct']}% confidence, SL {trade_setup['sl_pct']}%, TP {trade_setup['tp_pct']}%, "
             f"stay in trade ~{trade_setup['hold_duration']}."
         )
+
+        # Confluence — does the Bollinger mean-reversion read and/or the
+        # Fibonacci retracement level agree with this setup's direction, or
+        # conflict with it? Informational only; does not alter the setup's
+        # own confidence_pct, which comes from the break-and-retest engine.
+        direction = trade_setup.get("direction")
+        confluence: list[str] = []
+        if bollinger and bollinger["signal"] != "none":
+            agrees = (bollinger["signal"] == "bullish" and direction == "LONG") or (bollinger["signal"] == "bearish" and direction == "SHORT")
+            confluence.append(
+                f"Bollinger Band mean-reversion is {bollinger['signal']} — "
+                f"{'supports' if agrees else 'conflicts with'} this {direction or 'setup'}."
+            )
+        if fibonacci and fibonacci["at_key_level"]:
+            nl = fibonacci["nearest_level"]
+            confluence.append(
+                f"Price is at the {nl['ratio'] * 100:.1f}% Fibonacci retracement of the recent {fibonacci['trend']} — "
+                "a common reaction zone, adding confluence to a reaction here either way."
+            )
+        trade_setup["confluence_notes"] = confluence
 
     breakout_breakdown = estimate_breakout_breakdown(
         df, zones, ema_series=ema_series, rsi_series=rsi_series,
@@ -779,6 +1024,10 @@ def build_chart_payload(
         "candlestick_patterns": candle_patterns,
         "chart_patterns": chart_patterns,
         "divergences": divergences,
+        "bollinger": bollinger,
+        "fibonacci": fibonacci,
+        "supply_demand_zones": supply_demand_zones,
+        "order_blocks": order_blocks,
         "include_volume": include_volume,
         "summary": summary,
     }

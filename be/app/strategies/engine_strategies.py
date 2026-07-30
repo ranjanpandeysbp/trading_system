@@ -46,6 +46,7 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "smc_five_filter": ["1m", "5m", "15m", "30m", "1h"],
     "support_resistance": ["1m", "5m", "15m"],
     "footprint": ["1m", "5m", "15m"],
+    "reversal_strategy": ["4h", "1d", "1wk"],
 }
 
 _HUB_MIN_BARS: dict[str, int] = {
@@ -70,6 +71,7 @@ _HUB_MIN_BARS: dict[str, int] = {
     "smc_five_filter": 80,
     "support_resistance": 80,
     "footprint": 80,
+    "reversal_strategy": 100,
 }
 
 TA_STRATEGIES: list[dict[str, Any]] = [
@@ -138,6 +140,7 @@ for section in HUB_SECTIONS:
         "smc_five_filter",
         "support_resistance",
         "footprint",
+        "reversal_strategy",
     }:
         runner = "analyze_bt"
     elif sid in {
@@ -224,6 +227,25 @@ if "footprint" in ENGINE_STRATEGY_META:
             "Stop beyond the zone edge.",
             "Target = the opposing key level.",
             "Exit if price closes back beyond the zone stop — setup invalidated.",
+        ],
+    })
+
+if "reversal_strategy" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["reversal_strategy"].update({
+        "indicators": ["Swing High/Low Structure", "Horizontal S/R Zones", "Trendlines", "MACD (12,26,9)", "ATR(14)", "50/20 EMA"],
+        "entry_rules": [
+            "Step 1 Market Condition: bullish/bearish/ranging read from swing structure — a choppy read rejects the setup outright.",
+            "Step 2 Market Phase: the latest push must be an extended 'run' (>=2x ATR since the last swing), not a fresh pullback.",
+            "Step 3 Support/Resistance: price must be tapping a horizontal zone (round-number proximity and trendlines noted as extra context).",
+            "Step 4 MACD Divergence: price makes a new high/low that MACD does not confirm, in the reversal direction.",
+            "Step 5 Deceleration: candle bodies progressively shrinking into the level.",
+            "Step 6 Candlestick Trigger: Low/High Test, Tweezer Top/Bottom, Doji, or Inside Bar on the signal candle.",
+            "Divergence + Deceleration + Trigger must all confirm before entry.",
+        ],
+        "exit_rules": [
+            "Stop just beyond the signal candle's opposite extreme (ATR-based buffer).",
+            "Target: the 50 EMA in a trending market condition, or the next major level while ranging — auto-selected or pinned via config.",
+            "Minimum 1:1 reward:risk enforced; target extended to hold it if the natural target falls short.",
         ],
     })
 

@@ -1238,6 +1238,33 @@ for a broken floor becoming a new roof).
 US, Crypto, Commodities) — set the zone, walk away, engage only once price taps it and structure confirms.
 """,
 
+    "reversal_strategy": """
+### Reversal Strategy — the 6-step counter-trend/range checklist
+[The ONLY Reversal Trading Strategy You'll Ever Need (Step-by-Step)](https://www.youtube.com/watch?v=Lz9XmfDLXxI&t=155s)
+
+**The core idea:** reversal trading leans on momentum divergence and exhaustion at a level, not moving-average
+trend-following — you're betting the current move is running out of steam.
+
+| Step | What it checks |
+|---|---|
+| **1. Market Condition** | Bullish (HH/HL), bearish (LL/LH), ranging (oscillating between a top and bottom), or choppy — choppy markets are skipped outright. |
+| **2. Market Phase** | A reversal wants the exhaustion of a run (an extended push, measured against ATR), not a fresh pullback. |
+| **3. Support/Resistance** | Horizontal zones from swing rejection clusters (with a round-number "handle" note), plus angular trendlines from the last two swing points. |
+| **4. MACD Divergence** | Price makes a new high/low that MACD does not confirm — momentum fading at the level. |
+| **5. Deceleration** | Candle bodies progressively shrinking on approach to the level. |
+| **6. Candlestick Trigger** | Low/High Test candle, Tweezer Top/Bottom, Doji, or Inside Bar on the signal candle. |
+
+**Execution:** entry a touch beyond the signal candle's extreme; stop just beyond its opposite extreme (ATR-based
+buffer stands in for the video's "3-5 pips" since this app trades equities/crypto/commodities, not forex). Minimum
+1:1 reward:risk enforced.
+
+**Take profit:** Auto targets the 50 EMA in a trending market condition (price reverting to the mean), or the next
+major level while ranging — or pin it to one mode directly.
+
+**When to use:** a patience-first strategy that deliberately sits out choppy markets — pending setups can go
+unconfirmed for days. Works across Groww India, US, Crypto, and Commodities.
+""",
+
     "smc_five_filter": """
 ### 5 SMC Filter — the 5 checks that separate A+ trades from bad ones
 [The 5 Smart Money Filters That Separate A+ Trades From Bad Trades](https://www.youtube.com/watch?v=uzeLz80FVVY&t=54s)

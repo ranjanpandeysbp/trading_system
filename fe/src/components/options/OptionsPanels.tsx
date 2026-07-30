@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { apiErrorMessage, runOptionsDeltaNeutralPnl, runOptionsDoubleCalendarPnl } from '../../api/client'
+import { apiErrorMessage, runOptionsDeltaNeutralPnl, runOptionsDoubleCalendarPnl, runOptionsHedgingPnl } from '../../api/client'
 import { Button } from '../ui/Button'
 import { Input, Label } from '../ui/Form'
 
@@ -31,6 +31,22 @@ const DELTA_NEUTRAL_LEG_ORDER: Array<[string, string]> = [
   ['long_call', 'Long Call (wing)'],
   ['long_put', 'Long Put (wing)'],
 ]
+
+const HEDGING_LEG_ORDER: Array<[string, string]> = [
+  ['short_call', 'Short ATM Call'],
+  ['short_put', 'Short ATM Put'],
+  ['long_call', 'Long Call (hedge)'],
+  ['long_put', 'Long Put (hedge)'],
+]
+
+const ADJUSTMENT_BADGE: Record<string, string> = {
+  ADJUST_CALL: '🔴 Adjust — exit Call leg',
+  ADJUST_PUT: '🔴 Adjust — exit Put leg',
+  WATCH_DEMAND: '🟡 Watching Demand',
+  WATCH_SUPPLY: '🟡 Watching Supply',
+  HOLD: '🟢 Hold',
+  NO_DATA: '⚪ No data',
+}
 
 function OptionLegsTable({ legs, currency, legOrder }: { legs: Row; currency: string; legOrder: Array<[string, string]> }) {
   return (
@@ -398,6 +414,149 @@ export function DeltaNeutralPanel({
         <DeltaNeutralResultCard
           key={i} result={res} index={i} currency={currency}
           profitTargetPct={profitTargetPct} stopLossMultiple={stopLossMultiple}
+        />
+      ))}
+    </div>
+  )
+}
+
+function HedgingResultCard({
+  result, index, currency, totalCapital, profitTargetPctOfCapital, maxLossPctOfCapital,
+}: {
+  result: Row
+  index: number
+  currency: string
+  totalCapital: number
+  profitTargetPctOfCapital: number
+  maxLossPctOfCapital: number
+}) {
+  const [open, setOpen] = useState(index === 0)
+  const ticker = String(result.ticker ?? '?')
+
+  if (result.error) {
+    return (
+      <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-300">
+        <strong>{ticker}</strong> — {String(result.error)}
+      </div>
+    )
+  }
+
+  const netCredit = Number(result.net_credit ?? 0)
+  const demand = result.demand_zone as Row | null
+  const supply = result.supply_zone as Row | null
+  const adjustment = (result.adjustment_signal as Row) ?? {}
+  const adjStatus = String(adjustment.status ?? 'NO_DATA')
+  const reasons = (result.reasons as string[]) ?? []
+  const ltp = result.ltp as Row | undefined
+
+  const [currentPnl, setCurrentPnl] = useState(0)
+  const pnlMut = useMutation({
+    mutationFn: () => runOptionsHedgingPnl({
+      total_capital: totalCapital, current_pnl: currentPnl,
+      profit_target_pct_of_capital: profitTargetPctOfCapital, max_loss_pct_of_capital: maxLossPctOfCapital,
+    }),
+  })
+  const pnl = pnlMut.data as Row | undefined
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+      >
+        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
+        <span className="font-semibold text-white">{ticker}</span>
+        <span className="text-slate-500">
+          · LTP {ltpStr(ltp, currency)} · {ADJUSTMENT_BADGE[adjStatus] ?? adjStatus} ·{' '}
+          Net credit {currency}{fmtNum(netCredit, 4)}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
+          <p className="text-slate-300">
+            <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
+            Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong>
+          </p>
+
+          <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-2.5">
+            <p className="mb-1 font-medium text-slate-300">Demand / Supply zones ({String(result.zone_timeframe ?? '—')} chart{Boolean(result.zone_fallback_used) ? ', fallback timeframe' : ''})</p>
+            <p className="text-xs text-slate-400">
+              Session open <strong className="text-slate-200">{currency}{fmtNum(result.session_open, 4)}</strong>
+              {' · '}Demand {demand ? <strong className="text-emerald-400">{currency}{fmtNum(demand.bottom, 4)}–{currency}{fmtNum(demand.top, 4)}</strong> : 'not found'}
+              {' · '}Supply {supply ? <strong className="text-rose-400">{currency}{fmtNum(supply.bottom, 4)}–{currency}{fmtNum(supply.top, 4)}</strong> : 'not found'}
+            </p>
+            <p className="mt-1.5 text-xs text-slate-300">{ADJUSTMENT_BADGE[adjStatus] ?? adjStatus}: {String(adjustment.note ?? '')}</p>
+          </div>
+
+          <div>
+            <p className="mb-1 text-slate-300">
+              <strong>Legs</strong> — expiry ~{String(result.target_expiry)} · hedges {fmtNum(result.hedge_distance_pct, 1)}% away from spot
+            </p>
+            <OptionLegsTable legs={(result.legs as Row) ?? {}} currency={currency} legOrder={HEDGING_LEG_ORDER} />
+          </div>
+
+          <p className="text-slate-300">
+            <strong>Net credit: {currency}{fmtNum(netCredit, 4)}</strong> ·{' '}
+            Max profit {currency}{fmtNum(result.max_profit, 4)} ·{' '}
+            Max loss {currency}{fmtNum(result.max_loss, 4)} (capped by the hedges)
+          </p>
+          <p className="text-slate-300">
+            Profit target ≈ {currency}{fmtNum(result.profit_target, 0)} · Hard stop ≈ {currency}{fmtNum(result.loss_limit, 0)}
+            {' '}(on {currency}{fmtNum(result.total_capital, 0)} total capital)
+          </p>
+
+          {reasons.map((r, i) => (
+            <p key={i} className="text-xs text-slate-500">· {r}</p>
+          ))}
+
+          <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-2.5">
+            <Label>Check current running P&amp;L on the whole hedge</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="number"
+                step="1"
+                value={currentPnl}
+                onChange={(e) => setCurrentPnl(Number(e.target.value))}
+                className="max-w-[160px]"
+              />
+              <Button size="sm" variant="secondary" onClick={() => pnlMut.mutate()} disabled={pnlMut.isPending}>
+                {pnlMut.isPending ? 'Checking…' : 'Check P&L'}
+              </Button>
+            </div>
+            {pnlMut.isError && <p className="mt-2 text-xs text-rose-400">{apiErrorMessage(pnlMut.error)}</p>}
+            {pnl && !pnl.error && (
+              <div className="mt-2">
+                <p className="font-semibold text-white">P&L: {Number(pnl.pnl_pct_of_capital) >= 0 ? '+' : ''}{fmtNum(pnl.pnl_pct_of_capital, 2)}% of total capital</p>
+                <p className="text-xs text-slate-400">{String(pnl.message ?? '')}</p>
+              </div>
+            )}
+            {Boolean(pnl?.error) && <p className="mt-2 text-xs text-amber-400">{String(pnl?.error)}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function HedgingPanel({
+  data, totalCapital, profitTargetPctOfCapital, maxLossPctOfCapital,
+}: {
+  data: Row
+  totalCapital: number
+  profitTargetPctOfCapital: number
+  maxLossPctOfCapital: number
+}) {
+  const results = (data.results as Row[]) ?? []
+  const currency = String(data.currency ?? '')
+  if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
+
+  return (
+    <div className="space-y-2">
+      {results.map((res, i) => (
+        <HedgingResultCard
+          key={i} result={res} index={i} currency={currency}
+          totalCapital={totalCapital} profitTargetPctOfCapital={profitTargetPctOfCapital} maxLossPctOfCapital={maxLossPctOfCapital}
         />
       ))}
     </div>

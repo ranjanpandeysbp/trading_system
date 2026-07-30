@@ -60,6 +60,8 @@ from app.models.schemas import (
     OptionsDoubleCalendarPnlRequest,
     OptionsDoubleCalendarRequest,
     OptionsGokulChhabraRequest,
+    OptionsHedgingPnlRequest,
+    OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
@@ -2238,6 +2240,9 @@ async def support_resistance_chart(
         include_volume=payload.include_volume,
         ema_periods=payload.ema_periods,
         include_rsi=payload.include_rsi,
+        include_fibonacci=payload.include_fibonacci,
+        include_supply_demand=payload.include_supply_demand,
+        include_order_blocks=payload.include_order_blocks,
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -2373,6 +2378,42 @@ async def options_delta_neutral_pnl(
         cfg_overrides={
             "profit_target_pct": payload.profit_target_pct,
             "stop_loss_multiple": payload.stop_loss_multiple,
+        },
+    )
+
+
+@router.post("/options/hedging")
+async def options_hedging(
+    payload: OptionsHedgingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).hedging(
+        payload.tickers, asset_class=payload.asset_class, exchange=payload.exchange,
+        cfg_overrides={
+            "dte": payload.dte,
+            "hedge_distance_pct": payload.hedge_distance_pct,
+            "zone_timeframe": payload.zone_timeframe,
+            "zone_fallback_timeframe": payload.zone_fallback_timeframe,
+            "total_capital": payload.total_capital,
+            "profit_target_pct_of_capital": payload.profit_target_pct_of_capital,
+            "max_loss_pct_of_capital": payload.max_loss_pct_of_capital,
+            "max_adjustments_per_day": payload.max_adjustments_per_day,
+        },
+    )
+
+
+@router.post("/options/hedging/pnl")
+async def options_hedging_pnl(
+    payload: OptionsHedgingPnlRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).hedging_pnl(
+        payload.total_capital, payload.current_pnl,
+        cfg_overrides={
+            "profit_target_pct_of_capital": payload.profit_target_pct_of_capital,
+            "max_loss_pct_of_capital": payload.max_loss_pct_of_capital,
         },
     )
 

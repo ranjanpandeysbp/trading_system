@@ -42,6 +42,7 @@ class OptionsService:
             "sections": [
                 {"id": "double_calendar", "label": "📅 Double Calendar — Theta-Positive Income Spread"},
                 {"id": "delta_neutral", "label": "🎰 Delta Neutral — Iron Condor / Iron Fly"},
+                {"id": "hedging", "label": "🛡️ Hedging — Non-Directional Delta-Neutral (Intraday)"},
                 {"id": "gokul_chhabra", "label": "🎯 Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"},
                 {"id": "zero_to_hero", "label": "🚀 Zero to Hero — Previous Day High/Low Option Buying"},
             ],
@@ -120,6 +121,42 @@ class OptionsService:
 
         cfg = DeltaNeutralConfig(**(cfg_overrides or {}))
         return json_safe(evaluate_delta_neutral_pnl(net_credit, current_cost_to_close, cfg))
+
+    async def hedging(
+        self, tickers: list[str], *, asset_class: str = "india",
+        exchange: str | None = None, cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.hedging_engine import HedgingConfig, build_hedging_many
+        from app.market_pulse.ticker_utils import market_currency
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = HedgingConfig(**(cfg_overrides or {}))
+
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            results = build_hedging_many(
+                resolved, asset_class, market,
+                cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+            _attach_ltp(results, market, groww_token=token, exchange=resolved_exchange)
+            return results
+
+        results = await asyncio.to_thread(_run)
+        return json_safe({
+            "results": results, "asset_class": asset_class, "market": market,
+            "currency": market_currency(market),
+        })
+
+    async def hedging_pnl(
+        self, total_capital: float, current_pnl: float, *, cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.hedging_engine import HedgingConfig, evaluate_hedging_pnl
+
+        cfg = HedgingConfig(**(cfg_overrides or {}))
+        return json_safe(evaluate_hedging_pnl(total_capital, current_pnl, cfg))
 
     async def gokul_chhabra(
         self, *, tickers: list[str] | None = None, exchange: str | None = None,

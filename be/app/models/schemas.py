@@ -436,6 +436,9 @@ class SupportResistanceChartRequest(BaseModel):
     include_volume: bool = True
     ema_periods: list[int] = Field(default_factory=list)
     include_rsi: bool = False
+    include_fibonacci: bool = False
+    include_supply_demand: bool = False
+    include_order_blocks: bool = False
 
 
 class Swing5ScanRequest(BaseModel):
@@ -749,6 +752,27 @@ class OptionsDeltaNeutralPnlRequest(BaseModel):
     current_cost_to_close: float
     profit_target_pct: float = 0.50
     stop_loss_multiple: float = 1.0
+
+
+class OptionsHedgingRequest(BaseModel):
+    tickers: list[str] = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    exchange: str | None = None
+    dte: int = 2
+    hedge_distance_pct: float = 4.0
+    zone_timeframe: str = "15m"
+    zone_fallback_timeframe: str = "1h"
+    total_capital: float = 500_000.0
+    profit_target_pct_of_capital: float = 0.0125
+    max_loss_pct_of_capital: float = 0.025
+    max_adjustments_per_day: int = 1
+
+
+class OptionsHedgingPnlRequest(BaseModel):
+    total_capital: float
+    current_pnl: float
+    profit_target_pct_of_capital: float = 0.0125
+    max_loss_pct_of_capital: float = 0.025
 
 
 class OptionsGokulChhabraRequest(BaseModel):

@@ -739,6 +739,7 @@ export interface SRTradeSetup {
   hold_duration: string | null
   htf: string
   ltf: string
+  confluence_notes: string[]
 }
 
 export interface SRBreakoutEstimate {
@@ -769,6 +770,38 @@ export interface SRDivergence {
   note: string
 }
 
+export interface SRBollingerCheck {
+  signal: 'bullish' | 'bearish' | 'none'
+  price: number
+  mean: number
+  upper: number
+  lower: number
+  percent_b: number
+  note: string
+}
+
+export interface SRFibonacciLevel {
+  ratio: number
+  price: number
+}
+
+export interface SRFibonacci {
+  trend: 'uptrend' | 'downtrend'
+  swing_low: number
+  swing_high: number
+  levels: SRFibonacciLevel[]
+  nearest_level: SRFibonacciLevel
+  at_key_level: boolean
+}
+
+export interface SRZone {
+  top: number
+  bottom: number
+  type: 'demand' | 'supply' | 'bullish' | 'bearish'
+  origin_time: string
+  mitigated: boolean
+}
+
 export interface SRChartResponse {
   ticker: string
   timeframe: string
@@ -784,6 +817,10 @@ export interface SRChartResponse {
   candlestick_patterns: SRCandlestickPattern[]
   chart_patterns: SRChartPattern[]
   divergences: SRDivergence[]
+  bollinger: SRBollingerCheck | null
+  fibonacci: SRFibonacci | null
+  supply_demand_zones: SRZone[]
+  order_blocks: SRZone[]
   include_volume: boolean
   summary: string[]
 }
@@ -798,6 +835,9 @@ export const fetchSupportResistanceChart = (payload: {
   include_volume?: boolean
   ema_periods?: number[]
   include_rsi?: boolean
+  include_fibonacci?: boolean
+  include_supply_demand?: boolean
+  include_order_blocks?: boolean
 }) => api.post<SRChartResponse>('/trading-hubs/support-resistance/chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runSwing5Scan = (payload: {
@@ -1242,6 +1282,27 @@ export const runOptionsDeltaNeutralPnl = (payload: {
   profit_target_pct?: number
   stop_loss_multiple?: number
 }) => api.post('/options/delta-neutral/pnl', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsHedging = (payload: {
+  tickers: string[]
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  exchange?: string
+  dte?: number
+  hedge_distance_pct?: number
+  zone_timeframe?: string
+  zone_fallback_timeframe?: string
+  total_capital?: number
+  profit_target_pct_of_capital?: number
+  max_loss_pct_of_capital?: number
+  max_adjustments_per_day?: number
+}) => api.post('/options/hedging', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsHedgingPnl = (payload: {
+  total_capital: number
+  current_pnl: number
+  profit_target_pct_of_capital?: number
+  max_loss_pct_of_capital?: number
+}) => api.post('/options/hedging/pnl', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOptionsGokulChhabra = (payload?: {
   tickers?: string[]

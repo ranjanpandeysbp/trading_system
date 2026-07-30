@@ -294,7 +294,15 @@ export function LeaderboardPanel({ assetClass }: { assetClass: AssetClass }) {
                     {r.tickers.join(', ')} · {r.timeframes.join(', ')} · {r.asset_class} · {new Date(r.created_at).toLocaleString()}
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(r.id)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm(`Delete saved report "${r.name}"? This cannot be undone.`)) {
+                      deleteMutation.mutate(r.id)
+                    }
+                  }}
+                >
                   <Trash2 size={14} />
                 </Button>
               </div>
