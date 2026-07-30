@@ -39,6 +39,7 @@ export function SupportResistanceChartPanel({
   const [includeVolume, setIncludeVolume] = useState(true)
   const [emaPeriods, setEmaPeriods] = useState<number[]>([20, 50])
   const [includeRsi, setIncludeRsi] = useState(false)
+  const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
 
   const mut = useMutation({
     mutationFn: () =>
@@ -93,6 +94,11 @@ export function SupportResistanceChartPanel({
           </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500">Chart:</span>
+          <Chip selected={chartType === 'candles'} onClick={() => setChartType('candles')}>Candlestick</Chip>
+          <Chip selected={chartType === 'line'} onClick={() => setChartType('line')}>Line</Chip>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-500">Show:</span>
           <Chip selected={includeVolume} onClick={() => { setIncludeVolume((v) => !v); }}>Volume</Chip>
           {EMA_CHOICES.map((p) => (
@@ -229,6 +235,7 @@ export function SupportResistanceChartPanel({
         lastClose={lastClose}
         emas={data?.emas}
         rsi={data?.rsi}
+        chartType={chartType}
       />
 
       {Boolean(data?.summary?.length) && (
