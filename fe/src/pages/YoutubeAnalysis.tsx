@@ -253,19 +253,20 @@ export default function YoutubeAnalysis() {
           {showProxy && (
             <div className="mt-3 space-y-3 rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
               <p className="text-xs text-slate-500">
-                YouTube often blocks transcript scrapers. We retry slowly and fall back to yt-dlp.
-                If still blocked, use rotating residential proxies (e.g. Webshare) or any HTTP(S) proxy.
+                Transcripts use youtube-transcript-api via Webshare. Prefer rotating
+                username/password from the Webshare dashboard, or paste a full proxy URL in
+                HTTP proxy (http://user:pass@host:port).
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="Webshare proxy username">
+                <FormField label="Webshare username">
                   <Input
                     value={webshareUser}
                     onChange={(e) => setWebshareUser(e.target.value)}
-                    placeholder="from Webshare dashboard"
+                    placeholder="rotating proxy username"
                     autoComplete="off"
                   />
                 </FormField>
-                <FormField label={`Webshare proxy password ${websharePassSaved ? '(saved)' : ''}`}>
+                <FormField label={`Webshare password ${websharePassSaved ? '(saved)' : ''}`}>
                   <Input
                     type="password"
                     value={websharePass}
@@ -274,7 +275,7 @@ export default function YoutubeAnalysis() {
                     autoComplete="new-password"
                   />
                 </FormField>
-                <FormField label="HTTP proxy URL">
+                <FormField label="HTTP proxy URL (optional)">
                   <Input
                     value={httpProxy}
                     onChange={(e) => setHttpProxy(e.target.value)}
@@ -282,11 +283,11 @@ export default function YoutubeAnalysis() {
                     autoComplete="off"
                   />
                 </FormField>
-                <FormField label="HTTPS proxy URL">
+                <FormField label="HTTPS proxy URL (optional)">
                   <Input
                     value={httpsProxy}
                     onChange={(e) => setHttpsProxy(e.target.value)}
-                    placeholder="http://user:pass@host:port"
+                    placeholder="same as HTTP if unsure"
                     autoComplete="off"
                   />
                 </FormField>

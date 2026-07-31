@@ -341,16 +341,23 @@ async def youtube_analysis_scan(
     http_proxy = (payload.http_proxy or "").strip() or proxy_prefs.get("http_proxy") or ""
     https_proxy = (payload.https_proxy or "").strip() or proxy_prefs.get("https_proxy") or ""
 
-    # Always remember API key (when newly entered) + channel IDs + proxy prefs for this user
+    # Endpoint-style Webshare URLs belong in http_proxy (not rotating gateway fields)
+    if not http_proxy and ws_user.lower().startswith(("http://", "https://", "socks")):
+        http_proxy = ws_user.rstrip("/")
+        ws_user = ""
+    if http_proxy and "://" in http_proxy and "@" not in http_proxy and ws_user and ws_pass and "://" not in ws_user:
+        scheme, rest = http_proxy.split("://", 1)
+        http_proxy = f"{scheme}://{ws_user}:{ws_pass}@{rest}".rstrip("/")
+
     channel_text = "\n".join(cid.strip() for cid in payload.channel_ids if str(cid).strip())
     await settings.save_youtube_prefs(
         current_user.id,
         youtube_api_key=(payload.youtube_api_key or "").strip() or None,
         youtube_channel_ids=channel_text,
-        youtube_webshare_username=payload.webshare_username,
+        youtube_webshare_username=ws_user if ws_user else (payload.webshare_username or ""),
         youtube_webshare_password=(payload.webshare_password or "").strip() or None,
-        youtube_http_proxy=payload.http_proxy,
-        youtube_https_proxy=payload.https_proxy,
+        youtube_http_proxy=http_proxy or (payload.http_proxy if payload.http_proxy is not None else None),
+        youtube_https_proxy=https_proxy or (payload.https_proxy if payload.https_proxy is not None else None),
     )
 
     today = date.today()

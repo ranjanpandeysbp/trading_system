@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from xml.etree import ElementTree
 
-import requests
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from youtube_transcript_api import (
@@ -25,12 +23,6 @@ from youtube_transcript_api.proxies import GenericProxyConfig, WebshareProxyConf
 logger = logging.getLogger(__name__)
 
 _CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
-_CHANNEL_URL_RE = re.compile(
-    r"(?:youtube\.com/(?:channel/|c/|@)|youtu\.be/)([A-Za-z0-9_\-@]+)",
-    re.I,
-)
-
-_LANG_PREF = ("en", "en-US", "en-GB", "en-IN", "hi", "a.en")
 
 YOUTUBE_MARKET_SYSTEM = """You are a markets strategist covering Indian equities, US stocks, crypto, and global macros.
 You are given YouTube video transcripts from market/finance channels for a recent date range.
@@ -177,6 +169,20 @@ def _fetch_videos_for_channel(
     return videos
 
 
+def _looks_like_proxy_url(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://") or v.startswith("socks")
+
+
+def _normalize_proxy_url(raw: str) -> str:
+    s = (raw or "").strip().rstrip("/")
+    if not s:
+        return ""
+    if "://" not in s:
+        s = "http://" + s
+    return s
+
+
 def build_proxy_config(
     *,
     webshare_username: str | None = None,
@@ -184,35 +190,51 @@ def build_proxy_config(
     http_proxy: str | None = None,
     https_proxy: str | None = None,
 ) -> WebshareProxyConfig | GenericProxyConfig | None:
+    """
+    Prefer an explicit HTTP(S) proxy URL (http://user:pass@host:port).
+    Otherwise use Webshare rotating gateway username/password (p.webshare.io).
+    """
+    http_url = _normalize_proxy_url(
+        http_proxy or os.getenv("YOUTUBE_HTTP_PROXY") or os.getenv("HTTP_PROXY") or ""
+    )
+    https_url = _normalize_proxy_url(
+        https_proxy or os.getenv("YOUTUBE_HTTPS_PROXY") or os.getenv("HTTPS_PROXY") or ""
+    )
+
     ws_user = (webshare_username or os.getenv("WEBSHARE_PROXY_USERNAME") or "").strip()
     ws_pass = (webshare_password or os.getenv("WEBSHARE_PROXY_PASSWORD") or "").strip()
-    if ws_user and ws_pass:
+
+    if ws_user and _looks_like_proxy_url(ws_user) and not http_url:
+        http_url = _normalize_proxy_url(ws_user)
+
+    if http_url or https_url:
+        return GenericProxyConfig(
+            http_url=http_url or None,
+            https_url=https_url or http_url or None,
+        )
+
+    if ws_user and ws_pass and not _looks_like_proxy_url(ws_user):
         return WebshareProxyConfig(
             proxy_username=ws_user,
             proxy_password=ws_pass,
-            retries_when_blocked=10,
+            retries_when_blocked=8,
         )
-
-    http_url = (http_proxy or os.getenv("YOUTUBE_HTTP_PROXY") or os.getenv("HTTP_PROXY") or "").strip()
-    https_url = (https_proxy or os.getenv("YOUTUBE_HTTPS_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
-    if http_url or https_url:
-        return GenericProxyConfig(http_url=http_url or None, https_url=https_url or None)
     return None
 
 
-def _friendly_block_error(exc: BaseException) -> str:
+def _friendly_error(exc: BaseException) -> str:
     msg = str(exc)
+    low = msg.lower()
     if (
         isinstance(exc, (IpBlocked, RequestBlocked))
-        or "blocking requests from your IP" in msg
-        or "IpBlocked" in msg
-        or "RequestBlocked" in msg
+        or "blocking requests from your ip" in low
+        or "ipblocked" in low
+        or "requestblocked" in low
     ):
         return (
-            "YouTube blocked transcript requests from this IP (rate-limit or cloud/datacenter IP). "
-            "Retries + yt-dlp fallback were tried. Configure a residential proxy "
-            "(Webshare username/password or HTTP(S) proxy) under Youtube Analysis → Proxy settings, "
-            "or set WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD in the backend .env."
+            "YouTube blocked transcript requests. Configure Webshare under Proxy settings: "
+            "either rotating username/password, or full HTTP proxy URL "
+            "(http://user:pass@host:port)."
         )
     if len(msg) > 280:
         return msg[:280] + "…"
@@ -226,288 +248,77 @@ def _is_blocked_error(exc: BaseException) -> bool:
     return "blocking requests from your ip" in msg or "ipblocked" in msg or "requestblocked" in msg
 
 
-def _extract_via_transcript_api(video_id: str, proxy_config=None) -> str:
-    api = YouTubeTranscriptApi(proxy_config=proxy_config)
+def _extract_transcript(video_id: str, *, proxy_config=None) -> tuple[str | None, str | None]:
+    """Fetch transcript via youtube-transcript-api only (optionally through Webshare/proxy)."""
     languages = ("en", "en-US", "en-GB", "hi", "en-IN")
-    try:
-        fetched = api.fetch(video_id, languages=languages)
-        text = TextFormatter().format_transcript(fetched).strip()
-        if text:
-            return text
-    except Exception as primary:
-        if _is_blocked_error(primary):
-            raise
-        listing = api.list(video_id)
-        picked = None
+    attempts = 4 if proxy_config is not None else 1
+    last_exc: BaseException | None = None
+
+    for attempt in range(attempts):
+        api = YouTubeTranscriptApi(proxy_config=proxy_config)
         try:
-            picked = listing.find_manually_created_transcript(["en", "en-US", "hi"])
-        except Exception:
-            try:
-                picked = listing.find_generated_transcript(["en", "en-US", "hi"])
-            except Exception:
-                for t in listing:
-                    picked = t
-                    break
-        if picked is None:
-            raise primary
-        fetched = picked.fetch()
-        text = TextFormatter().format_transcript(fetched).strip()
-        if not text:
-            raise primary
-        return text
-    raise RuntimeError("Empty transcript")
-
-
-def _parse_json3_events(payload: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for ev in payload.get("events") or []:
-        for seg in ev.get("segs") or []:
-            t = seg.get("utf8")
-            if t and t != "\n":
-                parts.append(t)
-        if ev.get("segs") and parts and not parts[-1].endswith((" ", "\n")):
-            parts.append(" ")
-    return re.sub(r"\s+", " ", "".join(parts)).strip()
-
-
-def _parse_vtt_or_srv(raw: str) -> str:
-    text = raw.strip()
-    if not text:
-        return ""
-    if text.startswith("<?xml") or text.startswith("<"):
-        try:
-            root = ElementTree.fromstring(text)
-            bits = []
-            for node in root.iter():
-                if node.text and node.tag.endswith("text"):
-                    bits.append(node.text)
-            joined = " ".join(bits).strip()
-            if joined:
-                return re.sub(r"\s+", " ", joined)
-        except Exception:
-            pass
-    lines: list[str] = []
-    for line in text.splitlines():
-        s = line.strip()
-        if not s or s.startswith("WEBVTT") or s.startswith("NOTE") or "-->" in s or s.isdigit():
-            continue
-        if re.match(r"^\d{2}:\d{2}", s):
-            continue
-        lines.append(s)
-    return re.sub(r"\s+", " ", " ".join(lines)).strip()
-
-
-def _download_subtitle_url(url: str, proxies: dict[str, str] | None = None) -> str | None:
-    try:
-        resp = requests.get(
-            url,
-            timeout=12,
-            proxies=proxies,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; TradingSystem/1.0)"},
-        )
-        if resp.status_code != 200 or not resp.text:
-            return None
-        ctype = (resp.headers.get("content-type") or "").lower()
-        body = resp.text
-        if "json" in ctype or body.lstrip().startswith("{"):
-            try:
-                return _parse_json3_events(json.loads(body)) or None
-            except Exception:
-                pass
-        return _parse_vtt_or_srv(body) or None
-    except Exception as exc:
-        logger.debug("subtitle download failed: %s", exc)
-        return None
-
-
-def _extract_via_ytdlp(video_id: str, proxy_url: str | None = None) -> str | None:
-    """Fallback / primary when transcript API is IP-blocked — uses yt-dlp (android client)."""
-    try:
-        import yt_dlp
-    except ImportError:
-        logger.warning("yt-dlp not installed; skipping fallback")
-        return None
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    ydl_opts: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "extract_flat": False,
-        "socket_timeout": 15,
-        "retries": 0,
-        "fragment_retries": 0,
-        # Single fast client — probing multiple clients is very slow
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
-    }
-    if proxy_url:
-        ydl_opts["proxy"] = proxy_url
-
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except Exception as exc:
-        logger.info("yt-dlp extract_info failed for %s: %s", video_id, exc)
-        return None
-
-    if not info:
-        return None
-
-    tracks: dict[str, Any] = {}
-    for bucket in (info.get("subtitles") or {}, info.get("automatic_captions") or {}):
-        for lang, formats in bucket.items():
-            tracks.setdefault(lang, [])
-            tracks[lang].extend(formats or [])
-
-    ordered_langs: list[str] = []
-    for pref in _LANG_PREF:
-        for lang in tracks:
-            if lang == pref or lang.startswith(pref + "-") or lang.startswith(pref + "."):
-                if lang not in ordered_langs:
-                    ordered_langs.append(lang)
-    for lang in tracks:
-        if lang not in ordered_langs:
-            ordered_langs.append(lang)
-
-    for lang in ordered_langs[:6]:  # don't walk dozens of auto-caption locales
-        formats = tracks.get(lang) or []
-        ranked = sorted(
-            formats,
-            key=lambda f: (
-                0 if f.get("ext") == "json3" else
-                1 if f.get("ext") == "vtt" else
-                2 if str(f.get("ext", "")).startswith("srv") else 3
-            ),
-        )
-        for fmt in ranked[:2]:
-            sub_url = fmt.get("url")
-            if not sub_url:
-                continue
-            text = _download_subtitle_url(sub_url, proxies=proxies)
+            fetched = api.fetch(video_id, languages=languages)
+            text = TextFormatter().format_transcript(fetched).strip()
             if text:
-                return text
-    return None
+                return text, None
+            raise RuntimeError("Empty transcript")
+        except Exception as primary:
+            last_exc = primary
+            if _is_blocked_error(primary):
+                if attempt < attempts - 1:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                return None, _friendly_error(primary)
+            try:
+                listing = api.list(video_id)
+                picked = None
+                try:
+                    picked = listing.find_manually_created_transcript(["en", "en-US", "hi"])
+                except Exception:
+                    try:
+                        picked = listing.find_generated_transcript(["en", "en-US", "hi"])
+                    except Exception:
+                        for t in listing:
+                            picked = t
+                            break
+                if picked is None:
+                    return None, _friendly_error(primary)
+                fetched = picked.fetch()
+                text = TextFormatter().format_transcript(fetched).strip()
+                if text:
+                    return text, None
+                return None, _friendly_error(primary)
+            except Exception as secondary:
+                last_exc = secondary
+                if _is_blocked_error(secondary) and attempt < attempts - 1:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                return None, _friendly_error(secondary)
 
-
-def _proxy_url_for_ytdlp(proxy_config) -> str | None:
-    if proxy_config is None:
-        return None
-    try:
-        d = proxy_config.to_requests_dict()
-        return d.get("https") or d.get("http")
-    except Exception:
-        return None
-
-
-def _extract_transcript(
-    video_id: str,
-    *,
-    proxy_config=None,
-    engine: str = "auto",
-) -> tuple[str | None, str | None, str]:
-    """
-    Return (transcript_text, error, engine_used).
-    engine: "api" | "ytdlp" | "auto"
-      - api: youtube-transcript-api only (1 attempt)
-      - ytdlp: yt-dlp only
-      - auto: api once, then yt-dlp on failure/block
-    """
-    proxy_url = _proxy_url_for_ytdlp(proxy_config)
-    last_err: BaseException | None = None
-
-    if engine in ("api", "auto"):
-        try:
-            text = _extract_via_transcript_api(video_id, proxy_config=proxy_config)
-            return text, None, "api"
-        except Exception as exc:
-            last_err = exc
-            if engine == "api":
-                return None, _friendly_block_error(exc), "api"
-            # blocked / missing → fall through to yt-dlp
-
-    if engine in ("ytdlp", "auto"):
-        try:
-            text = _extract_via_ytdlp(video_id, proxy_url=proxy_url)
-            if text:
-                return text, None, "ytdlp"
-        except Exception as exc:
-            last_err = last_err or exc
-            logger.info("yt-dlp error for %s: %s", video_id, exc)
-
-    return None, _friendly_block_error(last_err or RuntimeError("No transcript")), engine
+    return None, _friendly_error(last_exc or RuntimeError("No transcript"))
 
 
 def _enrich_videos_with_transcripts(
     all_videos: list[dict[str, Any]],
     *,
     proxy_config=None,
-) -> tuple[list[dict[str, Any]], str]:
-    """
-    Fast path:
-      1) Probe first video with transcript API (single attempt).
-      2) If IP-blocked → use yt-dlp for ALL videos in parallel.
-      3) Else → transcript API in parallel, yt-dlp only as per-video fallback.
-    """
+) -> list[dict[str, Any]]:
     if not all_videos:
-        return all_videos, "none"
+        return all_videos
 
-    # Probe
-    probe_text, probe_err, _ = _extract_transcript(
-        all_videos[0]["video_id"],
-        proxy_config=proxy_config,
-        engine="api",
-    )
-    blocked = bool(probe_err and "blocked" in probe_err.lower())
-    engine = "ytdlp" if blocked else "auto"
     workers = min(4, len(all_videos))
 
-    enriched: list[dict[str, Any]] = []
-    # Keep first result if probe succeeded
-    first = dict(all_videos[0])
-    if probe_text:
-        first["transcript"] = probe_text
-        first["transcript_error"] = None
-        first["transcript_chars"] = len(probe_text)
-        first["transcript_engine"] = "api"
-        enriched.append(first)
-        rest = all_videos[1:]
-    elif blocked:
-        # Don't waste time retrying API on the first video either
-        t2, e2, eng = _extract_transcript(
-            all_videos[0]["video_id"], proxy_config=proxy_config, engine="ytdlp",
-        )
-        first["transcript"] = t2
-        first["transcript_error"] = e2
-        first["transcript_chars"] = len(t2) if t2 else 0
-        first["transcript_engine"] = eng
-        enriched.append(first)
-        rest = all_videos[1:]
-    else:
-        first["transcript"] = None
-        first["transcript_error"] = probe_err
-        first["transcript_chars"] = 0
-        first["transcript_engine"] = "api"
-        enriched.append(first)
-        rest = all_videos[1:]
-
-    if not rest:
-        return enriched, engine
-
     def _job(v: dict[str, Any]) -> dict[str, Any]:
-        text, err, eng = _extract_transcript(
-            v["video_id"], proxy_config=proxy_config, engine=engine,
-        )
+        text, err = _extract_transcript(v["video_id"], proxy_config=proxy_config)
         out = dict(v)
         out["transcript"] = text
         out["transcript_error"] = err
         out["transcript_chars"] = len(text) if text else 0
-        out["transcript_engine"] = eng
         return out
 
+    enriched: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = {pool.submit(_job, v): v for v in rest}
+        futs = {pool.submit(_job, v): v for v in all_videos}
         for fut in as_completed(futs):
             try:
                 enriched.append(fut.result())
@@ -516,10 +327,8 @@ def _enrich_videos_with_transcripts(
                 base["transcript"] = None
                 base["transcript_error"] = str(exc)
                 base["transcript_chars"] = 0
-                base["transcript_engine"] = engine
                 enriched.append(base)
-
-    return enriched, engine
+    return enriched
 
 
 def scan_channels(
@@ -606,12 +415,8 @@ def scan_channels(
     else:
         proxy_note = "none"
 
-    # Fast transcript fetch: probe once, then parallel (switch to yt-dlp if IP-blocked)
-    transcript_engine = "none"
     if fetch_transcripts and all_videos:
-        all_videos, transcript_engine = _enrich_videos_with_transcripts(
-            all_videos, proxy_config=proxy_config,
-        )
+        all_videos = _enrich_videos_with_transcripts(all_videos, proxy_config=proxy_config)
     else:
         for v in all_videos:
             v.setdefault("transcript", None)
@@ -668,13 +473,12 @@ def scan_channels(
         "transcript_count": with_tx,
         "transcript_blocked_count": blocked,
         "proxy_mode": proxy_note,
-        "transcript_engine": transcript_engine,
         "channels": channels_out,
         "videos": all_videos,
         "snapshot_note": (
             f"{len(all_videos)} video(s) across {len(channels_out)} channel(s) "
             f"from {from_date} → {to_date}; {with_tx} transcript(s) retrieved"
-            f" (engine: {transcript_engine}, proxy: {proxy_note}"
+            f" (proxy: {proxy_note}"
             + (f"; {blocked} IP-blocked" if blocked else "")
             + ")."
         ),

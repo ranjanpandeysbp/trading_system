@@ -323,7 +323,7 @@ export const runYoutubeAnalysisScan = (payload: {
   https_proxy?: string
 }) =>
   api
-    .post<Record<string, unknown>>('/youtube-analysis/scan', payload, { timeout: 600_000 })
+    .post<Record<string, unknown>>('/youtube-analysis/scan', payload, { timeout: 300_000 })
     .then((r) => r.data)
 
 export const runYoutubeAnalysisAiView = (payload: {
