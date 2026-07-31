@@ -15,7 +15,14 @@ const GROQ_MODELS = [
   'mixtral-8x7b-32768',
 ]
 
-const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-3.1-flash-lite']
+const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
+  'gemini-3.1-flash-lite',
+]
 
 const MARKETS = [
   'Groww (India Stocks)',
@@ -33,6 +40,7 @@ export default function ManageSettings() {
   const [geminiKey, setGeminiKey] = useState('')
   const [groqKey, setGroqKey] = useState('')
   const [youtubeKey, setYoutubeKey] = useState('')
+  const [superinvestingToken, setSuperinvestingToken] = useState('')
   const [aiProvider, setAiProvider] = useState('Google Gemini')
   const [groqModel, setGroqModel] = useState(GROQ_MODELS[0])
   const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0])
@@ -61,11 +69,13 @@ export default function ManageSettings() {
     mutationFn: updateSettings,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['investing-agent-status'] })
       setMsg('Settings saved')
       setGrowwToken('')
       setGeminiKey('')
       setGroqKey('')
       setYoutubeKey('')
+      setSuperinvestingToken('')
     },
     onError: (e: Error) => setMsg(e.message),
   })
@@ -82,6 +92,7 @@ export default function ManageSettings() {
     ...(geminiKey ? { gemini_api_key: geminiKey } : {}),
     ...(groqKey ? { groq_api_key: groqKey } : {}),
     ...(youtubeKey ? { youtube_api_key: youtubeKey } : {}),
+    ...(superinvestingToken ? { superinvesting_token: superinvestingToken } : {}),
     ai_provider: aiProvider,
     groq_model: groqModel,
     gemini_model: geminiModel,
@@ -97,7 +108,7 @@ export default function ManageSettings() {
     <div>
       <PageHeader
         title="Manage Settings"
-        description="Data provider · Groww · Gemini · Groq · default market · paper trading defaults"
+        description="Data provider · Groww · Gemini · Groq · Investing Agent · default market · paper trading defaults"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -170,6 +181,7 @@ export default function ManageSettings() {
             <Select value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
               <option value="Google Gemini">Google Gemini</option>
               <option value="Groq (LLaMA)">Groq (LLaMA)</option>
+              <option value="Investing Agent">Investing Agent</option>
             </Select>
           </FormField>
 
@@ -179,6 +191,18 @@ export default function ManageSettings() {
 
           <FormField label={`Groq API Key ${settings?.groq_token_set ? '(saved)' : ''}`}>
             <Input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)} placeholder="gsk_…" />
+          </FormField>
+
+          <FormField
+            label={`Investing Agent Token (SuperInvesting) ${settings?.superinvesting_token_set ? '(saved — enter new to replace)' : ''}`}
+          >
+            <Input
+              type="password"
+              value={superinvestingToken}
+              onChange={(e) => setSuperinvestingToken(e.target.value)}
+              placeholder="eyJhbGciOi… (Bearer JWT)"
+              autoComplete="off"
+            />
           </FormField>
 
           <FormField label={`YouTube Data API Key ${settings?.youtube_api_key_set ? '(saved)' : ''}`}>
@@ -191,6 +215,11 @@ export default function ManageSettings() {
                 {GROQ_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
               </Select>
             </FormField>
+          ) : aiProvider === 'Investing Agent' ? (
+            <p className="mb-4 rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs text-slate-400">
+              Investing Agent uses SuperInvesting chat (screener + research tools). No model picker.
+              Token is shared with the Investing Agent page. Ask AI may take 1–2 minutes. JWT expires ~every 3 days.
+            </p>
           ) : (
             <FormField label="Gemini Model">
               <Select value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
@@ -200,7 +229,7 @@ export default function ManageSettings() {
           )}
 
           <p className="text-xs text-slate-500">
-            Keys are stored in the app database (same as Groww token). Env vars GEMINI_API_KEY / GROQ_API_KEY / YOUTUBE_API_KEY are used as fallback.
+            Keys are stored in the app database (same as Groww token). Env vars GEMINI_API_KEY / GROQ_API_KEY / YOUTUBE_API_KEY / SUPERINVESTING_TOKEN are used as fallback.
           </p>
 
           <Button className="mt-4" onClick={() => saveMutation.mutate(savePayload())} disabled={saveMutation.isPending}>

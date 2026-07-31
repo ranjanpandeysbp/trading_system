@@ -254,6 +254,7 @@ export const getSettings = () => api.get<{
   default_market: string
   youtube_api_key_set: boolean
   youtube_channel_ids: string
+  superinvesting_token_set: boolean
 }>('/settings').then((r) => r.data)
 export const updateSettings = (payload: Record<string, unknown>) => api.put('/settings', payload).then((r) => r.data)
 export const testProvider = () => api.post('/settings/test-provider').then((r) => r.data)
@@ -274,56 +275,43 @@ export const askAI = (payload: {
   provider: string
   model: string
   error: boolean
-}>('/ai/ask', payload, { timeout: 120_000 }).then((r) => r.data)
+}>('/ai/ask', payload, { timeout: 180_000 }).then((r) => r.data)
 
 export const fetchYoutubeAnalysisPrefs = () =>
   api
     .get<{
       youtube_api_key_set: boolean
       youtube_channel_ids: string
-      webshare_username: string
-      webshare_password_set: boolean
-      http_proxy: string
-      https_proxy: string
-      proxy_configured: boolean
+      gemini_token_set: boolean
+      gemini_model: string
     }>('/youtube-analysis/prefs')
     .then((r) => r.data)
 
 export const saveYoutubeAnalysisPrefs = (payload: {
   youtube_api_key?: string
   youtube_channel_ids?: string
-  youtube_webshare_username?: string
-  youtube_webshare_password?: string
-  youtube_http_proxy?: string
-  youtube_https_proxy?: string
 }) =>
   api
     .put<{
       youtube_api_key_set: boolean
       youtube_channel_ids: string
-      webshare_username: string
-      webshare_password_set: boolean
-      http_proxy: string
-      https_proxy: string
-      proxy_configured: boolean
+      gemini_token_set: boolean
+      gemini_model: string
     }>('/youtube-analysis/prefs', payload)
     .then((r) => r.data)
 
 export const runYoutubeAnalysisScan = (payload: {
   youtube_api_key?: string
-  channel_ids: string[]
+  video_urls?: string[]
+  channel_ids?: string[]
   from_date?: string
   to_date?: string
   max_per_channel?: number
   fetch_transcripts?: boolean
   save_api_key?: boolean
-  webshare_username?: string
-  webshare_password?: string
-  http_proxy?: string
-  https_proxy?: string
 }) =>
   api
-    .post<Record<string, unknown>>('/youtube-analysis/scan', payload, { timeout: 300_000 })
+    .post<Record<string, unknown>>('/youtube-analysis/scan', payload, { timeout: 600_000 })
     .then((r) => r.data)
 
 export const runYoutubeAnalysisAiView = (payload: {
@@ -1398,3 +1386,93 @@ export const runOptionsZeroToHero = (payload?: {
   partial_book_pct?: number
   session_end?: string
 }) => api.post('/options/zero-to-hero', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+/* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
+
+export type InvestingAgentStreamEvent =
+  | { kind: 'status'; message?: string; type?: string }
+  | { kind: 'conversation'; id: string; value?: string }
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'tool'; type?: string; tool?: string; toolCallId?: string }
+  | { kind: 'text'; text: string }
+  | {
+      kind: 'done'
+      conversation_id: string
+      answer: string
+      reasoning?: string | null
+      tools?: string[]
+    }
+  | { kind: 'error'; message: string; status_code?: number | null }
+
+export const fetchInvestingAgentStatus = () =>
+  api.get<{ token_set: boolean }>('/investing-agent/status').then((r) => r.data)
+
+export const saveInvestingAgentToken = (token: string) =>
+  api.put<{ token_set: boolean; message: string }>('/investing-agent/token', { token }).then((r) => r.data)
+
+export const fetchInvestingAgentStockCard = (symbol: string) =>
+  api.get(`/investing-agent/stock/card`, { params: { symbol } }).then((r) => r.data)
+
+export const fetchInvestingAgentStockDetail = (symbol: string) =>
+  api.post('/investing-agent/stock/detail', { symbol }).then((r) => r.data)
+
+export const fetchInvestingAgentSearch = (query: string) =>
+  api.get('/investing-agent/search', { params: { query, page: 1, limit: 20 } }).then((r) => r.data)
+
+export const fetchInvestingAgentStarters = () =>
+  api.get('/investing-agent/starters').then((r) => r.data)
+
+/** Stream chat via fetch (axios does not expose SSE well). */
+export async function streamInvestingAgentChat(
+  message: string,
+  onEvent: (event: InvestingAgentStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const token = authToken ?? localStorage.getItem('ist_auth_token')
+  const res = await fetch('/api/v1/investing-agent/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message }),
+    signal,
+  })
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail)
+  }
+  if (!res.body) throw new Error('No response stream')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''
+    for (const chunk of parts) {
+      for (const line of chunk.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const payload = trimmed.slice(5).trim()
+        if (!payload || payload === '[DONE]') continue
+        try {
+          onEvent(JSON.parse(payload) as InvestingAgentStreamEvent)
+        } catch {
+          /* skip malformed */
+        }
+      }
+    }
+  }
+}

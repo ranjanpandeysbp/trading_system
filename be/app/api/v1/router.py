@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -22,6 +23,9 @@ from app.models.schemas import (
     EtfTaRecommendRequest,
     EtfTaScanRequest,
     ForgotPasswordRequest,
+    InvestingAgentChatRequest,
+    InvestingAgentStockRequest,
+    InvestingAgentTokenRequest,
     MarketPulseAccurateStrategyRequest,
     MarketPulseCommodityRequest,
     MarketPulseHeatmapRequest,
@@ -119,6 +123,7 @@ from app.services.youtube_analysis_service import (
     YOUTUBE_MARKET_SYSTEM,
     build_market_ai_context,
     scan_channels,
+    scan_videos,
 )
 from app.strategies.registry import (
     all_strategy_meta_for_api,
@@ -316,6 +321,120 @@ async def ai_ask(
     return AskAIResponse(**result)
 
 
+@router.get("/investing-agent/status")
+async def investing_agent_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    return {"token_set": bool(await settings.get_superinvesting_token())}
+
+
+@router.put("/investing-agent/token")
+async def investing_agent_save_token(
+    payload: InvestingAgentTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    await settings.update({"superinvesting_token": payload.token.strip()})
+    return {"token_set": True, "message": "Token saved. It will be used until you replace it."}
+
+
+@router.post("/investing-agent/chat")
+async def investing_agent_chat(
+    payload: InvestingAgentChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Stream SuperInvesting analysis (SSE). Index questions like 'nifty analysis' use chat, not stock card."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.superinvesting_service import run_analysis_stream
+
+    # Resolve token in a short-lived session — do not hold DB open for the 1–3 min stream.
+    async with AsyncSessionLocal() as session:
+        token = await SettingsService(session).get_superinvesting_token()
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Save a SuperInvesting Bearer token at the top of Investing Agent first.",
+        )
+    message = payload.message.strip()
+    return StreamingResponse(
+        run_analysis_stream(token, message),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/investing-agent/stock/card")
+async def investing_agent_stock_card(
+    symbol: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.superinvesting_service import SuperInvestingError, SuperInvestingService
+
+    settings = SettingsService(db)
+    token = await settings.get_superinvesting_token()
+    if not token:
+        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+    try:
+        return await SuperInvestingService(token).stock_card(symbol.strip())
+    except SuperInvestingError as exc:
+        raise HTTPException(status_code=exc.status_code or 400, detail=str(exc)) from exc
+
+
+@router.post("/investing-agent/stock/detail")
+async def investing_agent_stock_detail(
+    payload: InvestingAgentStockRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.superinvesting_service import SuperInvestingError, SuperInvestingService
+
+    settings = SettingsService(db)
+    token = await settings.get_superinvesting_token()
+    if not token:
+        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+    try:
+        return await SuperInvestingService(token).stock_detail(payload.symbol.strip())
+    except SuperInvestingError as exc:
+        raise HTTPException(status_code=exc.status_code or 400, detail=str(exc)) from exc
+
+
+@router.get("/investing-agent/search")
+async def investing_agent_search(
+    query: str,
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.superinvesting_service import SuperInvestingError, SuperInvestingService
+
+    settings = SettingsService(db)
+    token = await settings.get_superinvesting_token()
+    if not token:
+        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+    try:
+        return await SuperInvestingService(token).stock_search(query.strip(), page=page, limit=limit)
+    except SuperInvestingError as exc:
+        raise HTTPException(status_code=exc.status_code or 400, detail=str(exc)) from exc
+
+
+@router.get("/investing-agent/starters")
+async def investing_agent_starters(
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.superinvesting_service import SuperInvestingService
+
+    return await SuperInvestingService.fetch_starters()
+
+
 @router.post("/youtube-analysis/scan")
 async def youtube_analysis_scan(
     payload: YoutubeAnalysisScanRequest,
@@ -335,29 +454,21 @@ async def youtube_analysis_scan(
             detail="YouTube Data API key is required. Enter it once — it will be saved for your account.",
         )
 
-    proxy_prefs = await settings.get_youtube_proxy_prefs(current_user.id)
-    ws_user = (payload.webshare_username or "").strip() or proxy_prefs.get("webshare_username") or ""
-    ws_pass = (payload.webshare_password or "").strip() or proxy_prefs.get("webshare_password") or ""
-    http_proxy = (payload.http_proxy or "").strip() or proxy_prefs.get("http_proxy") or ""
-    https_proxy = (payload.https_proxy or "").strip() or proxy_prefs.get("https_proxy") or ""
+    gemini_key = await settings.get_gemini_api_key()
+    if payload.fetch_transcripts and not gemini_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key is required for transcripts. Add it under Manage Settings (or GEMINI_API_KEY).",
+        )
 
-    # Endpoint-style Webshare URLs belong in http_proxy (not rotating gateway fields)
-    if not http_proxy and ws_user.lower().startswith(("http://", "https://", "socks")):
-        http_proxy = ws_user.rstrip("/")
-        ws_user = ""
-    if http_proxy and "://" in http_proxy and "@" not in http_proxy and ws_user and ws_pass and "://" not in ws_user:
-        scheme, rest = http_proxy.split("://", 1)
-        http_proxy = f"{scheme}://{ws_user}:{ws_pass}@{rest}".rstrip("/")
-
-    channel_text = "\n".join(cid.strip() for cid in payload.channel_ids if str(cid).strip())
+    video_items = [str(v).strip() for v in (payload.video_urls or []) if str(v).strip()]
+    channel_items = [str(c).strip() for c in (payload.channel_ids or []) if str(c).strip()]
+    # Prefer explicit video list; fall back to channel_ids payload for older clients
+    prefs_text = "\n".join(video_items or channel_items)
     await settings.save_youtube_prefs(
         current_user.id,
         youtube_api_key=(payload.youtube_api_key or "").strip() or None,
-        youtube_channel_ids=channel_text,
-        youtube_webshare_username=ws_user if ws_user else (payload.webshare_username or ""),
-        youtube_webshare_password=(payload.webshare_password or "").strip() or None,
-        youtube_http_proxy=http_proxy or (payload.http_proxy if payload.http_proxy is not None else None),
-        youtube_https_proxy=https_proxy or (payload.https_proxy if payload.https_proxy is not None else None),
+        youtube_channel_ids=prefs_text,
     )
 
     today = date.today()
@@ -367,19 +478,30 @@ async def youtube_analysis_scan(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid date: {exc}") from exc
 
-    result = await asyncio.to_thread(
-        scan_channels,
-        api_key=api_key,
-        channel_ids=payload.channel_ids,
-        from_date=from_d,
-        to_date=to_d,
-        max_per_channel=payload.max_per_channel,
-        fetch_transcripts=payload.fetch_transcripts,
-        webshare_username=ws_user or None,
-        webshare_password=ws_pass or None,
-        http_proxy=http_proxy or None,
-        https_proxy=https_proxy or None,
-    )
+    gemini_model = await settings.get_gemini_model()
+    if video_items:
+        result = await asyncio.to_thread(
+            scan_videos,
+            api_key=api_key,
+            video_urls=video_items,
+            from_date=None,
+            to_date=None,
+            fetch_transcripts=payload.fetch_transcripts,
+            gemini_api_key=gemini_key,
+            gemini_model=gemini_model,
+        )
+    else:
+        result = await asyncio.to_thread(
+            scan_channels,
+            api_key=api_key,
+            channel_ids=channel_items,
+            from_date=from_d,
+            to_date=to_d,
+            max_per_channel=payload.max_per_channel,
+            fetch_transcripts=payload.fetch_transcripts,
+            gemini_api_key=gemini_key,
+            gemini_model=gemini_model,
+        )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
 
@@ -387,7 +509,7 @@ async def youtube_analysis_scan(
     result["ai_system_prompt"] = YOUTUBE_MARKET_SYSTEM
     result["youtube_api_key_set"] = True
     result["youtube_channel_ids"] = await settings.get_youtube_channel_ids(current_user.id)
-    result["youtube_proxy_configured"] = bool((ws_user and ws_pass) or http_proxy or https_proxy)
+    result["gemini_token_set"] = bool(gemini_key)
     return result
 
 
@@ -397,15 +519,11 @@ async def youtube_analysis_prefs(
     current_user: User = Depends(get_current_user),
 ):
     settings = SettingsService(db)
-    proxy = await settings.get_youtube_proxy_prefs(current_user.id)
     return {
         "youtube_api_key_set": bool(await settings.get_youtube_api_key(current_user.id)),
         "youtube_channel_ids": await settings.get_youtube_channel_ids(current_user.id),
-        "webshare_username": proxy.get("webshare_username") or "",
-        "webshare_password_set": bool(proxy.get("webshare_password_set")),
-        "http_proxy": proxy.get("http_proxy") or "",
-        "https_proxy": proxy.get("https_proxy") or "",
-        "proxy_configured": bool(proxy.get("proxy_configured")),
+        "gemini_token_set": bool(await settings.get_gemini_api_key()),
+        "gemini_model": await settings.get_gemini_model(),
     }
 
 
@@ -415,26 +533,18 @@ async def youtube_analysis_prefs_save(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Save YouTube API key / channel IDs / proxy without running a scan."""
+    """Save YouTube API key / channel IDs without running a scan."""
     settings = SettingsService(db)
     await settings.save_youtube_prefs(
         current_user.id,
         youtube_api_key=payload.youtube_api_key,
         youtube_channel_ids=payload.youtube_channel_ids,
-        youtube_webshare_username=payload.youtube_webshare_username,
-        youtube_webshare_password=payload.youtube_webshare_password,
-        youtube_http_proxy=payload.youtube_http_proxy,
-        youtube_https_proxy=payload.youtube_https_proxy,
     )
-    proxy = await settings.get_youtube_proxy_prefs(current_user.id)
     return {
         "youtube_api_key_set": bool(await settings.get_youtube_api_key(current_user.id)),
         "youtube_channel_ids": await settings.get_youtube_channel_ids(current_user.id),
-        "webshare_username": proxy.get("webshare_username") or "",
-        "webshare_password_set": bool(proxy.get("webshare_password_set")),
-        "http_proxy": proxy.get("http_proxy") or "",
-        "https_proxy": proxy.get("https_proxy") or "",
-        "proxy_configured": bool(proxy.get("proxy_configured")),
+        "gemini_token_set": bool(await settings.get_gemini_api_key()),
+        "gemini_model": await settings.get_gemini_model(),
     }
 
 

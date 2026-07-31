@@ -137,7 +137,7 @@ class SettingsResponse(BaseModel):
     default_market: str = "Groww (India Stocks)"
     youtube_api_key_set: bool = False
     youtube_channel_ids: str = ""
-    youtube_proxy_configured: bool = False
+    superinvesting_token_set: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -155,10 +155,19 @@ class SettingsUpdate(BaseModel):
     default_market: str | None = None
     youtube_api_key: str | None = None
     youtube_channel_ids: str | None = None
-    youtube_webshare_username: str | None = None
-    youtube_webshare_password: str | None = None
-    youtube_http_proxy: str | None = None
-    youtube_https_proxy: str | None = None
+    superinvesting_token: str | None = None
+
+
+class InvestingAgentChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class InvestingAgentTokenRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+
+
+class InvestingAgentStockRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=32)
 
 
 class AskAIRequest(BaseModel):
@@ -183,6 +192,7 @@ class AIConfigResponse(BaseModel):
     model: str
     gemini_token_set: bool
     groq_token_set: bool
+    superinvesting_token_set: bool = False
     ready: bool
     groq_models: list[str]
     gemini_models: list[str]
@@ -810,20 +820,15 @@ class OptionsZeroToHeroRequest(BaseModel):
 
 
 class YoutubeAnalysisScanRequest(BaseModel):
-    """Fetch videos + transcripts for channels in a date range (default ~5 calendar days)."""
+    """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user
-    channel_ids: list[str] = Field(default_factory=list)
-    from_date: str | None = None  # YYYY-MM-DD; default = today-4
-    to_date: str | None = None  # YYYY-MM-DD; default = today
+    video_urls: list[str] = Field(default_factory=list)  # URLs or 11-char IDs
+    channel_ids: list[str] = Field(default_factory=list)  # legacy channel mode
+    from_date: str | None = None  # optional; unused for video_urls mode
+    to_date: str | None = None
     max_per_channel: int = Field(default=25, ge=1, le=50)
     fetch_transcripts: bool = True
-    # Always persisted for the user on scan; kept for backward compat (ignored = always save)
     save_api_key: bool = True
-    # Optional residential proxy (overrides saved prefs when provided)
-    webshare_username: str | None = None
-    webshare_password: str | None = None
-    http_proxy: str | None = None
-    https_proxy: str | None = None
 
 
 class YoutubeAnalysisAiViewRequest(BaseModel):

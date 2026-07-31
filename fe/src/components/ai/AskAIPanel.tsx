@@ -70,7 +70,7 @@ export function AskAIPanel({ context, section, systemPrompt, disabled, className
 
       {mutation.isError && <Alert type="error">{apiErrorMessage(mutation.error)}</Alert>}
 
-      {mutation.isPending && <Loading message="Calling AI provider…" />}
+      {mutation.isPending && <Loading message="Calling AI provider… (Investing Agent may take 1–2 min)" />}
 
       {report && !mutation.isPending && (
         <div className="mt-4 space-y-3">

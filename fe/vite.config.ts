@@ -10,6 +10,9 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:2009',
         changeOrigin: true,
+        // Investing Agent chat streams can run 60–180s
+        timeout: 200_000,
+        proxyTimeout: 200_000,
       },
     },
   },

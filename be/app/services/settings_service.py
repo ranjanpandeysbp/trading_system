@@ -61,10 +61,13 @@ class SettingsService:
         if not provider:
             gemini = await self.get_gemini_api_key()
             groq = await self.get_groq_api_key()
+            si = await self.get_superinvesting_token()
             if gemini:
                 return "Google Gemini"
             if groq:
                 return "Groq (LLaMA)"
+            if si:
+                return "Investing Agent"
             return "Google Gemini"
         return provider
 
@@ -80,6 +83,8 @@ class SettingsService:
         provider = provider or await self.get_ai_provider()
         if provider == "Groq (LLaMA)":
             return await self.get_groq_model()
+        if provider == "Investing Agent":
+            return "superinvesting-chat"
         return await self.get_gemini_model()
 
     async def get_api_key_for_provider(self, provider: str) -> str | None:
@@ -87,6 +92,8 @@ class SettingsService:
             return await self.get_groq_api_key()
         if provider == "Google Gemini":
             return await self.get_gemini_api_key()
+        if provider == "Investing Agent":
+            return await self.get_superinvesting_token()
         return None
 
     async def get_default_market(self) -> str:
@@ -98,7 +105,6 @@ class SettingsService:
         return f"{base}__u{user_id}"
 
     async def get_youtube_api_key(self, user_id: int | None = None) -> str | None:
-        # Prefer per-user key; fall back to legacy global + env.
         if user_id is not None:
             token = await self._get(self._youtube_key("youtube_api_key", user_id), "")
             if token:
@@ -109,6 +115,13 @@ class SettingsService:
             token = (os.getenv("YOUTUBE_API_KEY") or "").strip()
         return token or None
 
+    async def get_superinvesting_token(self) -> str | None:
+        token = await self._get("superinvesting_token", "")
+        if not token:
+            import os
+            token = (os.getenv("SUPERINVESTING_TOKEN") or "").strip()
+        return token or None
+
     async def get_youtube_channel_ids(self, user_id: int | None = None) -> str:
         if user_id is not None:
             val = await self._get(self._youtube_key("youtube_channel_ids", user_id), "")
@@ -116,73 +129,19 @@ class SettingsService:
                 return val
         return await self._get("youtube_channel_ids", "")
 
-    async def get_youtube_proxy_prefs(self, user_id: int | None = None) -> dict:
-        import os
-
-        ws_user = ""
-        ws_pass = ""
-        http_proxy = ""
-        https_proxy = ""
-        if user_id is not None:
-            ws_user = await self._get(self._youtube_key("youtube_webshare_username", user_id), "")
-            ws_pass = await self._get(self._youtube_key("youtube_webshare_password", user_id), "")
-            http_proxy = await self._get(self._youtube_key("youtube_http_proxy", user_id), "")
-            https_proxy = await self._get(self._youtube_key("youtube_https_proxy", user_id), "")
-        if not ws_user:
-            ws_user = (os.getenv("WEBSHARE_PROXY_USERNAME") or "").strip()
-        if not ws_pass:
-            ws_pass = (os.getenv("WEBSHARE_PROXY_PASSWORD") or "").strip()
-        if not http_proxy:
-            http_proxy = (os.getenv("YOUTUBE_HTTP_PROXY") or "").strip()
-        if not https_proxy:
-            https_proxy = (os.getenv("YOUTUBE_HTTPS_PROXY") or "").strip()
-        return {
-            "webshare_username": ws_user,
-            "webshare_password": ws_pass,
-            "http_proxy": http_proxy,
-            "https_proxy": https_proxy,
-            "webshare_password_set": bool(ws_pass),
-            "proxy_configured": bool((ws_user and ws_pass) or http_proxy or https_proxy),
-        }
-
     async def save_youtube_prefs(
         self,
         user_id: int,
         *,
         youtube_api_key: str | None = None,
         youtube_channel_ids: str | None = None,
-        youtube_webshare_username: str | None = None,
-        youtube_webshare_password: str | None = None,
-        youtube_http_proxy: str | None = None,
-        youtube_https_proxy: str | None = None,
     ) -> None:
-        """Persist YouTube prefs for this user. Only writes fields that are provided."""
         if youtube_api_key is not None and youtube_api_key.strip():
             await self._set(self._youtube_key("youtube_api_key", user_id), youtube_api_key.strip())
         if youtube_channel_ids is not None:
             await self._set(
                 self._youtube_key("youtube_channel_ids", user_id),
                 youtube_channel_ids.strip(),
-            )
-        if youtube_webshare_username is not None:
-            await self._set(
-                self._youtube_key("youtube_webshare_username", user_id),
-                youtube_webshare_username.strip(),
-            )
-        if youtube_webshare_password is not None and youtube_webshare_password.strip():
-            await self._set(
-                self._youtube_key("youtube_webshare_password", user_id),
-                youtube_webshare_password.strip(),
-            )
-        if youtube_http_proxy is not None:
-            await self._set(
-                self._youtube_key("youtube_http_proxy", user_id),
-                youtube_http_proxy.strip(),
-            )
-        if youtube_https_proxy is not None:
-            await self._set(
-                self._youtube_key("youtube_https_proxy", user_id),
-                youtube_https_proxy.strip(),
             )
 
     async def get_all(self, user_id: int | None = None) -> dict:
@@ -202,7 +161,7 @@ class SettingsService:
             "default_market": await self.get_default_market(),
             "youtube_api_key_set": bool(await self.get_youtube_api_key(user_id)),
             "youtube_channel_ids": await self.get_youtube_channel_ids(user_id),
-            "youtube_proxy_configured": (await self.get_youtube_proxy_prefs(user_id))["proxy_configured"],
+            "superinvesting_token_set": bool(await self.get_superinvesting_token()),
         }
 
     async def update(self, payload: dict, user_id: int | None = None) -> dict:
@@ -233,21 +192,14 @@ class SettingsService:
         if user_id is not None and (
             payload.get("youtube_api_key") is not None
             or payload.get("youtube_channel_ids") is not None
-            or payload.get("youtube_webshare_username") is not None
-            or payload.get("youtube_webshare_password") is not None
-            or payload.get("youtube_http_proxy") is not None
-            or payload.get("youtube_https_proxy") is not None
         ):
             await self.save_youtube_prefs(
                 user_id,
                 youtube_api_key=payload.get("youtube_api_key"),
                 youtube_channel_ids=payload.get("youtube_channel_ids"),
-                youtube_webshare_username=payload.get("youtube_webshare_username"),
-                youtube_webshare_password=payload.get("youtube_webshare_password"),
-                youtube_http_proxy=payload.get("youtube_http_proxy"),
-                youtube_https_proxy=payload.get("youtube_https_proxy"),
             )
         elif payload.get("youtube_api_key") is not None:
-            # Legacy global write when no user context
             await self._set("youtube_api_key", payload["youtube_api_key"])
+        if payload.get("superinvesting_token") is not None:
+            await self._set("superinvesting_token", payload["superinvesting_token"].strip())
         return await self.get_all(user_id)

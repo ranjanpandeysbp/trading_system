@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, Clapperboard, Save, Sparkles } from 'lucide-react'
 import {
@@ -17,21 +17,7 @@ import { FormField, Input, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { Badge } from '../components/ui/Badge'
 
-function isoDate(d: Date) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function defaultRange() {
-  const to = new Date()
-  const from = new Date()
-  from.setDate(from.getDate() - 4) // inclusive 5-day window
-  return { from: isoDate(from), to: isoDate(to) }
-}
-
-function parseChannels(raw: string) {
+function parseVideoList(raw: string) {
   return raw
     .split(/[\n,;]+/)
     .map((s) => s.trim())
@@ -58,7 +44,6 @@ type ChannelBucket = {
 }
 
 export default function YoutubeAnalysis() {
-  const range0 = useMemo(() => defaultRange(), [])
   const qc = useQueryClient()
   const { data: prefs, isLoading: prefsLoading } = useQuery({
     queryKey: ['youtube-analysis-prefs'],
@@ -66,17 +51,9 @@ export default function YoutubeAnalysis() {
   })
 
   const [apiKey, setApiKey] = useState('')
-  const [channelsRaw, setChannelsRaw] = useState('')
+  const [videosRaw, setVideosRaw] = useState('')
   const [keySaved, setKeySaved] = useState(false)
   const [hydrated, setHydrated] = useState(false)
-  const [showProxy, setShowProxy] = useState(false)
-  const [webshareUser, setWebshareUser] = useState('')
-  const [websharePass, setWebsharePass] = useState('')
-  const [websharePassSaved, setWebsharePassSaved] = useState(false)
-  const [httpProxy, setHttpProxy] = useState('')
-  const [httpsProxy, setHttpsProxy] = useState('')
-  const [fromDate, setFromDate] = useState(range0.from)
-  const [toDate, setToDate] = useState(range0.to)
   const [error, setError] = useState('')
   const [prefsMsg, setPrefsMsg] = useState('')
   const [openChannels, setOpenChannels] = useState<Record<string, boolean>>({})
@@ -90,41 +67,25 @@ export default function YoutubeAnalysis() {
 
   useEffect(() => {
     if (!prefs || hydrated) return
-    setChannelsRaw(prefs.youtube_channel_ids || '')
+    setVideosRaw(prefs.youtube_channel_ids || '')
     setKeySaved(Boolean(prefs.youtube_api_key_set))
-    setWebshareUser(prefs.webshare_username || '')
-    setWebsharePassSaved(Boolean(prefs.webshare_password_set))
-    setHttpProxy(prefs.http_proxy || '')
-    setHttpsProxy(prefs.https_proxy || '')
-    if (prefs.proxy_configured) setShowProxy(true)
     setHydrated(true)
   }, [prefs, hydrated])
 
-  const channelList = parseChannels(channelsRaw)
+  const videoList = parseVideoList(videosRaw)
   const hasSavedKey = keySaved || Boolean(prefs?.youtube_api_key_set)
+  const geminiReady = Boolean(prefs?.gemini_token_set)
 
   const savePrefsMut = useMutation({
     mutationFn: () =>
       saveYoutubeAnalysisPrefs({
         youtube_api_key: apiKey.trim() || undefined,
-        youtube_channel_ids: channelsRaw,
-        youtube_webshare_username: webshareUser,
-        youtube_webshare_password: websharePass.trim() || undefined,
-        youtube_http_proxy: httpProxy,
-        youtube_https_proxy: httpsProxy,
+        youtube_channel_ids: videosRaw,
       }),
     onSuccess: (data) => {
       setKeySaved(Boolean(data.youtube_api_key_set))
       if (apiKey.trim()) setApiKey('')
-      if (websharePass.trim()) {
-        setWebsharePass('')
-        setWebsharePassSaved(true)
-      }
-      setChannelsRaw(data.youtube_channel_ids || channelsRaw)
-      setWebshareUser(data.webshare_username || webshareUser)
-      setHttpProxy(data.http_proxy || httpProxy)
-      setHttpsProxy(data.https_proxy || httpsProxy)
-      setWebsharePassSaved(Boolean(data.webshare_password_set))
+      setVideosRaw(data.youtube_channel_ids || videosRaw)
       setPrefsMsg('Saved for your account — will be reused until you change them.')
       setError('')
       qc.invalidateQueries({ queryKey: ['youtube-analysis-prefs'] })
@@ -135,19 +96,16 @@ export default function YoutubeAnalysis() {
 
   const scanMut = useMutation({
     mutationFn: () => {
-      if (!channelList.length) throw new Error('Enter at least one channel ID or @handle')
+      if (!videoList.length) throw new Error('Enter at least one YouTube video URL or ID')
       if (!apiKey.trim() && !hasSavedKey) {
         throw new Error('Enter a YouTube Data API key (it will be saved for your account)')
       }
+      if (!geminiReady) {
+        throw new Error('Add a Gemini API key under Manage Settings (transcripts use Gemini YouTube URL analysis)')
+      }
       return runYoutubeAnalysisScan({
         youtube_api_key: apiKey.trim() || undefined,
-        channel_ids: channelList,
-        from_date: fromDate,
-        to_date: toDate,
-        webshare_username: webshareUser.trim() || undefined,
-        webshare_password: websharePass.trim() || undefined,
-        http_proxy: httpProxy.trim() || undefined,
-        https_proxy: httpsProxy.trim() || undefined,
+        video_urls: videoList,
       })
     },
     onError: (e) => {
@@ -156,16 +114,12 @@ export default function YoutubeAnalysis() {
     },
     onSuccess: (data) => {
       setError('')
-      setPrefsMsg('API key, channels & proxy prefs saved for your account.')
+      setPrefsMsg('API key & video list saved for your account.')
       setAiView(null)
       setKeySaved(true)
       if (apiKey.trim()) setApiKey('')
-      if (websharePass.trim()) {
-        setWebsharePass('')
-        setWebsharePassSaved(true)
-      }
-      const savedChannels = String(data.youtube_channel_ids || '')
-      if (savedChannels) setChannelsRaw(savedChannels)
+      const saved = String(data.youtube_channel_ids || '')
+      if (saved) setVideosRaw(saved)
       const channels = (data.channels as ChannelBucket[]) || []
       const nextCh: Record<string, boolean> = {}
       const nextDay: Record<string, boolean> = {}
@@ -208,7 +162,7 @@ export default function YoutubeAnalysis() {
     <div>
       <PageHeader
         title="Youtube Analysis"
-        description="Pull recent channel videos → transcripts → Ask AI / AI View for market impact"
+        description="Listed YouTube videos · transcripts via Gemini · Ask AI / AI View"
       />
 
       <Card className="mb-4">
@@ -226,118 +180,46 @@ export default function YoutubeAnalysis() {
           />
         </FormField>
         <p className="mt-1 text-xs text-slate-500">
-          Key and channel IDs are saved to your account on Fetch or Save, and reused until you change them.
+          Paste YouTube video URLs or IDs (comma-separated or one per line), then extract each
+          transcript with Gemini. Gemini key:{' '}
+          {geminiReady ? `saved · model ${prefs?.gemini_model || '—'}` : 'not set — add under Manage Settings'}.
         </p>
 
-        <FormField label="Channel IDs / @handles (one per line, or comma-separated)">
+        <FormField label="YouTube videos (URLs or IDs — comma-separated or one per line)">
           <Textarea
-            rows={4}
-            value={channelsRaw}
+            rows={5}
+            value={videosRaw}
             onChange={(e) => {
-              setChannelsRaw(e.target.value)
+              setVideosRaw(e.target.value)
               setPrefsMsg('')
             }}
-            placeholder={'UC_x5XG1OV2P6uZZ5FSM9Ttw\n@CNBCTV18Live'}
+            placeholder={
+              'https://www.youtube.com/watch?v=dQw4w9WgXcQ\nhttps://youtu.be/abcdefghijk\ndQw4w9WgXcQ'
+            }
           />
         </FormField>
-
-        <div className="mt-4">
-          <button
-            type="button"
-            className="text-sm text-blue-400 hover:underline"
-            onClick={() => setShowProxy((v) => !v)}
-          >
-            {showProxy ? 'Hide' : 'Show'} proxy settings (fix IP bans)
-            {(prefs?.proxy_configured || websharePassSaved || httpProxy || httpsProxy) ? ' · configured' : ''}
-          </button>
-          {showProxy && (
-            <div className="mt-3 space-y-3 rounded-xl border border-slate-800/80 bg-slate-900/40 p-3">
-              <p className="text-xs text-slate-500">
-                Transcripts use youtube-transcript-api via Webshare. Prefer rotating
-                username/password from the Webshare dashboard, or paste a full proxy URL in
-                HTTP proxy (http://user:pass@host:port).
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="Webshare username">
-                  <Input
-                    value={webshareUser}
-                    onChange={(e) => setWebshareUser(e.target.value)}
-                    placeholder="rotating proxy username"
-                    autoComplete="off"
-                  />
-                </FormField>
-                <FormField label={`Webshare password ${websharePassSaved ? '(saved)' : ''}`}>
-                  <Input
-                    type="password"
-                    value={websharePass}
-                    onChange={(e) => setWebsharePass(e.target.value)}
-                    placeholder={websharePassSaved ? 'Leave blank to keep saved' : 'proxy password'}
-                    autoComplete="new-password"
-                  />
-                </FormField>
-                <FormField label="HTTP proxy URL (optional)">
-                  <Input
-                    value={httpProxy}
-                    onChange={(e) => setHttpProxy(e.target.value)}
-                    placeholder="http://user:pass@host:port"
-                    autoComplete="off"
-                  />
-                </FormField>
-                <FormField label="HTTPS proxy URL (optional)">
-                  <Input
-                    value={httpsProxy}
-                    onChange={(e) => setHttpsProxy(e.target.value)}
-                    placeholder="same as HTTP if unsure"
-                    autoComplete="off"
-                  />
-                </FormField>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 max-w-xl">
-          <FormField label="From date">
-            <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          </FormField>
-          <FormField label="To date">
-            <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </FormField>
-        </div>
-        <p className="mt-1 text-xs text-slate-500">Default range is 5 calendar days (today − 4 → today).</p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
             onClick={() => scanMut.mutate()}
-            disabled={scanMut.isPending || !channelList.length}
+            disabled={scanMut.isPending || !videoList.length || !geminiReady}
           >
             <span className="inline-flex items-center gap-2">
               <Clapperboard size={16} />
               {scanMut.isPending
-                ? 'Fetching videos & transcripts…'
-                : `Fetch transcripts (${channelList.length} channel${channelList.length === 1 ? '' : 's'})`}
+                ? 'Resolving videos & Gemini transcripts…'
+                : `Fetch transcripts (${videoList.length} video${videoList.length === 1 ? '' : 's'})`}
             </span>
           </Button>
           <Button
             variant="secondary"
             onClick={() => savePrefsMut.mutate()}
-            disabled={savePrefsMut.isPending || (!apiKey.trim() && !channelsRaw.trim() && !hasSavedKey)}
+            disabled={savePrefsMut.isPending || (!apiKey.trim() && !videosRaw.trim() && !hasSavedKey)}
           >
             <span className="inline-flex items-center gap-2">
               <Save size={16} />
               {savePrefsMut.isPending ? 'Saving…' : 'Save prefs'}
             </span>
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              const r = defaultRange()
-              setFromDate(r.from)
-              setToDate(r.to)
-            }}
-            disabled={scanMut.isPending}
-          >
-            Reset to 5 days
           </Button>
         </div>
         {prefsMsg && (
@@ -353,7 +235,7 @@ export default function YoutubeAnalysis() {
       </Card>
 
       {scanMut.isPending && (
-        <Loading message="Fetching videos & transcripts…" />
+        <Loading message="Resolving listed videos, then Gemini transcripts…" />
       )}
 
       {data && !scanMut.isPending && (
@@ -408,7 +290,9 @@ export default function YoutubeAnalysis() {
           <div className="space-y-3 mb-6">
             {channels.length === 0 && (
               <Card>
-                <p className="text-slate-400 text-sm">No videos found in this date range for the selected channels.</p>
+                <p className="text-slate-400 text-sm">
+                  No videos matched (check URLs/IDs).
+                </p>
               </Card>
             )}
             {channels.map((ch) => (

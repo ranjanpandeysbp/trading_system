@@ -29,8 +29,8 @@ except ImportError:
         GENAI_NEW = False
         genai = None
 
-AI_PROVIDER_OPTIONS = ["Google Gemini", "Groq (LLaMA)", "Custom / Other"]
-SUPPORTED_AI_PROVIDERS = ["Google Gemini", "Groq (LLaMA)"]
+AI_PROVIDER_OPTIONS = ["Google Gemini", "Groq (LLaMA)", "Investing Agent", "Custom / Other"]
+SUPPORTED_AI_PROVIDERS = ["Google Gemini", "Groq (LLaMA)", "Investing Agent"]
 DEFAULT_AI_PROVIDER_INDEX = default_ai_provider_index()
 
 GROQ_MODEL_OPTIONS = [
@@ -236,9 +236,18 @@ def get_ai_provider_settings() -> tuple[str, str, str]:
         provider = default_ai_provider()
     if provider == "Groq (LLaMA)":
         model = st.session_state.get(_SHARED_GROQ_MODEL_KEY, get_groq_model())
+    elif provider == "Investing Agent":
+        model = "superinvesting-chat"
     else:
         model = st.session_state.get(_SHARED_GEMINI_MODEL_KEY, get_gemini_model())
-    return provider, model, get_api_key_for_provider(provider)
+    api_key = get_api_key_for_provider(provider)
+    if provider == "Investing Agent" and not api_key:
+        try:
+            import os
+            api_key = (os.getenv("SUPERINVESTING_TOKEN") or "").strip()
+        except Exception:
+            api_key = ""
+    return provider, model, api_key
 
 
 def _render_ai_provider_widget_row(key_prefix: str = "global") -> tuple[str, str, str]:
@@ -343,9 +352,21 @@ def render_ai_config(key_prefix: str, caption: str = "AI View uses these setting
 
 
 def call_ai_report(prompt_data, system_prompt, provider, model, api_key, user_intro=None, max_tokens=3000):
-    """Call Groq or Gemini and return the report text."""
+    """Call Groq, Gemini, or Investing Agent and return the report text."""
     if provider == "Custom / Other":
-        return "❌ Custom / Other AI provider is not supported for AI View. Use Groq or Google Gemini."
+        return "❌ Custom / Other AI provider is not supported for AI View. Use Groq, Google Gemini, or Investing Agent."
+    if provider == "Investing Agent":
+        from app.services.ai_service import call_ai_report as _svc_call
+
+        return _svc_call(
+            prompt_data,
+            system_prompt,
+            provider,
+            model or "superinvesting-chat",
+            api_key or "",
+            user_intro=user_intro,
+            max_tokens=max_tokens,
+        )
     if not api_key:
         return f"❌ {api_key_env_hint(provider)}"
 
@@ -379,7 +400,7 @@ def call_ai_report(prompt_data, system_prompt, provider, model, api_key, user_in
             return "❌ Google Gemini library not installed."
     except Exception as e:
         return f"❌ AI Report Error: {str(e)}\n\nPlease check your API key and model selection."
-    return "❌ Unknown AI provider."
+    return "❌ Unknown AI provider. Use Google Gemini, Groq (LLaMA), or Investing Agent."
 
 
 def safe_ai_key(key: str) -> str:
