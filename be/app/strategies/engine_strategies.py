@@ -256,7 +256,7 @@ if "intra_hedging" in ENGINE_STRATEGY_META:
     ENGINE_STRATEGY_META["intra_hedging"].update({
         "indicators": ["Intraday Session Momentum (open vs. latest close)", "Beta vs. Nifty 50 (90-day daily returns)", "ATR(14)"],
         "entry_rules": [
-            "Rank all 10 tracked Nifty sector indices by today's intraday momentum (session open vs. latest close).",
+            "Rank every tracked Nifty sector index (28 total, direct index ticker or constituent proxy) by today's intraday momentum (session open vs. latest close).",
             "Momentum spread between the strongest and weakest sector must clear the minimum divergence threshold — a flat/non-divergent day sits out.",
             "LONG the strongest sector, SHORT the weakest sector — a beta-neutral pair, not a single-sided directional bet.",
             "Capital split per leg is inverse-Beta-weighted: long_weight = short_beta / (long_beta + short_beta), short_weight = long_beta / (long_beta + short_beta).",

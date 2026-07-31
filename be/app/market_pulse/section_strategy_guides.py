@@ -1275,17 +1275,18 @@ the other leg offsets it.
 
 | Step | What it does |
 |---|---|
-| **1. Universe** | 10 major, liquid Nifty sector indices — Banking, IT, Energy/Oil & Gas, Auto, FMCG, Pharma, Metal, Realty, Infrastructure, Media. |
-| **2. Momentum ranking** | Each sector's % move from today's session open to now ranks all 10 strongest to weakest. |
+| **1. Universe** | Every major Nifty sectoral index this app can resolve OHLC for (28 sectors) — heavyweights (Banking, IT, Financial Services, Energy) and smaller/thematic ones (Defence, Tourism, Housing, ...) alike; newer indices without a listed Yahoo ticker fall back to a constituent-stock proxy. |
+| **2. Momentum ranking** | Ranks every tracked sector strongest to weakest. Intraday timeframes (5m/15m/30m/1h) use today's session open vs. now; swing timeframes (4h/1d/1wk) use a close-to-close return over a timeframe-appropriate lookback (roughly 4 trading days/1 week/1 month respectively). |
 | **3. Divergence gate** | Too small a spread between the strongest and weakest = no clear rotation today — sits out rather than forcing a weak pair. |
 | **4. Long/Short pair** | Strongest sector = LONG leg; weakest sector = SHORT leg. |
 | **5. Beta-neutral sizing** | Each leg's Beta vs. Nifty 50 (90-day daily returns) sets its capital split — the higher-Beta leg gets less capital so both sides carry equal volatility-weighted exposure. |
-| **6. Execution** | ETF route (buy the strong sector's ETF; short-selling ETFs intraday in the cash market is often broker-restricted, so the short leg typically needs sector futures) or the Stock route (buy/short the sector's top 2 weighted constituents directly). |
+| **6. Execution** | ETF route (every verified, liquid ETF for that sector listed, not just one) or the Stock route (buy/short the sector's top 5 weighted constituents directly). Cash-market shorting is broker-restricted intraday and can't be carried overnight for swing — the short leg typically needs sector futures either way. |
 
-**How to use it:** run the live scan after the first 30 minutes of trading, not right at the open. Check the
-strongest/weakest sector's reasons for the exact pair, capital split, and execution instructions. If the spread is
-below the divergence threshold, wait for the next session rather than forcing a trade. Same-day, flat-by-close —
-no overnight risk.
+**Intraday vs. swing:** pick the momentum timeframe to match how you want to trade. 5m-1h runs same-day,
+flat-by-close, after the first 30 minutes of trading. 4h/1d/1wk runs as a multi-day/week rotation — hold per the
+timeframe's guidance and re-run the scan periodically to rotate into new leaders as the ranking shifts. Either way,
+if the spread is below the divergence threshold, there's no clean pairs setup right now — wait rather than forcing
+a trade.
 
 **Math:** Beta = `covariance(sector, Nifty 50) / variance(Nifty 50)`; capital split =
 `long_weight = short_beta / (long_beta + short_beta)`, `short_weight = long_beta / (long_beta + short_beta)`.

@@ -1,41 +1,54 @@
 """
 intra_hedging_engine.py
 -------------------------
-Intra-Hedging — Sector Relative-Strength Long/Short Hedge (intraday), a
-"sector pairs trading" strategy: go long today's strongest Nifty sector,
-short today's weakest, and size both legs beta-neutral so the pair is
-market-direction-neutral — you're purely trading the SPREAD between the
-strong sector's momentum and the weak sector's weakness, not overall Nifty
-direction. If the whole market suddenly moves against you, the other leg
-offsets it.
+Intra-Hedging — Sector Relative-Strength Long/Short Hedge, a "sector pairs
+trading" strategy: go long the strongest Nifty sector, short the weakest,
+and size both legs beta-neutral so the pair is market-direction-neutral —
+you're purely trading the SPREAD between the strong sector's momentum and
+the weak sector's weakness, not overall Nifty direction. If the whole
+market suddenly moves against you, the other leg offsets it.
 
-The 10-sector universe covers the heaviest, most liquid Nifty sectoral
-indices (Banking, IT, Energy, Auto, FMCG, Pharma, Metal, Realty,
-Infrastructure, Media) — together these span the large majority of Nifty 50's
-weight, so a clear divergence here usually means real institutional rotation,
-not noise.
+Works for BOTH intraday and swing trading, selected by the momentum
+timeframe:
+  - Intraday timeframes (5m/15m/30m/1h): momentum = today's session close
+    vs. session open — the original same-day, flat-by-close read.
+  - Swing timeframes (4h/1d/1wk): momentum = close-to-close return over a
+    timeframe-appropriate lookback window (6 bars on 4h ≈ ~4 trading days,
+    5 bars on 1d ≈ ~1 trading week, 4 bars on 1wk ≈ ~1 month) — a
+    multi-day/week rotation read, held for a swing-appropriate duration
+    instead of flattened same-day.
+
+The full universe covers every major Nifty sectoral index this app can
+resolve OHLC for — 28 sectors, spanning both the heavyweight ones (Banking,
+IT, Financial Services) and the smaller/thematic ones (Defence, Tourism,
+Housing, ...). A handful of the newer sector indices have no listed Yahoo
+Finance index ticker; those fall back to an equal-weight constituent-stock
+OHLC proxy (index_ohlcv.py's existing, already-used-elsewhere resolver) —
+same honest-fallback convention as this app's other index-driven tools.
 
 Method:
-  1. Rank all 10 sectors by today's intraday momentum (session close vs.
-     session open, on the selected intraday timeframe).
+  1. Rank every tracked sector by momentum on the selected timeframe (see
+     above — session-based for intraday, lookback-return-based for swing).
   2. The strongest sector is the LONG leg; the weakest is the SHORT leg.
      If the spread between them is too small, there's no clear divergence
-     today and the strategy sits out (per the source idea: "you are looking
-     for a day where sectors clearly disagree").
+     right now and the strategy sits out (per the source idea: "you are
+     looking for a day where sectors clearly disagree").
   3. Beta-neutral sizing: each sector's Beta (vs. Nifty 50, from daily
      returns) determines its capital split — the higher-beta leg gets LESS
      capital, so both legs carry the same volatility-weighted exposure and
      net portfolio Beta is ~0.
-  4. Execution: either the ETF route (buy the strong sector's ETF; India
-     cash-market intraday shorting of ETFs is broker-restricted, so the
-     short leg typically needs the sector's futures or its top stocks) or
-     the stock route (buy/short the sector's top-weighted constituent
-     stocks directly — faster fills, no minor-ETF liquidity issues).
+  4. Execution: either the ETF route (buy the strong sector's ETF — every
+     verified, liquid NSE-listed ETF for that sector is listed, not just
+     one; India cash-market intraday shorting of ETFs is broker-restricted,
+     so the short leg typically needs the sector's futures instead) or the
+     stock route (buy/short the sector's top-5 weighted constituent stocks
+     directly — faster fills, no minor-ETF liquidity issues).
 
-Data: this app's usual Groww/yfinance OHLCV feed, with Nifty sector index
-display names ("NIFTY BANK", "NIFTY IT", ...) resolved to the correct Yahoo
-Finance ticker via nse_index_yfinance.py's single source of truth, same as
-every other index-driven engine in this app.
+Data: this app's usual Groww/yfinance OHLCV feed (via index_ohlcv.py's
+unified resolver: Groww -> verified Yahoo index ticker -> constituent-stock
+proxy), with Nifty sector index display names ("NIFTY BANK", "NIFTY IT", ...)
+resolved via nse_index_yfinance.py's single source of truth, same as every
+other index-driven engine in this app.
 
 Not a backtested edge — a structured framework for a well-known relative-
 strength pairs concept. Research / education only, not financial advice.
@@ -50,35 +63,66 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.market_pulse.gap_trading import fetch_data_for_gap_scan, fetch_ohlcv_yfinance
+from app.market_pulse.index_ohlcv import fetch_index_ohlcv_for_interval
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
+from app.market_pulse.nse_index_yfinance import SECTOR_INDEX_NAMES
 from app.market_pulse.run_summary import make_trade_plan
 from app.trading_hubs.smart_money_shared import enrich_smc_live, hold_for_tf
 
 logger = logging.getLogger(__name__)
 
-MOMENTUM_TIMEFRAME_OPTIONS = ["5m", "15m", "30m"]
+MOMENTUM_TIMEFRAME_OPTIONS = ["5m", "15m", "30m", "1h", "4h", "1d", "1wk"]
+INTRADAY_TIMEFRAMES = frozenset({"5m", "15m", "30m", "1h"})
+# Swing timeframes measure momentum as a close-to-close return over this many
+# bars, rather than today's session — chosen so each defaults to roughly a
+# similar real-world lookback window regardless of bar size.
+SWING_LOOKBACK_BARS: dict[str, int] = {"4h": 6, "1d": 5, "1wk": 4}
 
-# 10 heaviest, most liquid Nifty sectoral indices — canonical names resolved
-# via nse_index_yfinance.NSE_INDEX_YF_TICKERS.
-SECTOR_UNIVERSE: list[str] = [
-    "NIFTY BANK", "NIFTY IT", "NIFTY ENERGY", "NIFTY AUTO", "NIFTY FMCG",
-    "NIFTY PHARMA", "NIFTY METAL", "NIFTY REALTY", "NIFTY INFRASTRUCTURE", "NIFTY MEDIA",
-]
+# Every major Nifty sectoral index this app can resolve OHLC for (direct
+# Yahoo ticker or constituent-stock proxy) — nse_index_yfinance.py's own
+# curated sector-rotation universe.
+SECTOR_UNIVERSE: list[str] = list(SECTOR_INDEX_NAMES)
+
 SECTOR_LABELS: dict[str, str] = {
-    "NIFTY BANK": "Banking", "NIFTY IT": "IT", "NIFTY ENERGY": "Energy / Oil & Gas",
-    "NIFTY AUTO": "Auto", "NIFTY FMCG": "FMCG", "NIFTY PHARMA": "Pharma",
-    "NIFTY METAL": "Metal", "NIFTY REALTY": "Realty", "NIFTY INFRASTRUCTURE": "Infrastructure",
-    "NIFTY MEDIA": "Media",
+    "NIFTY AUTO": "Auto", "NIFTY BANK": "Banking", "NIFTY CEMENT": "Cement",
+    "NIFTY CHEMICALS": "Chemicals", "NIFTY COMMODITIES": "Commodities",
+    "NIFTY CONSUMPTION": "Consumption", "NIFTY CONSUMER DURABLES": "Consumer Durables",
+    "NIFTY ENERGY": "Energy / Oil & Gas", "NIFTY FINANCIAL SERVICES": "Financial Services",
+    "NIFTY FINANCIAL SERVICES EX-BANK": "Financial Services (ex-Bank)", "NIFTY FMCG": "FMCG",
+    "NIFTY HEALTHCARE": "Healthcare", "NIFTY HOUSING": "Housing",
+    "NIFTY INDIA DEFENCE": "Defence", "NIFTY INDIA MANUFACTURING": "Manufacturing",
+    "NIFTY INDIA TOURISM": "Tourism", "NIFTY INFRASTRUCTURE": "Infrastructure",
+    "NIFTY IT": "IT", "NIFTY MEDIA": "Media", "NIFTY METAL": "Metal",
+    "NIFTY MOBILITY": "Mobility", "NIFTY OIL & GAS": "Oil & Gas", "NIFTY PHARMA": "Pharma",
+    "NIFTY PRIVATE BANK": "Private Bank", "NIFTY PSU BANK": "PSU Bank",
+    "NIFTY PSE": "Public Sector Enterprises", "NIFTY REALTY": "Realty",
+    "NIFTY SERVICES SECTOR": "Services",
 }
-# Verified, liquid NSE-listed ETF proxies for the ETF execution route — None
-# where no sufficiently liquid single-sector ETF exists (use the stock route).
-SECTOR_ETF_PROXY: dict[str, str | None] = {
-    "NIFTY BANK": "BANKBEES", "NIFTY IT": "ITBEES", "NIFTY ENERGY": "ENERGYBEES",
-    "NIFTY AUTO": "AUTOBEES", "NIFTY FMCG": "CONSUMBEES", "NIFTY PHARMA": "PHARMABEES",
-    "NIFTY METAL": "METALBEES", "NIFTY REALTY": "REALTYBEES", "NIFTY INFRASTRUCTURE": "INFRABEES",
-    "NIFTY MEDIA": None,
-}
+
+
+def _build_sector_etf_map() -> dict[str, list[str]]:
+    """Reuses detect_sector_rotation_engine's already-vetted multi-ETF lists
+    (re-keyed from its own sector labels to the canonical NSE index names
+    used here) rather than duplicating ETF ticker literals. Sectors it
+    doesn't cover are left with an empty list — honest "no liquid ETF"
+    rather than an invented ticker."""
+    try:
+        from app.market_pulse.detect_sector_rotation_engine import INDIA_SECTOR_ETFS, INDIA_SECTOR_INDEX_KEY
+        from app.market_pulse.nse_index_yfinance import normalize_index_name
+    except Exception:
+        return {}
+    out: dict[str, list[str]] = {}
+    for label, nse_name in INDIA_SECTOR_INDEX_KEY.items():
+        etfs = INDIA_SECTOR_ETFS.get(label) or []
+        if etfs:
+            out[normalize_index_name(nse_name)] = list(etfs)
+    return out
+
+
+# NSE index name -> list of verified, liquid NSE-listed ETFs for the ETF
+# execution route (empty list = no sufficiently liquid single-sector ETF,
+# use the stock route instead).
+SECTOR_ETFS: dict[str, list[str]] = _build_sector_etf_map()
 BENCHMARK = "NIFTY 50"
 
 
@@ -89,7 +133,7 @@ class IntraHedgingConfig:
     beta_lookback_days: int = 90
     min_bars_daily: int = 30
     min_divergence_pct: float = 0.5  # min momentum spread (strong - weak) to call it a real divergence
-    top_n_execution_stocks: int = 2
+    top_n_execution_stocks: int = 5
     risk_free_rate: float = 0.065
     # required by the shared fixed-universe config contract; unused here (no
     # ticker-level historical lookback beyond beta_lookback_days/momentum)
@@ -124,37 +168,46 @@ def _session_bars(df: pd.DataFrame) -> pd.DataFrame:
 # Per-sector momentum + beta
 # ---------------------------------------------------------------------------
 
-def _fetch_intraday(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
-    df = fetch_data_for_gap_scan(name, cfg.momentum_timeframe, market, groww_token, exchange, limit=150)
-    df = normalize_ohlcv(df)
-    if df.empty:
-        df = normalize_ohlcv(fetch_ohlcv_yfinance(name, cfg.momentum_timeframe, is_crypto=False, limit=150, market=market))
+def _fetch_momentum_tf(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
+    limit = 150 if cfg.momentum_timeframe in INTRADAY_TIMEFRAMES else max(150, SWING_LOOKBACK_BARS.get(cfg.momentum_timeframe, 5) + 60)
+    df = fetch_index_ohlcv_for_interval(name, cfg.momentum_timeframe, limit=limit, groww_token=groww_token, exchange=exchange)
+    df = normalize_ohlcv(df) if df is not None else pd.DataFrame()
     return df
 
 
 def _fetch_daily(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
     limit = cfg.beta_lookback_days + 30
-    df = fetch_data_for_gap_scan(name, "1d", market, groww_token, exchange, limit=limit)
-    df = normalize_ohlcv(df)
-    if df.empty or len(df) < cfg.min_bars_daily:
-        df = normalize_ohlcv(fetch_ohlcv_yfinance(name, "1d", is_crypto=False, limit=limit, market=market))
+    df = fetch_index_ohlcv_for_interval(name, "1d", limit=limit, groww_token=groww_token, exchange=exchange)
+    df = normalize_ohlcv(df) if df is not None else pd.DataFrame()
     return df
 
 
 def compute_sector_momentum(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> dict[str, Any] | None:
-    df = _fetch_intraday(name, market, cfg, groww_token=groww_token, exchange=exchange)
+    df = _fetch_momentum_tf(name, market, cfg, groww_token=groww_token, exchange=exchange)
     if df.empty:
         return None
-    session = _session_bars(df)
-    if len(session) < 2:
-        session = df.iloc[-10:]
-    open_price = float(session["open"].iloc[0])
-    last_price = float(session["close"].iloc[-1])
-    if open_price <= 0:
+
+    if cfg.momentum_timeframe in INTRADAY_TIMEFRAMES:
+        window = _session_bars(df)
+        if len(window) < 2:
+            window = df.iloc[-10:]
+        base_price = float(window["open"].iloc[0])
+        window_label = "today's session"
+    else:
+        lookback = SWING_LOOKBACK_BARS.get(cfg.momentum_timeframe, 5)
+        window = df.iloc[-(lookback + 1):]
+        if len(window) < 2:
+            window = df
+        base_price = float(window["close"].iloc[0])
+        window_label = f"the last {len(window) - 1} {cfg.momentum_timeframe} bars"
+
+    last_price = float(df["close"].iloc[-1])
+    if base_price <= 0:
         return None
     return {
-        "df": df, "last_price": last_price, "open_price": open_price,
-        "momentum_pct": (last_price - open_price) / open_price * 100,
+        "df": df, "last_price": last_price, "base_price": base_price,
+        "momentum_pct": (last_price - base_price) / base_price * 100,
+        "window_label": window_label,
     }
 
 
@@ -204,10 +257,13 @@ def _sector_row(
     label = SECTOR_LABELS.get(name, name)
     momentum = metrics["momentum_pct"]
     beta = metrics.get("beta")
+    window_label = metrics.get("window_label", "the tracked window")
+    is_intraday = cfg.momentum_timeframe in INTRADAY_TIMEFRAMES
+    style = "intraday" if is_intraday else "swing"
     reasons: list[str] = [
         f"{label} ({name.title()}) is {'up' if momentum >= 0 else 'down'} {abs(momentum):.2f}% "
-        f"from today's session open — {'leading' if role == 'long' else 'lagging' if role == 'short' else 'mid-pack'} "
-        f"among the 10 tracked sectors.",
+        f"over {window_label} — {'leading' if role == 'long' else 'lagging' if role == 'short' else 'mid-pack'} "
+        f"among the {len(SECTOR_UNIVERSE)} tracked sectors.",
     ]
     if beta is not None:
         reasons.append(f"Beta vs Nifty 50: {beta:.2f} ({cfg.beta_lookback_days}-day daily returns).")
@@ -218,27 +274,32 @@ def _sector_row(
             "verdict": "WAIT", "phase": "NEUTRAL", "confidence_pct": 20.0,
             "sl_pct": 0.0, "tp_pct": 0.0,
             "momentum_pct": round(momentum, 3), "beta": round(beta, 3) if beta is not None else None,
-            "reasons": reasons + [pair_note or "Not today's pair leg — momentum isn't extreme enough on either end."],
-        }, hold_duration=hold_for_tf(cfg.momentum_timeframe, "intraday"))
+            "reasons": reasons + [pair_note or "Not the current pair leg — momentum isn't extreme enough on either end."],
+        }, hold_duration=hold_for_tf(cfg.momentum_timeframe, style))
 
     direction = "LONG" if role == "long" else "SHORT"
     sl_pct, tp_pct = _leg_risk(metrics)
-    hold = hold_for_tf(cfg.momentum_timeframe, "intraday")
+    hold = hold_for_tf(cfg.momentum_timeframe, style)
     confidence = min(90.0, max(35.0, 50 + abs(momentum) * 8))
 
     reasons.append(pair_note)
     top_stocks = sector_top_stocks(name, cfg)
-    etf = SECTOR_ETF_PROXY.get(name)
+    etfs = SECTOR_ETFS.get(name) or []
     if role == "long":
         reasons.append(
-            f"ETF route: buy {etf} (cash market)." if etf else "ETF route: no sufficiently liquid single-sector ETF — use the stock route."
+            f"ETF route: buy any of {', '.join(etfs)} (cash market)." if etfs
+            else "ETF route: no sufficiently liquid single-sector ETF — use the stock route."
         )
         if top_stocks:
             reasons.append(f"Stock route: buy top {len(top_stocks)} weighted constituents — {', '.join(top_stocks)}.")
     else:
+        short_note = (
+            "India cash-market intraday shorting is broker-restricted"
+            if is_intraday else
+            "India cash-market short positions can't be carried overnight"
+        )
         reasons.append(
-            f"ETF route: India cash-market intraday shorting of {etf} may be broker-restricted — short via "
-            f"{name.title()} futures instead." if etf else
+            f"ETF route: {short_note} for {', '.join(etfs)} — short via {name.title()} futures instead." if etfs else
             "ETF route: no sufficiently liquid single-sector ETF to short — use the stock route or sector futures."
         )
         if top_stocks:
@@ -250,9 +311,17 @@ def _sector_row(
     plan = make_trade_plan(
         direction=direction, timeframe=cfg.momentum_timeframe,
         stop_loss_pct=sl_pct, take_profit_pct=tp_pct, confidence_pct=round(confidence, 1),
-        style="intraday",
-        exit_rule="Exit if the momentum spread between the two legs closes/reverses, or flat by end of session.",
-        max_hold_exit="Flat by end of session — this is a same-day pairs trade, not an overnight hold.",
+        style=style,
+        exit_rule=(
+            "Exit if the momentum spread between the two legs closes/reverses, or flat by end of session."
+            if is_intraday else
+            "Exit if the momentum spread between the two legs closes/reverses, or re-run the scan and rotate into the new leaders if the ranking has clearly changed."
+        ),
+        max_hold_exit=(
+            "Flat by end of session — this is a same-day pairs trade, not an overnight hold."
+            if is_intraday else
+            f"Re-check every {'few days' if cfg.momentum_timeframe in ('4h', '1d') else 'week or two'} — swing sector rotation doesn't need to be flattened same-day, but it does need to be revisited as leadership shifts."
+        ),
     )
 
     return enrich_smc_live({
@@ -269,13 +338,13 @@ def analyze_ticker(
     groww_token: str = "", exchange: str = "NSE",
 ) -> dict[str, Any]:
     """Single-sector read (momentum + beta), no pair verdict — the pair
-    recommendation only exists at the scan_universe level, across all 10
-    sectors. Kept for interface parity with the other hub engines."""
+    recommendation only exists at the scan_universe level, across every
+    tracked sector. Kept for interface parity with the other hub engines."""
     cfg = cfg or IntraHedgingConfig()
     name = ticker.upper() if ticker.upper() in SECTOR_UNIVERSE else ticker
     mom = compute_sector_momentum(name, market, cfg, groww_token=groww_token, exchange=exchange)
     if mom is None:
-        return {"ticker": ticker, "error": f"Insufficient {cfg.momentum_timeframe} intraday data."}
+        return {"ticker": ticker, "error": f"Insufficient {cfg.momentum_timeframe} data."}
     return {
         "ticker": ticker, "market": market,
         "last_close": round(mom["last_price"], 4),
@@ -287,7 +356,7 @@ def scan_universe(
     tickers: list[str], market: str, *, cfg: IntraHedgingConfig | None = None,
     groww_token: str = "", exchange: str = "NSE", run_bt: bool = False,
 ) -> dict[str, Any]:
-    """Always scans the fixed 10-sector universe — `tickers` is accepted for
+    """Always scans the fixed sector universe — `tickers` is accepted for
     interface parity with the other fixed-universe hub sections and filtered
     against SECTOR_UNIVERSE, same convention as gokul_chhabra_engine / zero_to_hero_engine."""
     cfg = cfg or IntraHedgingConfig()
@@ -304,7 +373,7 @@ def scan_universe(
     for name in names:
         mom = compute_sector_momentum(name, market, cfg, groww_token=groww_token, exchange=exchange)
         if mom is None:
-            errors[name] = f"Insufficient {cfg.momentum_timeframe} intraday data."
+            errors[name] = f"Insufficient {cfg.momentum_timeframe} data."
             continue
         beta = compute_beta(name, market, bench_returns, cfg, groww_token=groww_token, exchange=exchange)
         mom["beta"] = beta
@@ -331,11 +400,12 @@ def scan_universe(
     short_capital = round(cfg.total_capital * short_weight, 2)
     net_beta_exposure = round(long_capital * strong["beta"] - short_capital * weak["beta"], 2)
 
+    pair_scope = "Today's" if cfg.momentum_timeframe in INTRADAY_TIMEFRAMES else "Current"
     pair_note = (
-        f"Today's pair: LONG {SECTOR_LABELS.get(strong_name, strong_name)} ({strong['momentum_pct']:+.2f}%) vs "
+        f"{pair_scope} pair: LONG {SECTOR_LABELS.get(strong_name, strong_name)} ({strong['momentum_pct']:+.2f}%) vs "
         f"SHORT {SECTOR_LABELS.get(weak_name, weak_name)} ({weak['momentum_pct']:+.2f}%) — spread {spread:.2f}%."
         if divergence_ok else
-        f"Momentum spread today is only {spread:.2f}% (below the {cfg.min_divergence_pct:.1f}% divergence threshold) "
+        f"The momentum spread right now is only {spread:.2f}% (below the {cfg.min_divergence_pct:.1f}% divergence threshold) "
         "— no clear sector disagreement, sitting out rather than forcing a weak pair."
     )
 
@@ -366,11 +436,11 @@ def scan_universe(
         "min_divergence_pct": cfg.min_divergence_pct,
         "long_sector": strong_name, "long_label": SECTOR_LABELS.get(strong_name, strong_name),
         "long_momentum_pct": round(strong["momentum_pct"], 3), "long_beta": round(strong["beta"], 3),
-        "long_capital": long_capital, "long_etf": SECTOR_ETF_PROXY.get(strong_name),
+        "long_capital": long_capital, "long_etfs": SECTOR_ETFS.get(strong_name, []),
         "long_top_stocks": sector_top_stocks(strong_name, cfg),
         "short_sector": weak_name, "short_label": SECTOR_LABELS.get(weak_name, weak_name),
         "short_momentum_pct": round(weak["momentum_pct"], 3), "short_beta": round(weak["beta"], 3),
-        "short_capital": short_capital, "short_etf": SECTOR_ETF_PROXY.get(weak_name),
+        "short_capital": short_capital, "short_etfs": SECTOR_ETFS.get(weak_name, []),
         "short_top_stocks": sector_top_stocks(weak_name, cfg),
         "total_capital": cfg.total_capital, "net_beta_exposure": net_beta_exposure,
         "note": pair_note,
