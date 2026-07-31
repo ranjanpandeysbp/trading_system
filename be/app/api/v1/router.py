@@ -92,6 +92,8 @@ from app.models.schemas import (
     UserLogin,
     UserOut,
     UserRegister,
+    YoutubeAnalysisAiViewRequest,
+    YoutubeAnalysisScanRequest,
 )
 from app.services.command_center_service import CommandCenterService
 from app.services.options_service import OptionsService
@@ -113,6 +115,11 @@ from app.services.ta_screener_service import TaScreenerService
 from app.services.etf_ta_service import EtfTaService
 from app.services.trading_hub_service import TradingHubService
 from app.services.settings_service import SettingsService
+from app.services.youtube_analysis_service import (
+    YOUTUBE_MARKET_SYSTEM,
+    build_market_ai_context,
+    scan_channels,
+)
 from app.strategies.registry import (
     all_strategy_meta_for_api,
     get_strategy_meta_for_api,
@@ -238,7 +245,7 @@ async def get_settings(
     current_user: User = Depends(get_current_user),
 ):
     service = SettingsService(db)
-    return SettingsResponse(**await service.get_all())
+    return SettingsResponse(**await service.get_all(current_user.id))
 
 
 @router.put("/settings", response_model=SettingsResponse)
@@ -249,7 +256,7 @@ async def update_settings(
 ):
     service = SettingsService(db)
     data = payload.model_dump(exclude_unset=True)
-    return SettingsResponse(**await service.update(data))
+    return SettingsResponse(**await service.update(data, user_id=current_user.id))
 
 
 @router.post("/settings/test-provider")
@@ -302,6 +309,151 @@ async def ai_ask(
             question=payload.question,
             system_prompt=payload.system_prompt,
             section=payload.section,
+            max_tokens=payload.max_tokens,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AskAIResponse(**result)
+
+
+@router.post("/youtube-analysis/scan")
+async def youtube_analysis_scan(
+    payload: YoutubeAnalysisScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    import asyncio
+    from datetime import date, timedelta
+
+    settings = SettingsService(db)
+    api_key = (payload.youtube_api_key or "").strip() or (
+        await settings.get_youtube_api_key(current_user.id) or ""
+    )
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="YouTube Data API key is required. Enter it once — it will be saved for your account.",
+        )
+
+    proxy_prefs = await settings.get_youtube_proxy_prefs(current_user.id)
+    ws_user = (payload.webshare_username or "").strip() or proxy_prefs.get("webshare_username") or ""
+    ws_pass = (payload.webshare_password or "").strip() or proxy_prefs.get("webshare_password") or ""
+    http_proxy = (payload.http_proxy or "").strip() or proxy_prefs.get("http_proxy") or ""
+    https_proxy = (payload.https_proxy or "").strip() or proxy_prefs.get("https_proxy") or ""
+
+    # Always remember API key (when newly entered) + channel IDs + proxy prefs for this user
+    channel_text = "\n".join(cid.strip() for cid in payload.channel_ids if str(cid).strip())
+    await settings.save_youtube_prefs(
+        current_user.id,
+        youtube_api_key=(payload.youtube_api_key or "").strip() or None,
+        youtube_channel_ids=channel_text,
+        youtube_webshare_username=payload.webshare_username,
+        youtube_webshare_password=(payload.webshare_password or "").strip() or None,
+        youtube_http_proxy=payload.http_proxy,
+        youtube_https_proxy=payload.https_proxy,
+    )
+
+    today = date.today()
+    try:
+        to_d = date.fromisoformat(payload.to_date) if payload.to_date else today
+        from_d = date.fromisoformat(payload.from_date) if payload.from_date else (to_d - timedelta(days=4))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {exc}") from exc
+
+    result = await asyncio.to_thread(
+        scan_channels,
+        api_key=api_key,
+        channel_ids=payload.channel_ids,
+        from_date=from_d,
+        to_date=to_d,
+        max_per_channel=payload.max_per_channel,
+        fetch_transcripts=payload.fetch_transcripts,
+        webshare_username=ws_user or None,
+        webshare_password=ws_pass or None,
+        http_proxy=http_proxy or None,
+        https_proxy=https_proxy or None,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    result["ai_context"] = build_market_ai_context(result)
+    result["ai_system_prompt"] = YOUTUBE_MARKET_SYSTEM
+    result["youtube_api_key_set"] = True
+    result["youtube_channel_ids"] = await settings.get_youtube_channel_ids(current_user.id)
+    result["youtube_proxy_configured"] = bool((ws_user and ws_pass) or http_proxy or https_proxy)
+    return result
+
+
+@router.get("/youtube-analysis/prefs")
+async def youtube_analysis_prefs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    proxy = await settings.get_youtube_proxy_prefs(current_user.id)
+    return {
+        "youtube_api_key_set": bool(await settings.get_youtube_api_key(current_user.id)),
+        "youtube_channel_ids": await settings.get_youtube_channel_ids(current_user.id),
+        "webshare_username": proxy.get("webshare_username") or "",
+        "webshare_password_set": bool(proxy.get("webshare_password_set")),
+        "http_proxy": proxy.get("http_proxy") or "",
+        "https_proxy": proxy.get("https_proxy") or "",
+        "proxy_configured": bool(proxy.get("proxy_configured")),
+    }
+
+
+@router.put("/youtube-analysis/prefs")
+async def youtube_analysis_prefs_save(
+    payload: SettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Save YouTube API key / channel IDs / proxy without running a scan."""
+    settings = SettingsService(db)
+    await settings.save_youtube_prefs(
+        current_user.id,
+        youtube_api_key=payload.youtube_api_key,
+        youtube_channel_ids=payload.youtube_channel_ids,
+        youtube_webshare_username=payload.youtube_webshare_username,
+        youtube_webshare_password=payload.youtube_webshare_password,
+        youtube_http_proxy=payload.youtube_http_proxy,
+        youtube_https_proxy=payload.youtube_https_proxy,
+    )
+    proxy = await settings.get_youtube_proxy_prefs(current_user.id)
+    return {
+        "youtube_api_key_set": bool(await settings.get_youtube_api_key(current_user.id)),
+        "youtube_channel_ids": await settings.get_youtube_channel_ids(current_user.id),
+        "webshare_username": proxy.get("webshare_username") or "",
+        "webshare_password_set": bool(proxy.get("webshare_password_set")),
+        "http_proxy": proxy.get("http_proxy") or "",
+        "https_proxy": proxy.get("https_proxy") or "",
+        "proxy_configured": bool(proxy.get("proxy_configured")),
+    }
+
+
+@router.post("/youtube-analysis/ai-view", response_model=AskAIResponse)
+async def youtube_analysis_ai_view(
+    payload: YoutubeAnalysisAiViewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    context = (payload.ai_context or "").strip()
+    if not context and payload.scan:
+        context = build_market_ai_context(payload.scan)
+    if not context:
+        raise HTTPException(status_code=400, detail="Provide ai_context or a prior scan payload.")
+
+    service = AIService(SettingsService(db))
+    try:
+        result = await service.ask(
+            context=context,
+            question=payload.question
+            or (
+                "Summarize these YouTube transcripts into a clear market view. "
+                "Explain likely stock-market impact for the next few days and the next 1–2 weeks."
+            ),
+            system_prompt=YOUTUBE_MARKET_SYSTEM,
+            section="youtube-analysis/ai-view",
             max_tokens=payload.max_tokens,
         )
     except ValueError as exc:

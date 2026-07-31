@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -36,6 +36,7 @@ const nav: NavEntry[] = [
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
   { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
   { to: '/seasonality', label: 'Seasonality', shortLabel: 'Season', icon: CalendarRange },
+  { to: '/youtube-analysis', label: 'Youtube Analysis', shortLabel: 'YT', icon: Clapperboard },
   { to: '/alerts', label: 'Alerts', shortLabel: 'Alerts', icon: Bell },
   { to: '/watchlist', label: 'Watchlist', shortLabel: 'Watch', icon: Eye },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },

@@ -3,6 +3,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import StrategyLab from './pages/StrategyLab'
 import Seasonality from './pages/Seasonality'
+import YoutubeAnalysis from './pages/YoutubeAnalysis'
 import Alerts from './pages/Alerts'
 import WatchlistPage from './pages/Watchlist'
 import CommandCenter from './pages/CommandCenter'
@@ -81,6 +82,7 @@ export default function App() {
                 <Route path="/technical-analysis" element={<TechnicalAnalysis />} />
                 <Route path="/strategy-lab" element={<StrategyLab />} />
                 <Route path="/seasonality" element={<Seasonality />} />
+                <Route path="/youtube-analysis" element={<YoutubeAnalysis />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />

@@ -32,6 +32,7 @@ export default function ManageSettings() {
   const [growwExchange, setGrowwExchange] = useState('NSE')
   const [geminiKey, setGeminiKey] = useState('')
   const [groqKey, setGroqKey] = useState('')
+  const [youtubeKey, setYoutubeKey] = useState('')
   const [aiProvider, setAiProvider] = useState('Google Gemini')
   const [groqModel, setGroqModel] = useState(GROQ_MODELS[0])
   const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0])
@@ -64,10 +65,10 @@ export default function ManageSettings() {
       setGrowwToken('')
       setGeminiKey('')
       setGroqKey('')
+      setYoutubeKey('')
     },
     onError: (e: Error) => setMsg(e.message),
   })
-
   const testMutation = useMutation({
     mutationFn: testProvider,
     onSuccess: (data) => setTestResult(data),
@@ -80,6 +81,7 @@ export default function ManageSettings() {
     groww_exchange: growwExchange,
     ...(geminiKey ? { gemini_api_key: geminiKey } : {}),
     ...(groqKey ? { groq_api_key: groqKey } : {}),
+    ...(youtubeKey ? { youtube_api_key: youtubeKey } : {}),
     ai_provider: aiProvider,
     groq_model: groqModel,
     gemini_model: geminiModel,
@@ -179,6 +181,10 @@ export default function ManageSettings() {
             <Input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)} placeholder="gsk_…" />
           </FormField>
 
+          <FormField label={`YouTube Data API Key ${settings?.youtube_api_key_set ? '(saved)' : ''}`}>
+            <Input type="password" value={youtubeKey} onChange={(e) => setYoutubeKey(e.target.value)} placeholder="AIza… (YouTube Data API v3)" />
+          </FormField>
+
           {aiProvider === 'Groq (LLaMA)' ? (
             <FormField label="Groq Model">
               <Select value={groqModel} onChange={(e) => setGroqModel(e.target.value)}>
@@ -194,7 +200,7 @@ export default function ManageSettings() {
           )}
 
           <p className="text-xs text-slate-500">
-            Keys are stored in the app database (same as Groww token). Env vars GEMINI_API_KEY / GROQ_API_KEY are used as fallback.
+            Keys are stored in the app database (same as Groww token). Env vars GEMINI_API_KEY / GROQ_API_KEY / YOUTUBE_API_KEY are used as fallback.
           </p>
 
           <Button className="mt-4" onClick={() => saveMutation.mutate(savePayload())} disabled={saveMutation.isPending}>

@@ -11,11 +11,12 @@ import { Badge } from '../ui/Badge'
 type Props = {
   context: string
   section?: string
+  systemPrompt?: string
   disabled?: boolean
   className?: string
 }
 
-export function AskAIPanel({ context, section, disabled, className = '' }: Props) {
+export function AskAIPanel({ context, section, systemPrompt, disabled, className = '' }: Props) {
   const [question, setQuestion] = useState('')
   const [report, setReport] = useState<{ report: string; verdict?: string | null; provider: string; model: string } | null>(null)
 
@@ -25,6 +26,7 @@ export function AskAIPanel({ context, section, disabled, className = '' }: Props
         context,
         question: question.trim() || undefined,
         section,
+        system_prompt: systemPrompt,
       }),
     onSuccess: (data: { report: string; verdict?: string | null; provider: string; model: string }) =>
       setReport(data),

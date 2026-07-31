@@ -252,6 +252,8 @@ export const getSettings = () => api.get<{
   groq_model: string
   gemini_model: string
   default_market: string
+  youtube_api_key_set: boolean
+  youtube_channel_ids: string
 }>('/settings').then((r) => r.data)
 export const updateSettings = (payload: Record<string, unknown>) => api.put('/settings', payload).then((r) => r.data)
 export const testProvider = () => api.post('/settings/test-provider').then((r) => r.data)
@@ -264,6 +266,7 @@ export const askAI = (payload: {
   context: string
   question?: string
   section?: string
+  system_prompt?: string
   max_tokens?: number
 }) => api.post<{
   report: string
@@ -272,6 +275,73 @@ export const askAI = (payload: {
   model: string
   error: boolean
 }>('/ai/ask', payload, { timeout: 120_000 }).then((r) => r.data)
+
+export const fetchYoutubeAnalysisPrefs = () =>
+  api
+    .get<{
+      youtube_api_key_set: boolean
+      youtube_channel_ids: string
+      webshare_username: string
+      webshare_password_set: boolean
+      http_proxy: string
+      https_proxy: string
+      proxy_configured: boolean
+    }>('/youtube-analysis/prefs')
+    .then((r) => r.data)
+
+export const saveYoutubeAnalysisPrefs = (payload: {
+  youtube_api_key?: string
+  youtube_channel_ids?: string
+  youtube_webshare_username?: string
+  youtube_webshare_password?: string
+  youtube_http_proxy?: string
+  youtube_https_proxy?: string
+}) =>
+  api
+    .put<{
+      youtube_api_key_set: boolean
+      youtube_channel_ids: string
+      webshare_username: string
+      webshare_password_set: boolean
+      http_proxy: string
+      https_proxy: string
+      proxy_configured: boolean
+    }>('/youtube-analysis/prefs', payload)
+    .then((r) => r.data)
+
+export const runYoutubeAnalysisScan = (payload: {
+  youtube_api_key?: string
+  channel_ids: string[]
+  from_date?: string
+  to_date?: string
+  max_per_channel?: number
+  fetch_transcripts?: boolean
+  save_api_key?: boolean
+  webshare_username?: string
+  webshare_password?: string
+  http_proxy?: string
+  https_proxy?: string
+}) =>
+  api
+    .post<Record<string, unknown>>('/youtube-analysis/scan', payload, { timeout: 600_000 })
+    .then((r) => r.data)
+
+export const runYoutubeAnalysisAiView = (payload: {
+  ai_context?: string
+  scan?: Record<string, unknown>
+  question?: string
+  max_tokens?: number
+}) =>
+  api
+    .post<{
+      report: string
+      verdict: string | null
+      provider: string
+      model: string
+      error: boolean
+    }>('/youtube-analysis/ai-view', payload, { timeout: 180_000 })
+    .then((r) => r.data)
+
 export const getAccount = () => api.get<AccountSummary>('/paper/account').then((r) => r.data)
 export const fetchPaperPrice = (ticker: string, assetClass: string = 'india') =>
   api.get<{ ticker: string; price: number }>('/paper/price', { params: { ticker, asset_class: assetClass } }).then((r) => r.data)

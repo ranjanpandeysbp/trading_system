@@ -135,6 +135,9 @@ class SettingsResponse(BaseModel):
     groq_model: str = "llama-3.3-70b-versatile"
     gemini_model: str = "gemini-2.0-flash"
     default_market: str = "Groww (India Stocks)"
+    youtube_api_key_set: bool = False
+    youtube_channel_ids: str = ""
+    youtube_proxy_configured: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -150,6 +153,12 @@ class SettingsUpdate(BaseModel):
     groq_model: str | None = None
     gemini_model: str | None = None
     default_market: str | None = None
+    youtube_api_key: str | None = None
+    youtube_channel_ids: str | None = None
+    youtube_webshare_username: str | None = None
+    youtube_webshare_password: str | None = None
+    youtube_http_proxy: str | None = None
+    youtube_https_proxy: str | None = None
 
 
 class AskAIRequest(BaseModel):
@@ -798,3 +807,28 @@ class OptionsZeroToHeroRequest(BaseModel):
     partial_book_rr: float = 1.0
     partial_book_pct: float = 55.0
     session_end: str = "15:15"
+
+
+class YoutubeAnalysisScanRequest(BaseModel):
+    """Fetch videos + transcripts for channels in a date range (default ~5 calendar days)."""
+    youtube_api_key: str | None = None  # optional if saved for this user
+    channel_ids: list[str] = Field(default_factory=list)
+    from_date: str | None = None  # YYYY-MM-DD; default = today-4
+    to_date: str | None = None  # YYYY-MM-DD; default = today
+    max_per_channel: int = Field(default=25, ge=1, le=50)
+    fetch_transcripts: bool = True
+    # Always persisted for the user on scan; kept for backward compat (ignored = always save)
+    save_api_key: bool = True
+    # Optional residential proxy (overrides saved prefs when provided)
+    webshare_username: str | None = None
+    webshare_password: str | None = None
+    http_proxy: str | None = None
+    https_proxy: str | None = None
+
+
+class YoutubeAnalysisAiViewRequest(BaseModel):
+    """Run market-impact AI summary over a prior scan (or raw context)."""
+    ai_context: str | None = None
+    scan: dict[str, Any] | None = None
+    question: str | None = None
+    max_tokens: int = Field(default=4000, ge=256, le=8000)
