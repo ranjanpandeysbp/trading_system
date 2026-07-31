@@ -13,7 +13,7 @@ import { CollapsibleScrollSection } from '../components/command-center/Collapsib
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, Input, Textarea } from '../components/ui/Form'
+import { FormField, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { Badge } from '../components/ui/Badge'
 
@@ -50,9 +50,7 @@ export default function YoutubeAnalysis() {
     queryFn: fetchYoutubeAnalysisPrefs,
   })
 
-  const [apiKey, setApiKey] = useState('')
   const [videosRaw, setVideosRaw] = useState('')
-  const [keySaved, setKeySaved] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [error, setError] = useState('')
   const [prefsMsg, setPrefsMsg] = useState('')
@@ -68,28 +66,24 @@ export default function YoutubeAnalysis() {
   useEffect(() => {
     if (!prefs || hydrated) return
     setVideosRaw(prefs.youtube_channel_ids || '')
-    setKeySaved(Boolean(prefs.youtube_api_key_set))
     setHydrated(true)
   }, [prefs, hydrated])
 
   const videoList = parseVideoList(videosRaw)
-  const hasSavedKey = keySaved || Boolean(prefs?.youtube_api_key_set)
+  const hasYoutubeKey = Boolean(prefs?.youtube_api_key_set)
   const geminiReady = Boolean(prefs?.gemini_token_set)
+  const keysReady = hasYoutubeKey && geminiReady
 
   const savePrefsMut = useMutation({
     mutationFn: () =>
       saveYoutubeAnalysisPrefs({
-        youtube_api_key: apiKey.trim() || undefined,
         youtube_channel_ids: videosRaw,
       }),
     onSuccess: (data) => {
-      setKeySaved(Boolean(data.youtube_api_key_set))
-      if (apiKey.trim()) setApiKey('')
       setVideosRaw(data.youtube_channel_ids || videosRaw)
-      setPrefsMsg('Saved for your account — will be reused until you change them.')
+      setPrefsMsg('Video list saved for your account.')
       setError('')
       qc.invalidateQueries({ queryKey: ['youtube-analysis-prefs'] })
-      qc.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: (e) => setError(apiErrorMessage(e)),
   })
@@ -97,14 +91,13 @@ export default function YoutubeAnalysis() {
   const scanMut = useMutation({
     mutationFn: () => {
       if (!videoList.length) throw new Error('Enter at least one YouTube video URL or ID')
-      if (!apiKey.trim() && !hasSavedKey) {
-        throw new Error('Enter a YouTube Data API key (it will be saved for your account)')
+      if (!hasYoutubeKey) {
+        throw new Error('Add a YouTube Data API key under Manage Settings')
       }
       if (!geminiReady) {
-        throw new Error('Add a Gemini API key under Manage Settings (transcripts use Gemini YouTube URL analysis)')
+        throw new Error('Add a Gemini API key under Manage Settings')
       }
       return runYoutubeAnalysisScan({
-        youtube_api_key: apiKey.trim() || undefined,
         video_urls: videoList,
       })
     },
@@ -114,10 +107,8 @@ export default function YoutubeAnalysis() {
     },
     onSuccess: (data) => {
       setError('')
-      setPrefsMsg('API key & video list saved for your account.')
+      setPrefsMsg('Video list saved for your account.')
       setAiView(null)
-      setKeySaved(true)
-      if (apiKey.trim()) setApiKey('')
       const saved = String(data.youtube_channel_ids || '')
       if (saved) setVideosRaw(saved)
       const channels = (data.channels as ChannelBucket[]) || []
@@ -132,7 +123,6 @@ export default function YoutubeAnalysis() {
       setOpenChannels(nextCh)
       setOpenDays(nextDay)
       qc.invalidateQueries({ queryKey: ['youtube-analysis-prefs'] })
-      qc.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
@@ -162,28 +152,30 @@ export default function YoutubeAnalysis() {
     <div>
       <PageHeader
         title="Youtube Analysis"
-        description="Listed YouTube videos · transcripts via Gemini · Ask AI / AI View"
+        description="Listed YouTube videos · transcripts via Gemini · Ask AI / AI View. API keys are configured under Manage."
       />
 
       <Card className="mb-4">
-        <FormField
-          label={`YouTube Data API key ${hasSavedKey ? '(saved for your account)' : ''}`}
-        >
-          <Input
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value)
-              setPrefsMsg('')
-            }}
-            placeholder={hasSavedKey ? 'Leave blank to keep using saved key' : 'AIza…'}
-          />
-        </FormField>
-        <p className="mt-1 text-xs text-slate-500">
-          Paste YouTube video URLs or IDs (comma-separated or one per line), then extract each
-          transcript with Gemini. Gemini key:{' '}
-          {geminiReady ? `saved · model ${prefs?.gemini_model || '—'}` : 'not set — add under Manage Settings'}.
+        <p className="mb-3 text-xs text-slate-500">
+          Paste YouTube video URLs or IDs (comma-separated or one per line). YouTube Data API + Gemini
+          keys: configure under Manage.
+          {hasYoutubeKey ? ' YouTube key saved.' : ' YouTube key missing.'}
+          {geminiReady
+            ? ` Gemini saved · model ${prefs?.gemini_model || '—'}.`
+            : ' Gemini key missing.'}
         </p>
+
+        {!keysReady && (
+          <div className="mb-3">
+            <Alert type="error">
+              {!hasYoutubeKey && !geminiReady
+                ? 'Add YouTube Data API key and Gemini API key under Manage Settings.'
+                : !hasYoutubeKey
+                  ? 'Add a YouTube Data API key under Manage Settings.'
+                  : 'Add a Gemini API key under Manage Settings.'}
+            </Alert>
+          </div>
+        )}
 
         <FormField label="YouTube videos (URLs or IDs — comma-separated or one per line)">
           <Textarea
@@ -202,7 +194,7 @@ export default function YoutubeAnalysis() {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
             onClick={() => scanMut.mutate()}
-            disabled={scanMut.isPending || !videoList.length || !geminiReady}
+            disabled={scanMut.isPending || !videoList.length || !keysReady}
           >
             <span className="inline-flex items-center gap-2">
               <Clapperboard size={16} />
@@ -214,11 +206,11 @@ export default function YoutubeAnalysis() {
           <Button
             variant="secondary"
             onClick={() => savePrefsMut.mutate()}
-            disabled={savePrefsMut.isPending || (!apiKey.trim() && !videosRaw.trim() && !hasSavedKey)}
+            disabled={savePrefsMut.isPending || !videosRaw.trim()}
           >
             <span className="inline-flex items-center gap-2">
               <Save size={16} />
-              {savePrefsMut.isPending ? 'Saving…' : 'Save prefs'}
+              {savePrefsMut.isPending ? 'Saving…' : 'Save video list'}
             </span>
           </Button>
         </div>

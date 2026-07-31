@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, KeyRound, Loader2, Save, Search, Send, Sparkles } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Bot, Loader2, Search, Send, Sparkles } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchInvestingAgentStatus,
   fetchInvestingAgentStockCard,
-  saveInvestingAgentToken,
   streamInvestingAgentChat,
   type InvestingAgentStreamEvent,
 } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, Input, Textarea } from '../components/ui/Form'
+import { FormField, Textarea } from '../components/ui/Form'
 import { TickerAutosuggest } from '../components/ui/TickerAutosuggest'
 import { Alert, Loading } from '../components/ui/Feedback'
 
@@ -429,14 +428,11 @@ function StockScorecardView({ data, symbol }: { data: StockCardData; symbol: str
 }
 
 export default function InvestingAgent() {
-  const qc = useQueryClient()
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['investing-agent-status'],
     queryFn: fetchInvestingAgentStatus,
   })
 
-  const [tokenInput, setTokenInput] = useState('')
-  const [tokenMsg, setTokenMsg] = useState('')
   const [prompt, setPrompt] = useState('nifty analysis')
   const [statusLine, setStatusLine] = useState('')
   const [liveText, setLiveText] = useState('')
@@ -460,18 +456,6 @@ export default function InvestingAgent() {
       answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [answer, liveText])
-
-  const saveTokenMut = useMutation({
-    mutationFn: () => saveInvestingAgentToken(tokenInput.trim()),
-    onSuccess: (data) => {
-      setTokenMsg(data.message)
-      setTokenInput('')
-      setError('')
-      void qc.invalidateQueries({ queryKey: ['investing-agent-status'] })
-      void qc.invalidateQueries({ queryKey: ['settings'] })
-    },
-    onError: (e) => setError(apiErrorMessage(e)),
-  })
 
   const stockMut = useMutation({
     mutationFn: (symbol: string) => fetchInvestingAgentStockCard(symbol),
@@ -561,58 +545,20 @@ export default function InvestingAgent() {
     <div>
       <PageHeader
         title="Investing Agent"
-        description="Chat with SuperInvesting for index narratives (e.g. nifty analysis) and stock scorecards. Personal use — reverse-engineered API; JWT expires ~every 3 days."
+        description="Chat with SuperInvesting for index narratives (e.g. nifty analysis) and stock scorecards. Token is configured under Manage."
       />
 
-      <Card className="mb-6">
-        <div className="mb-3 flex items-center gap-2">
-          <KeyRound className="text-amber-400" size={18} />
-          <h3 className="font-semibold text-white">SuperInvesting Bearer Token</h3>
-          {tokenSet && (
-            <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">Saved</span>
-          )}
-        </div>
-        <p className="mb-3 text-sm text-slate-400">
-          Paste the JWT from SuperInvesting (client key <code className="text-slate-300">authToken</code>).
-          Stored in app settings for all usage (Ask AI when provider is Investing Agent, and this page).
-          You can also save it under <strong className="text-slate-300">Manage → AI Settings</strong>. Never commit this token.
-        </p>
-        {statusLoading ? (
-          <Loading message="Loading token status…" />
-        ) : (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <FormField
-                label={
-                  tokenSet
-                    ? 'New token (leave blank to keep saved — enter to replace)'
-                    : 'Bearer token (required)'
-                }
-              >
-                <Input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="eyJhbGciOi…"
-                  autoComplete="off"
-                />
-              </FormField>
-            </div>
-            <Button
-              className="mb-4 shrink-0"
-              disabled={!tokenInput.trim() || saveTokenMut.isPending}
-              onClick={() => saveTokenMut.mutate()}
-            >
-              <Save size={16} />
-              {saveTokenMut.isPending ? 'Saving…' : 'Save token'}
-            </Button>
-          </div>
-        )}
-        {tokenMsg && <Alert type="success">{tokenMsg}</Alert>}
-      </Card>
-
       {!tokenSet && !statusLoading && (
-        <Alert type="error">Save a Bearer token above before chatting or looking up stocks.</Alert>
+        <div className="mb-4">
+          <Alert type="error">
+            Investing Agent token is not set. Add it under Manage → AI Settings.
+          </Alert>
+        </div>
+      )}
+      {statusLoading && (
+        <div className="mb-4">
+          <Loading message="Checking token status…" />
+        </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
