@@ -47,6 +47,7 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "support_resistance": ["1m", "5m", "15m"],
     "footprint": ["1m", "5m", "15m"],
     "reversal_strategy": ["4h", "1d", "1wk"],
+    "intra_hedging": ["5m", "15m", "30m"],
 }
 
 _HUB_MIN_BARS: dict[str, int] = {
@@ -72,6 +73,7 @@ _HUB_MIN_BARS: dict[str, int] = {
     "support_resistance": 80,
     "footprint": 80,
     "reversal_strategy": 100,
+    "intra_hedging": 30,
 }
 
 TA_STRATEGIES: list[dict[str, Any]] = [
@@ -141,6 +143,7 @@ for section in HUB_SECTIONS:
         "support_resistance",
         "footprint",
         "reversal_strategy",
+        "intra_hedging",
     }:
         runner = "analyze_bt"
     elif sid in {
@@ -246,6 +249,22 @@ if "reversal_strategy" in ENGINE_STRATEGY_META:
             "Stop just beyond the signal candle's opposite extreme (ATR-based buffer).",
             "Target: the 50 EMA in a trending market condition, or the next major level while ranging — auto-selected or pinned via config.",
             "Minimum 1:1 reward:risk enforced; target extended to hold it if the natural target falls short.",
+        ],
+    })
+
+if "intra_hedging" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["intra_hedging"].update({
+        "indicators": ["Intraday Session Momentum (open vs. latest close)", "Beta vs. Nifty 50 (90-day daily returns)", "ATR(14)"],
+        "entry_rules": [
+            "Rank all 10 tracked Nifty sector indices by today's intraday momentum (session open vs. latest close).",
+            "Momentum spread between the strongest and weakest sector must clear the minimum divergence threshold — a flat/non-divergent day sits out.",
+            "LONG the strongest sector, SHORT the weakest sector — a beta-neutral pair, not a single-sided directional bet.",
+            "Capital split per leg is inverse-Beta-weighted: long_weight = short_beta / (long_beta + short_beta), short_weight = long_beta / (long_beta + short_beta).",
+        ],
+        "exit_rules": [
+            "Stop per leg is ATR-based (roughly 1x ATR as % of price).",
+            "Exit if the momentum spread between the two legs closes or reverses.",
+            "Flat by end of session regardless — this is a same-day pairs trade, never held overnight.",
         ],
     })
 

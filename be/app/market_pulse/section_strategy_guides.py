@@ -1265,6 +1265,34 @@ major level while ranging — or pin it to one mode directly.
 unconfirmed for days. Works across Groww India, US, Crypto, and Commodities.
 """,
 
+    "intra_hedging": """
+### Intra-Hedging — sector relative-strength long/short (beta-neutral)
+
+**The core idea:** a classic institutional Long/Short Equity approach applied to Nifty sectors — buy the strongest
+sector, short the weakest, sized so their Beta-weighted exposure matches. This strips out the broad Nifty's own
+direction and trades only the DIFFERENCE in momentum between the two sectors — if the whole market suddenly moves,
+the other leg offsets it.
+
+| Step | What it does |
+|---|---|
+| **1. Universe** | 10 major, liquid Nifty sector indices — Banking, IT, Energy/Oil & Gas, Auto, FMCG, Pharma, Metal, Realty, Infrastructure, Media. |
+| **2. Momentum ranking** | Each sector's % move from today's session open to now ranks all 10 strongest to weakest. |
+| **3. Divergence gate** | Too small a spread between the strongest and weakest = no clear rotation today — sits out rather than forcing a weak pair. |
+| **4. Long/Short pair** | Strongest sector = LONG leg; weakest sector = SHORT leg. |
+| **5. Beta-neutral sizing** | Each leg's Beta vs. Nifty 50 (90-day daily returns) sets its capital split — the higher-Beta leg gets less capital so both sides carry equal volatility-weighted exposure. |
+| **6. Execution** | ETF route (buy the strong sector's ETF; short-selling ETFs intraday in the cash market is often broker-restricted, so the short leg typically needs sector futures) or the Stock route (buy/short the sector's top 2 weighted constituents directly). |
+
+**How to use it:** run the live scan after the first 30 minutes of trading, not right at the open. Check the
+strongest/weakest sector's reasons for the exact pair, capital split, and execution instructions. If the spread is
+below the divergence threshold, wait for the next session rather than forcing a trade. Same-day, flat-by-close —
+no overnight risk.
+
+**Math:** Beta = `covariance(sector, Nifty 50) / variance(Nifty 50)`; capital split =
+`long_weight = short_beta / (long_beta + short_beta)`, `short_weight = long_beta / (long_beta + short_beta)`.
+Not a backtested edge — a structured framework for a well-known relative-strength pairs concept. Research /
+education only, not financial advice.
+""",
+
     "smc_five_filter": """
 ### 5 SMC Filter — the 5 checks that separate A+ trades from bad ones
 [The 5 Smart Money Filters That Separate A+ Trades From Bad Trades](https://www.youtube.com/watch?v=uzeLz80FVVY&t=54s)
