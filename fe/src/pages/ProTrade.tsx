@@ -8,6 +8,7 @@ import {
   runProTradePaVpSmc,
   runProTradeVolumeProfileCe,
   runProTradeVolumeProfilePoc,
+  runProTradeVolumeSpreadNextCandle,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import {
@@ -19,6 +20,7 @@ import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePan
 import { PaVpSmcPanel } from '../components/pro-trade/PaVpSmcPanel'
 import { VolumeProfileCePanel } from '../components/pro-trade/VolumeProfileCePanel'
 import { VolumeProfilePocPanel } from '../components/pro-trade/VolumeProfilePocPanel'
+import { VolumeSpreadNextCandlePanel } from '../components/pro-trade/VolumeSpreadNextCandlePanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -32,6 +34,7 @@ const POC_TFS = ['5m', '15m', '30m', '1h', '4h', '1d', '1wk'] as const
 const PA_TFS = ['5m', '15m', '30m', '1h', '4h', '1d', '1wk'] as const
 const SMC_HTF_TFS = ['30m', '1h', '4h', '1d'] as const
 const SMC_LTF_TFS = ['5m', '15m', '30m', '1h'] as const
+const VSA_TFS = ['5m', '15m', '30m', '1h', '4h', '1d'] as const
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
   { id: 'us', label: 'US' },
@@ -830,6 +833,191 @@ function PaVpSmcPage() {
   )
 }
 
+const VSA_YOUTUBE = 'https://www.youtube.com/watch?v=ncrqXFCQKOU&list=PLXWi52aRZnNF_HW-TedxAE1Tyx1C8XrGn'
+
+const VSA_OVERVIEW = `Volume Spread Analysis (VSA) — Wyckoff smart-money supply & demand
+${VSA_YOUTUBE}
+
+VSA reads the relationship between candle **spread** (|Close − Open|) and **volume** to spot where banks/funds are absorbing or dumping.
+
+Volume states:
+• Average — near the 20-period volume MA
+• Above average — Volume > 20 MA
+• Ultra-high — Volume above the prior peak in a ~50-bar window
+
+This scanner flags the four core bars and treats each as a **next-candle** prediction (SOS → expect up; SOW → expect down).
+
+Research / education only — not financial advice.`
+
+const VSA_SOS = `Signs of Strength (bullish — next candle expected up)
+
+• Downthrust — low-spread bullish pin/doji + above-average or ultra-high volume (demand absorbing supply).
+• No Supply — low-spread bearish candle with a lower wick + volume lower than the previous two bars (sellers drying up).`
+
+const VSA_SOW = `Signs of Weakness (bearish — next candle expected down)
+
+• Upthrust — low-spread bearish pin/doji + above-average or ultra-high volume (supply overwhelming buyers).
+• No Demand — low-spread bullish candle with an upper wick + volume lower than the previous two bars (buyers drying up).`
+
+const VSA_RULES = `Execution
+
+• Actionable TAKE only when a VSA signal prints on the **latest closed bar** (next-candle edge).
+• Entry at signal close; stop beyond the signal candle extreme (+ ATR buffer); target at configured R:R.
+• Historical setups show whether the following candle confirmed (Win) or failed (Loss) — hit-rate is informational only.
+• Heuristic scanner — not a fill guarantee.`
+
+function VolumeSpreadNextCandlePage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [timeframe, setTimeframe] = useState('15m')
+  const [lookback, setLookback] = useState(200)
+  const [volMa, setVolMa] = useState(20)
+  const [ultraLookback, setUltraLookback] = useState(50)
+  const [lowSpreadFactor, setLowSpreadFactor] = useState(0.75)
+  const [rrRatio, setRrRatio] = useState(1.5)
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeVolumeSpreadNextCandle({
+        tickers: picker.tickers,
+        asset_class: assetClass,
+        timeframe,
+        lookback_bars: lookback,
+        vol_ma_period: volMa,
+        ultra_vol_lookback: ultraLookback,
+        low_spread_factor: lowSpreadFactor,
+        rr_ratio: rrRatio,
+      })
+    },
+    onSuccess: () => setError(''),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = runMut.data as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Volume Spread - Next Candle', data) : ''
+
+  return (
+    <div>
+      <PageHeader
+        title="Volume Spread - Next Candle"
+        description="VSA Downthrust · No Supply · Upthrust · No Demand — next-candle Wyckoff edge"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="Overview & source video" defaultOpen>
+          {VSA_OVERVIEW}
+          <p className="mt-3">
+            <a
+              href={VSA_YOUTUBE}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-blue-400 hover:underline"
+            >
+              Watch playlist <ExternalLink size={12} />
+            </a>
+          </p>
+        </CollapsibleSection>
+        <CollapsibleSection title="Signs of Strength (SOS)">{VSA_SOS}</CollapsibleSection>
+        <CollapsibleSection title="Signs of Weakness (SOW)">{VSA_SOW}</CollapsibleSection>
+        <CollapsibleSection title="Execution rules">{VSA_RULES}</CollapsibleSection>
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <FormField label="Timeframe">
+            <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+              {VSA_TFS.map((tf) => (
+                <option key={tf} value={tf}>
+                  {tf}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Lookback bars">
+            <Input type="number" value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 200)} />
+          </FormField>
+          <FormField label="Volume MA period">
+            <Input type="number" value={volMa} onChange={(e) => setVolMa(Number(e.target.value) || 20)} />
+          </FormField>
+          <FormField label="Ultra-high vol lookback">
+            <Input
+              type="number"
+              value={ultraLookback}
+              onChange={(e) => setUltraLookback(Number(e.target.value) || 50)}
+            />
+          </FormField>
+          <FormField label="Low-spread factor (× avg)">
+            <Input
+              type="number"
+              step="0.05"
+              value={lowSpreadFactor}
+              onChange={(e) => setLowSpreadFactor(Number(e.target.value) || 0.75)}
+            />
+          </FormField>
+          <FormField label="Reward : Risk">
+            <Input
+              type="number"
+              step="0.1"
+              value={rrRatio}
+              onChange={(e) => setRrRatio(Number(e.target.value) || 1.5)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+            {runMut.isPending ? 'Scanning…' : `Scan VSA Next Candle (${picker.tickers.length})`}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {runMut.isPending && <Loading message="Detecting Volume Spread signals and next-candle setups…" />}
+
+      {data && !runMut.isPending && (
+        <>
+          <Card className="mb-4">
+            <VolumeSpreadNextCandlePanel data={data} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-spread-next-candle" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ProTrade() {
   const { tab } = useParams<{ tab?: string }>()
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
@@ -837,5 +1025,6 @@ export default function ProTrade() {
   if (tab === 'volume-profile-poc') return <VolumeProfilePocPage />
   if (tab === 'pa-volume-profile') return <PaVolumeProfilePage />
   if (tab === 'pa-vp-smc') return <PaVpSmcPage />
+  if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
   return <Navigate to="/pro-trade/volume-profile-ce" replace />
 }

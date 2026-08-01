@@ -12,6 +12,7 @@ ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_intraday": "Intraday Trading Hub engines — session-timed NSE scanners and opening-range setups.",
     "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
     "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
+    "pro_trade": "Pro Trade engines — Volume Profile, PA+VP, VSA next-candle, and PA-VP-SMC confluence.",
     "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
     "ta_screeners": "TA screener engines — S-R, fakeout, SMC, crypto wave, and confluence scanners.",
 }
@@ -33,6 +34,7 @@ _HUB_TIMEFRAMES: dict[str, list[str]] = {
     "intraday_alpha_945": ["5m", "15m"],
     "intraday_fib_945": ["5m", "1m"],
     "intraday_vwap_fade": ["5m", "1m"],
+    "intraday_london_breakout": ["5m"],
     "scalp_rectangle": ["1m"],
     "smc_cisd": ["15m", "5m"],
     "smc_weekly_sweep_cisd": ["15m"],
@@ -59,6 +61,7 @@ _HUB_MIN_BARS: dict[str, int] = {
     "intraday_alpha_945": 50,
     "intraday_fib_945": 80,
     "intraday_vwap_fade": 80,
+    "intraday_london_breakout": 80,
     "scalp_rectangle": 80,
     "smc_cisd": 60,
     "smc_weekly_sweep_cisd": 80,
@@ -75,6 +78,93 @@ _HUB_MIN_BARS: dict[str, int] = {
     "reversal_strategy": 100,
     "intra_hedging": 30,
 }
+
+PRO_TRADE_STRATEGIES: list[dict[str, Any]] = [
+    {
+        "id": "volume_profile_ce",
+        "name": "Volume Profile CE",
+        "description": "Value Area reversal · POC compression · I-profile LVN — Abhishek Kar masterclass.",
+        "timeframes": ["15m", "30m", "1h", "4h", "1d"],
+        "min_bars": 80,
+        "youtube": "https://youtu.be/67u8mdQ8f08",
+        "indicators": ["Session Volume Profile", "POC", "VAH/VAL", "Hammer / Shooting Star"],
+        "entry_rules": [
+            "VA reversal: price tags VAL/VAH with rejection candle confirmation.",
+            "POC compression breakout when multi-day POCs sit in a tight band then break.",
+            "I-profile LVN: price enters a low-volume void and slices through.",
+        ],
+        "exit_rules": [
+            "Stop beyond rejection wick / LVN invalidation.",
+            "Targets: POC then opposite value-area edge.",
+        ],
+    },
+    {
+        "id": "volume_profile_poc",
+        "name": "Volume Profile POC",
+        "description": "First-touch pullback to HVN zone edge after breakout · LVN stops · next-HVN targets.",
+        "timeframes": ["15m", "30m", "1h", "4h", "1d"],
+        "min_bars": 100,
+        "youtube": "https://www.youtube.com/watch?v=ooHX6tf5RVI",
+        "indicators": ["Fixed-range Volume Profile", "POC / HVN zone", "LVN"],
+        "entry_rules": [
+            "Build HVN zone around POC.",
+            "Wait for breakout beyond the zone, then enter on the FIRST retest of the zone edge.",
+        ],
+        "exit_rules": [
+            "Stop in an LVN behind the HVN barrier.",
+            "Target just before the next HVN shelf.",
+        ],
+    },
+    {
+        "id": "pa_volume_profile",
+        "name": "PA - Volume Profile",
+        "description": "FVG + VP cluster · S/R flip first retest — Trader Dale institutional volume filter.",
+        "timeframes": ["5m", "15m", "30m", "1h"],
+        "min_bars": 80,
+        "youtube": "https://www.youtube.com/watch?v=FVoXWlNkdhs",
+        "indicators": ["3-candle FVG", "Fixed-range VP / POC", "Pivot S/R"],
+        "entry_rules": [
+            "Bullish/bearish FVG with VP POC clustered at the gap start.",
+            "S/R flip with volume cluster at the break — trade the first retest only.",
+        ],
+        "exit_rules": [
+            "Stop beyond the VP cluster / flipped level.",
+            "Target from gap extension or measured move from the flip.",
+        ],
+    },
+    {
+        "id": "pa_vp_smc",
+        "name": "PA-VP-SMC",
+        "description": "Price Action + Volume Profile + Smart Money Concepts confluence · confidence-scored trades.",
+        "timeframes": ["15m", "30m", "1h", "4h"],
+        "min_bars": 100,
+        "youtube": None,
+        "indicators": ["EMA trend", "Liquidity sweep", "Order Block / FVG", "Volume Profile", "VSA thrust"],
+        "entry_rules": [
+            "Require multiple independent pillars to agree (trend, sweep, VP level, SMC zone).",
+            "Backtest uses a single-TF confluence proxy (EMA + sweep + VSA).",
+        ],
+        "exit_rules": [
+            "Stop beyond confluence zone; target next VP level or R:R floor.",
+        ],
+    },
+    {
+        "id": "volume_spread_next_candle",
+        "name": "Volume Spread - Next Candle",
+        "description": "VSA Downthrust · No Supply · Upthrust · No Demand — Wyckoff next-candle edge.",
+        "timeframes": ["5m", "15m", "30m", "1h"],
+        "min_bars": 80,
+        "youtube": "https://www.youtube.com/watch?v=ncrqXFCQKOU&list=PLXWi52aRZnNF_HW-TedxAE1Tyx1C8XrGn",
+        "indicators": ["Candle spread (|C−O|)", "Volume 20 MA", "Ultra-high volume peak"],
+        "entry_rules": [
+            "SOS (Downthrust / No Supply) → long next candle.",
+            "SOW (Upthrust / No Demand) → short next candle.",
+        ],
+        "exit_rules": [
+            "Primary edge is the next candle; stop beyond signal extreme; R:R target.",
+        ],
+    },
+]
 
 TA_STRATEGIES: list[dict[str, Any]] = [
     {
@@ -149,6 +239,7 @@ for section in HUB_SECTIONS:
     elif sid in {
         "intraday_vwap_fade",
         "intraday_fib_945",
+        "intraday_london_breakout",
         "scalp_rectangle",
         "smc_cisd",
         "smc_weekly_sweep_cisd",
@@ -286,6 +377,26 @@ for ta in TA_STRATEGIES:
         "engine": True,
     }
 
+for pt in PRO_TRADE_STRATEGIES:
+    ENGINE_RUNNER_KIND[pt["id"]] = "pro_trade_signal_df"
+    ENGINE_STRATEGY_META[pt["id"]] = {
+        "id": pt["id"],
+        "name": pt["name"],
+        "category": "pro_trade",
+        "category_label": "Pro Trade",
+        "timeframes": pt["timeframes"],
+        "summary": pt["description"],
+        "description": pt["description"],
+        "indicators": pt.get("indicators") or [],
+        "entry_rules": pt.get("entry_rules") or [],
+        "exit_rules": pt.get("exit_rules") or [],
+        "needs_benchmark": False,
+        "min_bars": pt["min_bars"],
+        "engine": True,
+        "youtube": pt.get("youtube"),
+        "pro_trade": True,
+    }
+
 _TA_SCREENER_RUNNERS: dict[str, str] = {
     "zireman_confluence": "ta_native_bt",
     "pump_dump_breakout": "ta_native_bt",
@@ -370,6 +481,12 @@ ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
         "description": ENGINE_CATEGORY_DESCRIPTIONS["th_smart_money"],
         "timeframes": ["15m", "5m"],
         "strategy_ids": [s["id"] for s in HUB_SECTIONS if s["hub"] == "smart_money"],
+    },
+    "pro_trade": {
+        "label": "Pro Trade",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["pro_trade"],
+        "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d"],
+        "strategy_ids": [p["id"] for p in PRO_TRADE_STRATEGIES],
     },
     "technical_analysis": {
         "label": "Technical Analysis",

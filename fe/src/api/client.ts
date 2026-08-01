@@ -1443,6 +1443,18 @@ export const runProTradePaVpSmc = (payload: {
   rr_min?: number
 }) => api.post('/pro-trade/pa-vp-smc', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeVolumeSpreadNextCandle = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  vol_ma_period?: number
+  ultra_vol_lookback?: number
+  low_spread_factor?: number
+  rr_ratio?: number
+}) => api.post('/pro-trade/volume-spread-next-candle', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 
 export type InvestingAgentStreamEvent =

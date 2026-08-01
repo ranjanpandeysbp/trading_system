@@ -1,9 +1,11 @@
 import { Fragment, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, TrendingDown, TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   apiErrorMessage,
+  fetchInvestingAgentStatus,
+  fetchInvestingAgentStockCard,
   runDayBias,
   runFundamentalAnalysis,
   runMomentumScan,
@@ -27,6 +29,7 @@ import {
   runWeakStrong,
 } from '../../api/client'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
+import { StockScorecardView, type StockCardData } from '../ai/InvestingAgentStockCard'
 import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
 import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysisPanels'
 import { Alert } from '../ui/Feedback'
@@ -2430,6 +2433,18 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
     dividend_type: (a) => String(a.dividend_type ?? ''),
   })
 
+  const ticker = String(r.ticker ?? '')
+  const iaStatus = useQuery({ queryKey: ['investing-agent-status'], queryFn: fetchInvestingAgentStatus })
+  const iaTokenSet = Boolean(iaStatus.data?.token_set)
+  const iaStockCard = useQuery({
+    queryKey: ['ia-stock-card', ticker],
+    queryFn: () => fetchInvestingAgentStockCard(ticker),
+    enabled: iaTokenSet && Boolean(ticker) && !r.error,
+    retry: false,
+  })
+  const aiContext = String(r.ai_context ?? '')
+  const aiSystemPrompt = String(data.ai_system_prompt ?? '')
+
   if (!results.length) return <p className="text-sm text-slate-500">No results.</p>
   const overall = (r.overall as Row) ?? {}
   const valuation = (r.valuation as Row) ?? {}
@@ -2699,6 +2714,25 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
               Source: <a href={String(r.source_url)} target="_blank" rel="noreferrer" className="underline hover:text-slate-300">{String(r.source_url)}</a>
             </p>
           )}
+
+          <div>
+            <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Investing Agent scorecard</h4>
+            {!iaTokenSet && !iaStatus.isLoading && (
+              <p className="text-xs text-slate-500">
+                ℹ️ Save a SuperInvesting Bearer token under Manage → AI Settings to pull the Investing Agent's
+                sentiment score, sector/persona ranking, and 3Y return alongside screener.in/Dhan data.
+              </p>
+            )}
+            {iaTokenSet && iaStockCard.isLoading && <p className="text-xs text-slate-500">Loading Investing Agent scorecard…</p>}
+            {iaTokenSet && iaStockCard.isError && (
+              <p className="text-xs text-amber-400">Investing Agent scorecard unavailable: {apiErrorMessage(iaStockCard.error)}</p>
+            )}
+            {iaTokenSet && iaStockCard.data && (
+              <StockScorecardView data={iaStockCard.data as StockCardData} symbol={ticker} />
+            )}
+          </div>
+
+          <AskAIPanel context={aiContext} systemPrompt={aiSystemPrompt} section={`command-center/fundamental_analysis/${ticker}`} />
         </>
       )}
     </div>

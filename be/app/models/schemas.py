@@ -876,6 +876,19 @@ class ProTradePaVpSmcRequest(BaseModel):
     rr_min: float = Field(default=1.5, ge=0.5, le=5.0)
 
 
+class ProTradeVolumeSpreadNextCandleRequest(BaseModel):
+    """Volume Spread Analysis — VSA signals predicting the next candle (Wyckoff)."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "15m"
+    lookback_bars: int = Field(default=200, ge=60, le=500)
+    vol_ma_period: int = Field(default=20, ge=10, le=50)
+    ultra_vol_lookback: int = Field(default=50, ge=20, le=120)
+    low_spread_factor: float = Field(default=0.75, ge=0.4, le=1.0)
+    rr_ratio: float = Field(default=1.5, ge=0.5, le=5.0)
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user

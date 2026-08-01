@@ -43,6 +43,7 @@ const nav: NavEntry[] = [
       { to: '/pro-trade/volume-profile-poc', label: 'Volume Profile POC' },
       { to: '/pro-trade/pa-volume-profile', label: 'PA - Volume Profile' },
       { to: '/pro-trade/pa-vp-smc', label: 'PA-VP-SMC' },
+      { to: '/pro-trade/volume-spread-next-candle', label: 'Volume Spread - Next Candle' },
     ],
   },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },

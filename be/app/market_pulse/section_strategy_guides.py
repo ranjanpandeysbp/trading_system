@@ -2300,6 +2300,92 @@ configured) to trade volatility rather than direction.
 
 **When to use:** When implied vol is mispriced vs expected realized move and you can hedge delta.
 """,
+
+    "volume_profile_ce": """
+### Volume Profile CE — VA · POC · I-profile
+[Abhishek Kar masterclass](https://youtu.be/67u8mdQ8f08)
+
+Three Volume Profile playbooks in one Pro Trade scanner:
+
+| Setup | Rule |
+|-------|------|
+| **VA reversal** | Price tags VAL/VAH with hammer / shooting-star rejection → fade toward POC then opposite VA edge |
+| **POC compression** | Multi-day POCs sit in a tight band → trade the breakout of the band |
+| **I-profile LVN** | Price enters a low-volume void and slices through — ride the vacuum move |
+
+**Backtest note:** Strategy Lab uses a historical OHLCV approximation of the live scanner — research / education only.
+
+**When to use:** Liquid names with clear session volume profiles (indices, large caps, majors).
+""",
+
+    "volume_profile_poc": """
+### Volume Profile POC — first-touch HVN pullback
+[Video reference](https://www.youtube.com/watch?v=ooHX6tf5RVI)
+
+| Step | Rule |
+|------|------|
+| **1. Build HVN zone** | Fixed-range Volume Profile around POC |
+| **2. Breakout** | Price closes beyond the HVN zone |
+| **3. Entry** | **First** retest of the zone edge only — no second chances |
+| **4. Risk** | Stop in an LVN behind the HVN barrier; target just before the next HVN shelf |
+
+**Backtest note:** Historical signal-frame approximation of the live Pro Trade scanner.
+
+**When to use:** After a clean HVN break when you want a high-probability pullback entry.
+""",
+
+    "pa_volume_profile": """
+### PA - Volume Profile — FVG + VP · S/R flip
+[Trader Dale institutional volume filter](https://www.youtube.com/watch?v=FVoXWlNkdhs)
+
+| Setup | Rule |
+|-------|------|
+| **FVG + VP** | 3-candle fair value gap with fixed-range POC clustered at the gap start |
+| **S/R flip** | Broken pivot support/resistance with volume cluster — trade the **first** retest only |
+
+Stops sit beyond the VP cluster / flipped level. Targets from gap extension or measured move.
+
+**Backtest note:** Formation-bar + first-retest proxy of the live scanner.
+
+**When to use:** When you want Price Action entries filtered by institutional volume location.
+""",
+
+    "pa_vp_smc": """
+### PA-VP-SMC — Price Action + Volume Profile + Smart Money
+The "best of everything" Pro Trade confluence model:
+
+| Pillar | What it checks |
+|--------|----------------|
+| **Trend** | EMA / structure bias |
+| **Liquidity** | Sweep / stop-hunt failure |
+| **SMC zone** | Order Block / FVG |
+| **Volume Profile** | POC / HVN / VA levels |
+| **VSA** | Thrust / no-supply / no-demand confirmation |
+
+Prefer high-confidence rows where multiple independent pillars agree.
+
+**Backtest note:** Single-TF confluence proxy (EMA + sweep + VSA) — not a perfect replay of the live multi-engine score.
+
+**When to use:** Highest-conviction Pro Trade setups when you want confluence before size.
+""",
+
+    "volume_spread_next_candle": """
+### Volume Spread - Next Candle — VSA SOS / SOW
+[Wyckoff VSA playlist](https://www.youtube.com/watch?v=ncrqXFCQKOU&list=PLXWi52aRZnNF_HW-TedxAE1Tyx1C8XrGn)
+
+| Signal | Meaning | Bias |
+|--------|---------|------|
+| **Downthrust** | Wide spread down on ultra-high volume that closes strong | SOS → long next candle |
+| **No Supply** | Narrow/down bar on low volume after selling | SOS → long next candle |
+| **Upthrust** | Wide spread up that fails near highs on volume | SOW → short next candle |
+| **No Demand** | Narrow/up bar on low volume after buying | SOW → short next candle |
+
+Primary edge is the **next candle** after the signal bar. Stop beyond the signal extreme.
+
+**Backtest note:** Maps SOS/SOW flags to ±1 signals for Strategy Lab.
+
+**When to use:** Short-hold VSA confirmation after climactic volume events.
+""",
 }
 
 

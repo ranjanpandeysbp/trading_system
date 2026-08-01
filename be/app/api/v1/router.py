@@ -71,6 +71,7 @@ from app.models.schemas import (
     ProTradeVolumeProfilePocRequest,
     ProTradePaVolumeProfileRequest,
     ProTradePaVpSmcRequest,
+    ProTradeVolumeSpreadNextCandleRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -2828,5 +2829,26 @@ async def pro_trade_pa_vp_smc(
             "zone_tolerance_pct": payload.zone_tolerance_pct,
             "min_confluence_factors": payload.min_confluence_factors,
             "rr_min": payload.rr_min,
+        },
+    )
+
+
+@router.post("/pro-trade/volume-spread-next-candle")
+async def pro_trade_volume_spread_next_candle(
+    payload: ProTradeVolumeSpreadNextCandleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).volume_spread_next_candle(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "vol_ma_period": payload.vol_ma_period,
+            "ultra_vol_lookback": payload.ultra_vol_lookback,
+            "low_spread_factor": payload.low_spread_factor,
+            "rr_ratio": payload.rr_ratio,
         },
     )

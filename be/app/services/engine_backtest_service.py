@@ -185,6 +185,53 @@ def _recent_signals_from_df(result: pd.DataFrame, limit: int = 10) -> list[dict[
     return rows
 
 
+def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) -> dict[str, Any]:
+    """Win/Loss stats from London Session Breakout native 2:1 R:R trade list."""
+    closed = [t for t in trades if t.get("Result") in ("Win", "Loss")]
+    trade_rows: list[dict[str, float]] = []
+    for t in closed:
+        entry = float(t["Entry_Price"])
+        exit_px = t.get("Exit_Price")
+        if exit_px is None or entry <= 0:
+            continue
+        exit_px = float(exit_px)
+        if t.get("Direction") == "LONG":
+            pnl = (exit_px - entry) / entry - costs_pct
+        else:
+            pnl = (entry - exit_px) / entry - costs_pct
+        trade_rows.append({"pnl_pct": round(pnl * 100.0, 3)})
+
+    n = len(trade_rows)
+    if n == 0:
+        return {
+            "num_trades": 0,
+            "win_rate_pct": None,
+            "total_return_pct": 0.0,
+            "avg_return_per_trade_pct": None,
+            "max_drawdown_pct": 0.0,
+            "trades": [],
+        }
+
+    pnls = [r["pnl_pct"] for r in trade_rows]
+    wins = sum(1 for p in pnls if p > 0)
+    total = float(sum(pnls))
+    equity = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for p in pnls:
+        equity += p
+        peak = max(peak, equity)
+        max_dd = max(max_dd, peak - equity)
+
+    return {
+        "num_trades": n,
+        "win_rate_pct": round(100.0 * wins / n, 1),
+        "total_return_pct": round(total, 2),
+        "avg_return_per_trade_pct": round(total / n, 3),
+        "max_drawdown_pct": round(max_dd, 2),
+        "trades": trade_rows,
+    }
+
 def _rolling_sentiment_backtest(
     df: pd.DataFrame,
     *,
@@ -294,6 +341,10 @@ class EngineBacktestService:
             )
         if kind == "signal_df":
             return await self._run_signal_df_backtest(
+                request, market, groww_token, exchange, costs_pct, period, limit,
+            )
+        if kind == "pro_trade_signal_df":
+            return await self._run_pro_trade_backtest(
                 request, market, groww_token, exchange, costs_pct, period, limit,
             )
         return await self._run_rolling_backtest(
@@ -626,6 +677,12 @@ class EngineBacktestService:
         cfg = build_config(section["config_cls"], None)
         if hasattr(cfg, "execution_tf"):
             cfg.execution_tf = request.timeframe
+        if hasattr(cfg, "timeframe") and request.timeframe:
+            cfg.timeframe = request.timeframe
+        if hasattr(cfg, "asset_class") and request.asset_class:
+            cfg.asset_class = request.asset_class
+        if hasattr(cfg, "lookback_bars"):
+            cfg.lookback_bars = max(int(getattr(cfg, "lookback_bars", 0) or 0), limit)
 
         work = await self._build_signal_frame(
             request.strategy, mod, cfg, request.ticker, market, groww_token, exchange, limit,
@@ -635,12 +692,80 @@ class EngineBacktestService:
 
         work = _normalize_signal_column(work)
         signal_count = int((work["signal"] != 0).sum())
+        recent_signals = _recent_signals_from_df(work)
+
+        if request.strategy == "intraday_london_breakout":
+            trades = await asyncio.to_thread(
+                mod.generate_trade_signals, work, market, cfg=cfg,
+            )
+            stats = _stats_from_london_trades(trades, costs_pct)
+        else:
+            stats = backtest_signals(work, costs_pct=costs_pct)
+
+        summary = None
+        if signal_count == 0:
+            summary = f"No buy/sell signals in period ({period}, {len(work)} bars)."
+        elif stats["num_trades"] == 0:
+            summary = "Signals found but no completed round-trip trades in this period."
+        elif request.strategy == "intraday_london_breakout":
+            summary = (
+                "London Session Breakout: stats use native session trades "
+                "(breakout-candle stop · configured R:R · one attempt per session)."
+            )
+
+        return {
+            "ticker": request.ticker,
+            "strategy": request.strategy,
+            "timeframe": request.timeframe,
+            "period": period,
+            "bars_evaluated": len(work),
+            "signal_count": signal_count,
+            "benchmark_ticker": None,
+            "summary": summary,
+            "stats": stats,
+            "recent_signals": recent_signals,
+        }
+
+    async def _run_pro_trade_backtest(
+        self,
+        request: BacktestRequest,
+        market: str,
+        groww_token: str,
+        exchange: str,
+        costs_pct: float,
+        period: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        from app.market_pulse.pro_trade_backtest import (
+            PRO_TRADE_SIGNAL_BUILDERS,
+            build_pro_trade_signal_frame,
+        )
+
+        if request.strategy not in PRO_TRADE_SIGNAL_BUILDERS:
+            raise ValueError(f"Unknown Pro Trade strategy: {request.strategy}")
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(
+                request.ticker, request.timeframe, market, groww_token, exchange, limit=limit,
+            )
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {request.ticker} ({request.timeframe}).")
+            return build_pro_trade_signal_frame(request.strategy, df)
+
+        work = await asyncio.to_thread(_run)
+        work = _normalize_signal_column(work)
+        signal_count = int((work["signal"] != 0).sum())
         stats = backtest_signals(work, costs_pct=costs_pct)
         recent_signals = _recent_signals_from_df(work)
 
         summary = None
         if signal_count == 0:
-            summary = f"No buy/sell signals in period ({period}, {len(work)} bars)."
+            summary = (
+                f"No buy/sell signals in period ({period}, {len(work)} bars). "
+                "Pro Trade backtests are historical approximations of the live scanners."
+            )
         elif stats["num_trades"] == 0:
             summary = "Signals found but no completed round-trip trades in this period."
 
@@ -671,6 +796,12 @@ class EngineBacktestService:
         if strategy_id == "intraday_vwap_fade":
             df = mod.fetch_exec_data(ticker, cfg.execution_tf, market, groww_token=groww_token, exchange=exchange)
             return mod.backtest_vwap_fade_strategy(df, cfg, market)
+
+        if strategy_id == "intraday_london_breakout":
+            df = mod.fetch_data(ticker, market, cfg, groww_token=groww_token, exchange=exchange)
+            if df.empty:
+                raise ValueError(f"No data for {ticker} ({getattr(cfg, 'timeframe', '5m')}).")
+            return mod.build_signal_frame(df, market, cfg=cfg)
 
         if strategy_id == "intraday_fib_945":
             exec_df = mod.fetch_exec_data(ticker, market, cfg, groww_token=groww_token, exchange=exchange)
@@ -852,6 +983,8 @@ class EngineBacktestService:
         kind = engine_runner_kind(strategy_id)
         if kind == "signal_df":
             return await self._latest_signal_df_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
+        if kind == "pro_trade_signal_df":
+            return await self._latest_pro_trade_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
         if kind == "analyze_bt":
             return await self._latest_hub_section_signal(strategy_id, ticker, market, groww_token, exchange)
         if kind in ("ta_native_bt", "rolling_ta_screener"):
@@ -923,6 +1056,10 @@ class EngineBacktestService:
         cfg = build_config(section["config_cls"], None)
         if hasattr(cfg, "execution_tf"):
             cfg.execution_tf = timeframe
+        if hasattr(cfg, "timeframe") and timeframe:
+            cfg.timeframe = timeframe
+        if hasattr(cfg, "lookback_bars"):
+            cfg.lookback_bars = max(int(getattr(cfg, "lookback_bars", 0) or 0), bars)
 
         work = await self._build_signal_frame(strategy_id, mod, cfg, ticker, market, groww_token, exchange, bars)
         if work.empty:
@@ -939,6 +1076,40 @@ class EngineBacktestService:
         category = ENGINE_STRATEGY_META.get(strategy_id, {}).get("category", "th_intraday")
         enrich_cat = "scalping" if "scalping" in category else "swing" if "swing" in category else "intraday"
         enriched = enrich_signal(work, last_signal, section.get("label", strategy_id), enrich_cat, costs_pct)
+        return {
+            "action": "BUY" if last_signal == 1 else "SELL", "price": float(work["close"].iloc[-1]),
+            "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],
+            "confidence_pct": enriched["confidence_pct"], "rationale": enriched["rationale"],
+            "timestamp": str(work.index[-1]),
+        }
+
+    async def _latest_pro_trade_signal(
+        self, strategy_id: str, ticker: str, timeframe: str,
+        market: str, groww_token: str, exchange: str, bars: int, costs_pct: float,
+    ) -> dict[str, Any]:
+        from app.market_pulse.pro_trade_backtest import build_pro_trade_signal_frame
+        from app.services.signal_enricher import enrich_signal
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(ticker, timeframe, market, groww_token, exchange, limit=bars)
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {ticker} ({timeframe}).")
+            return build_pro_trade_signal_frame(strategy_id, df)
+
+        work = await asyncio.to_thread(_run)
+        work = _normalize_signal_column(work)
+        last_signal = int(work["signal"].iloc[-1])
+        label = ENGINE_STRATEGY_META.get(strategy_id, {}).get("name", strategy_id)
+        if last_signal == 0:
+            return {
+                "action": "HOLD", "price": float(work["close"].iloc[-1]),
+                "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No active Pro Trade signal on latest bar.",
+                "timestamp": str(work.index[-1]),
+            }
+        enriched = enrich_signal(work, last_signal, label, "intraday", costs_pct)
         return {
             "action": "BUY" if last_signal == 1 else "SELL", "price": float(work["close"].iloc[-1]),
             "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],

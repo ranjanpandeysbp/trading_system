@@ -55,6 +55,12 @@ class ProTradeService:
                     "path": "/pro-trade/pa-vp-smc",
                     "youtube": None,
                 },
+                {
+                    "id": "volume_spread_next_candle",
+                    "label": "Volume Spread - Next Candle",
+                    "path": "/pro-trade/volume-spread-next-candle",
+                    "youtube": "https://www.youtube.com/watch?v=ncrqXFCQKOU&list=PLXWi52aRZnNF_HW-TedxAE1Tyx1C8XrGn",
+                },
             ],
         }
 
@@ -181,6 +187,41 @@ class ProTradeService:
         token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
         cfg = PaVolumeProfileConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def volume_spread_next_candle(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ticker_utils import market_currency
+        from app.market_pulse.volume_spread_next_candle_engine import VolumeSpreadConfig, scan_universe
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = VolumeSpreadConfig(**(cfg_overrides or {}))
         resolved_exchange = exchange or default_exchange
 
         def _run():

@@ -515,6 +515,61 @@ def generate_trade_signals(
     return trades
 
 
+def build_signal_frame(
+    df_5m: pd.DataFrame,
+    market: str,
+    *,
+    cfg: LondonBreakoutConfig | None = None,
+) -> pd.DataFrame:
+    """OHLCV frame with ±1 on the first range-breakout bar of each session.
+
+    Used by EngineBacktestService (signal_df runner). Entry timing matches
+    ``generate_trade_signals``; the generic signal backtester does not model
+    the strategy's candle-stop / 2:1 target — prefer native trade stats when
+    available via ``generate_trade_signals``.
+    """
+    cfg = cfg or LondonBreakoutConfig()
+    work = _drop_ambiguous_date_column(_ensure_market_tz(df_5m, market, asset_class=cfg.asset_class))
+    if work.empty:
+        return work
+
+    frame = work.copy()
+    frame["signal"] = 0
+    trades = generate_trade_signals(frame, market, cfg=cfg)
+    if not trades:
+        return frame
+
+    # Map entry timestamps → direction. Datetime strings may be tz-aware ISO.
+    by_ts: dict[Any, int] = {}
+    for trade in trades:
+        raw = trade.get("Datetime")
+        if raw is None:
+            continue
+        try:
+            ts = pd.Timestamp(raw)
+        except Exception:
+            continue
+        direction = 1 if trade.get("Direction") == "LONG" else -1
+        by_ts[ts] = direction
+
+    if not by_ts:
+        return frame
+
+    # Align against frame index (timezone / string equality can differ).
+    idx_map = {pd.Timestamp(i): i for i in frame.index}
+    for ts, direction in by_ts.items():
+        key = pd.Timestamp(ts)
+        if key in idx_map:
+            frame.at[idx_map[key], "signal"] = direction
+            continue
+        # Fallback: match on wall-clock equality after normalizing tz
+        for fi, orig in idx_map.items():
+            if fi == key or fi.replace(tzinfo=None) == key.replace(tzinfo=None):
+                frame.at[orig, "signal"] = direction
+                break
+    return frame
+
+
 def _evaluate_today(
     work: pd.DataFrame,
     market: str,

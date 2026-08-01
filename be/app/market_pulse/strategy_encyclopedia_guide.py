@@ -168,6 +168,13 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("smc_sc_best", "SMC — SC Best (Structure · Liquidity · Displacement)"),
         ("smc_lewiskelly", "SMC — Lewis Kelly (Kill Zone · Sweep · MSS)"),
     ],
+    "📐 Pro Trade": [
+        ("volume_profile_ce", "Volume Profile CE — VA reversal · POC compression · I-profile LVN"),
+        ("volume_profile_poc", "Volume Profile POC — first-touch HVN pullback"),
+        ("pa_volume_profile", "PA - Volume Profile — FVG + VP cluster · S/R flip"),
+        ("pa_vp_smc", "PA-VP-SMC — Price Action + Volume Profile + Smart Money confluence"),
+        ("volume_spread_next_candle", "Volume Spread - Next Candle — VSA Downthrust / Upthrust"),
+    ],
     "📉 Options": [
         ("double_calendar", "Double Calendar — dual-expiry premium capture"),
         ("delta_neutral", "Delta Neutral — volatility / premium strategies"),
@@ -207,6 +214,7 @@ paper trading, and alert monitors — with **Ask AI** (Gemini/Groq) on most sect
 | **Intraday** | 9:45 scanners, Fib bias, VWAP fade, MTF breakout-retest | Session-timed NSE / global intraday |
 | **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
 | **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
+| **Pro Trade** | Volume Profile CE/POC · PA+VP · PA-VP-SMC · VSA next-candle | Institutional VP / PA / VSA confluence |
 | **Demo Trading** | Paper portfolio (India + crypto) | Practice without real money |
 | **Alerts** | Telegram/email when saved setups fire | Hands-off monitoring after research |
 | **Watchlist** | Per-user, per-market saved tickers with live price & % change since added | Track a shortlist without re-scanning |
@@ -327,6 +335,16 @@ _WORKFLOWS = """
 6. **SM — TTG Sniper Entry** — liquidity sweep → Order Block → FVG pullback entry, Aggressive or Conservative (MSS-confirmed).
 7. **SMB SnP** — Fashionably Late: LOD grind → 9 EMA × VWAP cross (10:00–13:30, 3:1 R:R).
 8. Pair with **Top Down MTF**, **ONE TA Golden Zone**, or **SMC Fake Market Shift** for confluence.
+
+### Workflow 13 — Pro Trade (Volume Profile / VSA)
+
+1. **Pro Trade → Volume Profile CE** — VA rejection, POC compression breakout, or I-profile LVN slice.
+2. **Pro Trade → Volume Profile POC** — wait for HVN zone breakout, then trade the **first** retest of the zone edge.
+3. **Pro Trade → PA - Volume Profile** — FVG with POC cluster at the gap start, or S/R flip first retest.
+4. **Pro Trade → PA-VP-SMC** — multi-pillar confluence (trend + sweep + VP + SMC zone); prefer high-confidence rows.
+5. **Pro Trade → Volume Spread - Next Candle** — SOS (Downthrust / No Supply) longs or SOW (Upthrust / No Demand) shorts for the next bar.
+6. Validate in **Strategy Lab / Backtesting** under category **Pro Trade** (historical approximations of live scanners).
+7. **Demo Trading** before live size.
 """
 
 _WHEN_TO_USE = """
@@ -370,6 +388,11 @@ _WHEN_TO_USE = """
 | Golden Bullet kill-zone sweep | SMC — Golden Bullet (Liquidity + Timing) | 15 min – 4h |
 | BSL/SSL sweep · grab · FVG fade | SMC — Liquidity | 15 min – 1d |
 | Sweep → Order Block → FVG sniper pullback | SM — TTG Sniper Entry | 15 min – 1d |
+| VA rejection / POC compression / LVN slice | Pro Trade → Volume Profile CE | Hours – days |
+| HVN breakout → first-touch pullback | Pro Trade → Volume Profile POC | Hours – days |
+| FVG + VP cluster · S/R flip retest | Pro Trade → PA - Volume Profile | 15 min – 1d |
+| PA + VP + SMC multi-pillar confluence | Pro Trade → PA-VP-SMC | Hours – days |
+| VSA SOS/SOW next-candle edge | Pro Trade → Volume Spread - Next Candle | Next 1–3 bars |
 | Everything-at-once scan | Mega Analyser (22+ engines incl. Crypto Scalping · SMC FMS · Weak Strong S-R · Velez · Smart Wave) | — |
 | Asset-class buy/sell call | Buy or Sell Advisor (Command Center) | Scalp – swing |
 | News + tape on one symbol | Ticker Investigation (Command Center) | — |
@@ -400,6 +423,8 @@ _WHEN_TO_USE = """
 **Swing (4h–1w):** Weekly Stoch · MTF Scanner (4h/1d) · Pattern Breakout · Sentiment · Seasonality · **Breakout MTF** · **ONE TA** · **TOPDOWN-MTF** (1d→1h→15m) · **ST Capitulation** · **ST MSS** · **ST SuperTrend** · BB Exposed (swing preset) · **TTG Sniper Entry** (HTF)
 
 **SMC / Smart Money:** Top Down MTF · **TOPDOWN-MTF** · SMC Fake Market Shift · **CISD** · **Weekly Sweep CISD** · **MTF Day Plan** · **Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **SMB SnP** · Scalping SMC · ONE TA
+
+**Pro Trade (VP / VSA):** **Volume Profile CE** · **Volume Profile POC** · **PA - Volume Profile** · **PA-VP-SMC** · **Volume Spread - Next Candle**
 
 **Positional (1w+):** Weekly Stoch · Elliott Wave · Seasonality · Sentiment on 1d/1w
 
@@ -716,6 +741,22 @@ between 10:00–13:30. 3:1 R:R from LOD unit. Best on liquid large caps with RVO
 """,
     "mtf_hedging": """
 **When to use:** Portfolio hedging — beta hedge, pairs trade, protective puts, index ETF overlay.
+""",
+    "volume_profile_ce": """
+**When to use:** Session value-area fades, multi-day POC compression breakouts, or I-profile LVN vacuum moves.
+Live scanner is under **Pro Trade**; Strategy Lab backtest uses a historical approximation.
+""",
+    "volume_profile_poc": """
+**When to use:** After price breaks an HVN/POC zone — enter only on the **first** retest of the zone edge; stop in LVN.
+""",
+    "pa_volume_profile": """
+**When to use:** Trader Dale-style FVG + volume cluster entries, or S/R flips with VP confirmation on the first retest.
+""",
+    "pa_vp_smc": """
+**When to use:** Highest-confluence Pro Trade setups — require multiple pillars (trend, sweep, VP, SMC) before size.
+""",
+    "volume_spread_next_candle": """
+**When to use:** Wyckoff VSA SOS/SOW bars — edge is primarily the **next candle** after Downthrust / No Supply / Upthrust / No Demand.
 """,
 }
 

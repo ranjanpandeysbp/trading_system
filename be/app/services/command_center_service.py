@@ -675,10 +675,19 @@ class CommandCenterService:
         return json_safe(await asyncio.to_thread(_run))
 
     async def fundamental_analysis(self, tickers: list[str]) -> dict[str, Any]:
-        from app.market_pulse.fundamental_analysis_engine import analyze_tickers
+        from app.market_pulse.fundamental_analysis_engine import (
+            FUNDAMENTAL_ANALYSIS_AI_SYSTEM,
+            analyze_tickers,
+            build_fundamental_analysis_ai_prompt,
+        )
 
         results = await asyncio.to_thread(analyze_tickers, tickers)
-        return json_safe({"results": results})
+        for r in results:
+            r["ai_context"] = build_fundamental_analysis_ai_prompt(r)
+        return json_safe({
+            "results": results,
+            "ai_system_prompt": FUNDAMENTAL_ANALYSIS_AI_SYSTEM,
+        })
 
     async def india_fii_dii_holdings(
         self,
