@@ -18,6 +18,7 @@ import EtfTaIn from './pages/EtfTaIn'
 import TradingHubs from './pages/TradingHubs'
 import TradeCandidate from './pages/TradeCandidate'
 import Options from './pages/Options'
+import ProTrade from './pages/ProTrade'
 import PaperTrading from './pages/PaperTrading'
 import ManageSettings from './pages/ManageSettings'
 import Login from './pages/Login'
@@ -91,6 +92,8 @@ export default function App() {
                 <Route path="/trade-candidate" element={<Navigate to="/trade-candidate/configure" replace />} />
                 <Route path="/trade-candidate/:tab" element={<TradeCandidate />} />
                 <Route path="/options" element={<Options />} />
+                <Route path="/pro-trade" element={<Navigate to="/pro-trade/volume-profile-ce" replace />} />
+                <Route path="/pro-trade/:tab" element={<ProTrade />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/backtester" element={<Backtester />} />

@@ -11,6 +11,7 @@ from app.trading_hubs import (
     intra_hwp_engine,
     intraday_7_wasted_engine,
     intraday_alpha_945_engine,
+    intraday_london_breakout_engine,
     intraday_fib945_engine,
     intraday_mtf_breakout_retest_engine,
     intraday_vwap_fade_engine,
@@ -827,6 +828,69 @@ per the video's own framing, footprint reads what's happening at a level, it doe
         config_cls=intraday_7_wasted_engine.Intra7WastedConfig,
     ),
     _section(
+        id="intraday_london_breakout",
+        hub="intraday",
+        label="London Session Breakout",
+        description=(
+            "5m London-style range breakout: build high/low box in the early/pre-session window, "
+            "enter on first active-session break with breakout-candle stop and 2:1 R:R. "
+            "US uses Pre-Market→RTH; Crypto uses Low Activity→Global Peak (IST); "
+            "India and Commodity keep their existing session maps."
+        ),
+        module=intraday_london_breakout_engine,
+        config_cls=intraday_london_breakout_engine.LondonBreakoutConfig,
+        config_options={
+            "rr_ratio": {
+                "type": "number",
+                "label": "Risk : Reward",
+                "default": 2.0,
+                "min": 1.0,
+                "max": 5.0,
+                "step": 0.5,
+            },
+            "range_start": {
+                "type": "text",
+                "label": "Range start HH:MM (blank = asset default)",
+                "default": "",
+            },
+            "range_end": {
+                "type": "text",
+                "label": "Range end HH:MM (blank = asset default)",
+                "default": "",
+            },
+            "trade_start": {
+                "type": "text",
+                "label": "Trade start HH:MM (blank = asset default)",
+                "default": "",
+            },
+            "trade_end": {
+                "type": "text",
+                "label": "Trade end HH:MM (blank = asset default)",
+                "default": "",
+            },
+        },
+        guide="""### London Session Breakout — range box → first break
+[Easiest Way To Start Day Trading From Scratch](https://www.youtube.com/watch?v=8KblOEu56dM&t=2247s)
+
+**Rules (5m):**
+1. Draw a box from the absolute high to absolute low of the **range window**.
+2. In the **trade window**, take the **first** 5m candle that breaks the box —
+   long above the range high, short below the range low.
+3. **Stop** at the opposite extreme of that breakout candle.
+4. **Target** a strict **2:1** risk-to-reward. One trade per session.
+
+**Asset-class session windows:**
+| Asset class | Range box | Trade window | TZ / notes |
+|---|---|---|---|
+| **US** | Pre-Market **04:00–09:30 ET** | RTH **09:30–16:00 ET** | After-Hours 16:00–20:00 ET noted, not used for entries |
+| **Crypto** | Low Activity **04:00–11:00 IST** | Global Peak **17:30–01:30 IST** | Local Prime 18:30–23:30 IST sits inside peak (12:00–20:00 UTC) |
+| **India** | **09:15–11:30 IST** | **11:30–15:30 IST** | NSE cash open → close (unchanged) |
+| **Commodity** | London **03:00–08:00 ET** | **08:00–16:00 ET** | Unchanged London-style map |
+
+Optional HH:MM overrides in config replace the defaults for that scan.
+""",
+    ),
+    _section(
         id="intra_hwp",
         hub="intraday",
         label="Intra HWP - Two-Sided Gap Fill + 21 EMA",
@@ -951,8 +1015,31 @@ def get_section(section_id: str) -> HubSection | None:
 def build_config(config_cls: type, overrides: dict[str, Any] | None) -> Any:
     if not overrides:
         return config_cls()
-    fields = {f.name for f in dataclasses.fields(config_cls)}
-    return config_cls(**{k: v for k, v in overrides.items() if k in fields})
+    fields = {f.name: f for f in dataclasses.fields(config_cls)}
+    cleaned: dict[str, Any] = {}
+    for k, v in overrides.items():
+        if k not in fields:
+            continue
+        if v is None or v == "":
+            continue
+        f = fields[k]
+        typ = f.type
+        origin = getattr(typ, "__origin__", None)
+        if origin is not None:
+            args = [a for a in getattr(typ, "__args__", ()) if a is not type(None)]
+            typ = args[0] if args else typ
+        try:
+            if typ is float or typ == "float":
+                cleaned[k] = float(v)
+            elif typ is int or typ == "int":
+                cleaned[k] = int(float(v))
+            elif typ is bool or typ == "bool":
+                cleaned[k] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+            else:
+                cleaned[k] = v
+        except (TypeError, ValueError):
+            cleaned[k] = v
+    return config_cls(**cleaned)
 
 
 def list_hubs_payload() -> dict:

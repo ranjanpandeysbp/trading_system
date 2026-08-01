@@ -93,13 +93,14 @@ class TradingHubService:
         def _run():
             set_groww_token(token)
             try:
+                merged_config = {**(config or {}), "asset_class": asset_class}
                 return run_section_scan(
                     section_id,
                     resolved,
                     market=market,
                     groww_token=token,
                     exchange=exchange,
-                    config=config,
+                    config=merged_config,
                     run_bt=run_bt,
                 )
             except Exception as exc:

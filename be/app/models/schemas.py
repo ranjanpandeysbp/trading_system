@@ -819,6 +819,63 @@ class OptionsZeroToHeroRequest(BaseModel):
     session_end: str = "15:15"
 
 
+class ProTradeVolumeProfileCeRequest(BaseModel):
+    """Volume Profile CE scan — VA reversal, POC compression, I-profile LVN."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    intraday_tf: str = "15m"
+    daily_tf: str = "1d"
+    num_bins: int = Field(default=50, ge=10, le=120)
+    value_area_pct: float = Field(default=0.70, ge=0.5, le=0.9)
+    compression_days: int = Field(default=3, ge=2, le=10)
+    compression_threshold_pct: float = Field(default=0.20, ge=0.05, le=2.0)
+    val_touch_tol_pct: float = Field(default=0.15, ge=0.02, le=1.0)
+    lvn_threshold_pct: float = Field(default=0.10, ge=0.02, le=0.4)
+
+
+class ProTradeVolumeProfilePocRequest(BaseModel):
+    """Volume Profile POC — first-touch pullback to HVN zone edge."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=120, ge=40, le=400)
+    profile_bars: int = Field(default=60, ge=20, le=200)
+    num_bins: int = Field(default=40, ge=10, le=120)
+    cluster_vol_pct: float = Field(default=0.70, ge=0.4, le=0.95)
+    breakout_buffer_pct: float = Field(default=1.0, ge=0.1, le=5.0)
+
+
+class ProTradePaVolumeProfileRequest(BaseModel):
+    """PA + Volume Profile — FVG and S/R flip filtered by VP clusters (Trader Dale)."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "15m"
+    lookback_bars: int = Field(default=200, ge=60, le=500)
+    vp_lookback: int = Field(default=40, ge=10, le=120)
+    num_bins: int = Field(default=40, ge=10, le=120)
+    poc_tolerance_pct: float = Field(default=0.35, ge=0.05, le=2.0)
+    breakout_buffer_pct: float = Field(default=0.15, ge=0.05, le=2.0)
+
+
+class ProTradePaVpSmcRequest(BaseModel):
+    """PA-VP-SMC — Price Action + Volume Profile + Smart Money Concepts confluence."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    htf: str = "1h"
+    ltf: str = "15m"
+    lookback_bars: int = Field(default=300, ge=80, le=600)
+    swing_window: int = Field(default=5, ge=3, le=15)
+    vp_num_bins: int = Field(default=50, ge=10, le=120)
+    vp_value_area_pct: float = Field(default=0.70, ge=0.5, le=0.95)
+    zone_tolerance_pct: float = Field(default=0.5, ge=0.1, le=3.0)
+    min_confluence_factors: int = Field(default=3, ge=1, le=7)
+    rr_min: float = Field(default=1.5, ge=0.5, le=5.0)
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user

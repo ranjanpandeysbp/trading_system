@@ -21,7 +21,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
-import { FormField, Select } from '../components/ui/Form'
+import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
 const HUB_ICONS: Record<string, typeof TrendingUp> = {
@@ -48,6 +48,8 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_ny_open_bias: '1H bias candle (9:00 AM ET) + 1m execution — entry style selectable below',
   intraday_alpha_945: '30m opening range + Daily trend filter',
   intraday_7_wasted: 'Daily bias + 5m opening range + 1m execution',
+  intraday_london_breakout:
+    '5m · US Pre-Market 04:00–09:30 ET → RTH to 16:00 · Crypto Low Activity 04:00–11:00 IST → Peak 17:30–01:30 IST · India/Commodity unchanged',
   intraday_fib945: '30m opening-range bias + 5m execution',
   intra_hwp: '5m',
   intraday_vwap_fade: '15m HTF + 5m execution',
@@ -270,6 +272,22 @@ export default function TradingHubs() {
                         <option key={ch.value} value={ch.value}>{ch.label}</option>
                       ))}
                     </Select>
+                  ) : opt.type === 'number' ? (
+                    <Input
+                      type="number"
+                      step={opt.step != null ? String(opt.step) : undefined}
+                      min={opt.min != null ? String(opt.min) : undefined}
+                      max={opt.max != null ? String(opt.max) : undefined}
+                      value={config[key] ?? String(opt.default ?? '')}
+                      onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    />
+                  ) : opt.type === 'text' ? (
+                    <Input
+                      type="text"
+                      placeholder={String(opt.default ?? '')}
+                      value={config[key] ?? ''}
+                      onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    />
                   ) : null}
                 </FormField>
               </div>

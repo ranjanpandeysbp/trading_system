@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Activity, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
@@ -117,7 +118,30 @@ type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: ['1d'] }
 
 export default function CommandCenter() {
-  const [tab, setTab] = useState<TabId>('nse_world_indices')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabFromUrl = searchParams.get('tab')
+  const initialTab: TabId =
+    tabFromUrl && TABS.some((t) => t.id === tabFromUrl) ? (tabFromUrl as TabId) : 'nse_world_indices'
+  const [tab, setTab] = useState<TabId>(initialTab)
+
+  useEffect(() => {
+    const next = searchParams.get('tab')
+    if (next && TABS.some((t) => t.id === next) && next !== tab) {
+      setTab(next as TabId)
+    }
+  }, [searchParams, tab])
+
+  const selectTab = useCallback(
+    (id: TabId) => {
+      setTab(id)
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('tab', id)
+        return p
+      }, { replace: true })
+    },
+    [setSearchParams],
+  )
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [result, setResult] = useState<unknown>(null)
@@ -387,7 +411,7 @@ export default function CommandCenter() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map(({ id, label, icon: Icon }) => (
-          <Chip key={id} selected={tab === id} onClick={() => { setTab(id); setError(''); setResult(null) }}>
+          <Chip key={id} selected={tab === id} onClick={() => { selectTab(id); setError(''); setResult(null) }}>
             <span className="inline-flex items-center gap-1.5">
               <Icon size={14} />
               {label}

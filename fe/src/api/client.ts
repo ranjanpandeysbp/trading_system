@@ -756,7 +756,10 @@ export interface TradingHubSection {
     type: string
     label: string
     choices?: Array<{ value: string; label: string }>
-    default?: string
+    default?: string | number
+    min?: number
+    max?: number
+    step?: number
   }>
   /** When set, scan ignores the ticker picker and always uses this India-index list. */
   fixed_universe?: string[] | null
@@ -1386,6 +1389,59 @@ export const runOptionsZeroToHero = (payload?: {
   partial_book_pct?: number
   session_end?: string
 }) => api.post('/options/zero-to-hero', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeVolumeProfileCe = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  intraday_tf?: string
+  daily_tf?: string
+  num_bins?: number
+  value_area_pct?: number
+  compression_days?: number
+  compression_threshold_pct?: number
+  val_touch_tol_pct?: number
+  lvn_threshold_pct?: number
+}) => api.post('/pro-trade/volume-profile-ce', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeVolumeProfilePoc = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  profile_bars?: number
+  num_bins?: number
+  cluster_vol_pct?: number
+  breakout_buffer_pct?: number
+}) => api.post('/pro-trade/volume-profile-poc', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradePaVolumeProfile = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  vp_lookback?: number
+  num_bins?: number
+  poc_tolerance_pct?: number
+  breakout_buffer_pct?: number
+}) => api.post('/pro-trade/pa-volume-profile', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradePaVpSmc = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  htf?: string
+  ltf?: string
+  lookback_bars?: number
+  swing_window?: number
+  vp_num_bins?: number
+  vp_value_area_pct?: number
+  zone_tolerance_pct?: number
+  min_confluence_factors?: number
+  rr_min?: number
+}) => api.post('/pro-trade/pa-vp-smc', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 

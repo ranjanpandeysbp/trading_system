@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -33,6 +33,18 @@ const nav: NavEntry[] = [
     ],
   },
   { to: '/options', label: 'Options', shortLabel: 'Options', icon: Calculator },
+  {
+    to: '/pro-trade',
+    label: 'Pro Trade',
+    shortLabel: 'Pro',
+    icon: Crosshair,
+    children: [
+      { to: '/pro-trade/volume-profile-ce', label: 'Volume Profile CE' },
+      { to: '/pro-trade/volume-profile-poc', label: 'Volume Profile POC' },
+      { to: '/pro-trade/pa-volume-profile', label: 'PA - Volume Profile' },
+      { to: '/pro-trade/pa-vp-smc', label: 'PA-VP-SMC' },
+    ],
+  },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
   { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
   { to: '/seasonality', label: 'Seasonality', shortLabel: 'Season', icon: CalendarRange },

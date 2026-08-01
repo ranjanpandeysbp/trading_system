@@ -1,0 +1,199 @@
+"""Pro Trade — Volume Profile CE and related professional setups."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from app.market_pulse.serialize import json_safe
+from app.services.settings_service import SettingsService
+from app.services.ticker_universe_service import TickerUniverseService
+
+
+class ProTradeService:
+    def __init__(self, settings: SettingsService):
+        self.settings = settings
+        self.universe = TickerUniverseService()
+
+    async def _ctx(self) -> tuple[str, str]:
+        token = await self.settings.get_groww_token() or ""
+        exchange = await self.settings.get_groww_exchange()
+        return token, exchange
+
+    async def _asset_ctx(self, asset_class: str) -> tuple[str, str]:
+        from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+
+        cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
+        if asset_class == "india":
+            return str(cfg["market"]), await self.settings.get_groww_exchange()
+        return str(cfg["market"]), str(cfg.get("exchange") or "NSE")
+
+    async def sections(self) -> dict[str, Any]:
+        return {
+            "sections": [
+                {
+                    "id": "volume_profile_ce",
+                    "label": "Volume Profile CE",
+                    "path": "/pro-trade/volume-profile-ce",
+                    "youtube": "https://youtu.be/67u8mdQ8f08",
+                },
+                {
+                    "id": "volume_profile_poc",
+                    "label": "Volume Profile POC",
+                    "path": "/pro-trade/volume-profile-poc",
+                    "youtube": "https://www.youtube.com/watch?v=ooHX6tf5RVI",
+                },
+                {
+                    "id": "pa_volume_profile",
+                    "label": "PA - Volume Profile",
+                    "path": "/pro-trade/pa-volume-profile",
+                    "youtube": "https://www.youtube.com/watch?v=FVoXWlNkdhs",
+                },
+                {
+                    "id": "pa_vp_smc",
+                    "label": "PA-VP-SMC",
+                    "path": "/pro-trade/pa-vp-smc",
+                    "youtube": None,
+                },
+            ],
+        }
+
+    async def volume_profile_ce(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ticker_utils import market_currency
+        from app.market_pulse.volume_profile_ce_engine import VolumeProfileCeConfig, scan_universe
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = VolumeProfileCeConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def volume_profile_poc(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ticker_utils import market_currency
+        from app.market_pulse.volume_profile_poc_engine import VolumeProfilePocConfig, scan_universe
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = VolumeProfilePocConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def pa_vp_smc(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, scan_universe
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = PaVpSmcConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def pa_volume_profile(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.pa_volume_profile_engine import PaVolumeProfileConfig, scan_universe
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg = PaVolumeProfileConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)

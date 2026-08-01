@@ -1,6 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { ArrowRight, BarChart3, Search, Wallet, Layers, BookOpen, LineChart } from 'lucide-react'
+import {
+  ArrowRight,
+  BarChart3,
+  Bot,
+  Clapperboard,
+  Crosshair,
+  Landmark,
+  Search,
+  Wallet,
+  Layers,
+  BookOpen,
+  LineChart,
+} from 'lucide-react'
 import { getAccount, fetchStrategies } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { StatCard } from '../components/ui/StatCard'
@@ -9,6 +21,39 @@ import { Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 
 const quickLinks = [
+  {
+    to: '/pro-trade/pa-vp-smc',
+    title: 'PA-VP-SMC',
+    description:
+      'Price Action + Volume Profile + Smart Money Concepts confluence · confidence-scored actionable trades',
+    icon: Crosshair,
+    color: 'text-rose-400',
+    bg: 'bg-rose-500/10',
+  },
+  {
+    to: '/investing-agent',
+    title: 'Investing Agent',
+    description: 'AI research agent for stocks and markets — ask, investigate, and get reasoned investment views.',
+    icon: Bot,
+    color: 'text-indigo-400',
+    bg: 'bg-indigo-500/10',
+  },
+  {
+    to: '/youtube-analysis',
+    title: 'Youtube Analysis',
+    description: 'Pull YouTube strategy videos and Gemini transcripts to extract trade ideas and rules.',
+    icon: Clapperboard,
+    color: 'text-red-400',
+    bg: 'bg-red-500/10',
+  },
+  {
+    to: '/command-center?tab=mutual_fund_holdings',
+    title: 'Mutual Fund Holdings',
+    description: 'Command Center — track stock-level holdings trends across Indian mutual funds.',
+    icon: Landmark,
+    color: 'text-teal-400',
+    bg: 'bg-teal-500/10',
+  },
   {
     to: '/strategies',
     title: 'Strategy Library',
@@ -97,7 +142,7 @@ export default function Dashboard() {
         </div>
       ) : null}
 
-      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {quickLinks.map(({ to, title, description, icon: Icon, color, bg }) => (
           <Link key={to} to={to}>
             <Card hover className="group h-full">

@@ -67,6 +67,10 @@ from app.models.schemas import (
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
+    ProTradeVolumeProfileCeRequest,
+    ProTradeVolumeProfilePocRequest,
+    ProTradePaVolumeProfileRequest,
+    ProTradePaVpSmcRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -101,6 +105,7 @@ from app.models.schemas import (
 )
 from app.services.command_center_service import CommandCenterService
 from app.services.options_service import OptionsService
+from app.services.pro_trade_service import ProTradeService
 from app.services.ticker_universe_service import TickerUniverseService
 from app.services.alerts_service import AlertsService
 from app.services.schedule_alerts_service import ScheduleAlertsService
@@ -2726,5 +2731,102 @@ async def options_zero_to_hero(
             "partial_book_rr": payload.partial_book_rr,
             "partial_book_pct": payload.partial_book_pct,
             "session_end": payload.session_end,
+        },
+    )
+
+
+@router.get("/pro-trade/sections")
+async def pro_trade_sections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).sections()
+
+
+@router.post("/pro-trade/volume-profile-ce")
+async def pro_trade_volume_profile_ce(
+    payload: ProTradeVolumeProfileCeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).volume_profile_ce(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "intraday_tf": payload.intraday_tf,
+            "daily_tf": payload.daily_tf,
+            "num_bins": payload.num_bins,
+            "value_area_pct": payload.value_area_pct,
+            "compression_days": payload.compression_days,
+            "compression_threshold_pct": payload.compression_threshold_pct,
+            "val_touch_tol_pct": payload.val_touch_tol_pct,
+            "lvn_threshold_pct": payload.lvn_threshold_pct,
+        },
+    )
+
+
+@router.post("/pro-trade/volume-profile-poc")
+async def pro_trade_volume_profile_poc(
+    payload: ProTradeVolumeProfilePocRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).volume_profile_poc(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "profile_bars": payload.profile_bars,
+            "num_bins": payload.num_bins,
+            "cluster_vol_pct": payload.cluster_vol_pct,
+            "breakout_buffer_pct": payload.breakout_buffer_pct,
+        },
+    )
+
+
+@router.post("/pro-trade/pa-volume-profile")
+async def pro_trade_pa_volume_profile(
+    payload: ProTradePaVolumeProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).pa_volume_profile(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "vp_lookback": payload.vp_lookback,
+            "num_bins": payload.num_bins,
+            "poc_tolerance_pct": payload.poc_tolerance_pct,
+            "breakout_buffer_pct": payload.breakout_buffer_pct,
+        },
+    )
+
+
+@router.post("/pro-trade/pa-vp-smc")
+async def pro_trade_pa_vp_smc(
+    payload: ProTradePaVpSmcRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).pa_vp_smc(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "htf": payload.htf,
+            "ltf": payload.ltf,
+            "lookback_bars": payload.lookback_bars,
+            "swing_window": payload.swing_window,
+            "vp_num_bins": payload.vp_num_bins,
+            "vp_value_area_pct": payload.vp_value_area_pct,
+            "zone_tolerance_pct": payload.zone_tolerance_pct,
+            "min_confluence_factors": payload.min_confluence_factors,
+            "rr_min": payload.rr_min,
         },
     )
