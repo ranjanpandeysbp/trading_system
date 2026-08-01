@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '../ui/Badge'
 import { Chip } from '../ui/Chip'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpLevel } from './VolumeProfileChart'
 
 type Row = Record<string, unknown>
@@ -49,7 +51,17 @@ function SetupCard({ setup }: { setup: Row }) {
   )
 }
 
-function TickerResultCard({ result, index, currency }: { result: Row; index: number; currency: string }) {
+function TickerResultCard({
+  result,
+  index,
+  currency,
+  assetClass,
+}: {
+  result: Row
+  index: number
+  currency: string
+  assetClass: WatchlistMarket
+}) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
   const take = Boolean(result.take_trade)
@@ -68,31 +80,34 @@ function TickerResultCard({ result, index, currency }: { result: Row; index: num
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left"
-      >
-        {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
-        <span className="font-semibold text-white">{String(result.ticker)}</span>
-        {result.ltp != null && (
-          <span className="text-sm text-slate-400">
-            {currency}
-            {String(result.ltp)}
-          </span>
-        )}
-        <Badge action={take ? signalTone(String(result.direction ?? '')) : 'HOLD'} />
-        <span className="text-xs text-slate-500">{String(result.verdict ?? 'WAIT')}</span>
-        {result.confidence_pct != null && (
-          <span className="text-xs text-slate-400">{String(result.confidence_pct)}%</span>
-        )}
-        {stats.hit_rate_pct != null && (
-          <span className="text-xs text-slate-500">
-            Next-candle hit {String(stats.hit_rate_pct)}% ({String(stats.wins)}/{String(stats.samples)})
-          </span>
-        )}
-        {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
-      </button>
+      <div className="flex w-full flex-wrap items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 flex-wrap items-center gap-3 text-left"
+        >
+          {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
+          <span className="font-semibold text-white">{String(result.ticker)}</span>
+          {result.ltp != null && (
+            <span className="text-sm text-slate-400">
+              {currency}
+              {String(result.ltp)}
+            </span>
+          )}
+          <Badge action={take ? signalTone(String(result.direction ?? '')) : 'HOLD'} />
+          <span className="text-xs text-slate-500">{String(result.verdict ?? 'WAIT')}</span>
+          {result.confidence_pct != null && (
+            <span className="text-xs text-slate-400">{String(result.confidence_pct)}%</span>
+          )}
+          {stats.hit_rate_pct != null && (
+            <span className="text-xs text-slate-500">
+              Next-candle hit {String(stats.hit_rate_pct)}% ({String(stats.wins)}/{String(stats.samples)})
+            </span>
+          )}
+          {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
+        </button>
+        <AddToWatchlistButton ticker={String(result.ticker ?? '')} marketType={assetClass} compact />
+      </div>
       {open && (
         <div className="space-y-3 border-t border-slate-800/70 px-4 py-3">
           {((result.reasons as string[]) ?? []).length > 0 && (
@@ -159,6 +174,7 @@ function AggregateStatsBar({ stats }: { stats: Row }) {
 export function VolumeSpreadNextCandlePanel({ data }: { data: Row }) {
   const allResults = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
+  const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
   const aggregateStats = data.aggregate_next_candle_stats as Row | undefined
   const [filter, setFilter] = useState<FilterMode>('all')
 
@@ -228,7 +244,7 @@ export function VolumeSpreadNextCandlePanel({ data }: { data: Row }) {
       <div className="space-y-2">
         {sorted.length === 0 && <p className="text-sm text-slate-500">No tickers match this filter.</p>}
         {sorted.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
         ))}
       </div>
       {data.disclaimer != null && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

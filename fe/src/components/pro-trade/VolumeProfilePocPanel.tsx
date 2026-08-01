@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '../ui/Badge'
+import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpHistBin, type VpLevel } from './VolumeProfileChart'
 
 type Row = Record<string, unknown>
@@ -66,7 +68,17 @@ function levelsFromResult(levels: Row): VpLevel[] {
   return out
 }
 
-function TickerResultCard({ result, index, currency }: { result: Row; index: number; currency: string }) {
+function TickerResultCard({
+  result,
+  index,
+  currency,
+  assetClass,
+}: {
+  result: Row
+  index: number
+  currency: string
+  assetClass: WatchlistMarket
+}) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
   const levels = (result.levels as Row) || {}
@@ -83,23 +95,26 @@ function TickerResultCard({ result, index, currency }: { result: Row; index: num
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
-        <span className="font-semibold text-white">{String(result.ticker)}</span>
-        {result.ltp != null && (
-          <span className="text-sm text-slate-400">
-            {currency}
-            {String(result.ltp)}
-          </span>
-        )}
-        <Badge action={take ? signalTone(String(result.direction ?? '')) : 'HOLD'} />
-        <span className="text-xs text-slate-500">{String(result.verdict ?? 'WAIT')}</span>
-        {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
-      </button>
+      <div className="flex w-full items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-3 text-left"
+        >
+          {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
+          <span className="font-semibold text-white">{String(result.ticker)}</span>
+          {result.ltp != null && (
+            <span className="text-sm text-slate-400">
+              {currency}
+              {String(result.ltp)}
+            </span>
+          )}
+          <Badge action={take ? signalTone(String(result.direction ?? '')) : 'HOLD'} />
+          <span className="text-xs text-slate-500">{String(result.verdict ?? 'WAIT')}</span>
+          {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
+        </button>
+        <AddToWatchlistButton ticker={String(result.ticker ?? '')} marketType={assetClass} compact />
+      </div>
       {open && (
         <div className="space-y-3 border-t border-slate-800/70 px-4 py-3">
           {levels.poc != null && (
@@ -152,6 +167,7 @@ function TickerResultCard({ result, index, currency }: { result: Row; index: num
 export function VolumeProfilePocPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
+  const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
   if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
 
   return (
@@ -175,7 +191,7 @@ export function VolumeProfilePocPanel({ data }: { data: Row }) {
       </div>
       <div className="space-y-2">
         {results.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}
