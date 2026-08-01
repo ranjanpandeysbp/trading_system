@@ -120,7 +120,7 @@ function TickerResultCard({ result, index, currency }: { result: Row; index: num
             {String(result.ltp)}
           </span>
         )}
-        <Badge action={take ? 'BUY' : 'HOLD'} />
+        <Badge action={take ? signalTone(String(result.direction ?? '')) : 'HOLD'} />
         <span className="text-xs text-slate-500">{String(result.verdict ?? 'WAIT')}</span>
         {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
       </button>

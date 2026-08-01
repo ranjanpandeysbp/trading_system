@@ -429,6 +429,7 @@ def analyze_ticker(
         if s.get("signal") not in (None, "WAIT", "WATCH") and s.get("direction") and s.get("entry") is not None
     ]
     out["actionable"] = actionable
+    out["direction"] = actionable[0].get("direction") if actionable else None
     out["verdict"] = "TAKE" if actionable else ("WATCH" if signal.get("signal") == "WATCH" else "WAIT")
     out["take_trade"] = bool(actionable)
     return out

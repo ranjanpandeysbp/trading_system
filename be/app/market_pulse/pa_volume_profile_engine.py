@@ -533,6 +533,11 @@ def analyze_ticker(
     out["actionable"] = actionable
     out["take_trade"] = bool(actionable)
     out["verdict"] = "TAKE" if actionable else ("WATCH" if watch else "WAIT")
+    if actionable:
+        best = max(actionable, key=lambda s: float(s.get("confidence_pct") or 0))
+        out["direction"] = best.get("direction")
+    else:
+        out["direction"] = None
     out["profile"] = {
         "tf": cfg.timeframe,
         "bars": int(len(df)),

@@ -685,6 +685,7 @@ def analyze_ticker(
         if s.get("signal") not in (None, "WAIT", "WATCH") and s.get("direction")
     ]
     out["actionable"] = actionable
+    out["direction"] = actionable[0].get("direction") if actionable else None
 
     if cfg.suggest_synthetic and actionable:
         # Prefer first actionable direction
