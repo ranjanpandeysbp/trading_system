@@ -206,6 +206,31 @@ class SavedBacktestReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class BackgroundJob(Base):
+    """Durable record of a background leaderboard/backtest run — the
+    in-memory job store (strategy_leaderboard_jobs.py) is fast for live
+    progress polling, but a job that's still "running" only in memory is
+    silently lost if the backend process restarts mid-run (deploy, crash,
+    manual restart). This table is the source of truth for status/result
+    linkage and stores the full original request so an orphaned "running"
+    job found at startup (impossible to genuinely still be running, since
+    the process just started fresh) can be transparently re-launched from
+    scratch rather than vanishing with no report and no explanation."""
+    __tablename__ = "background_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # uuid4 hex, shared with the in-memory job id
+    user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)  # "backtester_leaderboard" | "strategy_leaderboard"
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running", index=True)  # running | done | error
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_json: Mapped[str] = mapped_column(Text)  # full original request payload, for resume-on-restart
+    meta_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class TradeCandidate(Base):
     """A saved setup: one ticker + one timeframe + one or more strategies,
     checked live for BUY/SELL triggers on the Trade Candidate hub."""

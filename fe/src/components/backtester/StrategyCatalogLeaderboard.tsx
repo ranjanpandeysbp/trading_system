@@ -211,6 +211,17 @@ export function StrategyCatalogLeaderboard({
     refetchInterval: 2000,
   })
 
+  // All statuses (running/done/error), fetched once on mount and whenever a
+  // tracked job finishes — this is what makes a background run that
+  // completed or failed while this tab was closed still visible on return,
+  // instead of only ever showing up via the one-time in-session toast.
+  const recentJobsQuery = useQuery({
+    queryKey: ['bt-jobs-recent'],
+    queryFn: () => fetchBacktesterLeaderboardJobs('all'),
+  })
+  const recentJobs = ((recentJobsQuery.data as { jobs?: BgJobStatus[] } | undefined)?.jobs) ?? []
+  const recentFinished = recentJobs.filter((j) => j.status !== 'running').slice(0, 8)
+
   useEffect(() => {
     const serverJobs = ((runningJobsQuery.data as { jobs?: BgJobStatus[] } | undefined)?.jobs) ?? []
     const ids = serverJobs.map((j) => j.job_id)
@@ -272,6 +283,7 @@ export function StrategyCatalogLeaderboard({
     if (changed) {
       queryClient.invalidateQueries({ queryKey: ['bt-reports'] })
       queryClient.invalidateQueries({ queryKey: ['bt-jobs-running'] })
+      queryClient.invalidateQueries({ queryKey: ['bt-jobs-recent'] })
     }
   }, [bgJobIds, jobById, queryClient])
 
@@ -508,6 +520,46 @@ export function StrategyCatalogLeaderboard({
                     style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
                   />
                 </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {recentFinished.length > 0 && (
+        <Card>
+          <h4 className="mb-3 font-medium text-white">Recent background runs</h4>
+          <div className="space-y-2">
+            {recentFinished.map((job) => (
+              <div
+                key={job.job_id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  job.status === 'error' ? 'border-rose-500/30 bg-rose-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div>
+                  {job.status === 'done' && job.report_id ? (
+                    <button
+                      className="font-medium text-slate-200 hover:text-teal-400"
+                      onClick={() => { setViewedReportId(job.report_id as number); setFgJobId(null) }}
+                    >
+                      {job.name || 'Untitled background run'}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-slate-200">{job.name || 'Untitled background run'}</span>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    {(job.meta?.tickers ?? []).slice(0, 4).join(', ')}
+                    {(job.meta?.tickers?.length ?? 0) > 4 ? '…' : ''}
+                    {job.meta?.strategy_count != null ? ` · ${job.meta.strategy_count} strategies` : ''}
+                  </p>
+                  {job.status === 'error' && (
+                    <p className="mt-1 text-xs text-rose-400">{job.error || 'Failed — no further detail available.'}</p>
+                  )}
+                </div>
+                <span className={`text-xs font-medium ${job.status === 'error' ? 'text-rose-400' : job.report_id ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {job.status === 'error' ? 'Failed' : job.report_id ? 'Saved' : 'Done (not saved)'}
+                </span>
               </div>
             ))}
           </div>

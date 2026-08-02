@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
+    try:
+        from app.services.strategy_leaderboard_jobs import resume_orphaned_jobs
+
+        resumed = await resume_orphaned_jobs()
+        if resumed:
+            logger.info("Resumed %d background job(s) interrupted by the last restart.", resumed)
+    except Exception:
+        logger.exception("Startup job-resume scan failed — any interrupted background jobs will not auto-resume this time.")
     stop = asyncio.Event()
     worker_task = asyncio.create_task(alert_schedule_worker(stop), name="alert-schedule-worker")
     logger.info("Started alert schedule background worker")

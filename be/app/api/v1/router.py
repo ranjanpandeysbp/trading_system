@@ -1849,7 +1849,17 @@ async def strategy_leaderboard_start(
     eventual result."""
     from app.services.strategy_leaderboard_jobs import create_job, run_leaderboard_job
 
-    job = create_job()
+    job = await create_job(
+        user_id=current_user.id,
+        request_payload={
+            "tickers": payload.tickers,
+            "timeframes": payload.timeframes,
+            "asset_class": payload.asset_class,
+            "strategy_ids": payload.strategy_ids,
+            "bars": payload.bars,
+            "forward_bars": payload.forward_bars,
+        },
+    )
     run_leaderboard_job(
         job.id, payload.tickers, payload.timeframes,
         asset_class=payload.asset_class, strategy_ids=payload.strategy_ids,
@@ -1948,7 +1958,7 @@ async def backtester_leaderboard_start(
     if payload.run_in_background and not report_name:
         raise HTTPException(status_code=400, detail="Report name is required for background backtests.")
 
-    job = create_job(
+    job = await create_job(
         name=report_name,
         user_id=current_user.id,
         source=BACKTESTER_SOURCE,
@@ -1959,6 +1969,17 @@ async def backtester_leaderboard_start(
             "timeframe": payload.timeframe,
             "period": payload.period,
             "auto_save": auto_save,
+        },
+        request_payload={
+            "tickers": payload.tickers,
+            "strategy_ids": payload.strategy_ids,
+            "asset_class": payload.asset_class,
+            "timeframe": payload.timeframe,
+            "period": payload.period,
+            "costs_pct": payload.costs_pct,
+            "bars": payload.bars,
+            "forward_bars": payload.forward_bars,
+            "report_name": report_name if auto_save else None,
         },
     )
     run_backtester_job(

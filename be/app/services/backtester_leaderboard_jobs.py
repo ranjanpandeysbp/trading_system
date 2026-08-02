@@ -7,6 +7,7 @@ machinery."""
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from app.services.strategy_leaderboard_jobs import (
@@ -18,6 +19,8 @@ from app.services.strategy_leaderboard_jobs import (
     list_jobs,
     update_progress,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "LeaderboardJob", "create_job", "get_job", "list_jobs", "update_progress",
@@ -94,8 +97,9 @@ def run_backtester_job(
                         "saved_report_name": saved.get("name") or save_name,
                     }
 
-            complete_job(job_id, result, report_id=report_id)
+            await complete_job(job_id, result, report_id=report_id)
         except Exception as exc:
-            fail_job(job_id, str(exc)[:500])
+            logger.exception("Backtester leaderboard job %s failed", job_id)
+            await fail_job(job_id, str(exc)[:500])
 
     asyncio.create_task(_run())
