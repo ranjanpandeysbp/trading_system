@@ -93,6 +93,41 @@ def _curated_error_row(ticker: str, strategy: Any, error: str) -> dict[str, Any]
 
 def _result_row(ticker: str, strategy_id: str, meta: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     stats = result.get("stats") or {}
+    advanced = stats.get("advanced_report")
+    if not advanced and stats.get("trades"):
+        from app.strategies.advanced_backtest_report import build_advanced_report
+
+        full = build_advanced_report(
+            stats.get("trades") or [],
+            period=result.get("period"),
+            costs_pct=float(result.get("costs_pct") or stats.get("costs_pct") or 0.0008),
+            label=f"{ticker} · {meta.get('name', strategy_id)}",
+            context={
+                "ticker": ticker,
+                "strategy_id": strategy_id,
+                "timeframe": result.get("timeframe"),
+                "period": result.get("period"),
+            },
+        )
+        advanced = {
+            k: full[k]
+            for k in (
+                "label", "context", "core_performance", "risk_drawdown",
+                "risk_adjusted", "execution_costs", "robustness", "assessment",
+            )
+        }
+    elif advanced:
+        advanced = {
+            **advanced,
+            "label": f"{ticker} · {meta.get('name', strategy_id)}",
+            "context": {
+                "ticker": ticker,
+                "strategy_id": strategy_id,
+                "timeframe": result.get("timeframe"),
+                "period": result.get("period"),
+            },
+        }
+
     return {
         "ticker": ticker,
         "strategy_id": strategy_id,
@@ -105,9 +140,17 @@ def _result_row(ticker: str, strategy_id: str, meta: dict[str, Any], result: dic
         "total_return_pct": stats.get("total_return_pct"),
         "max_drawdown_pct": stats.get("max_drawdown_pct"),
         "avg_return_per_trade_pct": stats.get("avg_return_per_trade_pct"),
+        "cagr_pct": stats.get("cagr_pct"),
+        "payoff_ratio": stats.get("payoff_ratio"),
+        "profit_factor": stats.get("profit_factor"),
+        "expectancy_pct": stats.get("expectancy_pct"),
+        "sharpe_ratio": stats.get("sharpe_ratio"),
+        "sortino_ratio": stats.get("sortino_ratio"),
+        "calmar_ratio": stats.get("calmar_ratio"),
         "rank_score": round(_rank_score(stats), 4),
         "thin_sample": int(stats.get("num_trades") or 0) < _MIN_TRADES_FOR_TRUST,
         "summary": result.get("summary"),
+        "advanced": advanced,
         "error": None,
     }
 
@@ -259,6 +302,15 @@ class BacktesterLeaderboardService:
             if t not in best_per_ticker or r["rank_score"] > best_per_ticker[t]["rank_score"]:
                 best_per_ticker[t] = r
 
+        advanced_report = None
+        for r in rows:
+            if r.get("error") or not r.get("advanced"):
+                continue
+            if int(r.get("num_trades") or 0) < 1:
+                continue
+            advanced_report = r["advanced"]
+            break
+
         return {
             "asset_class": asset_class,
             "tickers": resolved_tickers,
@@ -267,6 +319,7 @@ class BacktesterLeaderboardService:
             "period": period,
             "rows": rows,
             "best_per_ticker": list(best_per_ticker.values()),
+            "advanced_report": advanced_report,
             "generated_at": datetime.utcnow().isoformat(),
         }
 
@@ -294,6 +347,40 @@ class BacktesterLeaderboardService:
         await self.db.refresh(report)
         return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
 
+    @staticmethod
+    def _report_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = payload.get("rows") or []
+        ok_rows = [r for r in rows if isinstance(r, dict) and not r.get("error")]
+        best = None
+        for r in ok_rows:
+            ret = r.get("total_return_pct")
+            if ret is None:
+                continue
+            if best is None or float(ret) > float(best.get("total_return_pct") or -1e18):
+                best = r
+        best_per = payload.get("best_per_ticker") or []
+        return {
+            "ticker_count": len(payload.get("tickers") or []),
+            "strategy_count": int(payload.get("strategy_count") or 0),
+            "combo_count": len(rows),
+            "period": payload.get("period"),
+            "timeframe": payload.get("timeframe"),
+            "best_return_pct": best.get("total_return_pct") if best else None,
+            "best_strategy": best.get("strategy_label") if best else None,
+            "best_ticker": best.get("ticker") if best else None,
+            "best_per_ticker_count": len(best_per),
+            "error_count": sum(1 for r in rows if isinstance(r, dict) and r.get("error")),
+            "cagr_pct": (best or {}).get("cagr_pct") if best else None,
+            "sharpe_ratio": (best or {}).get("sharpe_ratio") if best else None,
+            "profit_factor": (best or {}).get("profit_factor") if best else None,
+            "assessment_verdict": (
+                ((payload.get("advanced_report") or {}).get("assessment") or {}).get("verdict")
+            ),
+            "assessment_score": (
+                ((payload.get("advanced_report") or {}).get("assessment") or {}).get("score")
+            ),
+        }
+
     async def list_reports(self, *, user_id: int | None) -> dict[str, Any]:
         from sqlalchemy import select
 
@@ -308,18 +395,22 @@ class BacktesterLeaderboardService:
             stmt = stmt.where(SavedBacktestReport.user_id == user_id)
         result = await self.db.execute(stmt)
         rows = result.scalars().all()
-        return {
-            "reports": [
-                {
-                    "id": r.id, "name": r.name, "asset_class": r.asset_class,
-                    "tickers": r.tickers.split(",") if r.tickers else [],
-                    "timeframes": r.timeframes.split(",") if r.timeframes else [],
-                    "created_at": r.created_at.isoformat(),
-                }
-                for r in rows
-            ],
-        }
-
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "tickers": r.tickers.split(",") if r.tickers else [],
+                "timeframes": r.timeframes.split(",") if r.timeframes else [],
+                "created_at": r.created_at.isoformat(),
+                "summary": self._report_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
     async def get_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
         from app.models.db_models import SavedBacktestReport
 

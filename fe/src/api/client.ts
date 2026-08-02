@@ -223,7 +223,12 @@ export const startBacktesterLeaderboardJob = (payload: {
   costs_pct?: number
   bars?: number
   forward_bars?: number
+  report_name?: string
+  run_in_background?: boolean
 }) => api.post('/backtester/leaderboard/start', payload).then((r) => r.data)
+
+export const fetchBacktesterLeaderboardJobs = (status?: string) =>
+  api.get('/backtester/leaderboard/jobs', { params: status ? { status } : {} }).then((r) => r.data)
 
 export const fetchBacktesterLeaderboardJob = (jobId: string) =>
   api.get(`/backtester/leaderboard/jobs/${jobId}`).then((r) => r.data)

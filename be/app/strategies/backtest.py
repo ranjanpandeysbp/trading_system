@@ -1,10 +1,16 @@
 """Transparent backtester for strategy signal evaluation."""
 
-import numpy as np
 import pandas as pd
 
 
-def backtest_signals(df: pd.DataFrame, signal_col: str = "signal", costs_pct: float = 0.0005) -> dict:
+def backtest_signals(
+    df: pd.DataFrame,
+    signal_col: str = "signal",
+    costs_pct: float = 0.0005,
+    *,
+    period: str | None = None,
+    enrich_advanced: bool = True,
+) -> dict:
     data = df.copy().dropna(subset=["close"])
     position = 0
     entry_price = None
@@ -37,7 +43,7 @@ def backtest_signals(df: pd.DataFrame, signal_col: str = "signal", costs_pct: fl
 
     trades_df = pd.DataFrame(trades)
     if trades_df.empty:
-        return {
+        stats = {
             "num_trades": 0,
             "win_rate_pct": None,
             "total_return_pct": 0.0,
@@ -45,6 +51,10 @@ def backtest_signals(df: pd.DataFrame, signal_col: str = "signal", costs_pct: fl
             "max_drawdown_pct": 0.0,
             "trades": [],
         }
+        if enrich_advanced:
+            from app.strategies.advanced_backtest_report import enrich_stats_dict
+            return enrich_stats_dict(stats, period=period, costs_pct=costs_pct)
+        return stats
 
     wins = (trades_df["pnl_pct"] > 0).sum()
     win_rate = 100 * wins / len(trades_df)
@@ -64,7 +74,7 @@ def backtest_signals(df: pd.DataFrame, signal_col: str = "signal", costs_pct: fl
             "exit_price": round(float(t["exit_price"]), 2),
         })
 
-    return {
+    stats = {
         "num_trades": len(trades_df),
         "win_rate_pct": round(win_rate, 2),
         "total_return_pct": round(total_return, 2),
@@ -72,3 +82,7 @@ def backtest_signals(df: pd.DataFrame, signal_col: str = "signal", costs_pct: fl
         "max_drawdown_pct": round(max_dd, 2),
         "trades": trade_records,
     }
+    if enrich_advanced:
+        from app.strategies.advanced_backtest_report import enrich_stats_dict
+        return enrich_stats_dict(stats, period=period, costs_pct=costs_pct)
+    return stats

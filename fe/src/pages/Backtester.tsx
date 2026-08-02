@@ -23,7 +23,7 @@ export default function Backtester() {
     <div>
       <PageHeader
         title="Backtester"
-        description="Backtest built-in rules, Trading Hubs, TA screeners, and Strategy Lab presets on historical data — India · US · Crypto · Commodities"
+        description="Backtest built-in rules, Trading Hubs, TA screeners, and Strategy Lab presets — run live or named background jobs with auto-saved reports"
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

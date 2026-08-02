@@ -34,6 +34,12 @@ class LeaderboardJob:
     result: dict[str, Any] | None = None
     error: str | None = None
     created_at: float = field(default_factory=time.time)
+    # Optional metadata for multi-job UIs (Backtester background runs).
+    name: str | None = None
+    user_id: int | None = None
+    source: str = "strategy_leaderboard"
+    report_id: int | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 _JOBS: dict[str, LeaderboardJob] = {}
@@ -46,15 +52,46 @@ def _prune() -> None:
         _JOBS.pop(jid, None)
 
 
-def create_job() -> LeaderboardJob:
+def create_job(
+    *,
+    name: str | None = None,
+    user_id: int | None = None,
+    source: str = "strategy_leaderboard",
+    meta: dict[str, Any] | None = None,
+) -> LeaderboardJob:
     _prune()
-    job = LeaderboardJob(id=uuid.uuid4().hex)
+    job = LeaderboardJob(
+        id=uuid.uuid4().hex,
+        name=(name or "").strip()[:200] or None,
+        user_id=user_id,
+        source=source,
+        meta=meta or {},
+    )
     _JOBS[job.id] = job
     return job
 
 
 def get_job(job_id: str) -> LeaderboardJob | None:
     return _JOBS.get(job_id)
+
+
+def list_jobs(
+    *,
+    user_id: int | None = None,
+    source: str | None = None,
+    status: str | None = None,
+) -> list[LeaderboardJob]:
+    """Return jobs newest-first, optionally filtered by user / source / status."""
+    _prune()
+    jobs = list(_JOBS.values())
+    if user_id is not None:
+        jobs = [j for j in jobs if j.user_id == user_id]
+    if source is not None:
+        jobs = [j for j in jobs if j.source == source]
+    if status is not None:
+        jobs = [j for j in jobs if j.status == status]
+    jobs.sort(key=lambda j: j.created_at, reverse=True)
+    return jobs
 
 
 def update_progress(job_id: str, progress: float, note: str = "") -> None:
@@ -64,12 +101,14 @@ def update_progress(job_id: str, progress: float, note: str = "") -> None:
         job.progress_note = note
 
 
-def complete_job(job_id: str, result: dict[str, Any]) -> None:
+def complete_job(job_id: str, result: dict[str, Any], *, report_id: int | None = None) -> None:
     job = _JOBS.get(job_id)
     if job:
         job.status = "done"
         job.progress = 1.0
         job.result = result
+        if report_id is not None:
+            job.report_id = report_id
 
 
 def fail_job(job_id: str, error: str) -> None:

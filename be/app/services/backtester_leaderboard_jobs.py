@@ -7,6 +7,7 @@ machinery."""
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from app.services.strategy_leaderboard_jobs import (
     LeaderboardJob,
@@ -14,13 +15,32 @@ from app.services.strategy_leaderboard_jobs import (
     create_job,
     fail_job,
     get_job,
+    list_jobs,
     update_progress,
 )
 
 __all__ = [
-    "LeaderboardJob", "create_job", "get_job", "update_progress",
-    "complete_job", "fail_job", "run_backtester_job",
+    "LeaderboardJob", "create_job", "get_job", "list_jobs", "update_progress",
+    "complete_job", "fail_job", "run_backtester_job", "job_to_dict",
 ]
+
+BACKTESTER_SOURCE = "backtester_leaderboard"
+
+
+def job_to_dict(job: LeaderboardJob) -> dict[str, Any]:
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "progress": job.progress,
+        "progress_note": job.progress_note,
+        "result": job.result,
+        "error": job.error,
+        "name": job.name,
+        "report_id": job.report_id,
+        "source": job.source,
+        "created_at": job.created_at,
+        "meta": job.meta,
+    }
 
 
 def run_backtester_job(
@@ -34,11 +54,17 @@ def run_backtester_job(
     costs_pct: float | None,
     bars: int = 350,
     forward_bars: int = 10,
+    report_name: str | None = None,
+    user_id: int | None = None,
 ) -> None:
     """Fire-and-forget entry point for `asyncio.create_task` — builds its own
     independent DB session rather than reusing the request-scoped one, since
     that session may already be closed by the time this background task
-    finishes running (the HTTP request that started it returns immediately)."""
+    finishes running (the HTTP request that started it returns immediately).
+
+    When ``report_name`` + ``user_id`` are set, the finished result is
+    auto-saved to ``SavedBacktestReport`` so the user can leave the page.
+    """
 
     async def _run() -> None:
         from app.core.database import AsyncSessionLocal
@@ -54,7 +80,21 @@ def run_backtester_job(
                     bars=bars, forward_bars=forward_bars,
                     progress_cb=lambda p, note: update_progress(job_id, p, note),
                 )
-            complete_job(job_id, result)
+
+            report_id: int | None = None
+            save_name = (report_name or "").strip()
+            if save_name and user_id is not None:
+                async with AsyncSessionLocal() as db:
+                    service = BacktesterLeaderboardService(SettingsService(db), db)
+                    saved = await service.save_report(save_name, result, user_id=user_id)
+                    report_id = saved.get("id")
+                    result = {
+                        **result,
+                        "saved_report_id": report_id,
+                        "saved_report_name": saved.get("name") or save_name,
+                    }
+
+            complete_job(job_id, result, report_id=report_id)
         except Exception as exc:
             fail_job(job_id, str(exc)[:500])
 

@@ -574,6 +574,9 @@ class BacktesterLeaderboardRequest(BaseModel):
     costs_pct: float | None = None
     bars: int = Field(350, ge=150, le=2000)
     forward_bars: int = Field(10, ge=3, le=60)
+    # When set, the job auto-saves a named report on completion (background run).
+    report_name: str | None = Field(None, max_length=200)
+    run_in_background: bool = False
 
 
 class SeasonalityRequest(BaseModel):

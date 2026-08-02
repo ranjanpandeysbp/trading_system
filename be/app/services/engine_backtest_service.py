@@ -187,8 +187,10 @@ def _recent_signals_from_df(result: pd.DataFrame, limit: int = 10) -> list[dict[
 
 def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) -> dict[str, Any]:
     """Win/Loss stats from London Session Breakout native 2:1 R:R trade list."""
+    from app.strategies.advanced_backtest_report import enrich_stats_dict
+
     closed = [t for t in trades if t.get("Result") in ("Win", "Loss")]
-    trade_rows: list[dict[str, float]] = []
+    trade_rows: list[dict[str, Any]] = []
     for t in closed:
         entry = float(t["Entry_Price"])
         exit_px = t.get("Exit_Price")
@@ -199,11 +201,17 @@ def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) ->
             pnl = (exit_px - entry) / entry - costs_pct
         else:
             pnl = (entry - exit_px) / entry - costs_pct
-        trade_rows.append({"pnl_pct": round(pnl * 100.0, 3)})
+        trade_rows.append({
+            "pnl_pct": round(pnl * 100.0, 3),
+            "exit_time": t.get("Datetime"),
+            "side": "long" if t.get("Direction") == "LONG" else "short",
+            "entry_price": entry,
+            "exit_price": exit_px,
+        })
 
     n = len(trade_rows)
     if n == 0:
-        return {
+        stats = {
             "num_trades": 0,
             "win_rate_pct": None,
             "total_return_pct": 0.0,
@@ -211,6 +219,7 @@ def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) ->
             "max_drawdown_pct": 0.0,
             "trades": [],
         }
+        return enrich_stats_dict(stats, costs_pct=costs_pct)
 
     pnls = [r["pnl_pct"] for r in trade_rows]
     wins = sum(1 for p in pnls if p > 0)
@@ -223,7 +232,7 @@ def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) ->
         peak = max(peak, equity)
         max_dd = max(max_dd, peak - equity)
 
-    return {
+    stats = {
         "num_trades": n,
         "win_rate_pct": round(100.0 * wins / n, 1),
         "total_return_pct": round(total, 2),
@@ -231,6 +240,7 @@ def _stats_from_london_trades(trades: list[dict[str, Any]], costs_pct: float) ->
         "max_drawdown_pct": round(max_dd, 2),
         "trades": trade_rows,
     }
+    return enrich_stats_dict(stats, costs_pct=costs_pct)
 
 def _rolling_sentiment_backtest(
     df: pd.DataFrame,

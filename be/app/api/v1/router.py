@@ -1932,17 +1932,62 @@ async def backtester_leaderboard_start(
 ):
     """Kick off a multi-ticker x multi-strategy backtest as a background job
     and return immediately with a job id. Poll GET
-    /backtester/leaderboard/jobs/{id} for progress and the eventual result."""
-    from app.services.backtester_leaderboard_jobs import create_job, run_backtester_job
+    /backtester/leaderboard/jobs/{id} for progress and the eventual result.
 
-    job = create_job()
+    When ``run_in_background`` is true (or ``report_name`` is set), the finished
+    result is auto-saved under that name for later viewing.
+    """
+    from app.services.backtester_leaderboard_jobs import (
+        BACKTESTER_SOURCE,
+        create_job,
+        run_backtester_job,
+    )
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background backtests.")
+
+    job = create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=BACKTESTER_SOURCE,
+        meta={
+            "tickers": payload.tickers,
+            "strategy_count": len(payload.strategy_ids),
+            "asset_class": payload.asset_class,
+            "timeframe": payload.timeframe,
+            "period": payload.period,
+            "auto_save": auto_save,
+        },
+    )
     run_backtester_job(
         job.id, payload.tickers, payload.strategy_ids,
         asset_class=payload.asset_class, timeframe=payload.timeframe,
         period=payload.period, costs_pct=payload.costs_pct,
         bars=payload.bars, forward_bars=payload.forward_bars,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
     )
-    return {"job_id": job.id, "status": job.status}
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+    }
+
+
+@router.get("/backtester/leaderboard/jobs")
+async def backtester_leaderboard_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    """List this user's Backtester jobs (default: still running). Used to show
+    ongoing background backtests when returning to the page."""
+    from app.services.backtester_leaderboard_jobs import BACKTESTER_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=BACKTESTER_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
 
 
 @router.get("/backtester/leaderboard/jobs/{job_id}")
@@ -1950,15 +1995,14 @@ async def backtester_leaderboard_job_status(
     job_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    from app.services.backtester_leaderboard_jobs import get_job
+    from app.services.backtester_leaderboard_jobs import get_job, job_to_dict
 
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
-    return {
-        "job_id": job.id, "status": job.status, "progress": job.progress,
-        "progress_note": job.progress_note, "result": job.result, "error": job.error,
-    }
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
 
 
 @router.post("/backtester/leaderboard/reports")
