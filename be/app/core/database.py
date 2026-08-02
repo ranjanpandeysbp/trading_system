@@ -67,3 +67,12 @@ def _migrate_schema(conn) -> None:
         cols = {c["name"] for c in insp.get_columns("watchlist_items")}
         if "notes" not in cols:
             conn.execute(sa.text("ALTER TABLE watchlist_items ADD COLUMN notes TEXT"))
+
+    if "saved_backtest_reports" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("saved_backtest_reports")}
+        if "source" not in cols:
+            conn.execute(
+                sa.text(
+                    "ALTER TABLE saved_backtest_reports ADD COLUMN source TEXT DEFAULT 'strategy_leaderboard'"
+                )
+            )

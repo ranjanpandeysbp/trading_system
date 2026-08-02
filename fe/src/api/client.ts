@@ -926,6 +926,57 @@ export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string })
 export const recommendEtfTaStf = (payload: Record<string, unknown>) =>
   api.post('/etf-ta/stf-shop/recommend', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export interface EtfShopConfig {
+  deposited_capital: number
+  growth_amount: number
+  dividend_withdrawn: number
+  shop_start_date: string | null
+  preset: string
+  custom_symbols: string | null
+  exchange: string
+  sell_mode: 'combined' | 'percentage' | 'absolute'
+  profit_target_pct: number
+  profit_target_inr: number
+  min_profit_inr: number
+  slots_divisor: number
+  prefer_sip: boolean
+  sip_locked_symbols: string[]
+  notify_telegram: boolean
+  notify_email: boolean
+}
+
+export interface EtfShopLot {
+  id: number
+  slot_id: string
+  symbol: string
+  purchase_price: number
+  purchase_date: string
+  amount: number
+  quantity: number
+  lot_type: string
+  status: 'open' | 'closed'
+  closed_date: string | null
+  sale_price: number | null
+  sale_amount: number | null
+  gross_profit: number | null
+  net_profit: number | null
+}
+
+export const fetchEtfShopPortfolio = () =>
+  api.get<{ config: EtfShopConfig; lots: EtfShopLot[] }>('/etf-ta/stf-shop/portfolio', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const updateEtfShopConfig = (payload: Partial<EtfShopConfig>) =>
+  api.put<EtfShopConfig>('/etf-ta/stf-shop/config', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const addEtfShopLot = (payload: { symbol: string; price: number; amount: number; lot_type?: string; purchase_date?: string }) =>
+  api.post<EtfShopLot>('/etf-ta/stf-shop/lots', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const closeEtfShopLot = (lotId: number, payload: { sale_price: number; sale_date?: string; dividend_pct?: number }) =>
+  api.post(`/etf-ta/stf-shop/lots/${lotId}/close`, payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runEtfShopDaily = () =>
+  api.post('/etf-ta/stf-shop/daily', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export interface WatchlistInfo {
   id: number
   market_type: 'india' | 'us' | 'crypto'

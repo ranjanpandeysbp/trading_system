@@ -9,7 +9,7 @@ from app.strategies.registry import list_scanner_categories
 from app.trading_hubs.registry import HUB_META, HUB_SECTIONS, list_hubs_payload
 
 # Prefixes persisted on AlertSchedule.strategies_json
-RUNNABLE_PREFIXES = frozenset({"scanner", "hub", "ta"})
+RUNNABLE_PREFIXES = frozenset({"scanner", "hub", "ta", "etf"})
 
 _COMMAND_CENTER_SECTIONS: list[tuple[str, str]] = [
     ("playbook", "Trading Playbook"),

@@ -20,6 +20,9 @@ from app.models.schemas import (
     CommandCenterMegaRequest,
     BacktestRequest,
     BacktestResponse,
+    EtfShopAddLotRequest,
+    EtfShopCloseLotRequest,
+    EtfShopConfigUpdateRequest,
     EtfTaRecommendRequest,
     EtfTaScanRequest,
     ForgotPasswordRequest,
@@ -2613,7 +2616,7 @@ async def etf_ta_universe(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    service = EtfTaService(SettingsService(db))
+    service = EtfTaService(SettingsService(db), db)
     return service.universe()
 
 
@@ -2623,7 +2626,7 @@ async def etf_ta_stf_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    service = EtfTaService(SettingsService(db))
+    service = EtfTaService(SettingsService(db), db)
     return await service.scan(payload.symbols, payload.exchange)
 
 
@@ -2633,8 +2636,82 @@ async def etf_ta_stf_recommend(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    service = EtfTaService(SettingsService(db))
+    service = EtfTaService(SettingsService(db), db)
     return await service.recommend(payload.model_dump())
+
+
+@router.get("/etf-ta/stf-shop/portfolio")
+async def etf_ta_stf_portfolio(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Persisted shop state — capital/rules config + FIFO lot ledger for this user."""
+    service = EtfTaService(SettingsService(db), db)
+    return await service.portfolio(current_user.id)
+
+
+@router.put("/etf-ta/stf-shop/config")
+async def etf_ta_stf_update_config(
+    payload: EtfShopConfigUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db), db)
+    fields = payload.model_dump(exclude_unset=True)
+    return await service.update_config(current_user.id, fields)
+
+
+@router.post("/etf-ta/stf-shop/lots")
+async def etf_ta_stf_add_lot(
+    payload: EtfShopAddLotRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Record a real buy (from a recommendation or manual entry) as a new FIFO lot."""
+    service = EtfTaService(SettingsService(db), db)
+    try:
+        return await service.add_lot(
+            current_user.id,
+            symbol=payload.symbol,
+            price=payload.price,
+            amount=payload.amount,
+            lot_type=payload.lot_type,
+            purchase_date=payload.purchase_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/etf-ta/stf-shop/lots/{lot_id}/close")
+async def etf_ta_stf_close_lot(
+    lot_id: int,
+    payload: EtfShopCloseLotRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Book a FIFO sell — records real profit and reinvests it into the capital pool."""
+    service = EtfTaService(SettingsService(db), db)
+    try:
+        return await service.close_lot(
+            current_user.id,
+            lot_id,
+            sale_price=payload.sale_price,
+            sale_date=payload.sale_date,
+            dividend_pct=payload.dividend_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/etf-ta/stf-shop/daily")
+async def etf_ta_stf_daily(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Today's buy/sell recommendation from the persisted config + open lots —
+    no portfolio payload needed, and SIP-locked symbols are latched server-side."""
+    service = EtfTaService(SettingsService(db), db)
+    return await service.daily(current_user.id)
 
 
 @router.get("/options/sections")

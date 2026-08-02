@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { DataTable, SortableTh, Td } from '../ui/Table'
 import { Card } from '../ui/Card'
 import { Alert } from '../ui/Feedback'
+import { Button } from '../ui/Button'
 
 type Row = Record<string, unknown>
 type SortKey = 'rank' | 'symbol' | 'underlying' | 'price' | 'sma20' | 'pct_from_dma'
@@ -86,9 +87,22 @@ export function StfShopRankTable({ analyses }: { analyses: Row[] }) {
   )
 }
 
-export function StfShopRecommendationPanel({ rec }: { rec: Row }) {
+export function StfShopRecommendationPanel({
+  rec,
+  onExecuteBuy,
+  onExecuteSell,
+  buyPending,
+  sellPending,
+}: {
+  rec: Row
+  onExecuteBuy?: () => void
+  onExecuteSell?: () => void
+  buyPending?: boolean
+  sellPending?: boolean
+}) {
   const buy = rec.buy_recommendation as Row | undefined
   const sell = rec.primary_sell as Row | undefined
+  const buyActionable = buy && buy.action === 'BUY' && buy.blocked !== true
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -105,6 +119,11 @@ export function StfShopRecommendationPanel({ rec }: { rec: Row }) {
             {buy.blocked === true && buy.block_reason != null && (
               <Alert type="error">{String(buy.block_reason)}</Alert>
             )}
+            {buyActionable && onExecuteBuy && (
+              <Button size="sm" className="mt-2" onClick={onExecuteBuy} disabled={buyPending}>
+                {buyPending ? 'Recording…' : `Execute buy — ${fmtInr(Number(buy.slot_amount ?? buy.sip_amount))}`}
+              </Button>
+            )}
           </div>
         ) : (
           <p className="text-sm text-slate-500">No buy signal.</p>
@@ -116,7 +135,13 @@ export function StfShopRecommendationPanel({ rec }: { rec: Row }) {
           <div className="space-y-1 text-sm text-slate-300">
             <p className="text-lg font-bold text-white">{String(sell.symbol)}</p>
             <p>Profit: {Number(sell.profit_pct).toFixed(2)}% · {fmtInr(Number(sell.profit_inr))}</p>
+            <p className="text-slate-400">Sell at CMP {fmtInr(Number(sell.current_price))}</p>
             {sell.note != null && <p className="text-slate-400">{String(sell.note)}</p>}
+            {onExecuteSell && (
+              <Button size="sm" variant="danger" className="mt-2" onClick={onExecuteSell} disabled={sellPending}>
+                {sellPending ? 'Recording…' : 'Execute sell'}
+              </Button>
+            )}
           </div>
         ) : (
           <p className="text-sm text-slate-500">No sell candidate today.</p>

@@ -490,6 +490,38 @@ class EtfTaRecommendRequest(BaseModel):
     prefer_sip: bool = True
 
 
+class EtfShopConfigUpdateRequest(BaseModel):
+    deposited_capital: float | None = None
+    growth_amount: float | None = None
+    dividend_withdrawn: float | None = None
+    shop_start_date: str | None = None
+    preset: str | None = None
+    custom_symbols: str | None = None
+    exchange: str | None = None
+    sell_mode: Literal["combined", "percentage", "absolute"] | None = None
+    profit_target_pct: float | None = None
+    profit_target_inr: float | None = None
+    min_profit_inr: float | None = None
+    slots_divisor: int | None = Field(default=None, ge=30, le=90)
+    prefer_sip: bool | None = None
+    notify_telegram: bool | None = None
+    notify_email: bool | None = None
+
+
+class EtfShopAddLotRequest(BaseModel):
+    symbol: str
+    price: float = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
+    lot_type: Literal["standard", "sip"] = "standard"
+    purchase_date: str | None = None
+
+
+class EtfShopCloseLotRequest(BaseModel):
+    sale_price: float = Field(..., gt=0)
+    sale_date: str | None = None
+    dividend_pct: float = Field(default=0.0, ge=0, le=100)
+
+
 class MarketPulseCommodityRequest(BaseModel):
     timeframes: list[str] | None = None
 

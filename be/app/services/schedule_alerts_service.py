@@ -22,6 +22,7 @@ from app.market_pulse.env_config import is_alerts_enabled
 from app.market_pulse.serialize import json_safe
 from app.models.db_models import AlertNotifyConfig, AlertSchedule, AlertScheduleHit
 from app.models.schemas import ScanRequest
+from app.services.etf_ta_service import EtfTaService
 from app.services.scanner_service import ScannerService
 from app.services.schedule_catalog_service import parse_strategy_ref
 from app.services.settings_service import SettingsService
@@ -335,9 +336,9 @@ class ScheduleAlertsService:
         if market not in ("india", "us", "crypto", "commodity"):
             market = "india"
 
-        if not tickers or not timeframes or not strategies:
+        if not strategies:
             sched.last_run_at = datetime.utcnow()
-            sched.last_status = "Invalid config (empty tickers/TFs/strategies)"
+            sched.last_status = "Invalid config (no strategies selected)"
             await self.db.commit()
             return {"schedule_id": sched.id, "error": sched.last_status}
 
@@ -345,6 +346,7 @@ class ScheduleAlertsService:
         scanner_ids = self._resolve_scanner_strategies(buckets["scanner"])
         hub_ids = [sid for sid in buckets["hub"] if get_hub_section(sid)]
         ta_ids = [sid for sid in buckets["ta"] if any(s["id"] == sid for s in TA_SCREENERS)]
+        etf_ids = [sid for sid in buckets["etf"] if sid == "stf_shop"]
         skipped = list(buckets["skipped"])
         for sid in buckets["hub"]:
             if sid not in hub_ids:
@@ -352,11 +354,22 @@ class ScheduleAlertsService:
         for sid in buckets["ta"]:
             if sid not in ta_ids:
                 skipped.append(f"ta:{sid}")
+        for sid in buckets["etf"]:
+            if sid not in etf_ids:
+                skipped.append(f"etf:{sid}")
 
-        if not scanner_ids and not hub_ids and not ta_ids:
+        # ETF Shop is portfolio-level (own persisted universe/config) — it doesn't
+        # need per-schedule tickers/timeframes the way scanner/hub/ta scans do.
+        if (scanner_ids or hub_ids or ta_ids) and (not tickers or not timeframes):
+            sched.last_run_at = datetime.utcnow()
+            sched.last_status = "Invalid config (empty tickers/TFs)"
+            await self.db.commit()
+            return {"schedule_id": sched.id, "error": sched.last_status}
+
+        if not scanner_ids and not hub_ids and not ta_ids and not etf_ids:
             sched.last_run_at = datetime.utcnow()
             sched.last_status = (
-                "No runnable strategies — pick Scanner / Trading Hubs / Technical Analysis. "
+                "No runnable strategies — pick Scanner / Trading Hubs / Technical Analysis / ETF Shop. "
                 f"Skipped catalog-only: {skipped[:6] or strategies[:5]}"
             )[:240]
             await self.db.commit()
@@ -519,6 +532,61 @@ class ScheduleAlertsService:
                     logger.exception("Schedule %s ta %s failed", sched.id, tid)
                     errors.append(f"ta:{tid}: {exc}")
 
+        # ── ETF Shop 4.0 (portfolio-level — one buy + one sell / day, not per-ticker) ──
+        if etf_ids:
+            try:
+                etf_rec = await EtfTaService(self.settings, self.db).daily(sched.user_id)
+                signals_n += 1
+                today = str(etf_rec.get("checked_at") or "")[:10]
+                buy = etf_rec.get("buy_recommendation") or {}
+                if buy.get("action") == "BUY" and not buy.get("blocked"):
+                    buy_n += 1
+                    created, note = await self._persist_hit(
+                        sched,
+                        market=market,
+                        strategy_name="ETF Shop 4.0",
+                        strategy_id="etf:stf_shop",
+                        ticker=str(buy.get("symbol") or ""),
+                        timeframe="1d",
+                        verdict="BUY",
+                        reasons=[str(buy.get("reason") or "")],
+                        bar_asof=today,
+                        payload={
+                            "buy_type": buy.get("buy_type"),
+                            "slot_amount": buy.get("slot_amount") or buy.get("sip_amount"),
+                        },
+                        price=_safe_float(buy.get("price")),
+                        cfg=cfg,
+                    )
+                    hits_created += created
+                    notified += note
+                sell = etf_rec.get("primary_sell")
+                if sell:
+                    sell_n += 1
+                    created, note = await self._persist_hit(
+                        sched,
+                        market=market,
+                        strategy_name="ETF Shop 4.0",
+                        strategy_id="etf:stf_shop",
+                        ticker=str(sell.get("symbol") or ""),
+                        timeframe="1d",
+                        verdict="SELL",
+                        reasons=[str(sell.get("reason") or "")],
+                        bar_asof=today,
+                        payload={
+                            "slot_id": sell.get("slot_id"),
+                            "profit_pct": sell.get("profit_pct"),
+                            "profit_inr": sell.get("profit_inr"),
+                        },
+                        price=_safe_float(sell.get("current_price")),
+                        cfg=cfg,
+                    )
+                    hits_created += created
+                    notified += note
+            except Exception as exc:
+                logger.exception("Schedule %s etf shop failed", sched.id)
+                errors.append(f"etf: {exc}")
+
         parts = [
             f"OK · {signals_n} scanned",
             f"BUY {buy_n}",
@@ -532,6 +600,8 @@ class ScheduleAlertsService:
             parts.append(f"hub {len(hub_ids)}")
         if ta_ids:
             parts.append(f"ta {len(ta_ids)}")
+        if etf_ids:
+            parts.append("etf shop")
         if scan_tfs:
             parts.append(f"TFs {','.join(scan_tfs)}")
         if skipped:
@@ -548,6 +618,7 @@ class ScheduleAlertsService:
             "scanner": scanner_ids,
             "hubs": hub_ids,
             "ta": ta_ids,
+            "etf": etf_ids,
             "skipped": skipped[:20],
             "timeframes_used": scan_tfs,
             "signals": signals_n,
@@ -630,7 +701,7 @@ class ScheduleAlertsService:
     @staticmethod
     def _bucket_strategies(raw: list[str]) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {
-            "scanner": [], "hub": [], "ta": [], "skipped": [],
+            "scanner": [], "hub": [], "ta": [], "etf": [], "skipped": [],
         }
         seen: set[str] = set()
         for item in raw:
@@ -647,6 +718,8 @@ class ScheduleAlertsService:
                 out["hub"].append(sid)
             elif prefix == "ta":
                 out["ta"].append(sid)
+            elif prefix == "etf":
+                out["etf"].append(sid)
             else:
                 out["skipped"].append(key if prefix else sid)
         return out

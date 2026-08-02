@@ -276,6 +276,59 @@ class CustomStrategy(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class EtfShopConfig(Base):
+    """One row per user — ETF Shop 4.0 capital pool, rotation/SIP/FIFO rules.
+
+    Replaces the old browser-localStorage-only state so the shop survives
+    device/browser changes and can be run unattended by the schedule worker.
+    """
+    __tablename__ = "etf_shop_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, unique=True)
+    deposited_capital: Mapped[float] = mapped_column(Float, default=500_000.0)
+    growth_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    dividend_withdrawn: Mapped[float] = mapped_column(Float, default=0.0)
+    shop_start_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    preset: Mapped[str] = mapped_column(String(160), default="ETF Shop 4.0 — 39 distinct (recommended)")
+    custom_symbols: Mapped[str | None] = mapped_column(Text, nullable=True)  # comma-separated override
+    exchange: Mapped[str] = mapped_column(String(8), default="NSE")
+    sell_mode: Mapped[str] = mapped_column(String(16), default="combined")
+    profit_target_pct: Mapped[float] = mapped_column(Float, default=6.0)
+    profit_target_inr: Mapped[float] = mapped_column(Float, default=700.0)
+    min_profit_inr: Mapped[float] = mapped_column(Float, default=500.0)
+    slots_divisor: Mapped[int] = mapped_column(Integer, default=60)
+    prefer_sip: Mapped[bool] = mapped_column(default=True)
+    # Latched SIP-locked symbol set (JSON list) — a symbol never unlocks once
+    # it crosses the weakness threshold, so this must persist across runs.
+    sip_locked_json: Mapped[str] = mapped_column(Text, default="[]")
+    notify_telegram: Mapped[bool] = mapped_column(default=False)
+    notify_email: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EtfShopLot(Base):
+    """A single FIFO buy lot (standard Rank-1 or dynamic SIP) for ETF Shop 4.0."""
+    __tablename__ = "etf_shop_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    purchase_price: Mapped[float] = mapped_column(Float)
+    purchase_date: Mapped[str] = mapped_column(String(10))
+    amount: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[float] = mapped_column(Float)
+    lot_type: Mapped[str] = mapped_column(String(16), default="standard")  # standard | sip
+    status: Mapped[str] = mapped_column(String(10), default="open", index=True)  # open | closed
+    closed_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    sale_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sale_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class TradeCandidateHit(Base):
     """A logged BUY/SELL trigger from checking a TradeCandidate."""
     __tablename__ = "trade_candidate_hits"

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 
 export type SortDir = 'asc' | 'desc'
@@ -132,14 +132,17 @@ export function Td({
   children,
   className = '',
   colSpan,
+  onClick,
 }: {
   children: ReactNode
   className?: string
   colSpan?: number
+  onClick?: (e: MouseEvent<HTMLTableCellElement>) => void
 }) {
   return (
     <td
       colSpan={colSpan}
+      onClick={onClick}
       className={`whitespace-nowrap border-b border-slate-800/40 px-3 py-2.5 text-xs text-slate-300 sm:px-4 sm:py-3 sm:text-sm ${className}`}
     >
       {children}
