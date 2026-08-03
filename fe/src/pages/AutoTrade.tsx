@@ -90,6 +90,7 @@ function SuggestionCard({ s }: { s: AutoTradeSuggestion }) {
   const [trading, setTrading] = useState(false)
 
   return (
+    <>
     <Card>
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -149,20 +150,21 @@ function SuggestionCard({ s }: { s: AutoTradeSuggestion }) {
           Place paper trade
         </Button>
       )}
-
-      {trading && (
-        <PlaceTradeModal
-          ticker={s.ticker}
-          assetClass={s.asset_class}
-          strategyLabel={`Auto Trade · ${s.style}`}
-          defaultSide={s.action === 'SELL' ? 'sell' : 'buy'}
-          defaultPrice={s.entry_price}
-          defaultSlPct={s.sl_pct}
-          defaultTpPct={s.tp_pct}
-          onClose={() => setTrading(false)}
-        />
-      )}
     </Card>
+
+    {trading && (
+      <PlaceTradeModal
+        ticker={s.ticker}
+        assetClass={s.asset_class}
+        strategyLabel={`Auto Trade · ${s.style}`}
+        defaultSide={s.action === 'SELL' ? 'sell' : 'buy'}
+        defaultPrice={s.entry_price}
+        defaultSlPct={s.sl_pct}
+        defaultTpPct={s.tp_pct}
+        onClose={() => setTrading(false)}
+      />
+    )}
+    </>
   )
 }
 
