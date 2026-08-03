@@ -6,6 +6,7 @@ import {
   Bot,
   Clapperboard,
   Crosshair,
+  Gauge,
   Landmark,
   Search,
   Wallet,
@@ -30,6 +31,15 @@ const quickLinks = [
     icon: Crosshair,
     color: 'text-rose-400',
     bg: 'bg-rose-500/10',
+  },
+  {
+    to: '/command-center?tab=mtf_trend_strength',
+    title: 'MTF Trend & Strength',
+    description:
+      'Multi-timeframe trend direction, a real composite strength score, and reversal probability % — per ticker, per timeframe.',
+    icon: Gauge,
+    color: 'text-cyan-400',
+    bg: 'bg-cyan-500/10',
   },
   {
     to: '/investing-agent',

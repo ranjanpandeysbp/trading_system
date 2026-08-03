@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, RotateCcw, ShoppingCart, X, Pencil, Check } from 'lucide-react'
+import { RefreshCw, RotateCcw, ShoppingCart, X, Pencil, Check, Trash2 } from 'lucide-react'
 import {
   getAccount, placeOrder, resetAccount, cancelOrder, modifyOrder, fetchPaperPrice,
+  deletePaperOrders, closePaperPositions, apiErrorMessage,
   type PaperOrderRow, type PlaceOrderPayload,
 } from '../api/client'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
@@ -27,6 +28,14 @@ function currencySymbol(assetClass?: string): string {
 const ASSET_CLASS_LABEL: Record<string, string> = {
   india: '🇮🇳 India', us: '🇺🇸 US', crypto: '₿ Crypto', commodity: '🛢️ Commodity',
 }
+
+const ASSET_CLASS_FILTERS: Array<{ value: PaperAssetClass | 'all'; label: string }> = [
+  { value: 'all', label: 'All assets' },
+  { value: 'india', label: '🇮🇳 India' },
+  { value: 'us', label: '🇺🇸 US' },
+  { value: 'crypto', label: '₿ Crypto' },
+  { value: 'commodity', label: '🛢️ Commodity' },
+]
 
 const ORDER_TYPE_LABEL: Record<string, string> = {
   market: 'Market', limit: 'Limit', stop: 'Stop', stop_limit: 'Stop-Limit',
@@ -72,6 +81,11 @@ export default function PaperTrading() {
   const [notes, setNotes] = useState('')
   const [msg, setMsg] = useState('')
   const [confirming, setConfirming] = useState(false)
+  const [positionsFilter, setPositionsFilter] = useState<PaperAssetClass | 'all'>('all')
+  const [ordersFilter, setOrdersFilter] = useState<PaperAssetClass | 'all'>('all')
+  const [selectedPositions, setSelectedPositions] = useState<Set<number>>(new Set())
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
+  const [bulkError, setBulkError] = useState('')
 
   const handleAssetClassChange = (next: PaperAssetClass) => {
     setAssetClass(next)
@@ -123,12 +137,45 @@ export default function PaperTrading() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['account'] }); setMsg('Account reset'); },
   })
 
+  const deleteOrdersMutation = useMutation({
+    mutationFn: (ids: number[]) => deletePaperOrders(ids),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['account'] })
+      setSelectedOrders(new Set())
+      setBulkError('')
+      setMsg(`Deleted ${res.deleted.length} order(s)`)
+    },
+    onError: (e: Error) => setBulkError(apiErrorMessage(e)),
+  })
+
+  const closePositionsMutation = useMutation({
+    mutationFn: (ids: number[]) => closePaperPositions(ids),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['account'] })
+      setSelectedPositions(new Set())
+      setBulkError('')
+      setMsg(`Closed ${res.closed.length} position(s)`)
+    },
+    onError: (e: Error) => setBulkError(apiErrorMessage(e)),
+  })
+
+  const toggleSelected = (set: Set<number>, setSet: (s: Set<number>) => void, id: number) => {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSet(next)
+  }
+
+  const filteredPositions = (account?.positions ?? []).filter(
+    (p) => positionsFilter === 'all' || (p.asset_class ?? 'india') === positionsFilter,
+  )
+
   const {
     sorted: sortedPositions,
     sortKey: positionsSortKey,
     sortDir: positionsSortDir,
     handleSort: handlePositionsSort,
-  } = useSort(account?.positions ?? [], {
+  } = useSort(filteredPositions, {
     ticker: (r) => r.ticker,
     quantity: (r) => r.quantity,
     avg_price: (r) => r.avg_price,
@@ -138,12 +185,16 @@ export default function PaperTrading() {
     opened_at: (r) => r.opened_at,
   })
 
+  const filteredOrders = (account?.recent_orders ?? []).filter(
+    (o) => ordersFilter === 'all' || (o.asset_class ?? 'india') === ordersFilter,
+  )
+
   const {
     sorted: sortedOrders,
     sortKey: ordersSortKey,
     sortDir: ordersSortDir,
     handleSort: handleOrdersSort,
-  } = useSort(account?.recent_orders ?? [], {
+  } = useSort(filteredOrders, {
     created_at: (r) => r.created_at,
     ticker: (r) => r.ticker,
     side: (r) => r.side,
@@ -310,17 +361,47 @@ export default function PaperTrading() {
         </Card>
 
         <Card className="min-w-0">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold text-white">Open Positions</h3>
-            <Button variant="secondary" size="sm" onClick={() => refetch()} disabled={isFetching}>
-              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-              {isFetching ? 'Refreshing…' : 'Refresh'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Select
+                value={positionsFilter}
+                onChange={(e) => { setPositionsFilter(e.target.value as PaperAssetClass | 'all'); setSelectedPositions(new Set()) }}
+                className="!w-auto !py-1.5 text-xs"
+              >
+                {ASSET_CLASS_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </Select>
+              {selectedPositions.size > 0 && (
+                <Button
+                  variant="danger" size="sm"
+                  onClick={() => {
+                    if (window.confirm(`Close (delete) ${selectedPositions.size} position(s) at current market price?`)) {
+                      closePositionsMutation.mutate([...selectedPositions])
+                    }
+                  }}
+                  disabled={closePositionsMutation.isPending}
+                >
+                  <Trash2 size={14} /> Delete ({selectedPositions.size})
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={() => refetch()} disabled={isFetching}>
+                <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+                {isFetching ? 'Refreshing…' : 'Refresh'}
+              </Button>
+            </div>
           </div>
-          {account?.positions.length ? (
+          {bulkError && <Alert type="error">{bulkError}</Alert>}
+          {filteredPositions.length ? (
             <DataTable title="Open Positions">
               <thead>
                 <tr>
+                  <Th>
+                    <input
+                      type="checkbox"
+                      checked={filteredPositions.length > 0 && filteredPositions.every((p) => selectedPositions.has(p.id))}
+                      onChange={(e) => setSelectedPositions(e.target.checked ? new Set(filteredPositions.map((p) => p.id)) : new Set())}
+                    />
+                  </Th>
                   <SortableTh active={positionsSortKey === 'ticker'} direction={positionsSortDir} onSort={() => handlePositionsSort('ticker')}>Ticker</SortableTh>
                   <Th>Asset</Th>
                   <SortableTh active={positionsSortKey === 'quantity'} direction={positionsSortDir} onSort={() => handlePositionsSort('quantity')}>Qty</SortableTh>
@@ -330,11 +411,19 @@ export default function PaperTrading() {
                   <SortableTh active={positionsSortKey === 'sl_pct'} direction={positionsSortDir} onSort={() => handlePositionsSort('sl_pct')}>SL/TP</SortableTh>
                   <SortableTh active={positionsSortKey === 'opened_at'} direction={positionsSortDir} onSort={() => handlePositionsSort('opened_at')}>Opened</SortableTh>
                   <Th>Notes</Th>
+                  <Th>Delete</Th>
                 </tr>
               </thead>
               <tbody>
                 {sortedPositions.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-800/20">
+                    <Td>
+                      <input
+                        type="checkbox"
+                        checked={selectedPositions.has(p.id)}
+                        onChange={() => toggleSelected(selectedPositions, setSelectedPositions, p.id)}
+                      />
+                    </Td>
                     <Td className="font-medium text-white">{p.ticker}</Td>
                     <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[p.asset_class ?? 'india'] ?? p.asset_class}</Td>
                     <Td>{p.quantity}</Td>
@@ -346,12 +435,27 @@ export default function PaperTrading() {
                     <Td className="max-w-[200px] truncate text-slate-400">
                       <span title={p.notes ?? ''}>{p.notes || '—'}</span>
                     </Td>
+                    <Td>
+                      <Button
+                        size="sm" variant="ghost"
+                        onClick={() => {
+                          if (window.confirm(`Close (delete) ${p.ticker} at current market price?`)) {
+                            closePositionsMutation.mutate([p.id])
+                          }
+                        }}
+                        disabled={closePositionsMutation.isPending}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
             </DataTable>
           ) : (
-            <p className="py-8 text-center text-sm text-slate-500">No open positions</p>
+            <p className="py-8 text-center text-sm text-slate-500">
+              {positionsFilter === 'all' ? 'No open positions' : `No open ${ASSET_CLASS_LABEL[positionsFilter]} positions`}
+            </p>
           )}
         </Card>
       </div>
@@ -390,10 +494,47 @@ export default function PaperTrading() {
 
       {account && account.recent_orders.length > 0 && (
         <Card className="mt-6">
-          <h3 className="mb-4 font-semibold text-white">Recent Orders</h3>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-white">Recent Orders</h3>
+            <div className="flex items-center gap-2">
+              <Select
+                value={ordersFilter}
+                onChange={(e) => { setOrdersFilter(e.target.value as PaperAssetClass | 'all'); setSelectedOrders(new Set()) }}
+                className="!w-auto !py-1.5 text-xs"
+              >
+                {ASSET_CLASS_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </Select>
+              {selectedOrders.size > 0 && (
+                <Button
+                  variant="danger" size="sm"
+                  onClick={() => {
+                    if (window.confirm(`Delete ${selectedOrders.size} order(s) from history?`)) {
+                      deleteOrdersMutation.mutate([...selectedOrders])
+                    }
+                  }}
+                  disabled={deleteOrdersMutation.isPending}
+                >
+                  <Trash2 size={14} /> Delete ({selectedOrders.size})
+                </Button>
+              )}
+            </div>
+          </div>
+          {bulkError && <Alert type="error">{bulkError}</Alert>}
+          {filteredOrders.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              {ordersFilter === 'all' ? 'No recent orders' : `No ${ASSET_CLASS_LABEL[ordersFilter]} orders`}
+            </p>
+          ) : (
           <DataTable title="Recent Orders">
             <thead>
               <tr>
+                <Th>
+                  <input
+                    type="checkbox"
+                    checked={filteredOrders.length > 0 && filteredOrders.every((o) => selectedOrders.has(o.id))}
+                    onChange={(e) => setSelectedOrders(e.target.checked ? new Set(filteredOrders.map((o) => o.id)) : new Set())}
+                  />
+                </Th>
                 <SortableTh active={ordersSortKey === 'created_at'} direction={ordersSortDir} onSort={() => handleOrdersSort('created_at')}>Time</SortableTh>
                 <SortableTh active={ordersSortKey === 'ticker'} direction={ordersSortDir} onSort={() => handleOrdersSort('ticker')}>Ticker</SortableTh>
                 <Th>Asset</Th>
@@ -404,11 +545,19 @@ export default function PaperTrading() {
                 <Th>Status</Th>
                 <SortableTh active={ordersSortKey === 'strategy'} direction={ordersSortDir} onSort={() => handleOrdersSort('strategy')}>Strategy</SortableTh>
                 <Th>Notes</Th>
+                <Th>Delete</Th>
               </tr>
             </thead>
             <tbody>
               {sortedOrders.map((o) => (
                 <tr key={o.id} className="hover:bg-slate-800/20">
+                  <Td>
+                    <input
+                      type="checkbox"
+                      checked={selectedOrders.has(o.id)}
+                      onChange={() => toggleSelected(selectedOrders, setSelectedOrders, o.id)}
+                    />
+                  </Td>
                   <Td className="text-slate-400">{new Date(o.created_at).toLocaleString()}</Td>
                   <Td className="font-medium text-white">{o.ticker}</Td>
                   <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[o.asset_class ?? 'india'] ?? o.asset_class}</Td>
@@ -421,10 +570,24 @@ export default function PaperTrading() {
                   <Td className="max-w-[200px] truncate text-slate-400">
                     <span title={o.notes ?? ''}>{o.notes || '—'}</span>
                   </Td>
+                  <Td>
+                    <Button
+                      size="sm" variant="ghost"
+                      onClick={() => {
+                        if (window.confirm(`Delete this order (${o.ticker}) from history?`)) {
+                          deleteOrdersMutation.mutate([o.id])
+                        }
+                      }}
+                      disabled={deleteOrdersMutation.isPending}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </Td>
                 </tr>
               ))}
             </tbody>
           </DataTable>
+          )}
         </Card>
       )}
 

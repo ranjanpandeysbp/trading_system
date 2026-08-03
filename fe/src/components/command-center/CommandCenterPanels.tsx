@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, TrendingDown, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, TrendingDown, TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   apiErrorMessage,
@@ -39,6 +39,7 @@ import { Chip } from '../ui/Chip'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import { SupportResistanceChart, type SRChartBar } from '../trading-hubs/SupportResistanceChart'
 
 type Row = Record<string, unknown>
 
@@ -1553,6 +1554,7 @@ function PatternsPanel({ data }: { data: Row }) {
 function EmaPositionPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
+  const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
   const r = results[idx] ?? results[0] ?? {}
   const emaSummary = (r.ema_summary as Row[]) ?? []
   const { sorted: sortedEmaSummary, sortKey: emaSortKey, sortDir: emaSortDir, handleSort: handleEmaSort } = useSort(emaSummary, {
@@ -1613,6 +1615,25 @@ function EmaPositionPanel({ data }: { data: Row }) {
             <StatCard label="Next support" value={ns ? fmtNum(ns.price, 4) : '—'} />
             <StatCard label="Next resistance" value={nr ? fmtNum(nr.price, 4) : '—'} />
           </div>
+
+          {Boolean((r.chart_data as SRChartBar[] | undefined)?.length) && (
+            <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500">Chart:</span>
+                <Chip selected={chartType === 'candles'} onClick={() => setChartType('candles')}>Candlestick</Chip>
+                <Chip selected={chartType === 'line'} onClick={() => setChartType('line')}>Line</Chip>
+              </div>
+              <SupportResistanceChart
+                chartData={r.chart_data as SRChartBar[]}
+                supportZone={(r.support_zone as [number, number] | null | undefined) ?? null}
+                resistanceZone={(r.resistance_zone as [number, number] | null | undefined) ?? null}
+                trendlines={[]}
+                lastClose={r.last_price as number | undefined}
+                emas={r.emas as Record<string, Array<{ time: string; value: number }>> | undefined}
+                chartType={chartType}
+              />
+            </div>
+          )}
 
           {emaSummary.length > 0 && (
             <div>
@@ -4686,6 +4707,159 @@ function StrategyRunsTable({ runs }: { runs: Row[] }) {
   )
 }
 
+function MtfTimeframeCard({ r }: { r: Row }) {
+  const [showReasons, setShowReasons] = useState(false)
+  const bias = String(r.bias ?? '—')
+  const strengthLabel = String(r.strength_label ?? '—')
+  const reversalPct = Number(r.reversal_probability_pct ?? 0)
+  const reasons = (r.reversal_reasons as string[]) ?? []
+  const components = (r.strength_components as Row) ?? {}
+
+  return (
+    <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-semibold text-white">{String(r.label ?? r.timeframe ?? '—')}</p>
+        <span className={`text-xs font-semibold ${verdictClass(bias)}`}>{String(r.bias_arrow ?? bias)}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+        <div>
+          <p className="uppercase tracking-wide text-slate-500">Composite</p>
+          <p className="mt-0.5 font-medium text-white">{fmtNum(r.composite, 1)}</p>
+        </div>
+        <div>
+          <p className="uppercase tracking-wide text-slate-500">Strength</p>
+          <p className="mt-0.5 font-medium text-white">{fmtNum(r.strength_score, 0)} · {strengthLabel}</p>
+        </div>
+        <div>
+          <p className="uppercase tracking-wide text-slate-500">Reversal risk</p>
+          <p className={`mt-0.5 font-medium ${reversalPct >= 55 ? 'text-amber-400' : 'text-white'}`}>{reversalPct.toFixed(0)}%</p>
+        </div>
+      </div>
+      <p className="mt-3 text-[12px] leading-relaxed text-slate-300">{String(r.plain_english ?? '')}</p>
+      <p className="mt-2 text-[11px] text-slate-500">
+        ADX {fmtNum(components.adx, 1)} · Efficiency ratio {fmtNum(components.efficiency_ratio, 2)} · Directional conviction {fmtNum(components.directional_conviction, 0)}
+      </p>
+      {reasons.length > 0 && (
+        <div className="mt-2 border-t border-slate-800/60 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowReasons((v) => !v)}
+            className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300"
+          >
+            {showReasons ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            Reversal signal breakdown ({reasons.length})
+          </button>
+          {showReasons && (
+            <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-500">
+              {reasons.map((reason, i) => <li key={i}>• {reason}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MtfTrendStrengthPanel({ data }: { data: Row }) {
+  const resultsMap = (data.results as Record<string, Row>) ?? {}
+  const tickers = Object.keys(resultsMap)
+  const [idx, setIdx] = useState(0)
+  if (!tickers.length) return <p className="text-sm text-slate-500">No results.</p>
+
+  const ticker = tickers[Math.min(idx, tickers.length - 1)]
+  const r = resultsMap[ticker] ?? {}
+  const tfMap = (r.timeframes as Record<string, Row>) ?? {}
+  const tfKeys = Object.keys(tfMap)
+  const errors = (r.errors as Record<string, string>) ?? {}
+  const confluence = (r.confluence as Row) ?? {}
+  const elevated = (r.elevated_reversal_timeframes as string[]) ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {tickers.map((t, i) => (
+          <Chip key={t} selected={idx === i} onClick={() => setIdx(i)}>{t}</Chip>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Cross-timeframe confluence — {ticker}</p>
+        <p className={`mt-1 text-xl font-bold sm:text-2xl ${verdictClass(String(confluence.verdict ?? ''))}`}>
+          {String(confluence.verdict ?? '—')}
+        </p>
+        <p className="mt-1 text-sm text-slate-400">
+          Avg score {fmtNum(confluence.avg_score, 1)}/100 · Avg confidence {fmtNum(confluence.avg_confidence, 1)}% ·{' '}
+          {String(confluence.bull_count ?? 0)} bullish / {String(confluence.bear_count ?? 0)} bearish / {String(confluence.neutral_count ?? 0)} neutral of {String(confluence.total_tfs ?? 0)} timeframes
+        </p>
+        <p className={`mt-2 text-sm ${elevated.length ? 'text-amber-400' : 'text-slate-400'}`}>
+          {String(r.reversal_summary ?? '')}
+        </p>
+      </div>
+
+      {Object.keys(errors).length > 0 && (
+        <Alert type="error">{Object.entries(errors).map(([tf, e]) => `${tf}: ${e}`).join(' · ')}</Alert>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {tfKeys.map((tf) => <MtfTimeframeCard key={tf} r={tfMap[tf]} />)}
+      </div>
+    </div>
+  )
+}
+
+function MarketMoversPanel({ data }: { data: Row }) {
+  const gainers = (data.gainers as Row[]) ?? []
+  const losers = (data.losers as Row[]) ?? []
+  if (!gainers.length && !losers.length) {
+    return <p className="text-sm text-slate-500">No movers data for this selection.</p>
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">
+        {String(data.index ?? '')} · {String(data.timeframe ?? '')}
+        {data.source ? ` · source: ${String(data.source)}` : ''}
+        {data.benchmark != null && data.benchmark_pct != null ? ` · benchmark ${String(data.benchmark)} ${fmtNum(data.benchmark_pct, 2)}%` : ''}
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
+            <TrendingUp size={14} /> Top gainers
+          </h4>
+          <DataTable minWidth={280}>
+            <thead><tr><Th>Symbol</Th><Th>Change %</Th><Th>Last</Th></tr></thead>
+            <tbody>
+              {gainers.map((g, i) => (
+                <tr key={i}>
+                  <Td className="font-medium text-white">{String(g.symbol ?? '—')}</Td>
+                  <Td className="text-emerald-400">+{fmtNum(g.pct, 2)}%</Td>
+                  <Td className="tabular-nums">{fmtNum(g.last, 2)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+        <div>
+          <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-rose-400">
+            <TrendingDown size={14} /> Top losers
+          </h4>
+          <DataTable minWidth={280}>
+            <thead><tr><Th>Symbol</Th><Th>Change %</Th><Th>Last</Th></tr></thead>
+            <tbody>
+              {losers.map((l, i) => (
+                <tr key={i}>
+                  <Td className="font-medium text-white">{String(l.symbol ?? '—')}</Td>
+                  <Td className="text-rose-400">{fmtNum(l.pct, 2)}%</Td>
+                  <Td className="tabular-nums">{fmtNum(l.last, 2)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function CommandCenterResults({ tab, data, assetClass }: { tab: string; data: Row; assetClass?: string }) {
   if (data.error && tab !== 'investigation' && tab !== 'investigation_strategies') {
     return <Alert type="error">{String(data.error)}</Alert>
@@ -4738,6 +4912,10 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
       return <TakeTradePanel data={data} />
     case 'ema_position':
       return <EmaPositionPanel data={data} />
+    case 'mtf_trend_strength':
+      return <MtfTrendStrengthPanel data={data} />
+    case 'market_movers':
+      return <MarketMoversPanel data={data} />
     case 'trade_setup':
       return <TradeSetupPanel data={data} assetClass={assetClass ?? 'india'} />
     case 'fundamental_analysis':

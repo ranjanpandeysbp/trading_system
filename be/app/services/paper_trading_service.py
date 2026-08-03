@@ -448,6 +448,75 @@ class PaperTradingService:
         await self.db.commit()
         return {"ok": True, "order_id": order.id, "status": "pending"}
 
+    async def delete_orders(self, order_ids: list[int]) -> dict:
+        """Removes order-history rows only — a filled/cancelled order's cash
+        effect already happened at fill time and isn't re-derived from this
+        log, so deleting the record has no bookkeeping impact. Pending orders
+        aren't deletable here (cancel them first) since deleting a still-live
+        order would silently drop it without ever resolving it."""
+        account = await self._get_or_create_account()
+        result = await self.db.execute(
+            select(PaperOrder).where(PaperOrder.id.in_(order_ids), PaperOrder.account_id == account.id)
+        )
+        orders = result.scalars().all()
+        found_ids = {o.id for o in orders}
+        missing = [oid for oid in order_ids if oid not in found_ids]
+        pending = [o.id for o in orders if o.status == "pending"]
+        if pending:
+            raise ValueError(f"Order(s) {pending} are still pending — cancel them first, then delete.")
+        for o in orders:
+            await self.db.delete(o)
+        await self.db.commit()
+        return {"ok": True, "deleted": sorted(found_ids), "not_found": missing}
+
+    async def close_positions(self, position_ids: list[int]) -> dict:
+        """"Delete" for an open position means closing it at the current
+        market price (sell a long / buy-to-cover a short) so cash is credited
+        correctly — silently dropping the row would leave the cost basis it
+        was holding unaccounted for. Logs a closing PaperOrder row per
+        position, same as the automatic SL/TP exit path."""
+        account = await self._get_or_create_account()
+        result = await self.db.execute(
+            select(PaperPosition).where(PaperPosition.id.in_(position_ids), PaperPosition.account_id == account.id)
+        )
+        positions = result.scalars().all()
+        found_ids = {p.id for p in positions}
+        missing = [pid for pid in position_ids if pid not in found_ids]
+        closed: list[dict] = []
+        for p in positions:
+            try:
+                price = await self._get_market_price(p.ticker, p.asset_class)
+            except Exception as exc:
+                raise ValueError(f"Could not fetch a price for {p.ticker}: {exc}") from exc
+            close_side = "sell" if p.side == "long" else "buy"
+            qty = p.quantity
+            ticker = p.ticker
+            asset_class = p.asset_class
+            strategy = p.strategy
+            await self._apply_fill(
+                account, ticker, close_side, qty, price,
+                strategy=strategy, sl_pct=None, tp_pct=None, asset_class=asset_class,
+            )
+            self.db.add(
+                PaperOrder(
+                    account_id=account.id,
+                    ticker=ticker,
+                    side=close_side,
+                    quantity=qty,
+                    price=price,
+                    order_type="market",
+                    status="filled",
+                    strategy=strategy,
+                    notes="Position closed (deleted) by user.",
+                    filled_price=price,
+                    filled_at=datetime.utcnow(),
+                    asset_class=asset_class,
+                )
+            )
+            closed.append({"position_id": p.id, "ticker": ticker, "close_price": round(price, 2)})
+        await self.db.commit()
+        return {"ok": True, "closed": closed, "not_found": missing}
+
     async def reset_account(self) -> dict:
         account = await self._get_or_create_account()
         capital = await self.settings.get_initial_capital()

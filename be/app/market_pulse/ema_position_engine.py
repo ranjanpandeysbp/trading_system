@@ -129,6 +129,18 @@ _TREND_CONTEXT_EMA = 200
 _CHOPPY_CROSSINGS_PER_100_BARS = 6.0
 _MIN_BARS_FOR_CHOP_CHECK = 20  # too few bars to meaningfully judge frequency
 _MIN_ROOM_PCT = 1.5  # need at least this much room to the next S/R level to call it actionable
+# `detect_support_resistance` returns a single price per level, not a zone — this
+# draws a thin band around that price so the chart's shared ReferenceArea styling
+# (used everywhere else in the app for S/R) still has something visible to shade.
+_CHART_ZONE_BUFFER_PCT = 0.15
+
+
+def _chart_zone(level: dict | None) -> list[float] | None:
+    if not level:
+        return None
+    price = float(level["price"])
+    buf = price * (_CHART_ZONE_BUFFER_PCT / 100)
+    return [round(price - buf, 6), round(price + buf, 6)]
 
 
 _BUCKET_BASE_CONFIDENCE = {"ACTIONABLE": 78.0, "WATCH": 58.0, "NO_TRADE": 25.0}
@@ -301,7 +313,25 @@ def analyze_ticker_timeframe(
 
     actionability = _classify_actionability(ema_summary, next_support, next_resistance, last_price, len(range_df))
 
-    ema_cols = [f"ema_{p}" for p in cfg.ema_periods if f"ema_{p}" in df.columns]
+    period_cols = [(p, f"ema_{p}") for p in cfg.ema_periods if f"ema_{p}" in df.columns]
+    chart_data = [
+        {
+            "time": str(idx),
+            "open": round(float(bar["open"]), 6),
+            "high": round(float(bar["high"]), 6),
+            "low": round(float(bar["low"]), 6),
+            "close": round(float(bar["close"]), 6),
+        }
+        for idx, bar in range_df.iterrows()
+    ]
+    emas_out = {
+        str(p): [
+            {"time": str(idx), "value": round(float(bar[col]), 6)}
+            for idx, bar in range_df.iterrows()
+            if pd.notna(bar[col])
+        ]
+        for p, col in period_cols
+    }
     return {
         "ticker": ticker,
         "timeframe": timeframe,
@@ -312,7 +342,10 @@ def analyze_ticker_timeframe(
         "ema_summary": ema_summary,
         "next_support": next_support,
         "next_resistance": next_resistance,
-        "chart_df": range_df[["open", "high", "low", "close"] + ema_cols].copy(),
+        "chart_data": chart_data,
+        "emas": emas_out,
+        "support_zone": _chart_zone(next_support),
+        "resistance_zone": _chart_zone(next_resistance),
         "note": note,
         "actionability": actionability,
     }

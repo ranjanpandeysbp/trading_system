@@ -45,6 +45,7 @@ from app.models.schemas import (
     CommandCenterInvestigateStrategiesRequest,
     CommandCenterMegaAdviceRequest,
     CommandCenterMfHoldingsRequest,
+    SaveMfHoldingsReportRequest,
     CommandCenterEtfIndiaHoldingsRequest,
     CommandCenterEtfYahooHoldingsRequest,
     CommandCenterIndiaFiiDiiHoldingsRequest,
@@ -55,6 +56,7 @@ from app.models.schemas import (
     CommandCenterOptionShortLongRequest,
     CommandCenterQuickAnalyzerRequest,
     CommandCenterSma20200Request,
+    CommandCenterMarketMoversRequest,
     CommandCenterTickerScanRequest,
     CommandCenterTradeSetupDrillRequest,
     DetectSectorRotationRequest,
@@ -65,6 +67,7 @@ from app.models.schemas import (
     WatchlistItemCreate,
     MarketPulseTickerInvestigationRequest,
     MessageResponse,
+    BulkIdsRequest,
     ModifyOrderRequest,
     OptionsDeltaNeutralPnlRequest,
     OptionsDeltaNeutralRequest,
@@ -659,6 +662,34 @@ async def modify_order(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/paper/orders/delete-bulk")
+async def delete_paper_orders(
+    payload: BulkIdsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = PaperTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.delete_orders(payload.ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/paper/positions/close-bulk")
+async def close_paper_positions(
+    payload: BulkIdsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = PaperTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.close_positions(payload.ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/paper/execute-signal")
 async def execute_signal(
     signal: dict,
@@ -1079,6 +1110,37 @@ async def command_center_ema_position(
     )
 
 
+@router.post("/command-center/mtf-trend-strength")
+async def command_center_mtf_trend_strength(
+    payload: CommandCenterTickerScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).mtf_trend_strength(
+        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+    )
+
+
+@router.get("/command-center/market-movers/options")
+async def command_center_market_movers_options(
+    asset_class: str = "india",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).market_movers_options(asset_class)
+
+
+@router.post("/command-center/market-movers")
+async def command_center_market_movers(
+    payload: CommandCenterMarketMoversRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).market_movers(
+        payload.asset_class, payload.index, payload.timeframe,
+    )
+
+
 @router.post("/command-center/trade-setup")
 async def command_center_trade_setup(
     payload: CommandCenterTradeSetupRequest,
@@ -1379,6 +1441,130 @@ async def command_center_mf_holdings(
     return await CommandCenterService(SettingsService(db)).mutual_fund_holdings_change(
         payload.scheme_ids, payload.scheme_names, payload.from_date, payload.to_date,
     )
+
+
+@router.post("/command-center/mutual-fund/holdings/start")
+async def command_center_mf_holdings_start(
+    payload: CommandCenterMfHoldingsRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the holdings-change analysis as a background job and return
+    immediately with a job id. Poll GET
+    /command-center/mutual-fund/holdings/jobs/{id} for progress and result.
+
+    When ``run_in_background`` is true (or ``report_name`` is set), the
+    finished result is auto-saved under that name for later viewing.
+    """
+    from app.services.mf_holdings_jobs import MF_HOLDINGS_SOURCE, create_job, run_mf_holdings_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=MF_HOLDINGS_SOURCE,
+        meta={
+            "scheme_names": list(payload.scheme_names.values()),
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "scheme_ids": payload.scheme_ids,
+            "scheme_names": payload.scheme_names,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_mf_holdings_job(
+        job.id, payload.scheme_ids, payload.scheme_names, payload.from_date, payload.to_date,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+    }
+
+
+@router.get("/command-center/mutual-fund/holdings/jobs")
+async def command_center_mf_holdings_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.mf_holdings_jobs import MF_HOLDINGS_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=MF_HOLDINGS_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/command-center/mutual-fund/holdings/jobs/{job_id}")
+async def command_center_mf_holdings_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.mf_holdings_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/command-center/mutual-fund/holdings/reports")
+async def command_center_mf_holdings_save_report(
+    payload: SaveMfHoldingsReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    result = payload.payload
+    return await service.save_mutual_fund_holdings_report(
+        payload.name,
+        result.get("scheme_ids", []),
+        result.get("scheme_names", {}),
+        (result.get("dates") or [None])[0] or "",
+        (result.get("dates") or [None, None])[-1] or "",
+        result,
+        user_id=current_user.id,
+    )
+
+
+@router.get("/command-center/mutual-fund/holdings/reports")
+async def command_center_mf_holdings_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.list_mutual_fund_holdings_reports(user_id=current_user.id)
+
+
+@router.get("/command-center/mutual-fund/holdings/reports/{report_id}")
+async def command_center_mf_holdings_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.get_mutual_fund_holdings_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/command-center/mutual-fund/holdings/reports/{report_id}")
+async def command_center_mf_holdings_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.delete_mutual_fund_holdings_report(report_id, user_id=current_user.id)
 
 
 @router.get("/command-center/etf/amcs")

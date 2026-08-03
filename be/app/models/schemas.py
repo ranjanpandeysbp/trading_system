@@ -221,6 +221,10 @@ class ModifyOrderRequest(BaseModel):
     trigger_price: float | None = None
 
 
+class BulkIdsRequest(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+
+
 class AccountSummary(BaseModel):
     id: int
     name: str
@@ -301,6 +305,12 @@ class CommandCenterTickerScanRequest(BaseModel):
     timeframes: list[str] | None = None
 
 
+class CommandCenterMarketMoversRequest(BaseModel):
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    index: str
+    timeframe: str = "1d"
+
+
 class CommandCenterTradeSetupRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
@@ -336,6 +346,13 @@ class CommandCenterMfHoldingsRequest(BaseModel):
     scheme_names: dict[int, str] = Field(default_factory=dict)
     from_date: str
     to_date: str
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveMfHoldingsReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
 
 
 class CommandCenterEtfIndiaHoldingsRequest(BaseModel):

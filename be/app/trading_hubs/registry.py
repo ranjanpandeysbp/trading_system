@@ -274,9 +274,10 @@ in Swing Trading.
         hub="intraday",
         label="Intra-Hedging (Sector Long/Short)",
         description=(
-            "Long the strongest Nifty sector, short the weakest, sized beta-neutral so the pair is "
-            "market-direction-neutral — trades the spread between sector momentum, not overall Nifty direction. "
-            f"Scans all {len(intra_hedging_engine.SECTOR_UNIVERSE)} tracked Nifty sector indices; fixed universe, India only. "
+            "Long the strongest, short the weakest, sized beta-neutral so the pair is market-direction-neutral — "
+            "trades the spread between momentum, not overall Nifty direction. Surfaces up to several non-overlapping "
+            "pairs at once, each with its own comparable confidence score. Scan either the 28 tracked Nifty sector "
+            "indices, or one chosen index's individual constituent stocks; India only. "
             "Works intraday (5m-1h, same-day) or as a swing rotation (4h/1d/1wk, held over days-weeks)."
         ),
         module=intra_hedging_engine,
@@ -287,6 +288,27 @@ in Swing Trading.
                 "label": "Momentum timeframe (5m-1h = intraday session, 4h/1d/1wk = swing lookback)",
                 "choices": [{"value": v, "label": v} for v in intra_hedging_engine.MOMENTUM_TIMEFRAME_OPTIONS],
                 "default": "15m",
+            },
+            "universe_mode": {
+                "type": "select",
+                "label": "Scan sector indices, or one index's individual stocks?",
+                "choices": [
+                    {"value": "sector", "label": "Sector indices (28 tracked Nifty sectors)"},
+                    {"value": "stock", "label": "Individual stocks (pick an index below)"},
+                ],
+                "default": "sector",
+            },
+            "stock_index": {
+                "type": "select",
+                "label": "Index to pull constituent stocks from (only used when scanning by Stock, above)",
+                "choices": [{"value": v, "label": v} for v in intra_hedging_engine.STOCK_MODE_INDEX_OPTIONS],
+                "default": "NIFTY BANK",
+            },
+            "max_pairs": {
+                "type": "number",
+                "label": "Max hedge pairs to surface (each non-overlapping, ranked by confidence)",
+                "min": 1, "max": 5, "step": 1,
+                "default": 3,
             },
         },
         fixed_universe=list(intra_hedging_engine.SECTOR_UNIVERSE),

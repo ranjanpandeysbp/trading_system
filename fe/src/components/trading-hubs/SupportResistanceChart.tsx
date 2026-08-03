@@ -216,14 +216,24 @@ export function SupportResistanceChart({
               <ReferenceArea
                 y1={supportZone[0]} y2={supportZone[1]}
                 fill="#10b981" fillOpacity={0.15} stroke="#10b981" strokeOpacity={0.4} strokeDasharray="3 3"
-                label={{ value: 'Support', position: 'insideBottomLeft', fill: '#34d399', fontSize: 11 }}
+                label={{
+                  value: supportZone[0] === supportZone[1]
+                    ? `Support ${fmtNum(supportZone[0])}`
+                    : `Support ${fmtNum(supportZone[0])}–${fmtNum(supportZone[1])}`,
+                  position: 'insideBottomLeft', fill: '#34d399', fontSize: 11,
+                }}
               />
             )}
             {resistanceZone && (
               <ReferenceArea
                 y1={resistanceZone[0]} y2={resistanceZone[1]}
                 fill="#f43f5e" fillOpacity={0.15} stroke="#f43f5e" strokeOpacity={0.4} strokeDasharray="3 3"
-                label={{ value: 'Resistance', position: 'insideTopLeft', fill: '#fb7185', fontSize: 11 }}
+                label={{
+                  value: resistanceZone[0] === resistanceZone[1]
+                    ? `Resistance ${fmtNum(resistanceZone[0])}`
+                    : `Resistance ${fmtNum(resistanceZone[0])}–${fmtNum(resistanceZone[1])}`,
+                  position: 'insideTopLeft', fill: '#fb7185', fontSize: 11,
+                }}
               />
             )}
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Activity, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { Activity, ArrowUpDown, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Gauge, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -22,9 +22,12 @@ import {
   runIndiaMarketHeatmap,
   runInvestigationWithStrategies,
   runDivergences,
+  runMarketMovers,
+  fetchMarketMoversOptions,
   runMegaAnalyser,
   runMegaSetupAdvisor,
   runMomentumScan,
+  runMtfTrendStrength,
   runOneClick,
   runOptionChain,
   runOptionShortLong,
@@ -70,6 +73,8 @@ const TABS = [
   { id: 'global_market_mood', label: 'Global Market Mood', icon: Globe2 },
   { id: 'momentum', label: 'Momentum Scanner', icon: TrendingUp },
   { id: 'ema_position', label: 'EMA Position', icon: LineChart },
+  { id: 'mtf_trend_strength', label: 'MTF Trend and Strength', icon: Gauge },
+  { id: 'market_movers', label: 'Market Movers', icon: ArrowUpDown },
   { id: 'divergences', label: 'Divergences', icon: Shuffle },
   { id: 'candlestick_chart_patterns', label: 'Candlestick & Chart Patterns', icon: CandlestickChart },
   { id: 'stop_hunt', label: 'Stoploss Hunting', icon: FishingHook },
@@ -151,6 +156,9 @@ export default function CommandCenter() {
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [heatmapIndex, setHeatmapIndex] = useState('Nifty 50')
   const [heatmapCustomTickers, setHeatmapCustomTickers] = useState('')
+  const [moversAssetClass, setMoversAssetClass] = useState<AssetClass>('india')
+  const [moversIndex, setMoversIndex] = useState('')
+  const [moversTimeframe, setMoversTimeframe] = useState('1d')
   const [optionInstrumentType, setOptionInstrumentType] = useState<'Index' | 'Stock'>('Index')
   const [optionSymbol, setOptionSymbol] = useState('NIFTY')
   const [oslInstrumentType, setOslInstrumentType] = useState<'Index' | 'Stock'>('Index')
@@ -231,6 +239,20 @@ export default function CommandCenter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatmapIndicesQuery.data])
 
+  const moversOptionsQuery = useQuery({
+    queryKey: ['cc-movers-options', moversAssetClass],
+    queryFn: () => fetchMarketMoversOptions(moversAssetClass),
+    enabled: tab === 'market_movers',
+  })
+
+  useEffect(() => {
+    const indices = moversOptionsQuery.data?.indices
+    if (indices?.length && !indices.some((i) => i.value === moversIndex)) {
+      setMoversIndex(indices[0].value)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moversOptionsQuery.data])
+
   useEffect(() => {
     const t = setTimeout(() => setOslDebouncedInput(oslStockInput.trim()), 200)
     return () => clearTimeout(t)
@@ -299,6 +321,11 @@ export default function CommandCenter() {
         return runIndiaMarketHeatmap({ index_name: heatmapIndex, asset_class: heatmapAssetClass })
       }
 
+      if (tab === 'market_movers') {
+        if (!moversIndex) throw new Error('Choose an index/group')
+        return runMarketMovers({ asset_class: moversAssetClass, index: moversIndex, timeframe: moversTimeframe })
+      }
+
       if (tab === 'option_chain') {
         if (!optionSymbol.trim()) throw new Error('Enter or select a symbol')
         return runOptionChain({ symbol: optionSymbol.trim().toUpperCase(), is_index: optionInstrumentType === 'Index' })
@@ -359,6 +386,8 @@ export default function CommandCenter() {
           return runTakeTrade({ tickers, asset_class: assetClass, timeframes: durations })
         case 'ema_position':
           return runEmaPositionScan({ tickers, asset_class: assetClass, timeframes: durations })
+        case 'mtf_trend_strength':
+          return runMtfTrendStrength({ tickers, asset_class: assetClass, timeframes: durations })
         case 'trade_setup':
           return runTradeSetup({ tickers, asset_class: assetClass, timeframes: durations })
         case 'fundamental_analysis':
@@ -552,6 +581,42 @@ export default function CommandCenter() {
               </FormField>
             </div>
           )}
+          {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+        </Card>
+      ) : tab === 'market_movers' ? (
+        <Card className="mb-6">
+          <div className="grid gap-4 sm:grid-cols-[1fr_2fr_1fr_1fr]">
+            <FormField label="Asset class">
+              <Select
+                value={moversAssetClass}
+                onChange={(e) => { setMoversAssetClass(e.target.value as AssetClass); setMoversIndex('') }}
+              >
+                <option value="india">🇮🇳 Indian stocks (Groww / NSE)</option>
+                <option value="us">🇺🇸 US stocks (Yahoo)</option>
+                <option value="crypto">₿ Crypto (CoinDCX)</option>
+                <option value="commodity">🛢️ Commodity futures</option>
+              </Select>
+            </FormField>
+            <FormField label="Index / Group">
+              <Select value={moversIndex} onChange={(e) => setMoversIndex(e.target.value)}>
+                {(moversOptionsQuery.data?.indices ?? []).map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </Select>
+            </FormField>
+            <FormField label="Timeframe">
+              <Select value={moversTimeframe} onChange={(e) => setMoversTimeframe(e.target.value)}>
+                {(moversOptionsQuery.data?.timeframes ?? []).map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </Select>
+            </FormField>
+            <div className="flex items-end">
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || moversOptionsQuery.isLoading}>
+                {runMutation.isPending ? 'Scanning…' : 'Find movers'}
+              </Button>
+            </div>
+          </div>
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
         </Card>
       ) : tab === 'option_chain' ? (
@@ -759,7 +824,7 @@ export default function CommandCenter() {
             key={assetClass}
             assetClass={assetClass}
             single={tab === 'mega_analyser'}
-            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'real_bottom' || tab === 'weak_strong' || tab === 'take_trade' || tab === 'sma_20_200'}
+            showDurations={tab === 'buy_sell' || tab === 'mega_analyser' || tab === 'momentum' || tab === 'ema_position' || tab === 'mtf_trend_strength' || tab === 'trade_setup' || tab === 'divergences' || tab === 'candlestick_chart_patterns' || tab === 'stop_hunt' || tab === 'take_profit' || tab === 'real_bottom' || tab === 'weak_strong' || tab === 'take_trade' || tab === 'sma_20_200'}
             onChange={handlePickerChange}
           />
 

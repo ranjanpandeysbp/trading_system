@@ -232,6 +232,7 @@ async def resume_orphaned_jobs() -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.db_models import BackgroundJob
     from app.services.backtester_leaderboard_jobs import BACKTESTER_SOURCE, run_backtester_job
+    from app.services.mf_holdings_jobs import MF_HOLDINGS_SOURCE, run_mf_holdings_job
 
     resumed = 0
     try:
@@ -260,6 +261,12 @@ async def resume_orphaned_jobs() -> int:
                         period=payload.get("period"), costs_pct=payload.get("costs_pct"),
                         bars=payload.get("bars", 350), forward_bars=payload.get("forward_bars", 10),
                         direction=payload.get("direction", "both"),
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif row.source == MF_HOLDINGS_SOURCE:
+                    run_mf_holdings_job(
+                        row.id, payload.get("scheme_ids", []), payload.get("scheme_names", {}),
+                        payload.get("from_date", ""), payload.get("to_date", ""),
                         report_name=payload.get("report_name"), user_id=row.user_id,
                     )
                 else:

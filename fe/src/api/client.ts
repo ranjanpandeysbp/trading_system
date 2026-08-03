@@ -346,6 +346,10 @@ export const modifyOrder = (orderId: number, payload: ModifyOrderPayload) =>
 export const executeSignal = (signal: ScanSignal & { asset_class?: string }) =>
   api.post('/paper/execute-signal', signal).then((r) => r.data)
 export const resetAccount = () => api.post('/paper/reset').then((r) => r.data)
+export const deletePaperOrders = (ids: number[]) =>
+  api.post('/paper/orders/delete-bulk', { ids }).then((r) => r.data)
+export const closePaperPositions = (ids: number[]) =>
+  api.post('/paper/positions/close-bulk', { ids }).then((r) => r.data)
 
 // Market Pulse (India only) — scans can take 1–3 min (NSE/yfinance)
 const MP_TIMEOUT = 300_000
@@ -1127,6 +1131,19 @@ export const runMomentumScan = (payload: { tickers: string[]; asset_class: strin
 export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runMtfTrendStrength = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+  api.post('/command-center/mtf-trend-strength', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export interface MarketMoversOption { label: string; value: string }
+
+export const fetchMarketMoversOptions = (asset_class: string) =>
+  api.get<{ indices: MarketMoversOption[]; timeframes: MarketMoversOption[] }>(
+    '/command-center/market-movers/options', { params: { asset_class } },
+  ).then((r) => r.data)
+
+export const runMarketMovers = (payload: { asset_class: string; index: string; timeframe: string }) =>
+  api.post('/command-center/market-movers', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runTradeSetup = (payload: { tickers: string[]; asset_class: string; timeframes?: string[]; exchange?: string }) =>
   api.post('/command-center/trade-setup', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
@@ -1324,6 +1341,33 @@ export const runMutualFundHoldingsChange = (payload: {
   from_date: string
   to_date: string
 }) => api.post('/command-center/mutual-fund/holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const startMutualFundHoldingsJob = (payload: {
+  scheme_ids: number[]
+  scheme_names: Record<string, string>
+  from_date: string
+  to_date: string
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post('/command-center/mutual-fund/holdings/start', payload).then((r) => r.data)
+
+export const fetchMutualFundHoldingsJobs = (status?: string) =>
+  api.get('/command-center/mutual-fund/holdings/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchMutualFundHoldingsJob = (jobId: string) =>
+  api.get(`/command-center/mutual-fund/holdings/jobs/${jobId}`).then((r) => r.data)
+
+export const saveMutualFundHoldingsReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/command-center/mutual-fund/holdings/reports', payload).then((r) => r.data)
+
+export const fetchMutualFundHoldingsReports = () =>
+  api.get('/command-center/mutual-fund/holdings/reports').then((r) => r.data)
+
+export const fetchMutualFundHoldingsReport = (reportId: number) =>
+  api.get(`/command-center/mutual-fund/holdings/reports/${reportId}`).then((r) => r.data)
+
+export const deleteMutualFundHoldingsReport = (reportId: number) =>
+  api.delete(`/command-center/mutual-fund/holdings/reports/${reportId}`).then((r) => r.data)
 
 export type EtfCatalogItem = {
   symbol: string

@@ -504,6 +504,62 @@ class CommandCenterService:
         results = await asyncio.to_thread(_run)
         return json_safe({"market": market, "results": results})
 
+    async def mtf_trend_strength(
+        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.mtf_trend_strength_engine import MTF_TIMEFRAME_OPTIONS, scan_universe
+
+        market, exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        tfs = timeframes or MTF_TIMEFRAME_OPTIONS[:4]
+
+        def _run():
+            return scan_universe(resolved, tfs, market, groww_token=token, exchange=exchange)
+
+        payload = await asyncio.to_thread(_run)
+        return json_safe(payload)
+
+    async def market_movers_options(self, asset_class: str) -> dict[str, Any]:
+        from app.market_pulse.market_gainers_losers_engine import (
+            COMMODITY_UNIVERSE_OPTIONS, CRYPTO_UNIVERSE_OPTIONS, TIMEFRAME_OPTIONS,
+        )
+        from app.market_pulse.stock_price_rotation_markets import _US_INDEX_CATALOG
+
+        timeframes = [{"label": lbl, "value": tf} for lbl, tf, _ in TIMEFRAME_OPTIONS]
+        if asset_class == "us":
+            indices = [{"label": e["label_fn"](), "value": e["id"]} for e in _US_INDEX_CATALOG]
+        elif asset_class == "crypto":
+            indices = [{"label": lbl, "value": lbl} for lbl in CRYPTO_UNIVERSE_OPTIONS]
+        elif asset_class == "commodity":
+            indices = [{"label": lbl, "value": lbl} for lbl in COMMODITY_UNIVERSE_OPTIONS]
+        else:
+            from app.market_pulse.ticker_utils import INDEX_OPTIONS
+
+            skip = {"Default Groww Tickers", "High Vol ETF"}
+            indices = [{"label": k, "value": k} for k in INDEX_OPTIONS if k not in skip]
+        return {"indices": indices, "timeframes": timeframes}
+
+    async def market_movers(self, asset_class: str, index: str, timeframe: str) -> dict[str, Any]:
+        from app.market_pulse.market_gainers_losers_engine import (
+            compute_commodity_movers, compute_crypto_movers, compute_india_movers, compute_us_movers,
+        )
+
+        _, token, _ = await self._ctx()
+        exchange = (await self._asset_ctx("india"))[1]
+
+        def _run():
+            if asset_class == "us":
+                return compute_us_movers(index, timeframe, 1)
+            if asset_class == "crypto":
+                return compute_crypto_movers(index, timeframe, 1)
+            if asset_class == "commodity":
+                return compute_commodity_movers(index, timeframe, 1)
+            return compute_india_movers(index, timeframe, 1, groww_token=token, exchange=exchange)
+
+        movers = await asyncio.to_thread(_run)
+        return json_safe({"asset_class": asset_class, "index": index, "timeframe": timeframe, **movers})
+
     async def one_click(self, style: str, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
         mod_name = _ONE_CLICK_MODULES.get(style)
         if not mod_name:
@@ -552,6 +608,126 @@ class CommandCenterService:
             )
 
         return json_safe(await asyncio.to_thread(_run))
+
+    # ------------------------------------------------------------------
+    # Saved Mutual Fund Holdings reports — shares the SavedBacktestReport
+    # table (source="mutual_fund_holdings") rather than a bespoke table,
+    # since it's the same "name + payload_json + created_at" shape already
+    # used for saved backtests.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _mf_holdings_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        overall = payload.get("overall") or []
+        n_inc = sum(1 for r in overall if isinstance(r, dict) and r.get("overall_trend") == "INCREASING")
+        n_dec = sum(1 for r in overall if isinstance(r, dict) and r.get("overall_trend") == "DECREASING")
+        ranked = sorted(
+            (r for r in overall if isinstance(r, dict) and r.get("avg_change_pct") is not None),
+            key=lambda r: r["avg_change_pct"], reverse=True,
+        )
+        return {
+            "stock_count": len(overall),
+            "increasing_count": n_inc,
+            "decreasing_count": n_dec,
+            "top_increase": ranked[:3],
+            "top_decrease": ranked[-3:][::-1] if ranked else [],
+        }
+
+    async def save_mutual_fund_holdings_report(
+        self,
+        name: str,
+        scheme_ids: list[int],
+        scheme_names: dict[int, str],
+        from_date: str,
+        to_date: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        names_by_id = {int(k): str(v) for k, v in (scheme_names or {}).items()}
+        names = [names_by_id.get(int(sid), str(sid)) for sid in scheme_ids]
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"MF holdings {datetime_cls.utcnow().isoformat()}",
+            asset_class="india",
+            tickers=",".join(names),
+            timeframes=f"{from_date}..{to_date}",
+            payload_json=json.dumps(payload),
+            source="mutual_fund_holdings",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_mutual_fund_holdings_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "mutual_fund_holdings"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            from_to = (r.timeframes or "").split("..")
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "scheme_names": r.tickers.split(",") if r.tickers else [],
+                "from_date": from_to[0] if len(from_to) > 0 else None,
+                "to_date": from_to[1] if len(from_to) > 1 else None,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._mf_holdings_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_mutual_fund_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "mutual_fund_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_mutual_fund_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "mutual_fund_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def etf_amc_list(self) -> dict[str, Any]:
         from app.market_pulse.etf_holdings_engine import fetch_amc_list
@@ -1086,6 +1262,8 @@ class CommandCenterService:
                 {"id": "global_market_mood", "label": "Global Market Mood"},
                 {"id": "momentum", "label": "Momentum Scanner"},
                 {"id": "ema_position", "label": "EMA Position Scanner"},
+                {"id": "mtf_trend_strength", "label": "MTF Trend and Strength"},
+                {"id": "market_movers", "label": "Market Movers"},
                 {"id": "divergences", "label": "Divergences"},
                 {"id": "candlestick_chart_patterns", "label": "Candlestick & Chart Patterns"},
                 {"id": "stop_hunt", "label": "Stoploss Hunting"},

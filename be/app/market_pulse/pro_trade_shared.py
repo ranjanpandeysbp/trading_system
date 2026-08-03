@@ -45,6 +45,18 @@ def volume_zscore(volume: pd.Series, window: int = 20) -> pd.Series:
     return (volume - mean) / std.replace(0, pd.NA)
 
 
+def kaufman_efficiency_ratio(close: pd.Series, period: int = 14) -> pd.Series:
+    """Kaufman's Efficiency Ratio: net directional move over `period` bars
+    divided by the sum of every bar-to-bar move in between (0-1). Near 1 means
+    price took a clean, direct path (a genuine trend); near 0 means it
+    covered a lot of ground but ended up nowhere (chop) — the piece "trend
+    strength" is usually missing when that's judged from ADX alone, since ADX
+    can stay elevated for a while after a trend has already turned choppy."""
+    net_move = (close - close.shift(period)).abs()
+    path_length = close.diff().abs().rolling(period).sum()
+    return (net_move / path_length.replace(0, pd.NA)).clip(0, 1)
+
+
 class ConfidenceScore:
     """Accumulates a confluence-weighted confidence score (10-95 clamp) and
     the human-readable reasons behind it — every point added is explained,

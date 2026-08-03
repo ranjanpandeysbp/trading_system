@@ -83,6 +83,17 @@ SWING_LOOKBACK_BARS: dict[str, int] = {"4h": 6, "1d": 5, "1wk": 4}
 # curated sector-rotation universe.
 SECTOR_UNIVERSE: list[str] = list(SECTOR_INDEX_NAMES)
 
+# "Stock" universe mode scans one index's individual constituents instead of
+# the 28 sector indices — curated subset of ticker_utils.INDEX_OPTIONS (real
+# indices only, excludes the non-index "Default Groww Tickers"/"High Vol ETF"
+# convenience lists).
+STOCK_MODE_INDEX_OPTIONS: list[str] = [
+    "NIFTY 50", "NIFTY NEXT 50", "NIFTY BANK", "NIFTY IT", "NIFTY FINANCIAL SERVICES",
+    "NIFTY AUTO", "NIFTY FMCG", "NIFTY PHARMA", "NIFTY METAL", "NIFTY REALTY",
+    "NIFTY ENERGY", "NIFTY CEMENT", "NIFTY CHEMICALS", "NIFTY CONSUMER DURABLES",
+    "NIFTY HEALTHCARE", "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250",
+]
+
 SECTOR_LABELS: dict[str, str] = {
     "NIFTY AUTO": "Auto", "NIFTY BANK": "Banking", "NIFTY CEMENT": "Cement",
     "NIFTY CHEMICALS": "Chemicals", "NIFTY COMMODITIES": "Commodities",
@@ -139,6 +150,15 @@ class IntraHedgingConfig:
     # ticker-level historical lookback beyond beta_lookback_days/momentum)
     min_bars: int = 30
     lookback_bars: int = 150
+    # How many non-overlapping long/short pairs to surface — pair 1 is
+    # strongest-vs-weakest, pair 2 is 2nd-strongest-vs-2nd-weakest, etc.,
+    # stopping early once a candidate pair's spread misses the divergence bar.
+    max_pairs: int = 3
+    # "sector" scans the 28 tracked Nifty sector indices (original behavior);
+    # "stock" scans one chosen index's individual constituent stocks instead.
+    universe_mode: str = "sector"
+    stock_index: str = "NIFTY BANK"
+    stock_universe_cap: int = 25
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +188,35 @@ def _session_bars(df: pd.DataFrame) -> pd.DataFrame:
 # Per-sector momentum + beta
 # ---------------------------------------------------------------------------
 
+_STOCK_CAL_DAYS_PER_BAR: dict[str, float] = {
+    "5m": 1 / 75, "15m": 1 / 25, "30m": 1 / 13, "1h": 1 / 7, "4h": 2 / 3, "1d": 1.5, "1wk": 10,
+}
+
+
+def _fetch_stock_ohlcv(name: str, timeframe: str, target_bars: int, *, groww_token: str, exchange: str) -> pd.DataFrame:
+    """Individual-stock OHLCV via this app's standard per-ticker fetcher
+    (same one used by ema_position_engine.py etc.) — used only in "stock"
+    universe mode, since `fetch_index_ohlcv_for_interval` above is index-only."""
+    from datetime import date, timedelta
+
+    from backtesting.data_fetcher import get_historical_data
+
+    days_per_bar = _STOCK_CAL_DAYS_PER_BAR.get(timeframe, 1.5)
+    days_back = int(target_bars * days_per_bar) + 5
+    end = date.today()
+    start = end - timedelta(days=days_back)
+    df = get_historical_data(
+        symbol=name, start_date=str(start), end_date=str(end + timedelta(days=1)),
+        market="Groww (India Stocks)", timeframe=timeframe,
+        groww_token=groww_token, groww_exchange=exchange,
+    )
+    return normalize_ohlcv(df) if df is not None else pd.DataFrame()
+
+
 def _fetch_momentum_tf(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
     limit = 150 if cfg.momentum_timeframe in INTRADAY_TIMEFRAMES else max(150, SWING_LOOKBACK_BARS.get(cfg.momentum_timeframe, 5) + 60)
+    if cfg.universe_mode == "stock":
+        return _fetch_stock_ohlcv(name, cfg.momentum_timeframe, limit, groww_token=groww_token, exchange=exchange)
     df = fetch_index_ohlcv_for_interval(name, cfg.momentum_timeframe, limit=limit, groww_token=groww_token, exchange=exchange)
     df = normalize_ohlcv(df) if df is not None else pd.DataFrame()
     return df
@@ -177,9 +224,20 @@ def _fetch_momentum_tf(name: str, market: str, cfg: IntraHedgingConfig, *, groww
 
 def _fetch_daily(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
     limit = cfg.beta_lookback_days + 30
+    if cfg.universe_mode == "stock":
+        return _fetch_stock_ohlcv(name, "1d", limit, groww_token=groww_token, exchange=exchange)
     df = fetch_index_ohlcv_for_interval(name, "1d", limit=limit, groww_token=groww_token, exchange=exchange)
     df = normalize_ohlcv(df) if df is not None else pd.DataFrame()
     return df
+
+
+def _fetch_benchmark_daily(cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> pd.DataFrame:
+    """The Nifty 50 INDEX used for Beta — always fetched via the index path
+    regardless of `cfg.universe_mode`, since BENCHMARK is never an individual
+    stock ticker even when the scanned universe itself is (stock mode)."""
+    limit = cfg.beta_lookback_days + 30
+    df = fetch_index_ohlcv_for_interval(BENCHMARK, "1d", limit=limit, groww_token=groww_token, exchange=exchange)
+    return normalize_ohlcv(df) if df is not None else pd.DataFrame()
 
 
 def compute_sector_momentum(name: str, market: str, cfg: IntraHedgingConfig, *, groww_token: str, exchange: str) -> dict[str, Any] | None:
@@ -218,6 +276,15 @@ def compute_beta(name: str, market: str, bench_returns: pd.Series, cfg: IntraHed
     if daily.empty or len(daily) < cfg.min_bars_daily:
         return None
     rets = daily["close"].pct_change().dropna().tail(cfg.beta_lookback_days)
+    # Index-mode fetches (fetch_index_ohlcv_for_interval) and per-stock fetches
+    # (get_historical_data, used only in "stock" universe mode) normalize daily
+    # bar timestamps differently (midnight vs. NSE-close-in-UTC) — normalizing
+    # both to date-only here is what actually lets pd.concat align them; in
+    # "sector" mode both sides already share the index fetcher so this is a
+    # no-op.
+    rets.index = pd.to_datetime(rets.index).normalize()
+    bench_returns = bench_returns.copy()
+    bench_returns.index = pd.to_datetime(bench_returns.index).normalize()
     aligned = pd.concat([rets.rename("s"), bench_returns.rename("b")], axis=1).dropna()
     if len(aligned) < 20:
         return None
@@ -249,21 +316,32 @@ def _leg_risk(row: dict[str, Any]) -> tuple[float, float]:
     return sl_pct, round(sl_pct * 2, 2)
 
 
+def _pair_confidence(spread_pct: float) -> float:
+    """Comparable across pairs by construction: driven directly by the
+    momentum spread, so a bigger divergence always scores higher — this is
+    what lets multiple simultaneous pairs be ranked against each other."""
+    return round(min(95.0, max(30.0, 50 + spread_pct * 6)), 1)
+
+
 def _sector_row(
     name: str, metrics: dict[str, Any], *, role: str, cfg: IntraHedgingConfig,
     long_capital: float | None = None, short_capital: float | None = None,
-    pair_note: str = "",
+    pair_note: str = "", universe_size: int | None = None,
+    pair_rank: int | None = None, num_pairs: int = 1, pair_confidence: float | None = None,
 ) -> dict[str, Any]:
-    label = SECTOR_LABELS.get(name, name)
+    is_stock_mode = cfg.universe_mode == "stock"
+    label = name if is_stock_mode else SECTOR_LABELS.get(name, name)
+    universe_size = universe_size if universe_size is not None else len(SECTOR_UNIVERSE)
+    universe_noun = "stocks" if is_stock_mode else "sectors"
     momentum = metrics["momentum_pct"]
     beta = metrics.get("beta")
     window_label = metrics.get("window_label", "the tracked window")
     is_intraday = cfg.momentum_timeframe in INTRADAY_TIMEFRAMES
     style = "intraday" if is_intraday else "swing"
     reasons: list[str] = [
-        f"{label} ({name.title()}) is {'up' if momentum >= 0 else 'down'} {abs(momentum):.2f}% "
+        f"{label}{'' if is_stock_mode else f' ({name.title()})'} is {'up' if momentum >= 0 else 'down'} {abs(momentum):.2f}% "
         f"over {window_label} — {'leading' if role == 'long' else 'lagging' if role == 'short' else 'mid-pack'} "
-        f"among the {len(SECTOR_UNIVERSE)} tracked sectors.",
+        f"among the {universe_size} tracked {universe_noun}.",
     ]
     if beta is not None:
         reasons.append(f"Beta vs Nifty 50: {beta:.2f} ({cfg.beta_lookback_days}-day daily returns).")
@@ -274,39 +352,52 @@ def _sector_row(
             "verdict": "WAIT", "phase": "NEUTRAL", "confidence_pct": 20.0,
             "sl_pct": 0.0, "tp_pct": 0.0,
             "momentum_pct": round(momentum, 3), "beta": round(beta, 3) if beta is not None else None,
-            "reasons": reasons + [pair_note or "Not the current pair leg — momentum isn't extreme enough on either end."],
+            "reasons": reasons + [pair_note or "Not part of any of today's hedge pairs — momentum isn't extreme enough on either end."],
         }, hold_duration=hold_for_tf(cfg.momentum_timeframe, style))
 
     direction = "LONG" if role == "long" else "SHORT"
     sl_pct, tp_pct = _leg_risk(metrics)
     hold = hold_for_tf(cfg.momentum_timeframe, style)
-    confidence = min(90.0, max(35.0, 50 + abs(momentum) * 8))
+    confidence = pair_confidence if pair_confidence is not None else min(90.0, max(35.0, 50 + abs(momentum) * 8))
+    pair_tag = f"Pair {pair_rank} of {num_pairs}" if pair_rank is not None and num_pairs > 1 else None
 
     reasons.append(pair_note)
-    top_stocks = sector_top_stocks(name, cfg)
-    etfs = SECTOR_ETFS.get(name) or []
-    if role == "long":
+    if is_stock_mode:
         reasons.append(
-            f"ETF route: buy any of {', '.join(etfs)} (cash market)." if etfs
-            else "ETF route: no sufficiently liquid single-sector ETF — use the stock route."
+            f"Execution: buy {name} directly (cash market)." if role == "long" else
+            (
+                f"Execution: {'India cash-market intraday shorting is broker-restricted' if is_intraday else 'India cash-market short positions cannot be carried overnight'} "
+                f"for {name} — short via stock futures/options instead."
+            )
         )
-        if top_stocks:
-            reasons.append(f"Stock route: buy top {len(top_stocks)} weighted constituents — {', '.join(top_stocks)}.")
     else:
-        short_note = (
-            "India cash-market intraday shorting is broker-restricted"
-            if is_intraday else
-            "India cash-market short positions can't be carried overnight"
-        )
-        reasons.append(
-            f"ETF route: {short_note} for {', '.join(etfs)} — short via {name.title()} futures instead." if etfs else
-            "ETF route: no sufficiently liquid single-sector ETF to short — use the stock route or sector futures."
-        )
-        if top_stocks:
-            reasons.append(f"Stock route: short top {len(top_stocks)} weighted constituents — {', '.join(top_stocks)}.")
+        top_stocks = sector_top_stocks(name, cfg)
+        etfs = SECTOR_ETFS.get(name) or []
+        if role == "long":
+            reasons.append(
+                f"ETF route: buy any of {', '.join(etfs)} (cash market)." if etfs
+                else "ETF route: no sufficiently liquid single-sector ETF — use the stock route."
+            )
+            if top_stocks:
+                reasons.append(f"Stock route: buy top {len(top_stocks)} weighted constituents — {', '.join(top_stocks)}.")
+        else:
+            short_note = (
+                "India cash-market intraday shorting is broker-restricted"
+                if is_intraday else
+                "India cash-market short positions can't be carried overnight"
+            )
+            reasons.append(
+                f"ETF route: {short_note} for {', '.join(etfs)} — short via {name.title()} futures instead." if etfs else
+                "ETF route: no sufficiently liquid single-sector ETF to short — use the stock route or sector futures."
+            )
+            if top_stocks:
+                reasons.append(f"Stock route: short top {len(top_stocks)} weighted constituents — {', '.join(top_stocks)}.")
     capital = long_capital if role == "long" else short_capital
     if capital is not None:
-        reasons.append(f"Beta-neutral allocation for this leg: ₹{capital:,.0f} of total capital.")
+        capital_scope = "this pair's share of total capital" if num_pairs > 1 else "of total capital"
+        reasons.append(f"Beta-neutral allocation for this leg: ₹{capital:,.0f} ({capital_scope}).")
+    if pair_tag:
+        reasons.insert(0, f"{pair_tag} — {confidence:.0f}% confidence (ranked by momentum spread vs the other {num_pairs - 1} pair(s) found today).")
 
     plan = make_trade_plan(
         direction=direction, timeframe=cfg.momentum_timeframe,
@@ -324,12 +415,13 @@ def _sector_row(
         ),
     )
 
+    verdict = f"TAKE {direction}" + (f" ({pair_tag})" if pair_tag else "")
     return enrich_smc_live({
         "signal": direction, "direction": direction, "take_trade": True,
-        "verdict": f"TAKE {direction}", "phase": "LEADER" if role == "long" else "LAGGARD",
+        "verdict": verdict, "phase": "LEADER" if role == "long" else "LAGGARD",
         "confidence_pct": round(confidence, 1), "sl_pct": sl_pct, "tp_pct": tp_pct,
         "momentum_pct": round(momentum, 3), "beta": round(beta, 3) if beta is not None else None,
-        "reasons": reasons, "trade_plan": {**plan, "holding_period": hold},
+        "pair_rank": pair_rank, "reasons": reasons, "trade_plan": {**plan, "holding_period": hold},
     }, hold_duration=hold)
 
 
@@ -337,9 +429,9 @@ def analyze_ticker(
     ticker: str, market: str, *, cfg: IntraHedgingConfig | None = None,
     groww_token: str = "", exchange: str = "NSE",
 ) -> dict[str, Any]:
-    """Single-sector read (momentum + beta), no pair verdict — the pair
-    recommendation only exists at the scan_universe level, across every
-    tracked sector. Kept for interface parity with the other hub engines."""
+    """Single-name read (momentum + beta), no pair verdict — the pair
+    recommendation(s) only exist at the scan_universe level, across the
+    whole scanned universe. Kept for interface parity with the other hub engines."""
     cfg = cfg or IntraHedgingConfig()
     name = ticker.upper() if ticker.upper() in SECTOR_UNIVERSE else ticker
     mom = compute_sector_momentum(name, market, cfg, groww_token=groww_token, exchange=exchange)
@@ -348,21 +440,45 @@ def analyze_ticker(
     return {
         "ticker": ticker, "market": market,
         "last_close": round(mom["last_price"], 4),
-        "live": _sector_row(name, mom, role="neutral", cfg=cfg, pair_note="Run the full Intra-Hedging scan to see today's Long/Short pair."),
+        "live": _sector_row(name, mom, role="neutral", cfg=cfg, pair_note="Run the full Intra-Hedging scan to see today's Long/Short pair(s)."),
     }
+
+
+def _resolve_universe(tickers: list[str], cfg: IntraHedgingConfig) -> tuple[list[str], dict[str, str], str, str | None]:
+    """Returns (names, labels, universe_desc, error). In "stock" mode the
+    chosen index's constituents are resolved fresh here — `tickers` is
+    ignored, same convention as the sector-mode fixed-universe filter below."""
+    if cfg.universe_mode == "stock":
+        from app.market_pulse.nifty_index_constituents import get_index_constituent_symbols
+
+        index_name = cfg.stock_index if cfg.stock_index in STOCK_MODE_INDEX_OPTIONS else "NIFTY BANK"
+        symbols = get_index_constituent_symbols(index_name)[: cfg.stock_universe_cap]
+        if not symbols:
+            return [], {}, "", f"Could not resolve constituent stocks for {index_name}."
+        return symbols, {s: s for s in symbols}, f"{index_name} constituents ({len(symbols)} stocks)", None
+
+    names = [n for n in (tickers or SECTOR_UNIVERSE) if n in SECTOR_UNIVERSE] or list(SECTOR_UNIVERSE)
+    return names, SECTOR_LABELS, f"{len(SECTOR_UNIVERSE)} tracked Nifty sectors", None
 
 
 def scan_universe(
     tickers: list[str], market: str, *, cfg: IntraHedgingConfig | None = None,
     groww_token: str = "", exchange: str = "NSE", run_bt: bool = False,
 ) -> dict[str, Any]:
-    """Always scans the fixed sector universe — `tickers` is accepted for
-    interface parity with the other fixed-universe hub sections and filtered
-    against SECTOR_UNIVERSE, same convention as gokul_chhabra_engine / zero_to_hero_engine."""
+    """Sector mode always scans the fixed 28-sector universe (`tickers` accepted
+    only for interface parity, same convention as gokul_chhabra_engine /
+    zero_to_hero_engine); stock mode scans `cfg.stock_index`'s constituents
+    instead. Surfaces up to `cfg.max_pairs` non-overlapping long/short pairs —
+    pair 1 is strongest-vs-weakest, pair 2 is 2nd-strongest-vs-2nd-weakest,
+    etc. — stopping once a candidate pair's spread misses the divergence bar
+    (spread only shrinks moving inward from the ranked extremes, so this is
+    safe to break on rather than exhaustively check every remaining pair)."""
     cfg = cfg or IntraHedgingConfig()
-    names = [n for n in (tickers or SECTOR_UNIVERSE) if n in SECTOR_UNIVERSE] or list(SECTOR_UNIVERSE)
+    names, labels, universe_desc, resolve_error = _resolve_universe(tickers, cfg)
+    if resolve_error:
+        return {"market": market, "error": resolve_error, "results": []}
 
-    bench_daily = _fetch_daily(BENCHMARK, market, cfg, groww_token=groww_token, exchange=exchange)
+    bench_daily = _fetch_benchmark_daily(cfg, groww_token=groww_token, exchange=exchange)
     bench_returns = (
         bench_daily["close"].pct_change().dropna().tail(cfg.beta_lookback_days)
         if not bench_daily.empty and len(bench_daily) >= cfg.min_bars_daily else pd.Series(dtype=float)
@@ -380,79 +496,134 @@ def scan_universe(
         metrics[name] = mom
 
     ok_names = [n for n, m in metrics.items() if m.get("beta") is not None]
+    universe_noun = "stock" if cfg.universe_mode == "stock" else "sector"
     if len(ok_names) < 2:
         return {
-            "market": market, "error": "Not enough sector data (momentum + Beta) available right now.",
+            "market": market, "error": f"Not enough {universe_noun} data (momentum + Beta) available right now.",
             "results": [{"ticker": n, "error": e} for n, e in errors.items()],
         }
 
     ranked = sorted(ok_names, key=lambda n: metrics[n]["momentum_pct"], reverse=True)
-    strong_name, weak_name = ranked[0], ranked[-1]
-    strong, weak = metrics[strong_name], metrics[weak_name]
-    spread = strong["momentum_pct"] - weak["momentum_pct"]
-    divergence_ok = spread >= cfg.min_divergence_pct
+    n_ranked = len(ranked)
+    max_possible_pairs = n_ranked // 2
+    num_pairs_requested = max(1, cfg.max_pairs)
 
-    long_beta = abs(strong["beta"]) or 1.0
-    short_beta = abs(weak["beta"]) or 1.0
-    long_weight = short_beta / (long_beta + short_beta)
-    short_weight = long_beta / (long_beta + short_beta)
-    long_capital = round(cfg.total_capital * long_weight, 2)
-    short_capital = round(cfg.total_capital * short_weight, 2)
-    net_beta_exposure = round(long_capital * strong["beta"] - short_capital * weak["beta"], 2)
+    candidate_pairs: list[dict[str, Any]] = []
+    for i in range(min(num_pairs_requested, max_possible_pairs)):
+        long_name, short_name = ranked[i], ranked[n_ranked - 1 - i]
+        spread = metrics[long_name]["momentum_pct"] - metrics[short_name]["momentum_pct"]
+        if spread < cfg.min_divergence_pct:
+            break
+        candidate_pairs.append({"rank": i + 1, "long": long_name, "short": short_name, "spread": spread})
 
-    pair_scope = "Today's" if cfg.momentum_timeframe in INTRADAY_TIMEFRAMES else "Current"
-    pair_note = (
-        f"{pair_scope} pair: LONG {SECTOR_LABELS.get(strong_name, strong_name)} ({strong['momentum_pct']:+.2f}%) vs "
-        f"SHORT {SECTOR_LABELS.get(weak_name, weak_name)} ({weak['momentum_pct']:+.2f}%) — spread {spread:.2f}%."
-        if divergence_ok else
-        f"The momentum spread right now is only {spread:.2f}% (below the {cfg.min_divergence_pct:.1f}% divergence threshold) "
-        "— no clear sector disagreement, sitting out rather than forcing a weak pair."
+    is_intraday = cfg.momentum_timeframe in INTRADAY_TIMEFRAMES
+    pair_scope = "Today's" if is_intraday else "Current"
+    num_pairs = len(candidate_pairs)
+
+    if not num_pairs:
+        best_spread = metrics[ranked[0]]["momentum_pct"] - metrics[ranked[-1]]["momentum_pct"]
+        pair_note = (
+            f"The best available momentum spread right now is only {best_spread:.2f}% "
+            f"(below the {cfg.min_divergence_pct:.1f}% divergence threshold) — no clear {universe_noun} disagreement, "
+            "sitting out rather than forcing a weak pair."
+        )
+        results = [
+            {"ticker": n, "label": labels.get(n, n), "error": errors[n]} if n in errors else
+            {
+                "ticker": n, "label": labels.get(n, n), "last_close": round(metrics[n]["last_price"], 4),
+                "live": _sector_row(n, metrics[n], role="neutral", cfg=cfg, pair_note=pair_note, universe_size=len(names)),
+            }
+            for n in names
+        ]
+        return {
+            "market": market,
+            "strategy": "Intra-Hedging — Relative-Strength Long/Short (beta-neutral)",
+            "benchmark": BENCHMARK, "universe_mode": cfg.universe_mode, "universe_desc": universe_desc,
+            "results": results, "entries": [], "entry_count": 0, "watchlist": [],
+            "pair_recommendations": [], "pair_recommendation": None,
+        }
+
+    # Split total capital across the pairs actually found — each pair is then
+    # beta-neutral *within itself*, so nothing here implies each pair should
+    # separately get the full total_capital.
+    capital_per_pair = cfg.total_capital / num_pairs
+    role_by_name: dict[str, dict[str, Any]] = {}
+    pair_recommendations: list[dict[str, Any]] = []
+
+    for p in candidate_pairs:
+        long_name, short_name, spread = p["long"], p["short"], p["spread"]
+        strong, weak = metrics[long_name], metrics[short_name]
+        long_beta = abs(strong["beta"]) or 1.0
+        short_beta = abs(weak["beta"]) or 1.0
+        long_weight = short_beta / (long_beta + short_beta)
+        short_weight = long_beta / (long_beta + short_beta)
+        long_capital = round(capital_per_pair * long_weight, 2)
+        short_capital = round(capital_per_pair * short_weight, 2)
+        net_beta_exposure = round(long_capital * strong["beta"] - short_capital * weak["beta"], 2)
+        confidence = _pair_confidence(spread)
+
+        pair_note = (
+            f"{pair_scope} pair {p['rank']} of {num_pairs}: LONG {labels.get(long_name, long_name)} ({strong['momentum_pct']:+.2f}%) vs "
+            f"SHORT {labels.get(short_name, short_name)} ({weak['momentum_pct']:+.2f}%) — spread {spread:.2f}%, {confidence:.0f}% confidence."
+        )
+        role_by_name[long_name] = {"role": "long", "pair_rank": p["rank"], "pair_note": pair_note, "long_capital": long_capital, "short_capital": short_capital, "confidence": confidence}
+        role_by_name[short_name] = {"role": "short", "pair_rank": p["rank"], "pair_note": pair_note, "long_capital": long_capital, "short_capital": short_capital, "confidence": confidence}
+
+        pair_recommendations.append({
+            "pair_rank": p["rank"], "confidence_pct": confidence,
+            "divergence_ok": True, "spread_pct": round(spread, 3), "min_divergence_pct": cfg.min_divergence_pct,
+            "long_ticker": long_name, "long_label": labels.get(long_name, long_name),
+            "long_momentum_pct": round(strong["momentum_pct"], 3), "long_beta": round(strong["beta"], 3),
+            "long_capital": long_capital, "long_etfs": [] if cfg.universe_mode == "stock" else SECTOR_ETFS.get(long_name, []),
+            "long_top_stocks": [] if cfg.universe_mode == "stock" else sector_top_stocks(long_name, cfg),
+            "short_ticker": short_name, "short_label": labels.get(short_name, short_name),
+            "short_momentum_pct": round(weak["momentum_pct"], 3), "short_beta": round(weak["beta"], 3),
+            "short_capital": short_capital, "short_etfs": [] if cfg.universe_mode == "stock" else SECTOR_ETFS.get(short_name, []),
+            "short_top_stocks": [] if cfg.universe_mode == "stock" else sector_top_stocks(short_name, cfg),
+            "capital_allocated": round(capital_per_pair, 2), "net_beta_exposure": net_beta_exposure,
+            "note": pair_note,
+        })
+
+    pair_summaries = [
+        f"#{p['rank']}: {labels.get(p['long'], p['long'])}/{labels.get(p['short'], p['short'])}"
+        for p in candidate_pairs
+    ]
+    not_in_any_pair_note = (
+        f"{pair_scope} scan found {num_pairs} hedge pair(s) — {', '.join(pair_summaries)}."
     )
 
     results: list[dict[str, Any]] = []
     for name in names:
         if name in errors:
-            results.append({"ticker": name, "label": SECTOR_LABELS.get(name, name), "error": errors[name]})
+            results.append({"ticker": name, "label": labels.get(name, name), "error": errors[name]})
             continue
         m = metrics[name]
-        if not divergence_ok:
-            live = _sector_row(name, m, role="neutral", cfg=cfg, pair_note=pair_note)
-        elif name == strong_name:
-            live = _sector_row(name, m, role="long", cfg=cfg, long_capital=long_capital, short_capital=short_capital, pair_note=pair_note)
-        elif name == weak_name:
-            live = _sector_row(name, m, role="short", cfg=cfg, long_capital=long_capital, short_capital=short_capital, pair_note=pair_note)
+        assignment = role_by_name.get(name)
+        if assignment is None:
+            live = _sector_row(name, m, role="neutral", cfg=cfg, pair_note=not_in_any_pair_note, universe_size=len(names), num_pairs=num_pairs)
         else:
-            live = _sector_row(name, m, role="neutral", cfg=cfg, pair_note=pair_note)
+            live = _sector_row(
+                name, m, role=assignment["role"], cfg=cfg,
+                long_capital=assignment["long_capital"], short_capital=assignment["short_capital"],
+                pair_note=assignment["pair_note"], universe_size=len(names),
+                pair_rank=assignment["pair_rank"], num_pairs=num_pairs, pair_confidence=assignment["confidence"],
+            )
         results.append({
-            "ticker": name, "label": SECTOR_LABELS.get(name, name),
+            "ticker": name, "label": labels.get(name, name),
             "last_close": round(m["last_price"], 4), "live": live,
         })
 
     entries = [r for r in results if not r.get("error") and (r.get("live") or {}).get("take_trade")]
-
-    pair_recommendation = {
-        "divergence_ok": divergence_ok,
-        "spread_pct": round(spread, 3),
-        "min_divergence_pct": cfg.min_divergence_pct,
-        "long_sector": strong_name, "long_label": SECTOR_LABELS.get(strong_name, strong_name),
-        "long_momentum_pct": round(strong["momentum_pct"], 3), "long_beta": round(strong["beta"], 3),
-        "long_capital": long_capital, "long_etfs": SECTOR_ETFS.get(strong_name, []),
-        "long_top_stocks": sector_top_stocks(strong_name, cfg),
-        "short_sector": weak_name, "short_label": SECTOR_LABELS.get(weak_name, weak_name),
-        "short_momentum_pct": round(weak["momentum_pct"], 3), "short_beta": round(weak["beta"], 3),
-        "short_capital": short_capital, "short_etfs": SECTOR_ETFS.get(weak_name, []),
-        "short_top_stocks": sector_top_stocks(weak_name, cfg),
-        "total_capital": cfg.total_capital, "net_beta_exposure": net_beta_exposure,
-        "note": pair_note,
-    }
+    pair_recommendations.sort(key=lambda p: p["confidence_pct"], reverse=True)
 
     return {
         "market": market,
-        "strategy": "Intra-Hedging — Sector Relative-Strength Long/Short (beta-neutral)",
-        "benchmark": BENCHMARK,
+        "strategy": "Intra-Hedging — Relative-Strength Long/Short (beta-neutral)",
+        "benchmark": BENCHMARK, "universe_mode": cfg.universe_mode, "universe_desc": universe_desc,
         "results": results,
         "entries": entries,
         "entry_count": len(entries),
         "watchlist": [],
-        "pair_recommendation": pair_recommendation,
+        "pair_recommendations": pair_recommendations,
+        "pair_recommendation": pair_recommendations[0] if pair_recommendations else None,
     }
