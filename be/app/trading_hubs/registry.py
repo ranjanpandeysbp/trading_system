@@ -11,6 +11,7 @@ from app.trading_hubs import (
     intra_hwp_engine,
     intraday_7_wasted_engine,
     intraday_alpha_945_engine,
+    intraday_bramhastra_engine,
     intraday_london_breakout_engine,
     intraday_fib945_engine,
     intraday_mtf_breakout_retest_engine,
@@ -910,6 +911,74 @@ per the video's own framing, footprint reads what's happening at a level, it doe
 | **Commodity** | London **03:00–08:00 ET** | **08:00–16:00 ET** | Unchanged London-style map |
 
 Optional HH:MM overrides in config replace the defaults for that scan.
+""",
+    ),
+    _section(
+        id="intraday_bramhastra",
+        hub="intraday",
+        label="Bramhastra Strategy — 1H Range + 5m Two-Stage Breakout",
+        description=(
+            "Pure price-action, indicator-free breakout: mark the session's first 1-hour candle's high/low, "
+            "then on 5m wait for a candle to CLOSE beyond it (confirmation), then wait for a later candle to "
+            "break the confirmation candle's own extreme (entry trigger). Fixed % stop, configurable R:R. "
+            "Works across India, US, Crypto, and Commodities — indices, stocks, or crypto pairs."
+        ),
+        module=intraday_bramhastra_engine,
+        config_cls=intraday_bramhastra_engine.BramhastraConfig,
+        config_options={
+            "max_sl_pct": {
+                "type": "number",
+                "label": "Max stop-loss (% of price)",
+                "default": 0.2,
+                "min": 0.05,
+                "max": 2.0,
+                "step": 0.05,
+            },
+            "rr_ratio": {
+                "type": "number",
+                "label": "Risk : Reward",
+                "default": 1.3,
+                "min": 1.0,
+                "max": 3.0,
+                "step": 0.1,
+            },
+            "monster_range_pct": {
+                "type": "number",
+                "label": "Skip session if 1H range ≥ this % of price (\"monster candle\")",
+                "default": 0.7,
+                "min": 0.2,
+                "max": 3.0,
+                "step": 0.1,
+            },
+        },
+        guide="""### Bramhastra Strategy — 1-Hour range, 5-minute two-stage breakout
+[Bramhastra Strategy | Trade Swings](https://www.youtube.com/watch?v=KMbMaRH_FEw)
+
+A pure price-action, indicator-free intraday strategy — usable for both options buying and options selling — on
+indices (Nifty, Bank Nifty, Fin Nifty), single stocks, crypto, or commodities.
+
+**Timeframes:** Observation **1 Hour** · Execution **5 Minutes** · Indicators used: **none**.
+
+| Step | Rule |
+|---|---|
+| **1. Mark the first hour** | Open the chart on 1H and look at the session's very first candle (color doesn't matter). Once that hour is complete, draw a line at its **High** and its **Low**. |
+| **2. Switch to 5-minute** | After marking the High/Low, move to the 5-minute chart for everything that follows. |
+| **3. Confirm (Stage A)** | Wait for a 5m candle to **CLOSE** beyond the 1H range — above the High for a long setup, below the Low for a short. A wick-only break that doesn't close beyond the line is a **fake breakout** — ignore it, a proper close is mandatory. Once confirmed, mark **that candle's own High (long) / Low (short)**. |
+| **4. Trigger (Stage B)** | Entry fires when a **later** candle actually breaks the confirmation candle's marked level. Long = Call Buy / Put Sell. Short = Put Buy / Call Sell. |
+| **5. Stop-loss** | Keep it strict — the video suggests a max of ~50 points on Nifty spot (~20-25 points on the options premium), which this hub applies as a **fixed % of price** so it scales sensibly to any instrument (default 0.2%). |
+| **6. Target / R:R** | Aim for at least **1:1 to 1:1.5**. Typical options-premium targets run 35-45 points against a 20-25 point stop in the video's own examples. Trail the stop if you know how, and 1:3-1:4 becomes possible. |
+
+**When to avoid this setup:**
+- **Monster first-hour candle** — if the 1H range is unusually wide (150-200+ Nifty points, ≈0.6-0.8% of spot), skip the
+  strategy for the rest of the day. A huge first-hour move usually means the rest of the day chops and stops out
+  breakout attempts. This hub checks the range as a % of price (default skip threshold 0.7%, adjustable above) so it
+  applies the same idea to any instrument.
+- **Fake breakouts** — a break that doesn't CLOSE beyond the range is never treated as a confirmation, by construction.
+
+**One trade per session** — whichever side (long or short) triggers first wins; the other side is ignored for the rest
+of the day. Session boundaries (first-hour window, execution close) reuse this app's per-asset-class session profile
+(India 09:15 IST, US 09:30 ET, Crypto 17:30 IST, Commodity 09:30 ET) — the same "first hour of the day" idea applied
+correctly to each market's own open.
 """,
     ),
     _section(

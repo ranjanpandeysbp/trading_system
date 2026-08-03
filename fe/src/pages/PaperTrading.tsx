@@ -247,6 +247,11 @@ export default function PaperTrading() {
             trend={account.total_pnl >= 0 ? 'up' : 'down'}
           />
           <StatCard label="Positions" value={account.positions.length} />
+          <StatCard
+            label="Win Rate"
+            value={account.win_rate_pct != null ? `${account.win_rate_pct}% (${account.wins}W / ${account.losses}L)` : 'No closed trades yet'}
+            trend={account.win_rate_pct == null ? 'neutral' : account.win_rate_pct >= 50 ? 'up' : 'down'}
+          />
         </div>
       )}
 
@@ -542,6 +547,7 @@ export default function PaperTrading() {
                 <Th>Type</Th>
                 <SortableTh active={ordersSortKey === 'quantity'} direction={ordersSortDir} onSort={() => handleOrdersSort('quantity')}>Qty</SortableTh>
                 <SortableTh active={ordersSortKey === 'price'} direction={ordersSortDir} onSort={() => handleOrdersSort('price')}>Price</SortableTh>
+                <Th>P&L</Th>
                 <Th>Status</Th>
                 <SortableTh active={ordersSortKey === 'strategy'} direction={ordersSortDir} onSort={() => handleOrdersSort('strategy')}>Strategy</SortableTh>
                 <Th>Notes</Th>
@@ -565,6 +571,9 @@ export default function PaperTrading() {
                   <Td><OrderTypeBadge orderType={o.order_type} /></Td>
                   <Td>{o.quantity}</Td>
                   <Td className="tabular-nums">{currencySymbol(o.asset_class)}{o.filled_price ?? o.price}</Td>
+                  <Td className={`tabular-nums ${o.realized_pnl == null ? 'text-slate-600' : o.realized_pnl > 0 ? 'text-emerald-400' : o.realized_pnl < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                    {o.realized_pnl != null ? `${currencySymbol(o.asset_class)}${o.realized_pnl.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                  </Td>
                   <Td><StatusBadge status={o.status} /></Td>
                   <Td className="text-slate-500">{o.strategy ?? '—'}</Td>
                   <Td className="max-w-[200px] truncate text-slate-400">

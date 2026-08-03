@@ -734,7 +734,7 @@ export default function TradingHubs() {
               {saveMsg && <p className="mt-2 text-xs text-emerald-400">{saveMsg}</p>}
             </div>
           )}
-          <TradingHubResultsPanel data={ihResult} sectionId={sectionId} assetClass={fixedUniverse ? 'india' : assetClass} />
+          <TradingHubResultsPanel data={ihResult} sectionId={sectionId} assetClass={fixedUniverse ? 'india' : assetClass} config={config} />
         </Card>
       )}
     </div>

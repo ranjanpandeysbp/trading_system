@@ -146,6 +146,11 @@ export interface AccountSummary {
   }>
   recent_orders: Array<PaperOrderRow>
   pending_orders: Array<PaperOrderRow>
+  closed_trades: number
+  wins: number
+  losses: number
+  breakeven: number
+  win_rate_pct: number | null
 }
 
 export interface PaperOrderRow {
@@ -159,6 +164,7 @@ export interface PaperOrderRow {
   limit_price?: number | null
   trigger_price?: number | null
   filled_price?: number | null
+  realized_pnl?: number | null
   strategy?: string
   notes?: string | null
   created_at: string
@@ -936,6 +942,37 @@ export const fetchSupportResistanceChart = (payload: {
   include_supply_demand?: boolean
   include_order_blocks?: boolean
 }) => api.post<SRChartResponse>('/trading-hubs/support-resistance/chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export interface BramhastraLevel {
+  price: number
+  label: string
+  color?: string
+}
+
+export interface BramhastraChartResponse {
+  ticker: string
+  session_date: string
+  is_today: boolean
+  timeframe: string
+  chart_data: Array<{ time: string; open: number; high: number; low: number; close: number; volume: number | null }>
+  support_zone: [number, number] | null
+  resistance_zone: [number, number] | null
+  levels: BramhastraLevel[]
+  last_close: number
+  phase: string
+  direction: string | null
+  range_pct: number | null
+  observation_start: string
+  observation_end: string
+  session_close: string
+  tz: string
+}
+
+export const fetchBramhastraChart = (payload: {
+  ticker: string
+  asset_class: string
+  config?: Record<string, unknown>
+}) => api.post<BramhastraChartResponse>('/trading-hubs/bramhastra/chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runSwing5Scan = (payload: {
   tickers: string[]

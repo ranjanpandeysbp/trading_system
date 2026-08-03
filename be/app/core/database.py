@@ -55,6 +55,8 @@ def _migrate_schema(conn) -> None:
                 conn.execute(sa.text(f"ALTER TABLE paper_orders ADD COLUMN {col_name} {col_type}"))
         if "asset_class" not in cols:
             conn.execute(sa.text("ALTER TABLE paper_orders ADD COLUMN asset_class TEXT DEFAULT 'india'"))
+        if "realized_pnl" not in cols:
+            conn.execute(sa.text("ALTER TABLE paper_orders ADD COLUMN realized_pnl FLOAT"))
 
     if "paper_positions" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("paper_positions")}

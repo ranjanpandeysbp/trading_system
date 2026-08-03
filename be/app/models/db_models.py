@@ -79,6 +79,11 @@ class PaperOrder(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     asset_class: Mapped[str] = mapped_column(String(16), default="india")
+    # Set only on fills that REDUCE an existing position (a sell against a
+    # long, or a buy-to-cover against a short) — null for fills that open or
+    # add to a position, since there's no realized outcome yet. This is what
+    # win/win% is computed from.
+    realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class AlertMonitor(Base):

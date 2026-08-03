@@ -85,8 +85,12 @@ class PaperTradingService:
         tp_pct: float | None,
         notes: str | None = None,
         asset_class: str = "india",
-    ) -> int:
-        """Mutates cash balance + position for a fill. Returns actual filled quantity."""
+    ) -> tuple[int, float | None]:
+        """Mutates cash balance + position for a fill. Returns (actual filled
+        quantity, realized_pnl) — realized_pnl is None for fills that open or
+        add to a position, and the actual booked P&L for fills that reduce
+        one (a sell against a long, or a buy-to-cover against a short),
+        computed against the position's avg cost before it's mutated."""
         cost = price * quantity
         pos_result = await self.db.execute(
             select(PaperPosition).where(
@@ -97,6 +101,7 @@ class PaperTradingService:
         )
         position = pos_result.scalar_one_or_none()
         filled_qty = quantity
+        realized_pnl: float | None = None
 
         if side == "buy":
             if position and position.side == "short":
@@ -104,6 +109,7 @@ class PaperTradingService:
                     raise ValueError(
                         f"Buy quantity {quantity} exceeds short position of {position.quantity}"
                     )
+                realized_pnl = (position.avg_price - price) * quantity
                 account.cash_balance -= cost
                 position.quantity -= quantity
                 if position.quantity == 0:
@@ -116,8 +122,13 @@ class PaperTradingService:
                     total_qty = position.quantity + quantity
                     position.avg_price = (position.avg_price * position.quantity + price * quantity) / total_qty
                     position.quantity = total_qty
-                    position.sl_pct = sl_pct or position.sl_pct
-                    position.tp_pct = tp_pct or position.tp_pct
+                    # Averaging in never changes the position's existing SL/TP —
+                    # an unrelated add-on order (e.g. a Scanner one-click execute
+                    # on the same ticker) carrying its own strategy-suggested SL
+                    # must not silently attach a stop to a position the user
+                    # deliberately left unprotected, or override one they set
+                    # deliberately. Risk parameters only change via an explicit
+                    # position edit, not as a side effect of adding shares.
                     position.notes = self._merge_notes(position.notes, notes)
                 else:
                     self.db.add(
@@ -139,6 +150,7 @@ class PaperTradingService:
                 filled_qty = min(quantity, position.quantity)
                 if filled_qty == 0:
                     raise ValueError(f"No shares to sell for {ticker}")
+                realized_pnl = (price - position.avg_price) * filled_qty
                 account.cash_balance += price * filled_qty
                 position.quantity -= filled_qty
                 if position.quantity == 0:
@@ -165,7 +177,7 @@ class PaperTradingService:
                         asset_class=asset_class,
                     )
                 )
-        return filled_qty
+        return filled_qty, realized_pnl
 
     async def _check_pending_orders(self, account: PaperAccount) -> None:
         result = await self.db.execute(
@@ -191,7 +203,7 @@ class PaperTradingService:
                 continue
 
             try:
-                filled_qty = await self._apply_fill(
+                filled_qty, realized_pnl = await self._apply_fill(
                     account, o.ticker, o.side, o.quantity, fill_price,
                     strategy=o.strategy, sl_pct=o.sl_pct, tp_pct=o.tp_pct, notes=o.notes,
                     asset_class=o.asset_class,
@@ -205,6 +217,7 @@ class PaperTradingService:
             o.quantity = filled_qty
             o.filled_price = fill_price
             o.filled_at = datetime.utcnow()
+            o.realized_pnl = realized_pnl
         await self.db.commit()
 
     async def _check_position_stops(self, account: PaperAccount) -> None:
@@ -236,7 +249,7 @@ class PaperTradingService:
             close_side = "sell" if p.side == "long" else "buy"
             qty = p.quantity
             strategy = p.strategy
-            await self._apply_fill(
+            _, realized_pnl = await self._apply_fill(
                 account, p.ticker, close_side, qty, price,
                 strategy=strategy, sl_pct=None, tp_pct=None, asset_class=p.asset_class,
             )
@@ -254,6 +267,7 @@ class PaperTradingService:
                     filled_price=price,
                     filled_at=datetime.utcnow(),
                     asset_class=p.asset_class,
+                    realized_pnl=realized_pnl,
                 )
             )
         await self.db.commit()
@@ -310,6 +324,18 @@ class PaperTradingService:
         total_pnl = portfolio_value - account.initial_capital
         total_pnl_pct = (total_pnl / account.initial_capital * 100) if account.initial_capital else 0
 
+        closed_result = await self.db.execute(
+            select(PaperOrder.realized_pnl).where(
+                PaperOrder.account_id == account.id, PaperOrder.realized_pnl.isnot(None),
+            )
+        )
+        closed_pnls = [v for (v,) in closed_result.all()]
+        closed_trades = len(closed_pnls)
+        wins = sum(1 for v in closed_pnls if v > 0)
+        losses = sum(1 for v in closed_pnls if v < 0)
+        breakeven = closed_trades - wins - losses
+        win_rate_pct = round(wins / closed_trades * 100, 2) if closed_trades else None
+
         def _order_row(o: PaperOrder) -> dict:
             return {
                 "id": o.id,
@@ -322,6 +348,7 @@ class PaperTradingService:
                 "limit_price": o.limit_price,
                 "trigger_price": o.trigger_price,
                 "filled_price": round(o.filled_price, 2) if o.filled_price is not None else None,
+                "realized_pnl": round(o.realized_pnl, 2) if o.realized_pnl is not None else None,
                 "strategy": o.strategy,
                 "notes": o.notes,
                 "created_at": o.created_at.isoformat(),
@@ -341,6 +368,11 @@ class PaperTradingService:
             "positions": position_rows,
             "recent_orders": [_order_row(o) for o in orders],
             "pending_orders": [_order_row(o) for o in pending_orders],
+            "closed_trades": closed_trades,
+            "wins": wins,
+            "losses": losses,
+            "breakeven": breakeven,
+            "win_rate_pct": win_rate_pct,
         }
 
     async def place_order(self, req: PlaceOrderRequest) -> dict:
@@ -352,7 +384,7 @@ class PaperTradingService:
             price = req.price
             if price is None:
                 price = await self._get_market_price(ticker, asset_class)
-            filled_qty = await self._apply_fill(
+            filled_qty, realized_pnl = await self._apply_fill(
                 account, ticker, req.side, req.quantity, price,
                 strategy=req.strategy, sl_pct=req.sl_pct, tp_pct=req.tp_pct, notes=req.notes,
                 asset_class=asset_class,
@@ -372,6 +404,7 @@ class PaperTradingService:
                 filled_price=price,
                 filled_at=datetime.utcnow(),
                 asset_class=asset_class,
+                realized_pnl=realized_pnl,
             )
             self.db.add(order)
             await self.db.commit()
@@ -493,7 +526,7 @@ class PaperTradingService:
             ticker = p.ticker
             asset_class = p.asset_class
             strategy = p.strategy
-            await self._apply_fill(
+            _, realized_pnl = await self._apply_fill(
                 account, ticker, close_side, qty, price,
                 strategy=strategy, sl_pct=None, tp_pct=None, asset_class=asset_class,
             )
@@ -511,9 +544,13 @@ class PaperTradingService:
                     filled_price=price,
                     filled_at=datetime.utcnow(),
                     asset_class=asset_class,
+                    realized_pnl=realized_pnl,
                 )
             )
-            closed.append({"position_id": p.id, "ticker": ticker, "close_price": round(price, 2)})
+            closed.append({
+                "position_id": p.id, "ticker": ticker, "close_price": round(price, 2),
+                "realized_pnl": round(realized_pnl, 2) if realized_pnl is not None else None,
+            })
         await self.db.commit()
         return {"ok": True, "closed": closed, "not_found": missing}
 

@@ -506,6 +506,12 @@ class SupportResistanceChartRequest(BaseModel):
     include_order_blocks: bool = False
 
 
+class BramhastraChartRequest(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    config: dict[str, Any] | None = None
+
+
 class Swing5ScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     timeframes: list[str] = Field(default_factory=lambda: ["1d"])

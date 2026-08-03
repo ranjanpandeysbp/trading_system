@@ -17,6 +17,7 @@ export type SRFibonacci = {
   at_key_level: boolean
 }
 export type SRZone = { top: number; bottom: number; type: 'demand' | 'supply' | 'bullish' | 'bearish'; origin_time: string; mitigated: boolean }
+export type SRLevel = { price: number; label: string; color?: string }
 type Bar_ = SRChartBar
 type Trendline = SRTrendline
 
@@ -88,7 +89,7 @@ function CandlestickShape(props: any) {
 
 export function SupportResistanceChart({
   chartData, supportZone, resistanceZone, trendlines, lastClose, emas = {}, rsi, chartType = 'candles', fibonacci = null,
-  supplyDemandZones = [], orderBlocks = [],
+  supplyDemandZones = [], orderBlocks = [], levels = [],
 }: {
   chartData: Bar_[]
   supportZone: [number, number] | null
@@ -101,6 +102,8 @@ export function SupportResistanceChart({
   fibonacci?: SRFibonacci | null
   supplyDemandZones?: SRZone[]
   orderBlocks?: SRZone[]
+  /** Extra labeled reference lines (e.g. entry/SL/TP) — generic, any strategy can pass these. */
+  levels?: SRLevel[]
 }) {
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
@@ -174,9 +177,10 @@ export function SupportResistanceChart({
   const emaValues = emaPeriods.flatMap((p) => (emas[p] || []).filter((pt) => pt.time >= (viewStart ?? '') && pt.time <= (viewEnd ?? '')).map((pt) => pt.value))
   const fibValues = fibonacci ? fibonacci.levels.map((lv) => lv.price) : []
   const zoneValues = [...supplyDemandZones, ...orderBlocks].flatMap((z) => [z.top, z.bottom])
+  const levelValues = levels.map((lv) => lv.price)
   const padding = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) - padding
-  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) + padding
+  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) - padding
+  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) + padding
 
   const hasVolume = chartData.some((b) => b.volume != null)
   const hasRsi = Boolean(rsi && rsi.length)
@@ -300,6 +304,18 @@ export function SupportResistanceChart({
                 label={{ value: `Now ${fmtNum(lastClose)}`, position: 'insideTopRight', fill: '#e2e8f0', fontSize: 11 }}
               />
             )}
+
+            {levels.map((lv, i) => (
+              <ReferenceLine
+                key={`level-${i}-${lv.price}`}
+                y={lv.price}
+                stroke={lv.color ?? '#facc15'}
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                label={{ value: lv.label, position: 'insideBottomRight', fill: lv.color ?? '#facc15', fontSize: 11 }}
+                ifOverflow="extendDomain"
+              />
+            ))}
 
             {emaPeriods.map((period) => (
               <Line

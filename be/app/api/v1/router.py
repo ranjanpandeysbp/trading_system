@@ -79,6 +79,7 @@ from app.models.schemas import (
     OptionsDoubleCalendarRequest,
     OptionsGokulChhabraRequest,
     OptionsMarketPredictionRequest,
+    BramhastraChartRequest,
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
@@ -3041,6 +3042,39 @@ async def support_resistance_chart(
         include_fibonacci=payload.include_fibonacci,
         include_supply_demand=payload.include_supply_demand,
         include_order_blocks=payload.include_order_blocks,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/trading-hubs/bramhastra/chart")
+async def bramhastra_chart(
+    payload: BramhastraChartRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    import asyncio
+
+    from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG
+    from app.trading_hubs.intraday_bramhastra_engine import BramhastraConfig, build_chart_payload
+    from app.trading_hubs.registry import build_config
+
+    settings = SettingsService(db)
+    cfg_data = ASSET_CLASS_CONFIG.get(payload.asset_class) or ASSET_CLASS_CONFIG["india"]
+    market = str(cfg_data["market"])
+    if payload.asset_class == "india":
+        groww_token = await settings.get_groww_token() or ""
+        exchange = await settings.get_groww_exchange()
+    else:
+        groww_token = ""
+        exchange = str(cfg_data.get("exchange") or "NSE")
+
+    cfg = build_config(BramhastraConfig, {**(payload.config or {}), "asset_class": payload.asset_class})
+    result = await asyncio.to_thread(
+        build_chart_payload,
+        payload.ticker, market, cfg,
+        groww_token=groww_token, exchange=exchange,
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
