@@ -7,16 +7,16 @@ export function Label({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{children}</label>
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={fieldClass} {...props} />
+export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`${fieldClass} ${className}`} {...props} />
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={fieldClass} {...props} />
+export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select className={`${fieldClass} ${className}`} {...props} />
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={`${fieldClass} min-h-[88px] resize-y`} {...props} />
+export function Textarea({ className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={`${fieldClass} min-h-[88px] resize-y ${className}`} {...props} />
 }
 
 export function FormField({ label, children }: { label: string; children: React.ReactNode }) {

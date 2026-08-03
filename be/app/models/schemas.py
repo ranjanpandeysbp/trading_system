@@ -541,6 +541,17 @@ class AutoTradeSetupUpdateRequest(BaseModel):
     top_n: int | None = Field(default=None, ge=1, le=20)
 
 
+class TodoCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    notes: str | None = None
+
+
+class TodoUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    notes: str | None = None
+    status: Literal["pending", "done"] | None = None
+
+
 class MarketPulseCommodityRequest(BaseModel):
     timeframes: list[str] | None = None
 

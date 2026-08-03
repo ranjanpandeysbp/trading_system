@@ -59,6 +59,8 @@ from app.models.schemas import (
     CommandCenterTradeSetupDrillRequest,
     DetectSectorRotationRequest,
     CommandCenterTradeSetupRequest,
+    TodoCreateRequest,
+    TodoUpdateRequest,
     WatchlistCreate,
     WatchlistItemCreate,
     MarketPulseTickerInvestigationRequest,
@@ -2848,6 +2850,70 @@ async def suggestions_list(
     service = SuggestionEngineService(SettingsService(db), db)
     suggestions = await service.list_suggestions(current_user.id, setup_id=setup_id, asset_class=asset_class, style=style)
     return {"suggestions": suggestions}
+
+
+@router.get("/todos")
+async def todos_list(
+    search: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.todo_service import TodoService
+
+    service = TodoService(db)
+    try:
+        todos = await service.list_todos(current_user.id, search=search, status=status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"todos": todos}
+
+
+@router.post("/todos")
+async def todos_create(
+    payload: TodoCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.todo_service import TodoService
+
+    service = TodoService(db)
+    try:
+        return await service.create_todo(current_user.id, title=payload.title, notes=payload.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/todos/{todo_id}")
+async def todos_update(
+    todo_id: int,
+    payload: TodoUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.todo_service import TodoService
+
+    service = TodoService(db)
+    fields = payload.model_dump(exclude_unset=True)
+    try:
+        return await service.update_todo(current_user.id, todo_id, **fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/todos/{todo_id}")
+async def todos_delete(
+    todo_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.todo_service import TodoService
+
+    service = TodoService(db)
+    deleted = await service.delete_todo(current_user.id, todo_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return {"deleted": True}
 
 
 @router.get("/options/sections")

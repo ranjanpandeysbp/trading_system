@@ -7,6 +7,7 @@ import YoutubeAnalysis from './pages/YoutubeAnalysis'
 import InvestingAgent from './pages/InvestingAgent'
 import Alerts from './pages/Alerts'
 import WatchlistPage from './pages/Watchlist'
+import TodosPage from './pages/Todos'
 import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import Scanner from './pages/Scanner'
@@ -89,6 +90,7 @@ export default function App() {
                 <Route path="/investing-agent" element={<InvestingAgent />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
+                <Route path="/todos" element={<TodosPage />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
                 <Route path="/trade-candidate" element={<Navigate to="/trade-candidate/configure" replace />} />
                 <Route path="/trade-candidate/:tab" element={<TradeCandidate />} />

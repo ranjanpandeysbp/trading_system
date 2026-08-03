@@ -1093,6 +1093,30 @@ export const addWatchlistItem = (
 export const removeWatchlistItem = (watchlistId: number, itemId: number) =>
   api.delete(`/watchlists/${watchlistId}/items/${itemId}`).then((r) => r.data)
 
+// Todos
+export type TodoStatus = 'pending' | 'done'
+
+export interface Todo {
+  id: number
+  title: string
+  notes: string | null
+  status: TodoStatus
+  created_at: string
+  updated_at: string
+}
+
+export const fetchTodos = (params?: { search?: string; status?: TodoStatus }) =>
+  api.get<{ todos: Todo[] }>('/todos', { params }).then((r) => r.data)
+
+export const createTodo = (payload: { title: string; notes?: string }) =>
+  api.post<Todo>('/todos', payload).then((r) => r.data)
+
+export const updateTodo = (id: number, payload: { title?: string; notes?: string; status?: TodoStatus }) =>
+  api.patch<Todo>(`/todos/${id}`, payload).then((r) => r.data)
+
+export const deleteTodo = (id: number) =>
+  api.delete(`/todos/${id}`).then((r) => r.data)
+
 // Command Center — standalone tools
 export const fetchGlobalMarketMood = () =>
   api.get('/command-center/global-market-mood', { timeout: MP_TIMEOUT }).then((r) => r.data)

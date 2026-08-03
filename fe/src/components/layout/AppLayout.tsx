@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -54,6 +54,7 @@ const nav: NavEntry[] = [
   { to: '/investing-agent', label: 'Investing Agent', shortLabel: 'Agent', icon: Bot },
   { to: '/alerts', label: 'Alerts', shortLabel: 'Alerts', icon: Bell },
   { to: '/watchlist', label: 'Watchlist', shortLabel: 'Watch', icon: Eye },
+  { to: '/todos', label: 'Todos', shortLabel: 'Todos', icon: ListTodo },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },
