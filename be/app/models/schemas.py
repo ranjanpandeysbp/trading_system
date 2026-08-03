@@ -528,7 +528,7 @@ class AutoTradeSetupCreateRequest(BaseModel):
     asset_class: Literal["india", "us", "crypto", "commodity"]
     style: Literal["scalping", "intraday", "swing", "investing"]
     direction: Literal["both", "long_only", "short_only"] = "both"
-    interval_minutes: int = Field(default=360, ge=15, le=1440)
+    interval_minutes: int = Field(default=360, ge=1, le=1440)
     universe_cap: int = Field(default=20, ge=5, le=50)
     top_n: int = Field(default=8, ge=1, le=20)
 
@@ -536,7 +536,7 @@ class AutoTradeSetupCreateRequest(BaseModel):
 class AutoTradeSetupUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     direction: Literal["both", "long_only", "short_only"] | None = None
-    interval_minutes: int | None = Field(default=None, ge=15, le=1440)
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     universe_cap: int | None = Field(default=None, ge=5, le=50)
     top_n: int | None = Field(default=None, ge=1, le=20)
 

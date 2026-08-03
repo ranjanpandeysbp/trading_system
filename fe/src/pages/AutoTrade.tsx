@@ -59,6 +59,10 @@ const DIRECTION_LABEL: Record<AutoTradeDirection, string> = Object.fromEntries(
 ) as Record<AutoTradeDirection, string>
 
 const INTERVAL_PRESETS = [
+  { label: '1m', minutes: 1 },
+  { label: '3m', minutes: 3 },
+  { label: '5m', minutes: 5 },
+  { label: '10m', minutes: 10 },
   { label: '15m', minutes: 15 },
   { label: '30m', minutes: 30 },
   { label: '1h', minutes: 60 },
@@ -277,7 +281,7 @@ function CreateSetupModal({ onClose, onCreated }: { onClose: () => void; onCreat
         </FormField>
 
         <FormField label="Run every (minutes)">
-          <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
+          <Input type="number" min={1} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {INTERVAL_PRESETS.map((p) => (
               <button
@@ -351,7 +355,7 @@ function EditSetupModal({ setup, onClose, onSaved }: { setup: AutoTradeSetup; on
         </FormField>
 
         <FormField label="Run every (minutes)">
-          <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
+          <Input type="number" min={1} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {INTERVAL_PRESETS.map((p) => (
               <button

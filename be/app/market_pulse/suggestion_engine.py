@@ -34,7 +34,7 @@ ASSET_CLASSES = ("india", "us", "crypto", "commodity")
 STYLES = ("scalping", "intraday", "swing", "investing")
 
 _TIMEFRAME_BY_STYLE: dict[str, str] = {
-    "scalping": "3m", "intraday": "15m", "swing": "1d", "investing": "1d",
+    "scalping": "1m", "intraday": "15m", "swing": "1d", "investing": "1d",
 }
 
 # Base rule strategies (asset-agnostic OHLCV, run live via ScannerService).
