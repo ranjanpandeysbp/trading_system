@@ -77,7 +77,7 @@ export function PlaceTradeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <Card className="w-full max-w-md">
+      <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold text-white">Place paper trade — {ticker}</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">

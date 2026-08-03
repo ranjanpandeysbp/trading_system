@@ -244,7 +244,7 @@ function CreateSetupModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
-      <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-white">New Auto Trade setup</h3>
@@ -327,7 +327,7 @@ function EditSetupModal({ setup, onClose, onSaved }: { setup: AutoTradeSetup; on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
-      <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-white">Edit setup</h3>
