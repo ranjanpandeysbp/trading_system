@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Loader2, X } from 'lucide-react'
 import { apiErrorMessage, fetchPaperPrice, placeOrder, type PlaceOrderPayload } from '../../api/client'
 import { Card } from '../ui/Card'
+import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { FormField, Input, Select, Textarea } from '../ui/Form'
@@ -76,8 +77,8 @@ export function PlaceTradeModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto">
+    <Modal onClose={onClose}>
+      <Card>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold text-white">Place paper trade — {ticker}</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
@@ -165,6 +166,6 @@ export function PlaceTradeModal({
           </div>
         )}
       </Card>
-    </div>
+    </Modal>
   )
 }

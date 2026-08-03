@@ -19,6 +19,7 @@ import {
 } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
+import { Modal } from '../components/ui/Modal'
 import { Button } from '../components/ui/Button'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
@@ -243,68 +244,66 @@ function CreateSetupModal({ onClose, onCreated }: { onClose: () => void; onCreat
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold text-white">New Auto Trade setup</h3>
-            <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
-              <X size={18} />
-            </button>
-          </div>
+    <Modal onClose={onClose}>
+      <Card>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-semibold text-white">New Auto Trade setup</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
 
-          <FormField label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${ASSET_CLASS_LABEL[assetClass]} ${STYLE_LABEL[style]}`} autoFocus />
-          </FormField>
+        <FormField label="Name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${ASSET_CLASS_LABEL[assetClass]} ${STYLE_LABEL[style]}`} autoFocus />
+        </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Asset class">
-              <Select value={assetClass} onChange={(e) => setAssetClass(e.target.value as AutoTradeAssetClass)}>
-                {ASSET_CLASSES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-              </Select>
-            </FormField>
-            <FormField label="Style">
-              <Select value={style} onChange={(e) => setStyle(e.target.value as AutoTradeStyle)}>
-                {STYLES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
-              </Select>
-            </FormField>
-          </div>
-
-          <FormField label="Trade direction">
-            <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
-              {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Asset class">
+            <Select value={assetClass} onChange={(e) => setAssetClass(e.target.value as AutoTradeAssetClass)}>
+              {ASSET_CLASSES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
             </Select>
           </FormField>
-
-          <FormField label="Run every (minutes)">
-            <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {INTERVAL_PRESETS.map((p) => (
-                <button
-                  key={p.minutes}
-                  type="button"
-                  onClick={() => setIntervalMinutes(p.minutes)}
-                  className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                    interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+          <FormField label="Style">
+            <Select value={style} onChange={(e) => setStyle(e.target.value as AutoTradeStyle)}>
+              {STYLES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
+            </Select>
           </FormField>
+        </div>
 
-          {error && <Alert type="error">{error}</Alert>}
+        <FormField label="Trade direction">
+          <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
+            {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </Select>
+        </FormField>
 
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Creating…' : 'Create setup'}
-            </Button>
+        <FormField label="Run every (minutes)">
+          <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {INTERVAL_PRESETS.map((p) => (
+              <button
+                key={p.minutes}
+                type="button"
+                onClick={() => setIntervalMinutes(p.minutes)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                  interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
-        </Card>
-      </div>
-    </div>
+        </FormField>
+
+        {error && <Alert type="error">{error}</Alert>}
+
+        <div className="mt-3 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating…' : 'Create setup'}
+          </Button>
+        </div>
+      </Card>
+    </Modal>
   )
 }
 
@@ -326,61 +325,59 @@ function EditSetupModal({ setup, onClose, onSaved }: { setup: AutoTradeSetup; on
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold text-white">Edit setup</h3>
-            <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
-              <X size={18} />
-            </button>
+    <Modal onClose={onClose}>
+      <Card>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-semibold text-white">Edit setup</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+
+        <FormField label="Name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </FormField>
+
+        <div className="mb-4 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+          <span className="rounded-full border border-slate-700 px-2 py-0.5">{ASSET_CLASS_LABEL[setup.asset_class]}</span>
+          <span className="rounded-full border border-slate-700 px-2 py-0.5">{STYLE_LABEL[setup.style]}</span>
+          <span className="italic">market and style can't be changed — create a new setup for a different combination</span>
+        </div>
+
+        <FormField label="Trade direction">
+          <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
+            {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </Select>
+        </FormField>
+
+        <FormField label="Run every (minutes)">
+          <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {INTERVAL_PRESETS.map((p) => (
+              <button
+                key={p.minutes}
+                type="button"
+                onClick={() => setIntervalMinutes(p.minutes)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                  interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
+        </FormField>
 
-          <FormField label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </FormField>
+        {error && <Alert type="error">{error}</Alert>}
 
-          <div className="mb-4 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
-            <span className="rounded-full border border-slate-700 px-2 py-0.5">{ASSET_CLASS_LABEL[setup.asset_class]}</span>
-            <span className="rounded-full border border-slate-700 px-2 py-0.5">{STYLE_LABEL[setup.style]}</span>
-            <span className="italic">market and style can't be changed — create a new setup for a different combination</span>
-          </div>
-
-          <FormField label="Trade direction">
-            <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
-              {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </Select>
-          </FormField>
-
-          <FormField label="Run every (minutes)">
-            <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {INTERVAL_PRESETS.map((p) => (
-                <button
-                  key={p.minutes}
-                  type="button"
-                  onClick={() => setIntervalMinutes(p.minutes)}
-                  className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                    interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </FormField>
-
-          {error && <Alert type="error">{error}</Alert>}
-
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={!name.trim() || saveMutation.isPending}>
-              {saveMutation.isPending ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
-        </Card>
-      </div>
-    </div>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={!name.trim() || saveMutation.isPending}>
+            {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
+      </Card>
+    </Modal>
   )
 }
 
