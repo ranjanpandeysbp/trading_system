@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Play, Plus, RefreshCw, Square, Trash2, X, Zap } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, Play, Plus, RefreshCw, Square, Trash2, X, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   createAutoTradeSetup,
@@ -10,6 +10,7 @@ import {
   runAutoTradeSetupNow,
   startAutoTradeSetup,
   stopAutoTradeSetup,
+  updateAutoTradeSetup,
   type AutoTradeAssetClass,
   type AutoTradeDirection,
   type AutoTradeSetup,
@@ -307,9 +308,86 @@ function CreateSetupModal({ onClose, onCreated }: { onClose: () => void; onCreat
   )
 }
 
+function EditSetupModal({ setup, onClose, onSaved }: { setup: AutoTradeSetup; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(setup.name)
+  const [direction, setDirection] = useState<AutoTradeDirection>(setup.direction)
+  const [interval, setIntervalMinutes] = useState(setup.interval_minutes)
+  const [error, setError] = useState('')
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      updateAutoTradeSetup(setup.id, {
+        name: name.trim() || setup.name,
+        direction,
+        interval_minutes: interval,
+      }),
+    onSuccess: () => onSaved(),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
+      <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold text-white">Edit setup</h3>
+            <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+              <X size={18} />
+            </button>
+          </div>
+
+          <FormField label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </FormField>
+
+          <div className="mb-4 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+            <span className="rounded-full border border-slate-700 px-2 py-0.5">{ASSET_CLASS_LABEL[setup.asset_class]}</span>
+            <span className="rounded-full border border-slate-700 px-2 py-0.5">{STYLE_LABEL[setup.style]}</span>
+            <span className="italic">market and style can't be changed — create a new setup for a different combination</span>
+          </div>
+
+          <FormField label="Trade direction">
+            <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
+              {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </Select>
+          </FormField>
+
+          <FormField label="Run every (minutes)">
+            <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {INTERVAL_PRESETS.map((p) => (
+                <button
+                  key={p.minutes}
+                  type="button"
+                  onClick={() => setIntervalMinutes(p.minutes)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                    interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </FormField>
+
+          {error && <Alert type="error">{error}</Alert>}
+
+          <div className="mt-3 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button onClick={() => saveMutation.mutate()} disabled={!name.trim() || saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function SetupCard({ setup, active, onSelect }: { setup: AutoTradeSetup; active: boolean; onSelect: () => void }) {
   const qc = useQueryClient()
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState(false)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['auto-trade-setups'] })
   const startMutation = useMutation({ mutationFn: () => startAutoTradeSetup(setup.id), onSuccess: invalidate, onError: (e) => setError(apiErrorMessage(e)) })
@@ -325,6 +403,7 @@ function SetupCard({ setup, active, onSelect }: { setup: AutoTradeSetup; active:
   })
 
   return (
+    <>
     <div className={`rounded-xl border p-3 transition ${active ? 'border-teal-400 bg-teal-500/10' : 'border-slate-800/60 bg-slate-900/40 hover:border-slate-700'}`}>
       <button type="button" onClick={onSelect} className="w-full text-left">
         <div className="flex items-center justify-between gap-2">
@@ -362,6 +441,9 @@ function SetupCard({ setup, active, onSelect }: { setup: AutoTradeSetup; active:
         <Button size="sm" variant="ghost" onClick={() => runNowMutation.mutate()} disabled={runNowMutation.isPending}>
           <RefreshCw size={12} className={runNowMutation.isPending ? 'animate-spin' : ''} /> Run now
         </Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+          <Pencil size={12} /> Edit
+        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -377,6 +459,18 @@ function SetupCard({ setup, active, onSelect }: { setup: AutoTradeSetup; active:
       </div>
       {error && <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>}
     </div>
+
+    {editing && (
+      <EditSetupModal
+        setup={setup}
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false)
+          invalidate()
+        }}
+      />
+    )}
+    </>
   )
 }
 
