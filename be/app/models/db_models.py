@@ -351,14 +351,20 @@ class TradeCandidateHit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class SuggestionEngineSchedule(Base):
-    """Auto Trade — per-user automation settings for the suggestion engine
-    sweep (interval, enabled, and the last/next run bookkeeping the UI shows).
-    """
-    __tablename__ = "suggestion_engine_schedules"
+class AutoTradeSetup(Base):
+    """Auto Trade — one named, independently-scheduled suggestion-engine
+    setup. A user can create many of these, each scanning a single
+    (asset_class, style) bucket on its own interval — e.g. "Crypto Scalping"
+    every 30 minutes and "India Swing" every 6 hours, run and managed
+    separately (start/stop/delete)."""
+    __tablename__ = "auto_trade_setups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True, unique=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    asset_class: Mapped[str] = mapped_column(String(16))  # india | us | crypto | commodity
+    style: Mapped[str] = mapped_column(String(16))  # scalping | intraday | swing | investing
+    direction: Mapped[str] = mapped_column(String(16), default="both")  # both | long_only | short_only
     enabled: Mapped[bool] = mapped_column(default=False)
     interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
     universe_cap: Mapped[int] = mapped_column(Integer, default=20)
@@ -371,12 +377,13 @@ class SuggestionEngineSchedule(Base):
 
 
 class TradeSuggestion(Base):
-    """One Auto Trade suggestion — a single ranked row from a sweep batch for
-    one (asset_class, style) bucket."""
+    """One Auto Trade suggestion — a single ranked row from a sweep batch,
+    owned by one AutoTradeSetup."""
     __tablename__ = "trade_suggestions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, index=True)
+    setup_id: Mapped[int] = mapped_column(Integer, index=True)
     batch_id: Mapped[str] = mapped_column(String(40), index=True)
     asset_class: Mapped[str] = mapped_column(String(16), index=True)
     style: Mapped[str] = mapped_column(String(16), index=True)

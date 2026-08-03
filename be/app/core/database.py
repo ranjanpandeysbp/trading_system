@@ -76,3 +76,13 @@ def _migrate_schema(conn) -> None:
                     "ALTER TABLE saved_backtest_reports ADD COLUMN source TEXT DEFAULT 'strategy_leaderboard'"
                 )
             )
+
+    if "trade_suggestions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("trade_suggestions")}
+        if "setup_id" not in cols:
+            conn.execute(sa.text("ALTER TABLE trade_suggestions ADD COLUMN setup_id INTEGER DEFAULT 0"))
+
+    if "auto_trade_setups" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("auto_trade_setups")}
+        if "direction" not in cols:
+            conn.execute(sa.text("ALTER TABLE auto_trade_setups ADD COLUMN direction TEXT DEFAULT 'both'"))

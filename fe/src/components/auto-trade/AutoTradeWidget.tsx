@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Radar } from 'lucide-react'
-import { fetchAutoTradeSchedule, fetchAutoTradeSuggestions } from '../../api/client'
+import { fetchAutoTradeSetups, fetchAutoTradeSuggestions } from '../../api/client'
 import { Card } from '../ui/Card'
 
 function actionColor(action: string): string {
@@ -12,8 +12,12 @@ function actionColor(action: string): string {
 }
 
 export function AutoTradeWidget({ limit = 5 }: { limit?: number }) {
-  const scheduleQuery = useQuery({ queryKey: ['auto-trade-schedule'], queryFn: fetchAutoTradeSchedule })
+  const setupsQuery = useQuery({ queryKey: ['auto-trade-setups'], queryFn: fetchAutoTradeSetups })
   const suggestionsQuery = useQuery({ queryKey: ['auto-trade-suggestions'], queryFn: () => fetchAutoTradeSuggestions() })
+
+  const setups = setupsQuery.data?.setups ?? []
+  const runningCount = setups.filter((s) => s.enabled).length
+  const everRun = setups.some((s) => s.last_run_at)
 
   const top = useMemo(
     () =>
@@ -23,8 +27,6 @@ export function AutoTradeWidget({ limit = 5 }: { limit?: number }) {
         .slice(0, limit),
     [suggestionsQuery.data, limit],
   )
-
-  const schedule = scheduleQuery.data
 
   return (
     <Card className="mb-4">
@@ -37,12 +39,16 @@ export function AutoTradeWidget({ limit = 5 }: { limit?: number }) {
         </Link>
       </div>
 
-      {!schedule?.last_run_at ? (
+      {setups.length === 0 ? (
         <p className="text-sm text-slate-500">
-          Not run yet — open Auto Trade to start automated scanning across India, US, Crypto and Commodities.
+          No setups yet — open Auto Trade to create one for any market + trading style you want scanned automatically.
+        </p>
+      ) : !everRun ? (
+        <p className="text-sm text-slate-500">
+          {setups.length} setup{setups.length === 1 ? '' : 's'} created, none run yet — start one or click "Run now" in Auto Trade.
         </p>
       ) : top.length === 0 ? (
-        <p className="text-sm text-slate-500">Last sweep found no actionable BUY/SELL ideas — everything is a WAIT right now.</p>
+        <p className="text-sm text-slate-500">Latest sweeps found no actionable BUY/SELL ideas — everything is a WAIT right now.</p>
       ) : (
         <div className="space-y-1.5">
           {top.map((s) => (
@@ -56,9 +62,9 @@ export function AutoTradeWidget({ limit = 5 }: { limit?: number }) {
         </div>
       )}
 
-      {schedule?.enabled && (
+      {setups.length > 0 && (
         <p className="mt-2 text-[11px] text-slate-600">
-          Automation running every {schedule.interval_minutes}m — {schedule.last_status || 'awaiting first run'}
+          {runningCount} of {setups.length} setup{setups.length === 1 ? '' : 's'} running
         </p>
       )}
     </Card>

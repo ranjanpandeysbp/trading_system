@@ -978,7 +978,16 @@ export const closeEtfShopLot = (lotId: number, payload: { sale_price: number; sa
 export const runEtfShopDaily = () =>
   api.post('/etf-ta/stf-shop/daily', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export interface AutoTradeSchedule {
+export type AutoTradeAssetClass = 'india' | 'us' | 'crypto' | 'commodity'
+export type AutoTradeStyle = 'scalping' | 'intraday' | 'swing' | 'investing'
+export type AutoTradeDirection = 'both' | 'long_only' | 'short_only'
+
+export interface AutoTradeSetup {
+  id: number
+  name: string
+  asset_class: AutoTradeAssetClass
+  style: AutoTradeStyle
+  direction: AutoTradeDirection
   enabled: boolean
   interval_minutes: number
   universe_cap: number
@@ -990,9 +999,10 @@ export interface AutoTradeSchedule {
 
 export interface AutoTradeSuggestion {
   id: number
+  setup_id: number
   batch_id: string
-  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
-  style: 'scalping' | 'intraday' | 'swing' | 'investing'
+  asset_class: AutoTradeAssetClass
+  style: AutoTradeStyle
   ticker: string
   action: 'BUY' | 'SELL' | 'WAIT'
   confidence_pct: number
@@ -1008,22 +1018,37 @@ export interface AutoTradeSuggestion {
   created_at: string
 }
 
-export const fetchAutoTradeSchedule = () =>
-  api.get<AutoTradeSchedule>('/suggestions/schedule', { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const fetchAutoTradeSetups = () =>
+  api.get<{ setups: AutoTradeSetup[] }>('/suggestions/setups', { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const updateAutoTradeSchedule = (payload: { interval_minutes?: number; universe_cap?: number; top_n?: number }) =>
-  api.put<AutoTradeSchedule>('/suggestions/schedule', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const createAutoTradeSetup = (payload: {
+  name: string
+  asset_class: AutoTradeAssetClass
+  style: AutoTradeStyle
+  direction?: AutoTradeDirection
+  interval_minutes?: number
+  universe_cap?: number
+  top_n?: number
+}) => api.post<AutoTradeSetup>('/suggestions/setups', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const startAutoTradeSchedule = () =>
-  api.post<AutoTradeSchedule>('/suggestions/schedule/start', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const updateAutoTradeSetup = (
+  setupId: number,
+  payload: { name?: string; direction?: AutoTradeDirection; interval_minutes?: number; universe_cap?: number; top_n?: number },
+) => api.patch<AutoTradeSetup>(`/suggestions/setups/${setupId}`, payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const stopAutoTradeSchedule = () =>
-  api.post<AutoTradeSchedule>('/suggestions/schedule/stop', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const deleteAutoTradeSetup = (setupId: number) =>
+  api.delete(`/suggestions/setups/${setupId}`, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runAutoTradeNow = () =>
-  api.post('/suggestions/schedule/run-now', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const startAutoTradeSetup = (setupId: number) =>
+  api.post<AutoTradeSetup>(`/suggestions/setups/${setupId}/start`, {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const fetchAutoTradeSuggestions = (params?: { asset_class?: string; style?: string }) =>
+export const stopAutoTradeSetup = (setupId: number) =>
+  api.post<AutoTradeSetup>(`/suggestions/setups/${setupId}/stop`, {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runAutoTradeSetupNow = (setupId: number) =>
+  api.post(`/suggestions/setups/${setupId}/run-now`, {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchAutoTradeSuggestions = (params?: { setup_id?: number; asset_class?: string; style?: string }) =>
   api
     .get<{ suggestions: AutoTradeSuggestion[] }>('/suggestions', { params, timeout: MP_TIMEOUT })
     .then((r) => r.data)

@@ -1,39 +1,64 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Play, Square, RefreshCw, Zap } from 'lucide-react'
+import { ChevronDown, ChevronUp, Play, Plus, RefreshCw, Square, Trash2, X, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
-  fetchAutoTradeSchedule,
+  createAutoTradeSetup,
+  deleteAutoTradeSetup,
+  fetchAutoTradeSetups,
   fetchAutoTradeSuggestions,
-  runAutoTradeNow,
-  startAutoTradeSchedule,
-  stopAutoTradeSchedule,
-  updateAutoTradeSchedule,
+  runAutoTradeSetupNow,
+  startAutoTradeSetup,
+  stopAutoTradeSetup,
+  type AutoTradeAssetClass,
+  type AutoTradeDirection,
+  type AutoTradeSetup,
+  type AutoTradeStyle,
   type AutoTradeSuggestion,
 } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, Input } from '../components/ui/Form'
+import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { AddToWatchlistButton } from '../components/watchlist/AddToWatchlistButton'
 import { PlaceTradeModal } from '../components/backtester/PlaceTradeModal'
 
-const ASSET_CLASSES: Array<{ value: AutoTradeSuggestion['asset_class']; label: string }> = [
+const ASSET_CLASSES: Array<{ value: AutoTradeAssetClass; label: string }> = [
   { value: 'india', label: 'India' },
   { value: 'us', label: 'US' },
   { value: 'crypto', label: 'Crypto' },
   { value: 'commodity', label: 'Commodity' },
 ]
 
-const STYLES: Array<{ value: AutoTradeSuggestion['style']; label: string }> = [
+const STYLES: Array<{ value: AutoTradeStyle; label: string }> = [
   { value: 'scalping', label: 'Scalping' },
   { value: 'intraday', label: 'Intraday' },
   { value: 'swing', label: 'Swing' },
   { value: 'investing', label: 'Investing' },
 ]
 
+const ASSET_CLASS_LABEL: Record<AutoTradeAssetClass, string> = Object.fromEntries(
+  ASSET_CLASSES.map((a) => [a.value, a.label]),
+) as Record<AutoTradeAssetClass, string>
+
+const STYLE_LABEL: Record<AutoTradeStyle, string> = Object.fromEntries(
+  STYLES.map((s) => [s.value, s.label]),
+) as Record<AutoTradeStyle, string>
+
+const DIRECTIONS: Array<{ value: AutoTradeDirection; label: string }> = [
+  { value: 'both', label: 'Both — long & short' },
+  { value: 'long_only', label: 'Long only' },
+  { value: 'short_only', label: 'Short only' },
+]
+
+const DIRECTION_LABEL: Record<AutoTradeDirection, string> = Object.fromEntries(
+  DIRECTIONS.map((d) => [d.value, d.label]),
+) as Record<AutoTradeDirection, string>
+
 const INTERVAL_PRESETS = [
+  { label: '15m', minutes: 15 },
+  { label: '30m', minutes: 30 },
   { label: '1h', minutes: 60 },
   { label: '3h', minutes: 180 },
   { label: '6h', minutes: 360 },
@@ -152,9 +177,10 @@ function MethodologyPanel() {
       {open && (
         <div className="mt-3 space-y-3 text-sm text-slate-400">
           <p>
-            Every scheduled run scans a curated, liquid watchlist for each of 4 markets (India, US, Crypto, Commodity) across
-            4 trading styles (Scalping, Intraday, Swing, Investing) — 16 buckets in total. It doesn't try to cover every listed
-            ticker; an institutional desk works a watchlist, not the whole market.
+            Create one or more named setups, each scanning a curated, liquid watchlist for one market (India, US, Crypto, or
+            Commodity) and one trading style (Scalping, Intraday, Swing, or Investing) on its own schedule — e.g. "Crypto
+            Scalping" every 30 minutes and "India Swing" every 6 hours, run and managed independently. It doesn't try to cover
+            every listed ticker; an institutional desk works a watchlist, not the whole market.
           </p>
           <div>
             <p className="font-medium text-slate-300">1. Multiple independent engines vote, not just one indicator</p>
@@ -167,9 +193,9 @@ function MethodologyPanel() {
           <div>
             <p className="font-medium text-slate-300">2. Fundamentals & ownership flow (India)</p>
             <p>
-              For India, Swing and Investing suggestions also fold in screener.in fundamentals and FII/DII/promoter ownership
+              For India, Swing and Investing setups also fold in screener.in fundamentals and FII/DII/promoter ownership
               trend — agreement between the technical read and the fundamental picture boosts confidence; disagreement pulls it
-              down. This data isn't available for US/Crypto/Commodity yet, so those buckets are technical-only.
+              down. This data isn't available for US/Crypto/Commodity yet, so those setups are technical-only.
             </p>
           </div>
           <div>
@@ -178,7 +204,7 @@ function MethodologyPanel() {
               <li><strong className="text-slate-300">Reward-for-risk floor</strong> — a technically-agreeing setup with poor risk/reward for its style is downgraded to WAIT rather than acted on.</li>
               <li><strong className="text-slate-300">Volatility-sane stops</strong> — a proposed stop that's too tight or too wide for the instrument's real ATR is re-derived from actual volatility instead of trusted blindly.</li>
               <li><strong className="text-slate-300">Momentum-exhaustion guard</strong> — an already-extended move (RSI-overbought long / RSI-oversold short) gets flagged as chase risk rather than presented as clean.</li>
-              <li><strong className="text-slate-300">Liquidity floor</strong> — abnormally thin volume skips a ticker for the fast-timeframe buckets, where slippage matters most.</li>
+              <li><strong className="text-slate-300">Liquidity floor</strong> — abnormally thin volume skips a ticker for the fast-timeframe setups, where slippage matters most.</li>
               <li><strong className="text-slate-300">A/B/C quality grade</strong> — confidence, risk/reward, liquidity, and volatility-fit are combined into one simple grade alongside the confidence %.</li>
             </ul>
           </div>
@@ -192,92 +218,69 @@ function MethodologyPanel() {
   )
 }
 
-export default function AutoTrade() {
-  const qc = useQueryClient()
-  const [assetClass, setAssetClass] = useState<AutoTradeSuggestion['asset_class']>('india')
-  const [style, setStyle] = useState<AutoTradeSuggestion['style']>('swing')
-  const [intervalDraft, setIntervalDraft] = useState<number | null>(null)
+function CreateSetupModal({ onClose, onCreated }: { onClose: () => void; onCreated: (setup: AutoTradeSetup) => void }) {
+  const [name, setName] = useState('')
+  const [assetClass, setAssetClass] = useState<AutoTradeAssetClass>('india')
+  const [style, setStyle] = useState<AutoTradeStyle>('swing')
+  const [direction, setDirection] = useState<AutoTradeDirection>('both')
+  const [interval, setIntervalMinutes] = useState(360)
   const [error, setError] = useState('')
 
-  const scheduleQuery = useQuery({ queryKey: ['auto-trade-schedule'], queryFn: fetchAutoTradeSchedule, refetchInterval: 30_000 })
-  const suggestionsQuery = useQuery({ queryKey: ['auto-trade-suggestions'], queryFn: () => fetchAutoTradeSuggestions(), refetchInterval: 60_000 })
-
-  const schedule = scheduleQuery.data
-  const interval = intervalDraft ?? schedule?.interval_minutes ?? 360
-
-  const updateMutation = useMutation({
-    mutationFn: updateAutoTradeSchedule,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['auto-trade-schedule'] }); setError('') },
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createAutoTradeSetup({
+        name: name.trim() || `${ASSET_CLASS_LABEL[assetClass]} ${STYLE_LABEL[style]}`,
+        asset_class: assetClass,
+        style,
+        direction,
+        interval_minutes: interval,
+      }),
+    onSuccess: (setup) => onCreated(setup),
     onError: (e) => setError(apiErrorMessage(e)),
   })
-  const startMutation = useMutation({
-    mutationFn: startAutoTradeSchedule,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['auto-trade-schedule'] }); setError('') },
-    onError: (e) => setError(apiErrorMessage(e)),
-  })
-  const stopMutation = useMutation({
-    mutationFn: stopAutoTradeSchedule,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['auto-trade-schedule'] }); setError('') },
-    onError: (e) => setError(apiErrorMessage(e)),
-  })
-  const runNowMutation = useMutation({
-    mutationFn: runAutoTradeNow,
-    onSuccess: () => { setError(''); qc.invalidateQueries({ queryKey: ['auto-trade-schedule'] }) },
-    onError: (e) => setError(apiErrorMessage(e)),
-  })
-
-  const suggestions = suggestionsQuery.data?.suggestions ?? []
-  const filtered = useMemo(
-    () => suggestions.filter((s) => s.asset_class === assetClass && s.style === style),
-    [suggestions, assetClass, style],
-  )
-  const bucketCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const s of suggestions) counts.set(`${s.asset_class}:${s.style}`, (counts.get(`${s.asset_class}:${s.style}`) ?? 0) + 1)
-    return counts
-  }, [suggestions])
 
   return (
-    <div>
-      <PageHeader
-        title="Auto Trade"
-        description="Automated, institutional-style suggestion engine — scans India, US, Crypto and Commodities across Scalping, Intraday, Swing and Investing every few hours, and shows a ranked BUY/SELL/WAIT shortlist with confidence, SL/TP and a plain-English explanation for each idea."
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
+      <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold text-white">New Auto Trade setup</h3>
+            <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+              <X size={18} />
+            </button>
+          </div>
 
-      <MethodologyPanel />
+          <FormField label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${ASSET_CLASS_LABEL[assetClass]} ${STYLE_LABEL[style]}`} autoFocus />
+          </FormField>
 
-      <Card className="mb-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="inline-flex items-center gap-2 font-semibold text-white"><Zap size={16} className="text-amber-400" /> Automation</h3>
-          {schedule?.enabled ? (
-            <Button variant="danger" size="sm" onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending}>
-              <Square size={14} /> Stop
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
-              <Play size={14} /> Start
-            </Button>
-          )}
-        </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Asset class">
+              <Select value={assetClass} onChange={(e) => setAssetClass(e.target.value as AutoTradeAssetClass)}>
+                {ASSET_CLASSES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+              </Select>
+            </FormField>
+            <FormField label="Style">
+              <Select value={style} onChange={(e) => setStyle(e.target.value as AutoTradeStyle)}>
+                {STYLES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
+              </Select>
+            </FormField>
+          </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <FormField label="Trade direction">
+            <Select value={direction} onChange={(e) => setDirection(e.target.value as AutoTradeDirection)}>
+              {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </Select>
+          </FormField>
+
           <FormField label="Run every (minutes)">
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                min={15}
-                max={1440}
-                value={interval}
-                onChange={(e) => setIntervalDraft(Number(e.target.value))}
-                onBlur={() => intervalDraft != null && updateMutation.mutate({ interval_minutes: intervalDraft })}
-              />
-            </div>
+            <Input type="number" min={15} max={1440} value={interval} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {INTERVAL_PRESETS.map((p) => (
                 <button
                   key={p.minutes}
                   type="button"
-                  onClick={() => { setIntervalDraft(p.minutes); updateMutation.mutate({ interval_minutes: p.minutes }) }}
+                  onClick={() => setIntervalMinutes(p.minutes)}
                   className={`rounded-full border px-2 py-0.5 text-[11px] ${
                     interval === p.minutes ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700 text-slate-500 hover:text-slate-300'
                   }`}
@@ -287,81 +290,181 @@ export default function AutoTrade() {
               ))}
             </div>
           </FormField>
-          <FormField label="Next run">
-            <p className="pt-2 text-sm text-slate-300">{schedule?.enabled ? fmtDateTime(schedule.next_run_at) : 'Automation stopped'}</p>
-          </FormField>
-          <FormField label="Last run">
-            <p className="pt-2 text-sm text-slate-300">{fmtDateTime(schedule?.last_run_at ?? null)}</p>
-          </FormField>
-          <FormField label="Last status">
-            <p className="pt-2 text-sm text-slate-300">{schedule?.last_status ?? '—'}</p>
-          </FormField>
-        </div>
 
-        <div className="mt-2 flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => runNowMutation.mutate()} disabled={runNowMutation.isPending}>
-            <RefreshCw size={14} className={runNowMutation.isPending ? 'animate-spin' : ''} />
-            Run now
-          </Button>
+          {error && <Alert type="error">{error}</Alert>}
+
+          <div className="mt-3 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating…' : 'Create setup'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function SetupCard({ setup, active, onSelect }: { setup: AutoTradeSetup; active: boolean; onSelect: () => void }) {
+  const qc = useQueryClient()
+  const [error, setError] = useState('')
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['auto-trade-setups'] })
+  const startMutation = useMutation({ mutationFn: () => startAutoTradeSetup(setup.id), onSuccess: invalidate, onError: (e) => setError(apiErrorMessage(e)) })
+  const stopMutation = useMutation({ mutationFn: () => stopAutoTradeSetup(setup.id), onSuccess: invalidate, onError: (e) => setError(apiErrorMessage(e)) })
+  const runNowMutation = useMutation({ mutationFn: () => runAutoTradeSetupNow(setup.id), onSuccess: invalidate, onError: (e) => setError(apiErrorMessage(e)) })
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteAutoTradeSetup(setup.id),
+    onSuccess: () => {
+      invalidate()
+      qc.invalidateQueries({ queryKey: ['auto-trade-suggestions'] })
+    },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  return (
+    <div className={`rounded-xl border p-3 transition ${active ? 'border-teal-400 bg-teal-500/10' : 'border-slate-800/60 bg-slate-900/40 hover:border-slate-700'}`}>
+      <button type="button" onClick={onSelect} className="w-full text-left">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-white">{setup.name}</p>
+          <span className={`text-xs font-medium ${setup.enabled ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {setup.enabled ? 'Running' : 'Stopped'}
+          </span>
         </div>
-        {error && <div className="mt-2"><Alert type="error">{error}</Alert></div>}
-      </Card>
+        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-slate-400">
+          <span className="rounded-full border border-slate-700 px-2 py-0.5">{ASSET_CLASS_LABEL[setup.asset_class]}</span>
+          <span className="rounded-full border border-slate-700 px-2 py-0.5">{STYLE_LABEL[setup.style]}</span>
+          {setup.direction !== 'both' && (
+            <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-blue-300">
+              {DIRECTION_LABEL[setup.direction]}
+            </span>
+          )}
+          <span className="rounded-full border border-slate-700 px-2 py-0.5">every {setup.interval_minutes}m</span>
+        </div>
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          Next: {setup.enabled ? fmtDateTime(setup.next_run_at) : '—'} · Last: {fmtDateTime(setup.last_run_at)}
+        </p>
+        {setup.last_status && <p className="mt-0.5 text-[11px] text-slate-500">{setup.last_status}</p>}
+      </button>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {setup.enabled ? (
+          <Button size="sm" variant="danger" onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending}>
+            <Square size={12} /> Stop
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
+            <Play size={12} /> Start
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={() => runNowMutation.mutate()} disabled={runNowMutation.isPending}>
+          <RefreshCw size={12} className={runNowMutation.isPending ? 'animate-spin' : ''} /> Run now
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            if (window.confirm(`Delete setup "${setup.name}"? This also deletes its saved suggestions.`)) {
+              deleteMutation.mutate()
+            }
+          }}
+          disabled={deleteMutation.isPending}
+        >
+          <Trash2 size={12} />
+        </Button>
+      </div>
+      {error && <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>}
+    </div>
+  )
+}
+
+export default function AutoTrade() {
+  const [selectedSetupId, setSelectedSetupId] = useState<number | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const setupsQuery = useQuery({ queryKey: ['auto-trade-setups'], queryFn: fetchAutoTradeSetups, refetchInterval: 30_000 })
+  const setups = setupsQuery.data?.setups ?? []
+
+  useEffect(() => {
+    if (selectedSetupId == null && setups.length) setSelectedSetupId(setups[0].id)
+    if (selectedSetupId != null && setups.length && !setups.some((s) => s.id === selectedSetupId)) {
+      setSelectedSetupId(setups[0]?.id ?? null)
+    }
+  }, [setups, selectedSetupId])
+
+  const suggestionsQuery = useQuery({
+    queryKey: ['auto-trade-suggestions', selectedSetupId],
+    queryFn: () => fetchAutoTradeSuggestions({ setup_id: selectedSetupId ?? undefined }),
+    enabled: selectedSetupId != null,
+    refetchInterval: 60_000,
+  })
+  const suggestions = suggestionsQuery.data?.suggestions ?? []
+  const selectedSetup = setups.find((s) => s.id === selectedSetupId)
+
+  return (
+    <div>
+      <PageHeader
+        title="Auto Trade"
+        description="Automated, institutional-style suggestion engine — create a setup for any market + trading style combination, each on its own schedule, and get a ranked BUY/SELL/WAIT shortlist with confidence, SL/TP and a plain-English explanation for each idea."
+      />
+
+      <MethodologyPanel />
 
       <Card className="mb-4">
-        <div className="flex flex-wrap gap-1.5">
-          {ASSET_CLASSES.map((a) => (
-            <button
-              key={a.value}
-              type="button"
-              onClick={() => setAssetClass(a.value)}
-              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
-                assetClass === a.value ? 'border-teal-400 bg-teal-500/10 text-teal-300' : 'border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {a.label}
-            </button>
-          ))}
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="inline-flex items-center gap-2 font-semibold text-white">
+            <Zap size={16} className="text-amber-400" /> Your setups ({setups.length})
+          </h3>
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus size={14} /> New setup
+          </Button>
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {STYLES.map((st) => {
-            const count = bucketCounts.get(`${assetClass}:${st.value}`) ?? 0
-            return (
-              <button
-                key={st.value}
-                type="button"
-                onClick={() => setStyle(st.value)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                  style === st.value ? 'border-blue-500/50 bg-blue-500/15 text-blue-300' : 'border-slate-700/80 bg-slate-800/40 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {st.label}{count > 0 ? ` (${count})` : ''}
-              </button>
-            )
-          })}
-        </div>
+
+        {setupsQuery.isLoading ? (
+          <Loading message="Loading your Auto Trade setups…" />
+        ) : setups.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No setups yet — create one to start automated scanning for a specific market and trading style (e.g. "Crypto
+            Scalping" or "India Swing").
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {setups.map((s) => (
+              <SetupCard key={s.id} setup={s} active={s.id === selectedSetupId} onSelect={() => setSelectedSetupId(s.id)} />
+            ))}
+          </div>
+        )}
       </Card>
 
-      {suggestionsQuery.isLoading && <Loading message="Loading latest Auto Trade suggestions…" />}
+      {showCreate && (
+        <CreateSetupModal
+          onClose={() => setShowCreate(false)}
+          onCreated={(setup) => {
+            setShowCreate(false)
+            setSelectedSetupId(setup.id)
+          }}
+        />
+      )}
 
-      {!suggestionsQuery.isLoading && !suggestions.length && (
-        <Card>
-          <p className="text-sm text-slate-500">
-            No suggestions yet — start automation above, or click "Run now" for an immediate sweep. A full sweep across all
-            16 buckets can take several minutes.
+      {selectedSetup && (
+        <>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+            {selectedSetup.name} — {ASSET_CLASS_LABEL[selectedSetup.asset_class]} · {STYLE_LABEL[selectedSetup.style]}
           </p>
-        </Card>
-      )}
-
-      {filtered.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((s) => <SuggestionCard key={s.id} s={s} />)}
-        </div>
-      )}
-
-      {suggestions.length > 0 && !filtered.length && !suggestionsQuery.isLoading && (
-        <Card>
-          <p className="text-sm text-slate-500">No suggestions for this asset class / style combination in the latest sweep.</p>
-        </Card>
+          {suggestionsQuery.isLoading && <Loading message="Loading suggestions…" />}
+          {!suggestionsQuery.isLoading && !suggestions.length && (
+            <Card>
+              <p className="text-sm text-slate-500">
+                No suggestions yet for this setup — start it above, or click "Run now" for an immediate scan.
+              </p>
+            </Card>
+          )}
+          {suggestions.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {suggestions.map((s) => <SuggestionCard key={s.id} s={s} />)}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

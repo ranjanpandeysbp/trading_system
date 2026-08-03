@@ -234,11 +234,14 @@ def explain_suggestion_plain_english(
 
 async def evaluate_ticker(
     ticker: str, asset_class: str, style: str, *, settings: SettingsService, db: Any,
+    direction_filter: str = "both",
 ) -> dict[str, Any] | None:
     """Full pipeline for one ticker: vote, combine, fold in fundamentals,
     apply the trading-judgment layer, grade, and explain. Returns None when
-    there's no directional agreement — a suggestion list only shows real
-    ideas, not a dump of every ticker scanned."""
+    there's no directional agreement, or when the combined direction doesn't
+    match `direction_filter` ("both" | "long_only" | "short_only") — a
+    suggestion list only shows real, wanted ideas, not a dump of every
+    ticker scanned."""
     timeframe = _TIMEFRAME_BY_STYLE[style]
     is_india = asset_class == "india"
     groww_token = (await settings.get_groww_token() or "") if is_india else ""
@@ -259,6 +262,10 @@ async def evaluate_ticker(
     combined = combine_confluence(votes, strictness=LOOSE if style == "scalping" else STRICT)
     direction = combined["direction"]
     if direction == "WAIT":
+        return None
+    if direction_filter == "long_only" and direction != "LONG":
+        return None
+    if direction_filter == "short_only" and direction != "SHORT":
         return None
 
     confidence = combined["confidence_pct"]
@@ -356,13 +363,14 @@ async def run_bucket(
     db: Any,
     universe_cap: int = _DEFAULT_UNIVERSE_CAP,
     top_n: int = _DEFAULT_TOP_N,
+    direction_filter: str = "both",
     progress_cb: Any = None,
 ) -> list[dict[str, Any]]:
     universe = await asyncio.to_thread(default_universe, asset_class, universe_cap)
     suggestions: list[dict[str, Any]] = []
     for i, ticker in enumerate(universe):
         try:
-            row = await evaluate_ticker(ticker, asset_class, style, settings=settings, db=db)
+            row = await evaluate_ticker(ticker, asset_class, style, settings=settings, db=db, direction_filter=direction_filter)
             if row:
                 suggestions.append(row)
         except Exception:
@@ -376,24 +384,3 @@ async def run_bucket(
     for i, s in enumerate(ranked, start=1):
         s["rank"] = i
     return ranked
-
-
-async def run_full_sweep(
-    *,
-    settings: SettingsService,
-    db: Any,
-    universe_cap: int = _DEFAULT_UNIVERSE_CAP,
-    top_n: int = _DEFAULT_TOP_N,
-    progress_cb: Any = None,
-) -> dict[str, list[dict[str, Any]]]:
-    """Runs all 16 (asset_class, style) buckets. Returns {"asset_class:style": [suggestions]}."""
-    combos = [(ac, st) for ac in ASSET_CLASSES for st in STYLES]
-    out: dict[str, list[dict[str, Any]]] = {}
-    for idx, (ac, st) in enumerate(combos):
-        def _cb(p: float, note: str, idx: int = idx) -> None:
-            if progress_cb:
-                progress_cb((idx + p) / len(combos), note)
-        out[f"{ac}:{st}"] = await run_bucket(
-            ac, st, settings=settings, db=db, universe_cap=universe_cap, top_n=top_n, progress_cb=_cb,
-        )
-    return out

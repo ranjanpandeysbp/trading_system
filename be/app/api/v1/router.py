@@ -26,7 +26,8 @@ from app.models.schemas import (
     EtfTaRecommendRequest,
     EtfTaScanRequest,
     ForgotPasswordRequest,
-    SuggestionEngineScheduleUpdateRequest,
+    AutoTradeSetupCreateRequest,
+    AutoTradeSetupUpdateRequest,
     InvestingAgentChatRequest,
     InvestingAgentStockRequest,
     InvestingAgentTokenRequest,
@@ -2716,21 +2717,48 @@ async def etf_ta_stf_daily(
     return await service.daily(current_user.id)
 
 
-@router.get("/suggestions/schedule")
-async def suggestions_get_schedule(
+@router.get("/suggestions/setups")
+async def suggestions_list_setups(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Auto Trade automation settings — interval, enabled, last/next run."""
+    """All of this user's Auto Trade setups — each an independently
+    scheduled (asset_class, style) scan."""
     from app.services.suggestion_engine_service import SuggestionEngineService
 
     service = SuggestionEngineService(SettingsService(db), db)
-    return await service.get_schedule(current_user.id)
+    setups = await service.list_setups(current_user.id)
+    return {"setups": setups}
 
 
-@router.put("/suggestions/schedule")
-async def suggestions_update_schedule(
-    payload: SuggestionEngineScheduleUpdateRequest,
+@router.post("/suggestions/setups")
+async def suggestions_create_setup(
+    payload: AutoTradeSetupCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    try:
+        return await service.create_setup(
+            current_user.id,
+            name=payload.name,
+            asset_class=payload.asset_class,
+            style=payload.style,
+            direction=payload.direction,
+            interval_minutes=payload.interval_minutes,
+            universe_cap=payload.universe_cap,
+            top_n=payload.top_n,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/suggestions/setups/{setup_id}")
+async def suggestions_update_setup(
+    setup_id: int,
+    payload: AutoTradeSetupUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2738,45 +2766,78 @@ async def suggestions_update_schedule(
 
     service = SuggestionEngineService(SettingsService(db), db)
     fields = payload.model_dump(exclude_unset=True)
-    return await service.update_schedule(current_user.id, **fields)
+    try:
+        return await service.update_setup(current_user.id, setup_id, **fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/suggestions/schedule/start")
-async def suggestions_start_schedule(
+@router.delete("/suggestions/setups/{setup_id}")
+async def suggestions_delete_setup(
+    setup_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from app.services.suggestion_engine_service import SuggestionEngineService
 
     service = SuggestionEngineService(SettingsService(db), db)
-    return await service.start(current_user.id)
+    try:
+        return await service.delete_setup(current_user.id, setup_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/suggestions/schedule/stop")
-async def suggestions_stop_schedule(
+@router.post("/suggestions/setups/{setup_id}/start")
+async def suggestions_start_setup(
+    setup_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from app.services.suggestion_engine_service import SuggestionEngineService
 
     service = SuggestionEngineService(SettingsService(db), db)
-    return await service.stop(current_user.id)
+    try:
+        return await service.start_setup(current_user.id, setup_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/suggestions/schedule/run-now")
-async def suggestions_run_now(
+@router.post("/suggestions/setups/{setup_id}/stop")
+async def suggestions_stop_setup(
+    setup_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Force an immediate Auto Trade sweep — fire-and-forget background run."""
-    from app.services.suggestion_engine_service import run_suggestion_sweep
+    from app.services.suggestion_engine_service import SuggestionEngineService
 
-    run_suggestion_sweep(current_user.id)
+    service = SuggestionEngineService(SettingsService(db), db)
+    try:
+        return await service.stop_setup(current_user.id, setup_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/suggestions/setups/{setup_id}/run-now")
+async def suggestions_run_setup_now(
+    setup_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Force an immediate sweep for one setup — fire-and-forget background run."""
+    from app.services.suggestion_engine_service import SuggestionEngineService, run_suggestion_sweep
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    try:
+        await service._get_owned(current_user.id, setup_id)  # noqa: SLF001 — ownership check before firing the background task
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    run_suggestion_sweep(setup_id)
     return {"started": True}
 
 
 @router.get("/suggestions")
 async def suggestions_list(
+    setup_id: int | None = None,
     asset_class: str | None = None,
     style: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -2785,7 +2846,7 @@ async def suggestions_list(
     from app.services.suggestion_engine_service import SuggestionEngineService
 
     service = SuggestionEngineService(SettingsService(db), db)
-    suggestions = await service.list_suggestions(current_user.id, asset_class=asset_class, style=style)
+    suggestions = await service.list_suggestions(current_user.id, setup_id=setup_id, asset_class=asset_class, style=style)
     return {"suggestions": suggestions}
 
 

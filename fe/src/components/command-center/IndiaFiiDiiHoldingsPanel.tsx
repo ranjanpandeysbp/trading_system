@@ -235,7 +235,7 @@ export function IndiaFiiDiiHoldingsPanel() {
             <Alert type="error">{String(data.error)}</Alert>
           ) : (
             <div className="space-y-5">
-              {data.snapshot_note && (
+              {Boolean(data.snapshot_note) && (
                 <p className="text-xs text-slate-500">{String(data.snapshot_note)}</p>
               )}
 
@@ -375,7 +375,7 @@ export function IndiaFiiDiiHoldingsPanel() {
                       />
                     </>
                   )}
-                  {detail?.error && <Alert type="error">{String(detail.error)}</Alert>}
+                  {Boolean(detail?.error) && <Alert type="error">{String(detail?.error)}</Alert>}
                 </div>
               )}
 

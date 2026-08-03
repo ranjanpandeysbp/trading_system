@@ -45,36 +45,37 @@ async def run_due_schedules_once() -> int:
 
 
 async def run_due_suggestion_engines_once() -> int:
-    """Kick off an Auto Trade sweep for every enabled, due
-    `SuggestionEngineSchedule`. Returns count triggered. `next_run_at` is
-    set provisionally here (interval from now) before the sweep starts, so
-    a multi-minute sweep can't get re-triggered by the next 30s tick — the
+    """Kick off an Auto Trade sweep for every enabled, due `AutoTradeSetup`
+    (a user may have several — each scans one asset_class/style bucket on
+    its own interval). Returns count triggered. `next_run_at` is set
+    provisionally here (interval from now) before the sweep starts, so a
+    multi-ticker sweep can't get re-triggered by the next 30s tick — the
     sweep overwrites it with the real value once it actually finishes."""
-    from app.models.db_models import SuggestionEngineSchedule
+    from app.models.db_models import AutoTradeSetup
     from app.services.suggestion_engine_service import run_suggestion_sweep
 
     now = datetime.utcnow()
-    due_user_ids: list[int] = []
+    due_setup_ids: list[int] = []
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(SuggestionEngineSchedule).where(SuggestionEngineSchedule.enabled == True)  # noqa: E712
+            select(AutoTradeSetup).where(AutoTradeSetup.enabled == True)  # noqa: E712
         )
         for row in result.scalars().all():
             if row.next_run_at is not None and row.next_run_at > now:
                 continue
-            due_user_ids.append(row.user_id)
+            due_setup_ids.append(row.id)
             row.next_run_at = now + timedelta(minutes=row.interval_minutes)
             row.last_status = "Running…"
-        if due_user_ids:
+        if due_setup_ids:
             await db.commit()
 
     triggered = 0
-    for user_id in due_user_ids:
+    for setup_id in due_setup_ids:
         try:
-            run_suggestion_sweep(user_id)
+            run_suggestion_sweep(setup_id)
             triggered += 1
         except Exception:
-            logger.exception("Failed to trigger Auto Trade sweep for user %s", user_id)
+            logger.exception("Failed to trigger Auto Trade sweep for setup %s", setup_id)
     return triggered
 
 
