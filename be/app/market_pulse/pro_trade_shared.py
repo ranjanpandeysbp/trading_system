@@ -81,3 +81,95 @@ def rr_ratio(sl_pct: float | None, tp_pct: float | None) -> float | None:
     if not sl_pct or not tp_pct or sl_pct <= 0:
         return None
     return round(tp_pct / sl_pct, 2)
+
+
+# ---------------------------------------------------------------------------
+# Trading-judgment layer — sits between raw confluence math and a final
+# suggestion. A vote count alone will happily pass a setup a real desk would
+# reject (stop that doesn't match real volatility, poor reward-for-risk, an
+# already-extended move, an illiquid name). These helpers apply that
+# discipline explicitly and auditably rather than leaving it implicit.
+# ---------------------------------------------------------------------------
+
+def atr_sane_stop_target(
+    direction: str,
+    entry: float,
+    stop_loss: float | None,
+    target: float | None,
+    atr_value: float | None,
+    *,
+    min_atr_mult: float = 0.5,
+    max_atr_mult: float = 4.0,
+    default_rr: float = 2.0,
+) -> tuple[float | None, float | None, bool]:
+    """Sanity-check a proposed stop against the instrument's real volatility.
+    A stop tighter than `min_atr_mult`x ATR gets stopped out on noise; wider
+    than `max_atr_mult`x ATR isn't a real risk-managed stop. When outside that
+    band, both stop and target are re-derived from ATR (preserving the
+    original reward:risk ratio where a target was given) instead of blindly
+    trusting the engine's raw numbers. Returns (stop, target, was_adjusted)."""
+    if not entry or not atr_value or atr_value <= 0 or stop_loss is None:
+        return stop_loss, target, False
+
+    dist = abs(entry - stop_loss)
+    lo, hi = min_atr_mult * atr_value, max_atr_mult * atr_value
+    if lo <= dist <= hi:
+        return stop_loss, target, False
+
+    safe_dist = lo if dist < lo else hi
+    is_long = direction == "LONG"
+    new_stop = entry - safe_dist if is_long else entry + safe_dist
+
+    orig_rr = (abs(target - entry) / dist) if (target is not None and dist) else default_rr
+    new_target_dist = safe_dist * orig_rr
+    new_target = entry + new_target_dist if is_long else entry - new_target_dist
+
+    return round(new_stop, 4), round(new_target, 4), True
+
+
+def meets_rr_floor(sl_pct: float | None, tp_pct: float | None, min_rr: float) -> bool:
+    """Institutional desks rarely take a setup below ~1.2-2x reward-for-risk
+    depending on style — below the floor, direction may be right but the
+    trade itself isn't, so it gets downgraded to WAIT rather than acted on."""
+    rr = rr_ratio(sl_pct, tp_pct)
+    return rr is not None and rr >= min_rr
+
+
+def momentum_exhaustion_note(rsi_value: float | None, direction: str) -> tuple[float, str | None]:
+    """Confidence penalty + plain note when RSI shows the move is already
+    extended in the trade's own direction — not a hard block (the setup may
+    still be valid), just an honest chase-risk flag a discretionary trader
+    would raise before entering fresh."""
+    if rsi_value is None:
+        return 0.0, None
+    if direction == "LONG" and rsi_value >= 75:
+        return -8.0, "RSI already overbought — this move is extended; entering fresh here carries chase risk."
+    if direction == "SHORT" and rsi_value <= 25:
+        return -8.0, "RSI already oversold — this move is extended; entering fresh here carries chase risk."
+    return 0.0, None
+
+
+def liquidity_ok(volume_zscore_value: float | None, *, min_z: float = -1.5) -> bool:
+    """Volume z-score floor for fast-timeframe (scalping/intraday) buckets —
+    abnormally thin volume vs. this ticker's own recent history is a slippage
+    trap a live trader would skip regardless of what the indicators say.
+    Unknown volume data doesn't block (can't judge what we can't measure)."""
+    if volume_zscore_value is None:
+        return True
+    return volume_zscore_value >= min_z
+
+
+def quality_grade(confidence_pct: float, rr: float | None, liquidity_is_ok: bool, stop_was_adjusted: bool) -> str:
+    """A/B/C synthesis of confidence + reward:risk + liquidity + volatility
+    fit — a trader's real judgment call is never just the confidence number
+    in isolation, and this is the concrete, auditable form of that call."""
+    score = 0
+    score += 2 if confidence_pct >= 70 else (1 if confidence_pct >= 55 else 0)
+    score += 2 if (rr or 0) >= 2.0 else (1 if (rr or 0) >= 1.5 else 0)
+    score += 1 if liquidity_is_ok else 0
+    score += 1 if not stop_was_adjusted else 0
+    if score >= 5:
+        return "A"
+    if score >= 3:
+        return "B"
+    return "C"

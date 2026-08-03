@@ -26,6 +26,7 @@ from app.models.schemas import (
     EtfTaRecommendRequest,
     EtfTaScanRequest,
     ForgotPasswordRequest,
+    SuggestionEngineScheduleUpdateRequest,
     InvestingAgentChatRequest,
     InvestingAgentStockRequest,
     InvestingAgentTokenRequest,
@@ -1982,6 +1983,7 @@ async def backtester_leaderboard_start(
             "costs_pct": payload.costs_pct,
             "bars": payload.bars,
             "forward_bars": payload.forward_bars,
+            "direction": payload.direction,
             "report_name": report_name if auto_save else None,
         },
     )
@@ -1989,7 +1991,7 @@ async def backtester_leaderboard_start(
         job.id, payload.tickers, payload.strategy_ids,
         asset_class=payload.asset_class, timeframe=payload.timeframe,
         period=payload.period, costs_pct=payload.costs_pct,
-        bars=payload.bars, forward_bars=payload.forward_bars,
+        bars=payload.bars, forward_bars=payload.forward_bars, direction=payload.direction,
         report_name=report_name if auto_save else None,
         user_id=current_user.id if auto_save else None,
     )
@@ -2712,6 +2714,79 @@ async def etf_ta_stf_daily(
     no portfolio payload needed, and SIP-locked symbols are latched server-side."""
     service = EtfTaService(SettingsService(db), db)
     return await service.daily(current_user.id)
+
+
+@router.get("/suggestions/schedule")
+async def suggestions_get_schedule(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Auto Trade automation settings — interval, enabled, last/next run."""
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    return await service.get_schedule(current_user.id)
+
+
+@router.put("/suggestions/schedule")
+async def suggestions_update_schedule(
+    payload: SuggestionEngineScheduleUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    fields = payload.model_dump(exclude_unset=True)
+    return await service.update_schedule(current_user.id, **fields)
+
+
+@router.post("/suggestions/schedule/start")
+async def suggestions_start_schedule(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    return await service.start(current_user.id)
+
+
+@router.post("/suggestions/schedule/stop")
+async def suggestions_stop_schedule(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    return await service.stop(current_user.id)
+
+
+@router.post("/suggestions/schedule/run-now")
+async def suggestions_run_now(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Force an immediate Auto Trade sweep — fire-and-forget background run."""
+    from app.services.suggestion_engine_service import run_suggestion_sweep
+
+    run_suggestion_sweep(current_user.id)
+    return {"started": True}
+
+
+@router.get("/suggestions")
+async def suggestions_list(
+    asset_class: str | None = None,
+    style: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.suggestion_engine_service import SuggestionEngineService
+
+    service = SuggestionEngineService(SettingsService(db), db)
+    suggestions = await service.list_suggestions(current_user.id, asset_class=asset_class, style=style)
+    return {"suggestions": suggestions}
 
 
 @router.get("/options/sections")

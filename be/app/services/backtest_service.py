@@ -100,7 +100,7 @@ class BacktestService:
             raise ValueError("Strategy did not produce a signal column")
 
         signal_count = int((result["signal"] != 0).sum())
-        stats = backtest_signals(result, costs_pct=costs_pct)
+        stats = backtest_signals(result, costs_pct=costs_pct, direction=request.direction)
         recent = result[result["signal"] != 0].tail(10)
         recent_signals = [
             {

@@ -15,6 +15,7 @@ import {
   type TickerPickerValue,
 } from './AssetClassTickerPicker'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
+import { AskAIPanel } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -255,6 +256,7 @@ export function IndiaFiiDiiHoldingsPanel() {
                         <Th>P/E</Th>
                         <Th>Revenue</Th>
                         <Th>Profit</Th>
+                        <Th>Ownership Summary</Th>
                         <Th>Summary</Th>
                         <Th></Th>
                       </tr>
@@ -281,6 +283,7 @@ export function IndiaFiiDiiHoldingsPanel() {
                             <Td>{fmt(r['P/E'], 1)}</Td>
                             <Td className={trendClass(r['Revenue trend'])}>{String(r['Revenue trend'] ?? '—')}</Td>
                             <Td className={trendClass(r['Profit trend'])}>{String(r['Profit trend'] ?? '—')}</Td>
+                            <Td className="max-w-xs text-xs text-slate-400">{String(r['Ownership Summary'] ?? '—')}</Td>
                             <Td className="max-w-xs text-xs text-slate-400">{String(r.Summary ?? '—')}</Td>
                             <Td>
                               <AddToWatchlistButton
@@ -320,7 +323,10 @@ export function IndiaFiiDiiHoldingsPanel() {
                           <p className="text-sm font-semibold text-white">{String(detail.ticker)}</p>
                           {timingBadge((detail.timing as Row)?.verdict)}
                         </div>
-                        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                        <p className="mt-2 text-sm leading-relaxed text-slate-200">
+                          {String(detail.ownership_summary ?? '—')}
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-400">
                           {String((detail.timing as Row)?.summary ?? (detail.ownership as Row)?.summary ?? '—')}
                         </p>
                         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -361,6 +367,12 @@ export function IndiaFiiDiiHoldingsPanel() {
                           </p>
                         </div>
                       </div>
+
+                      <AskAIPanel
+                        context={String(detail.ai_context ?? '')}
+                        systemPrompt={String(data.ai_system_prompt ?? '')}
+                        section={`command-center/fii-dii/${String(detail.ticker)}`}
+                      />
                     </>
                   )}
                   {detail?.error && <Alert type="error">{String(detail.error)}</Alert>}

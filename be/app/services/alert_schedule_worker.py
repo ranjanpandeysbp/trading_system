@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -43,6 +44,40 @@ async def run_due_schedules_once() -> int:
     return ran
 
 
+async def run_due_suggestion_engines_once() -> int:
+    """Kick off an Auto Trade sweep for every enabled, due
+    `SuggestionEngineSchedule`. Returns count triggered. `next_run_at` is
+    set provisionally here (interval from now) before the sweep starts, so
+    a multi-minute sweep can't get re-triggered by the next 30s tick — the
+    sweep overwrites it with the real value once it actually finishes."""
+    from app.models.db_models import SuggestionEngineSchedule
+    from app.services.suggestion_engine_service import run_suggestion_sweep
+
+    now = datetime.utcnow()
+    due_user_ids: list[int] = []
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(SuggestionEngineSchedule).where(SuggestionEngineSchedule.enabled == True)  # noqa: E712
+        )
+        for row in result.scalars().all():
+            if row.next_run_at is not None and row.next_run_at > now:
+                continue
+            due_user_ids.append(row.user_id)
+            row.next_run_at = now + timedelta(minutes=row.interval_minutes)
+            row.last_status = "Running…"
+        if due_user_ids:
+            await db.commit()
+
+    triggered = 0
+    for user_id in due_user_ids:
+        try:
+            run_suggestion_sweep(user_id)
+            triggered += 1
+        except Exception:
+            logger.exception("Failed to trigger Auto Trade sweep for user %s", user_id)
+    return triggered
+
+
 async def alert_schedule_worker(stop_event: asyncio.Event) -> None:
     logger.info("Alert schedule worker started (every %ss)", _POLL_SECONDS)
     while not stop_event.is_set():
@@ -52,6 +87,12 @@ async def alert_schedule_worker(stop_event: asyncio.Event) -> None:
                 logger.info("Alert schedule worker ran %s schedule(s)", n)
         except Exception:
             logger.exception("Alert schedule worker tick failed")
+        try:
+            m = await run_due_suggestion_engines_once()
+            if m:
+                logger.info("Alert schedule worker triggered %s Auto Trade sweep(s)", m)
+        except Exception:
+            logger.exception("Auto Trade due-check tick failed")
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=_POLL_SECONDS)
         except asyncio.TimeoutError:

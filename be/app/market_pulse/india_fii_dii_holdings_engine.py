@@ -154,6 +154,39 @@ def _trend_label(delta: float, flat: float = _HOLDING_FLAT_PP) -> str:
     return "STABLE"
 
 
+_TREND_VERB = {
+    "INCREASING": "increased",
+    "DECREASING": "decreased",
+    "STABLE": "remained unchanged",
+}
+
+_CATEGORY_LABEL = {"Promoters": "Promoter", "FIIs": "FII", "DIIs": "DII", "Public": "Public"}
+
+
+def ownership_summary_sentence(ticker: str, cat_trends: dict[str, dict[str, Any]]) -> str:
+    """One plain-English sentence per ticker stating whether FII/DII/Promoter/
+    Public stake increased, decreased, or stayed the same over the period —
+    the at-a-glance answer, with the full per-category numbers still available
+    in `cat_trends` for anyone who wants the detail."""
+    parts: list[str] = []
+    for cat in _CATEGORIES:
+        info = cat_trends.get(cat)
+        if not info:
+            continue
+        trend = info.get("trend", "STABLE")
+        verb = _TREND_VERB.get(trend, "changed")
+        last_pct = info.get("last_pct")
+        change_pp = info.get("change_pp") or 0.0
+        label = _CATEGORY_LABEL.get(cat, cat)
+        if trend == "STABLE":
+            parts.append(f"{label} {verb} at {last_pct}%")
+        else:
+            parts.append(f"{label} {verb} {abs(change_pp):.2f}pp to {last_pct}%")
+    if not parts:
+        return f"{ticker}: no shareholding trend data available for this period."
+    return f"{ticker}: " + ", ".join(parts) + " over the selected period."
+
+
 def _pct_trend_label(pct_change: float | None, flat: float = _REV_PROFIT_FLAT_PCT) -> str:
     if pct_change is None:
         return "N/A"
@@ -853,6 +886,7 @@ def analyze_ticker_shareholding(
         }
 
     ownership = _invest_summary(cat_trends)
+    ownership_summary = ownership_summary_sentence(ticker, cat_trends)
 
     top_ratios = _parse_top_ratios(soup)
     growth_boxes = _parse_growth_boxes(soup)
@@ -904,6 +938,7 @@ def analyze_ticker_shareholding(
         "categories": cat_trends,
         "invest": ownership,  # ownership-only (kept for backward UI compat)
         "ownership": ownership,
+        "ownership_summary": ownership_summary,
         "valuation": valuation,
         "revenue_profit": revenue_profit,
         "deals": deals,
@@ -988,6 +1023,7 @@ def analyze_tickers_shareholding(
             "Deals flagged": deals.get("n_flagged"),
             "Actions flagged": actions.get("n_signal"),
             "Summary": timing.get("summary"),
+            "Ownership Summary": r.get("ownership_summary"),
         }
         for cat in _CATEGORIES:
             info = cats.get(cat) or {}
@@ -1039,3 +1075,69 @@ def analyze_tickers_shareholding(
         "snapshot_note": note,
         "source": "screener.in",
     }
+
+
+FII_DII_HOLDINGS_AI_SYSTEM = """You are analyzing India NSE shareholding-pattern data (screener.in) for one stock over a user-chosen date range: Promoters/FII/DII/Public stake trend, quarterly revenue & profit direction, P/E-vs-ROCE valuation, and recent deal/order/expansion announcements.
+
+Given this data:
+1. **Ownership signal** — state plainly whether FII, DII, and Promoter stakes each increased, decreased, or stayed the same over the period, and what that combination implies (e.g. institutions buying while promoters hold steady is a different signal than promoters themselves reducing).
+2. **Business momentum** — synthesize the revenue/profit trend into a one-line read.
+3. **Valuation context** — state whether the P/E looks justified by ROCE.
+4. **Corporate activity** — note any flagged deals/orders/expansion announcements.
+5. **Verdict** — YES / WAIT / NO on considering fresh buying right now, with the single strongest supporting and opposing factor.
+
+Cite only figures present in the data — never invent a percentage, date, or announcement. This is research/education only, not financial advice.
+"""
+
+
+def build_fii_dii_holdings_ai_prompt(result: dict[str, Any]) -> str:
+    if result.get("error"):
+        return f"Ticker: {result.get('ticker')}\nError: {result['error']}"
+
+    lines = [
+        "=== INDIA FII/DII/PROMOTER OWNERSHIP (screener.in) ===",
+        f"Ticker: {result.get('ticker')}",
+        f"Period: {result.get('first_date')} -> {result.get('last_date')}",
+        "",
+        "-- SHAREHOLDING TREND --",
+        result.get("ownership_summary") or "",
+    ]
+    for cat, info in (result.get("categories") or {}).items():
+        lines.append(
+            f"{cat}: {info.get('first_pct')}% -> {info.get('last_pct')}% "
+            f"(change {info.get('change_pp'):+.2f}pp) -> {info.get('trend')}"
+        )
+
+    ownership = result.get("ownership") or {}
+    lines += ["", f"Ownership verdict: {ownership.get('verdict')}"]
+
+    rp = result.get("revenue_profit") or {}
+    sales = rp.get("sales") or {}
+    profit = rp.get("net_profit") or {}
+    lines += [
+        "",
+        "-- REVENUE & PROFIT --",
+        f"Revenue: {sales.get('trend')} ({sales.get('change_pct')}%)",
+        f"Profit: {profit.get('trend')} ({profit.get('change_pct')}%)",
+    ]
+
+    val = result.get("valuation") or {}
+    lines += [
+        "",
+        "-- VALUATION --",
+        f"{val.get('label')}: {val.get('reason')}",
+        f"P/E: {result.get('pe')} · ROCE: {result.get('roce_pct')}%",
+    ]
+
+    deals = result.get("deals") or {}
+    flagged = deals.get("flagged") or []
+    if flagged:
+        lines.append("")
+        lines.append("-- RECENT DEALS/ORDERS/EXPANSION --")
+        for d in flagged[:6]:
+            lines.append(f"- {d.get('date', '')}: {d.get('text', '')}")
+
+    timing = result.get("timing") or {}
+    lines += ["", f"Heuristic timing verdict: {timing.get('verdict')} - {timing.get('tone')}"]
+
+    return "\n".join(str(line) for line in lines)

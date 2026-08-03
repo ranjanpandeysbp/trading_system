@@ -107,6 +107,7 @@ class BacktestRequest(BaseModel):
     period: str | None = None
     costs_pct: float = 0.0008
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    direction: Literal["both", "long_only", "short_only"] = "both"
 
 
 class BacktestResponse(BaseModel):
@@ -522,6 +523,12 @@ class EtfShopCloseLotRequest(BaseModel):
     dividend_pct: float = Field(default=0.0, ge=0, le=100)
 
 
+class SuggestionEngineScheduleUpdateRequest(BaseModel):
+    interval_minutes: int | None = Field(default=None, ge=15, le=1440)
+    universe_cap: int | None = Field(default=None, ge=5, le=50)
+    top_n: int | None = Field(default=None, ge=1, le=20)
+
+
 class MarketPulseCommodityRequest(BaseModel):
     timeframes: list[str] | None = None
 
@@ -606,6 +613,7 @@ class BacktesterLeaderboardRequest(BaseModel):
     costs_pct: float | None = None
     bars: int = Field(350, ge=150, le=2000)
     forward_bars: int = Field(10, ge=3, le=60)
+    direction: Literal["both", "long_only", "short_only"] = "both"
     # When set, the job auto-saves a named report on completion (background run).
     report_name: str | None = Field(None, max_length=200)
     run_in_background: bool = False

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -9,6 +9,7 @@ type NavEntry = { to: string; label: string; shortLabel: string; icon: typeof La
 
 const nav: NavEntry[] = [
   { to: '/', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
+  { to: '/auto-trade', label: 'Auto Trade', shortLabel: 'Auto', icon: Radar },
   { to: '/command-center', label: 'Command Center', shortLabel: 'Command', icon: Compass },
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
   { to: '/market-pulse', label: 'Market Pulse', shortLabel: 'Pulse', icon: Activity },

@@ -15,6 +15,7 @@ import Strategies from './pages/Strategies'
 import MarketPulse from './pages/MarketPulse'
 import TechnicalAnalysis from './pages/TechnicalAnalysis'
 import EtfTaIn from './pages/EtfTaIn'
+import AutoTrade from './pages/AutoTrade'
 import TradingHubs from './pages/TradingHubs'
 import TradeCandidate from './pages/TradeCandidate'
 import Options from './pages/Options'
@@ -95,6 +96,7 @@ export default function App() {
                 <Route path="/pro-trade" element={<Navigate to="/pro-trade/volume-profile-ce" replace />} />
                 <Route path="/pro-trade/:tab" element={<ProTrade />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
+                <Route path="/auto-trade" element={<AutoTrade />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/backtester" element={<Backtester />} />
                 <Route path="/paper" element={<PaperTrading />} />

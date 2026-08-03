@@ -251,6 +251,15 @@ export default function CommandCenter() {
   })
   const oslAvailableExpiries = oslExpiriesQuery.data?.expiries ?? []
 
+  // Clear the selection immediately on symbol/instrument change so a stale
+  // expiry list from the PREVIOUS symbol (e.g. NIFTY's weekly dates) can
+  // never be submitted for a DIFFERENT symbol (e.g. BANKNIFTY, monthly-only)
+  // while the fresh list is still loading.
+  useEffect(() => {
+    setOslSelectedExpiries([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oslPrimarySymbol, oslInstrumentType])
+
   useEffect(() => {
     if (oslAvailableExpiries.length) setOslSelectedExpiries(oslAvailableExpiries)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,6 +307,7 @@ export default function CommandCenter() {
       if (tab === 'option_short_long') {
         const symbols = oslInstrumentType === 'Index' ? oslIndices : oslStockSymbols
         if (!symbols.length) throw new Error('Pick at least one index, or add a stock symbol')
+        if (oslExpiriesQuery.isFetching) throw new Error('Still loading expiries for this symbol — try again in a moment.')
         if (!oslSelectedExpiries.length) throw new Error('Select at least one expiry')
         return runOptionShortLong({ symbols, is_index: oslInstrumentType === 'Index', expiries: oslSelectedExpiries })
       }

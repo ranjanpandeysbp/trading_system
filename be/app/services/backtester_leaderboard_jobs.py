@@ -57,6 +57,7 @@ def run_backtester_job(
     costs_pct: float | None,
     bars: int = 350,
     forward_bars: int = 10,
+    direction: str = "both",
     report_name: str | None = None,
     user_id: int | None = None,
 ) -> None:
@@ -80,7 +81,7 @@ def run_backtester_job(
                 result = await service.run(
                     tickers, strategy_ids,
                     asset_class=asset_class, timeframe=timeframe, period=period, costs_pct=costs_pct,
-                    bars=bars, forward_bars=forward_bars,
+                    bars=bars, forward_bars=forward_bars, direction=direction,
                     progress_cb=lambda p, note: update_progress(job_id, p, note),
                 )
 

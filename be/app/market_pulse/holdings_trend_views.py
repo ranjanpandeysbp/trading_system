@@ -125,8 +125,53 @@ def _entity_trends(
     return entity_raw, per_scheme, overall
 
 
+_TREND_VERB = {"INCREASING": "increased", "DECREASING": "decreased", "STABLE": "remained unchanged", "MIXED": "was mixed"}
+
+
+def _entity_label(row: dict) -> str:
+    return str(row.get("stock") or row.get("sector") or "this holding")
+
+
+def _per_scheme_summary_sentence(row: dict) -> str:
+    """Plain-English one-liner: did this fund/ETF's stake in this stock (or
+    sector) increase, decrease, or stay the same over the period."""
+    trend = row.get("trend", "STABLE")
+    verb = _TREND_VERB.get(trend, "changed")
+    scheme = row.get("scheme_name") or "This fund/ETF"
+    entity = _entity_label(row)
+    if trend == "STABLE":
+        return f"{scheme}'s stake in {entity} {verb} at {row.get('last_pct')}%."
+    return f"{scheme}'s stake in {entity} {verb} from {row.get('first_pct')}% to {row.get('last_pct')}% ({row.get('change_pct'):+.2f}pp)."
+
+
+def _overall_summary_sentence(row: dict) -> str:
+    """Plain-English one-liner combining every tracked fund/ETF's stake
+    change in this stock (or sector) into a single net read."""
+    trend = row.get("overall_trend", "STABLE")
+    verb = _TREND_VERB.get(trend, "changed")
+    entity = _entity_label(row)
+    n = int(row.get("n_schemes") or 0)
+    inc, dec, stable = int(row.get("schemes_increasing") or 0), int(row.get("schemes_decreasing") or 0), int(row.get("schemes_stable") or 0)
+    avg = row.get("avg_change_pct") or 0.0
+    return (
+        f"{entity}: combined stake across {n} fund(s)/ETF(s) {verb} "
+        f"({inc} increasing, {dec} decreasing, {stable} stable; {avg:+.2f}pp average change)."
+    )
+
+
+def _attach_summary_column(df: pd.DataFrame | None, sentence_fn) -> pd.DataFrame | None:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    out["summary"] = out.apply(lambda r: sentence_fn(r.to_dict()), axis=1)
+    return out
+
+
 def attach_sector_views(result: dict) -> dict:
-    """Add sector-wise frames onto an existing stock-level analysis result dict."""
+    """Add sector-wise frames onto an existing stock-level analysis result
+    dict, and a plain-English `summary` column onto every per-scheme/overall
+    trend table (stock- and sector-level) — the at-a-glance answer to
+    "did this fund/ETF's stake increase, decrease, or stay the same"."""
     if not result or result.get("error"):
         return result
     raw = result.get("raw")
@@ -134,6 +179,8 @@ def attach_sector_views(result: dict) -> dict:
         result["raw_sector"] = pd.DataFrame()
         result["per_scheme_sector"] = pd.DataFrame()
         result["overall_sector"] = pd.DataFrame()
+        result["per_scheme"] = _attach_summary_column(result.get("per_scheme"), _per_scheme_summary_sentence)
+        result["overall"] = _attach_summary_column(result.get("overall"), _overall_summary_sentence)
         return result
 
     scheme_names = result.get("scheme_names") or {}
@@ -144,6 +191,8 @@ def attach_sector_views(result: dict) -> dict:
     if not raw_sector.empty:
         raw_sector = raw_sector.rename(columns={"sector": "stock"})
     result["raw_sector"] = raw_sector
-    result["per_scheme_sector"] = per_sector
-    result["overall_sector"] = overall_sector
+    result["per_scheme_sector"] = _attach_summary_column(per_sector, _per_scheme_summary_sentence)
+    result["overall_sector"] = _attach_summary_column(overall_sector, _overall_summary_sentence)
+    result["per_scheme"] = _attach_summary_column(result.get("per_scheme"), _per_scheme_summary_sentence)
+    result["overall"] = _attach_summary_column(result.get("overall"), _overall_summary_sentence)
     return result

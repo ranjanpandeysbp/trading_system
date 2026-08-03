@@ -698,7 +698,11 @@ class CommandCenterService:
     ) -> dict[str, Any]:
         from datetime import date as date_cls
 
-        from app.market_pulse.india_fii_dii_holdings_engine import analyze_tickers_shareholding
+        from app.market_pulse.india_fii_dii_holdings_engine import (
+            FII_DII_HOLDINGS_AI_SYSTEM,
+            analyze_tickers_shareholding,
+            build_fii_dii_holdings_ai_prompt,
+        )
 
         def _parse(s: str) -> date_cls:
             return date_cls.fromisoformat(str(s).strip()[:10])
@@ -713,7 +717,12 @@ class CommandCenterService:
         def _run():
             return analyze_tickers_shareholding(resolved, fd, td)
 
-        return json_safe(await asyncio.to_thread(_run))
+        result = await asyncio.to_thread(_run)
+        if not result.get("error"):
+            for r in result.get("results") or []:
+                r["ai_context"] = build_fii_dii_holdings_ai_prompt(r)
+            result["ai_system_prompt"] = FII_DII_HOLDINGS_AI_SYSTEM
+        return json_safe(result)
 
     async def stock_upgrade_downgrade(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
         from app.market_pulse.stock_upgrade_downgrade_engine import scan_tickers

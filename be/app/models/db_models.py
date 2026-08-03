@@ -349,3 +349,47 @@ class TradeCandidateHit(Base):
     bar_asof: Mapped[str] = mapped_column(String(64), default="")
     dedupe_key: Mapped[str] = mapped_column(String(256), index=True, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SuggestionEngineSchedule(Base):
+    """Auto Trade — per-user automation settings for the suggestion engine
+    sweep (interval, enabled, and the last/next run bookkeeping the UI shows).
+    """
+    __tablename__ = "suggestion_engine_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, unique=True)
+    enabled: Mapped[bool] = mapped_column(default=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
+    universe_cap: Mapped[int] = mapped_column(Integer, default=20)
+    top_n: Mapped[int] = mapped_column(Integer, default=8)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TradeSuggestion(Base):
+    """One Auto Trade suggestion — a single ranked row from a sweep batch for
+    one (asset_class, style) bucket."""
+    __tablename__ = "trade_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    batch_id: Mapped[str] = mapped_column(String(40), index=True)
+    asset_class: Mapped[str] = mapped_column(String(16), index=True)
+    style: Mapped[str] = mapped_column(String(16), index=True)
+    ticker: Mapped[str] = mapped_column(String(32))
+    action: Mapped[str] = mapped_column(String(8))  # BUY | SELL | WAIT
+    confidence_pct: Mapped[float] = mapped_column(Float)
+    grade: Mapped[str] = mapped_column(String(1))  # A | B | C
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    target_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reasons_json: Mapped[str] = mapped_column(Text, default="[]")
+    plain_english: Mapped[str] = mapped_column(Text, default="")
+    rank: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

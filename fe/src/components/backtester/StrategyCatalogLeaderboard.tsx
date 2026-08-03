@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Play, Save, Trash2, FolderOpen, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2, Play, Save, ShoppingCart, Trash2, FolderOpen, X } from 'lucide-react'
 import {
   apiErrorMessage,
   deleteBacktesterReport,
@@ -9,8 +9,10 @@ import {
   fetchBacktesterLeaderboardJobs,
   fetchBacktesterReport,
   fetchBacktesterReports,
+  runScan,
   saveBacktesterReport,
   startBacktesterLeaderboardJob,
+  type ScanSignal,
   type StrategyCategoryInfo,
 } from '../../api/client'
 import { Card } from '../ui/Card'
@@ -22,6 +24,7 @@ import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../command-center/AssetClassTickerPicker'
 import { AdvancedBacktestReportPanel, type AdvancedReport } from './AdvancedBacktestReportPanel'
+import { PlaceTradeModal } from './PlaceTradeModal'
 import { backtestRecommendation } from '../../lib/backtestRecommendation'
 
 const PERIOD_OPTIONS = [
@@ -47,6 +50,21 @@ const TIMEFRAME_OPTIONS = [
   { value: '1wk', label: '1 week' },
   { value: '1M', label: '1 month' },
 ]
+
+const DIRECTION_OPTIONS: Array<{ value: 'both' | 'long_only' | 'short_only'; label: string }> = [
+  { value: 'both', label: 'Both — long & short' },
+  { value: 'long_only', label: 'Long only' },
+  { value: 'short_only', label: 'Short only' },
+]
+
+// Reference only — typical timeframe granularity by trading style per market.
+// Actual best timeframe still depends on the specific strategy and instrument.
+const TIMEFRAME_GUIDE: Record<string, { scalping: string; intraday: string; swing: string; note?: string }> = {
+  india: { scalping: '1m – 3m', intraday: '5m – 15m', swing: '1d – 1wk', note: 'NSE cash session 9:15–15:30 IST — scalping/intraday timeframes only make sense within that window.' },
+  us: { scalping: '1m – 5m', intraday: '15m – 1h', swing: '1d – 1wk', note: 'Pre/post-market volatility can distort 1m data — 5m+ is usually cleaner outside the opening 30 minutes.' },
+  crypto: { scalping: '1m – 5m', intraday: '15m – 1h', swing: '4h – 1d', note: 'Trades 24/7 — swing timeframes skew a bit higher (4h/1d) since there is no daily close to anchor on.' },
+  commodity: { scalping: '1m – 5m', intraday: '15m – 1h', swing: '1d – 1wk', note: 'Session gaps and rollover can add noise on sub-5m timeframes near contract expiry.' },
+}
 
 interface BtRow {
   ticker: string
@@ -140,6 +158,24 @@ function fmtPct(v: number | null | undefined, digits = 2): string {
   return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(digits)}%` : '—'
 }
 
+const WIN_RATE_BUCKETS = [
+  { id: 'elite', label: 'Win rate 70% and above', min: 70, defaultOpen: true },
+  { id: 'strong', label: 'Win rate 50% – 70%', min: 50, defaultOpen: true },
+  { id: 'moderate', label: 'Win rate 25% – 50%', min: 25, defaultOpen: false },
+  { id: 'weak', label: 'Win rate below 25%', min: -Infinity, defaultOpen: false },
+] as const
+
+function bucketForWinRate(winRate: number | null | undefined): (typeof WIN_RATE_BUCKETS)[number] {
+  const wr = winRate ?? -1
+  return WIN_RATE_BUCKETS.find((b) => wr >= b.min) ?? WIN_RATE_BUCKETS[WIN_RATE_BUCKETS.length - 1]
+}
+
+function signalBadgeClass(action: string): string {
+  if (action === 'BUY') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  if (action === 'SELL') return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+  return 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+}
+
 function formatWhen(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
@@ -169,6 +205,7 @@ export function StrategyCatalogLeaderboard({
   const [period, setPeriod] = useState('2y')
   const [bars, setBars] = useState(350)
   const [forwardBars, setForwardBars] = useState(10)
+  const [direction, setDirection] = useState<'both' | 'long_only' | 'short_only'>('both')
   const [runInBackground, setRunInBackground] = useState(false)
   const [bgReportName, setBgReportName] = useState('')
   /** Foreground job — keeps live result on this page. */
@@ -356,6 +393,7 @@ export function StrategyCatalogLeaderboard({
       period,
       bars,
       forward_bars: forwardBars,
+      direction,
       run_in_background: runInBackground,
       report_name: runInBackground ? bgReportName.trim() : undefined,
     })
@@ -413,7 +451,28 @@ export function StrategyCatalogLeaderboard({
           <FormField label="Forward bars (target window)">
             <Input type="number" min={3} max={60} value={forwardBars} onChange={(e) => setForwardBars(Number(e.target.value))} />
           </FormField>
+          <FormField label="Trade direction">
+            <Select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>
+              {DIRECTION_OPTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </Select>
+          </FormField>
         </div>
+
+        {TIMEFRAME_GUIDE[assetClass] && (
+          <div className="mt-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3 text-xs text-slate-400">
+            <p className="mb-1.5 font-medium uppercase tracking-wider text-slate-500">
+              Typical timeframes for {assetClass === 'us' ? 'US' : assetClass === 'india' ? 'India' : assetClass}
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1">
+              <span>Scalping: <strong className="text-slate-300">{TIMEFRAME_GUIDE[assetClass].scalping}</strong></span>
+              <span>Intraday: <strong className="text-slate-300">{TIMEFRAME_GUIDE[assetClass].intraday}</strong></span>
+              <span>Swing: <strong className="text-slate-300">{TIMEFRAME_GUIDE[assetClass].swing}</strong></span>
+            </div>
+            {TIMEFRAME_GUIDE[assetClass].note && (
+              <p className="mt-1.5 text-slate-500">{TIMEFRAME_GUIDE[assetClass].note}</p>
+            )}
+          </div>
+        )}
 
         <FormField label={`Strategies (${selectedStrategies.length} of ${categories.reduce((n, c) => n + c.strategy_count, 0)} selected)`}>
           <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/20 p-3">
@@ -707,8 +766,13 @@ function BacktesterResults({
   onClose?: () => void
 }) {
   const rows = data.rows ?? []
-  const best = data.best_per_ticker ?? []
+  const assetClass = (data.asset_class as 'india' | 'us' | 'crypto' | 'commodity' | undefined) ?? 'india'
   const [focusKey, setFocusKey] = useState<string | null>(null)
+  const [clickedKeys, setClickedKeys] = useState<Set<string>>(new Set())
+  const [openBuckets, setOpenBuckets] = useState<Set<string>>(
+    () => new Set(WIN_RATE_BUCKETS.filter((b) => b.defaultOpen).map((b) => b.id)),
+  )
+  const [placeTradeRow, setPlaceTradeRow] = useState<BtRow | null>(null)
   const { sorted, sortKey, sortDir, handleSort } = useSort(rows, {
     ticker: (r) => r.ticker,
     strategy: (r) => r.strategy_label,
@@ -719,13 +783,66 @@ function BacktesterResults({
     drawdown: (r) => r.max_drawdown_pct,
     sharpe: (r) => r.sharpe_ratio,
     rank_score: (r) => r.rank_score,
-  }, 'rank_score', 'desc')
+  }, 'win_rate', 'desc')
+
+  // Best-per-ticker, sorted win% descending then grouped into collapsible bands.
+  const best = useMemo(
+    () => [...(data.best_per_ticker ?? [])].sort((a, b) => (b.win_rate_pct ?? -1) - (a.win_rate_pct ?? -1)),
+    [data.best_per_ticker],
+  )
+  const bucketed = useMemo(() => {
+    const groups = new Map<string, BtRow[]>(WIN_RATE_BUCKETS.map((b) => [b.id, []]))
+    for (const r of best) groups.get(bucketForWinRate(r.win_rate_pct).id)?.push(r)
+    return groups
+  }, [best])
+
+  const toggleBucket = (id: string) =>
+    setOpenBuckets((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const liveSignalQueries = useQueries({
+    queries: best.map((r) => {
+      const key = `${r.ticker}::${r.strategy_id}`
+      return {
+        queryKey: ['live-signal', r.ticker, r.strategy_id, r.timeframe, assetClass],
+        queryFn: () =>
+          runScan({
+            tickers: [r.ticker],
+            strategies: [r.strategy_id],
+            timeframes: [r.timeframe || '1d'],
+            asset_class: assetClass,
+          }),
+        enabled: clickedKeys.has(key),
+        staleTime: 5 * 60_000,
+        retry: false,
+      }
+    }),
+  })
+  const liveSignalByKey = useMemo(() => {
+    const map = new Map<string, (typeof liveSignalQueries)[number]>()
+    best.forEach((r, i) => map.set(`${r.ticker}::${r.strategy_id}`, liveSignalQueries[i]))
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [best, liveSignalQueries])
+
+  const selectCard = (key: string) => {
+    setFocusKey(key)
+    setClickedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
+  }
 
   const focused = focusKey
     ? rows.find((r) => `${r.ticker}::${r.strategy_id}` === focusKey)
     : null
-  const advanced: AdvancedReport | null | undefined =
-    focused?.advanced || data.advanced_report || best[0]?.advanced || sorted[0]?.advanced
+  // Only fall back to a different row's report when nothing is focused —
+  // falling back while a specific ticker is focused would silently show a
+  // different ticker's deep-dive under a caption claiming it's the focused one.
+  const defaultAdvanced: AdvancedReport | null | undefined =
+    data.advanced_report || best[0]?.advanced || sorted[0]?.advanced
+  const advanced: AdvancedReport | null | undefined = focused ? focused.advanced : defaultAdvanced
 
   return (
     <div className="space-y-4">
@@ -752,48 +869,137 @@ function BacktesterResults({
           </div>
         </div>
 
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Best strategy per ticker</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {best.map((r) => (
-            <button
-              key={r.ticker}
-              type="button"
-              onClick={() => setFocusKey(`${r.ticker}::${r.strategy_id}`)}
-              className={`rounded-lg border p-3 text-left transition ${
-                focusKey === `${r.ticker}::${r.strategy_id}`
-                  ? 'border-teal-400 bg-teal-500/10'
-                  : 'border-teal-500/30 bg-teal-500/5 hover:border-teal-400/60'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-wider text-teal-400">{r.ticker}</p>
-                <AddToWatchlistButton ticker={r.ticker} compact />
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+          Best strategy per ticker — sorted by win rate, click a card to check today's live signal
+        </p>
+        <div className="space-y-3">
+          {WIN_RATE_BUCKETS.map((bucket) => {
+            const rowsInBucket = bucketed.get(bucket.id) ?? []
+            if (!rowsInBucket.length) return null
+            const open = openBuckets.has(bucket.id)
+            return (
+              <div key={bucket.id} className="rounded-xl border border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => toggleBucket(bucket.id)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-200"
+                >
+                  <span>{bucket.label} ({rowsInBucket.length})</span>
+                  {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                {open && (
+                  <div className="grid gap-3 border-t border-slate-800/60 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {rowsInBucket.map((r) => {
+                      const key = `${r.ticker}::${r.strategy_id}`
+                      const sigQ = liveSignalByKey.get(key)
+                      const sig: ScanSignal | undefined = sigQ?.data?.signals?.[0]
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => selectCard(key)}
+                          className={`rounded-lg border p-3 text-left transition ${
+                            focusKey === key
+                              ? 'border-teal-400 bg-teal-500/10'
+                              : 'border-teal-500/30 bg-teal-500/5 hover:border-teal-400/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs uppercase tracking-wider text-teal-400">{r.ticker}</p>
+                            <AddToWatchlistButton ticker={r.ticker} compact />
+                          </div>
+                          <p className="mt-1 font-medium text-white">{r.strategy_label}</p>
+                          <p className="text-xs text-slate-500">{r.category} · {r.timeframe}</p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
+                            <span>Return {fmtPct(r.total_return_pct)}</span>
+                            <span>Win {fmtPct(r.win_rate_pct, 0)}</span>
+                            <span>{r.num_trades} trades</span>
+                            {r.sharpe_ratio != null && <span>Sharpe {r.sharpe_ratio.toFixed(2)}</span>}
+                            {r.profit_factor != null && <span>PF {r.profit_factor.toFixed(2)}</span>}
+                          </div>
+                          {r.thin_sample && (
+                            <p className="mt-1 text-[11px] text-amber-400">Thin sample — treat with caution ({'<'}10 trades)</p>
+                          )}
+                          <p className="mt-2 border-t border-teal-500/20 pt-2 text-[11px] leading-relaxed text-slate-400">
+                            {backtestRecommendation({
+                              num_trades: r.num_trades, win_rate_pct: r.win_rate_pct,
+                              total_return_pct: r.total_return_pct, max_drawdown_pct: r.max_drawdown_pct,
+                            })}
+                          </p>
+
+                          <div className="mt-2 flex items-center justify-between gap-2 border-t border-teal-500/20 pt-2">
+                            {sigQ?.isFetching ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                                <Loader2 size={12} className="animate-spin" /> Checking live signal…
+                              </span>
+                            ) : sig ? (
+                              <div className="flex flex-col gap-1">
+                                <span className={`inline-flex w-fit items-center gap-1 rounded-lg border px-2 py-0.5 text-xs font-semibold ${signalBadgeClass(sig.action)}`}>
+                                  {sig.action === 'HOLD' ? 'WAIT' : sig.action} · {sig.confidence_pct.toFixed(0)}% confidence
+                                </span>
+                                {sig.action !== 'HOLD' && (
+                                  <span className="text-[11px] text-slate-500">
+                                    SL {sig.sl_pct.toFixed(1)}% · TP {sig.tp_pct.toFixed(1)}%
+                                  </span>
+                                )}
+                              </div>
+                            ) : sigQ?.isError ? (
+                              <span className="text-xs text-rose-400">Live signal unavailable</span>
+                            ) : (
+                              <span className="text-xs text-slate-600">Click for live signal</span>
+                            )}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); setPlaceTradeRow(r) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setPlaceTradeRow(r) } }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/50 px-2 py-1 text-[11px] font-medium text-slate-200 hover:border-blue-500/50 hover:bg-slate-800 hover:text-white"
+                            >
+                              <ShoppingCart size={12} /> Paper trade
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-              <p className="mt-1 font-medium text-white">{r.strategy_label}</p>
-              <p className="text-xs text-slate-500">{r.category} · {r.timeframe}</p>
-              <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
-                <span>Return {fmtPct(r.total_return_pct)}</span>
-                <span>Win {fmtPct(r.win_rate_pct, 0)}</span>
-                <span>{r.num_trades} trades</span>
-                {r.sharpe_ratio != null && <span>Sharpe {r.sharpe_ratio.toFixed(2)}</span>}
-                {r.profit_factor != null && <span>PF {r.profit_factor.toFixed(2)}</span>}
-              </div>
-              {r.thin_sample && (
-                <p className="mt-1 text-[11px] text-amber-400">Thin sample — treat with caution ({'<'}10 trades)</p>
-              )}
-              <p className="mt-2 border-t border-teal-500/20 pt-2 text-[11px] leading-relaxed text-slate-400">
-                {backtestRecommendation({
-                  num_trades: r.num_trades, win_rate_pct: r.win_rate_pct,
-                  total_return_pct: r.total_return_pct, max_drawdown_pct: r.max_drawdown_pct,
-                })}
-              </p>
-            </button>
-          ))}
+            )
+          })}
           {!best.length && (
             <p className="text-sm text-slate-500">No strategy produced a completed trade for any ticker in this run.</p>
           )}
         </div>
       </Card>
+
+      {placeTradeRow && (
+        <PlaceTradeModal
+          ticker={placeTradeRow.ticker}
+          assetClass={assetClass}
+          strategyLabel={placeTradeRow.strategy_label}
+          defaultSide={(() => {
+            const sig = liveSignalByKey.get(`${placeTradeRow.ticker}::${placeTradeRow.strategy_id}`)?.data?.signals?.[0]
+            return sig?.action === 'SELL' ? 'sell' : 'buy'
+          })()}
+          defaultPrice={liveSignalByKey.get(`${placeTradeRow.ticker}::${placeTradeRow.strategy_id}`)?.data?.signals?.[0]?.price}
+          defaultSlPct={liveSignalByKey.get(`${placeTradeRow.ticker}::${placeTradeRow.strategy_id}`)?.data?.signals?.[0]?.sl_pct}
+          defaultTpPct={liveSignalByKey.get(`${placeTradeRow.ticker}::${placeTradeRow.strategy_id}`)?.data?.signals?.[0]?.tp_pct}
+          onClose={() => setPlaceTradeRow(null)}
+        />
+      )}
+
+      {focused && !focused.advanced && (
+        <Card>
+          <p className="text-sm text-slate-400">
+            No detailed trade breakdown available for{' '}
+            <span className="text-slate-200">{focused.ticker} · {focused.strategy_label}</span>
+            {focused.num_trades < 1 ? ' — no completed trades in this run.' : ' — advanced report was not generated for this result.'}
+          </p>
+          <button type="button" className="mt-2 text-xs text-teal-400 hover:underline" onClick={() => setFocusKey(null)}>
+            Reset to top-ranked
+          </button>
+        </Card>
+      )}
 
       {advanced && (
         <Card>

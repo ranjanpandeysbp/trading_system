@@ -259,6 +259,7 @@ async def resume_orphaned_jobs() -> int:
                         asset_class=payload.get("asset_class", "india"), timeframe=payload.get("timeframe"),
                         period=payload.get("period"), costs_pct=payload.get("costs_pct"),
                         bars=payload.get("bars", 350), forward_bars=payload.get("forward_bars", 10),
+                        direction=payload.get("direction", "both"),
                         report_name=payload.get("report_name"), user_id=row.user_id,
                     )
                 else:

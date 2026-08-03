@@ -30,6 +30,7 @@ export type OverallRow = {
   avg_change_pct?: number
   total_change_pct?: number
   overall_trend?: string
+  summary?: string
 }
 
 export type PerSchemeRow = {
@@ -42,6 +43,7 @@ export type PerSchemeRow = {
   last_pct?: number
   change_pct?: number
   trend?: string
+  summary?: string
 }
 
 export type RawRow = {
@@ -648,6 +650,7 @@ function EntityPanel({
               <Th>To %</Th>
               <SortableTh active={perSort.sortKey === 'change'} direction={perSort.sortDir} onSort={() => perSort.handleSort('change')}>Δ %</SortableTh>
               <SortableTh active={perSort.sortKey === 'trend'} direction={perSort.sortDir} onSort={() => perSort.handleSort('trend')}>Trend</SortableTh>
+              <Th>Summary</Th>
               {mode === 'stock' && <Th></Th>}
             </tr>
           </thead>
@@ -665,6 +668,7 @@ function EntityPanel({
                   {fmtPct(r.change_pct, 3)}
                 </Td>
                 <Td>{trendBadge(r.trend)}</Td>
+                <Td className="max-w-xs text-xs leading-relaxed text-slate-400">{r.summary ?? '—'}</Td>
                 {mode === 'stock' && r.stock && (
                   <Td>
                     <AddToWatchlistButton

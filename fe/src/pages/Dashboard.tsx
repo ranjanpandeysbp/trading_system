@@ -19,6 +19,7 @@ import { StatCard } from '../components/ui/StatCard'
 import { Card } from '../components/ui/Card'
 import { Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
+import { AutoTradeWidget } from '../components/auto-trade/AutoTradeWidget'
 
 const quickLinks = [
   {
@@ -142,7 +143,11 @@ export default function Dashboard() {
         </div>
       ) : null}
 
-      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="mt-8">
+        <AutoTradeWidget />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {quickLinks.map(({ to, title, description, icon: Icon, color, bg }) => (
           <Link key={to} to={to}>
             <Card hover className="group h-full">

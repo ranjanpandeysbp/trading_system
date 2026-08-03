@@ -250,6 +250,7 @@ def _rolling_sentiment_backtest(
     costs_pct: float,
     warmup: int = 55,
     step: int = 3,
+    direction: str = "both",
 ) -> tuple[dict[str, Any], pd.DataFrame, str | None]:
     work = normalize_ohlcv(df)
     if len(work) < warmup + 10:
@@ -268,7 +269,7 @@ def _rolling_sentiment_backtest(
 
     frame = work.copy()
     frame["signal"] = signals.values
-    stats = backtest_signals(frame, costs_pct=costs_pct)
+    stats = backtest_signals(frame, costs_pct=costs_pct, direction=direction)
     note = "Rolling composite sentiment backtest (bar-by-bar score replay)."
     return stats, frame, note
 
@@ -280,6 +281,7 @@ def _rolling_mtf_backtest(
     costs_pct: float,
     warmup: int | None = None,
     step: int = 3,
+    direction: str = "both",
 ) -> tuple[dict[str, Any], pd.DataFrame, str | None]:
     work = normalize_ohlcv(df)
     min_bars = warmup or max(MTF_MIN_BARS, 60)
@@ -301,7 +303,7 @@ def _rolling_mtf_backtest(
 
     frame = work.copy()
     frame["signal"] = signals.values
-    stats = backtest_signals(frame, costs_pct=costs_pct)
+    stats = backtest_signals(frame, costs_pct=costs_pct, direction=direction)
     note = "Rolling MTF composite score backtest on selected timeframe."
     return stats, frame, note
 
@@ -557,7 +559,7 @@ class EngineBacktestService:
 
             frame = df.copy()
             frame["signal"] = signals.values
-            stats = backtest_signals(frame, costs_pct=costs_pct)
+            stats = backtest_signals(frame, costs_pct=costs_pct, direction=request.direction)
             return frame, stats
 
         frame, stats = await asyncio.to_thread(_run)
@@ -710,7 +712,7 @@ class EngineBacktestService:
             )
             stats = _stats_from_london_trades(trades, costs_pct)
         else:
-            stats = backtest_signals(work, costs_pct=costs_pct)
+            stats = backtest_signals(work, costs_pct=costs_pct, direction=request.direction)
 
         summary = None
         if signal_count == 0:
@@ -767,7 +769,7 @@ class EngineBacktestService:
         work = await asyncio.to_thread(_run)
         work = _normalize_signal_column(work)
         signal_count = int((work["signal"] != 0).sum())
-        stats = backtest_signals(work, costs_pct=costs_pct)
+        stats = backtest_signals(work, costs_pct=costs_pct, direction=request.direction)
         recent_signals = _recent_signals_from_df(work)
 
         summary = None
@@ -1301,10 +1303,12 @@ class EngineBacktestService:
 
         note: str | None = None
         if kind == "rolling_mtf":
-            stats, frame, note = _rolling_mtf_backtest(df, timeframe=request.timeframe, costs_pct=costs_pct)
+            stats, frame, note = _rolling_mtf_backtest(
+                df, timeframe=request.timeframe, costs_pct=costs_pct, direction=request.direction,
+            )
         else:
             stats, frame, note = _rolling_sentiment_backtest(
-                df, market=market, timeframe=request.timeframe, costs_pct=costs_pct,
+                df, market=market, timeframe=request.timeframe, costs_pct=costs_pct, direction=request.direction,
             )
 
         signal_count = int((frame["signal"] != 0).sum())

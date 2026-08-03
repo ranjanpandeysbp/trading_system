@@ -242,6 +242,7 @@ class BacktesterLeaderboardService:
         costs_pct: float | None = None,
         bars: int = _CURATED_BARS,
         forward_bars: int = _CURATED_FORWARD_BARS,
+        direction: str = "both",
         progress_cb: Any = None,
     ) -> dict[str, Any]:
         from app.services.strategy_registry import get_strategy as get_curated_strategy
@@ -282,6 +283,7 @@ class BacktesterLeaderboardService:
                     ticker=ticker, strategy=sid, timeframe=tf, period=per,
                     costs_pct=costs_pct if costs_pct is not None else 0.0008,
                     asset_class=asset_class,
+                    direction=direction,  # type: ignore[arg-type]
                 )
                 try:
                     result = await self.backtest_service.run(req)

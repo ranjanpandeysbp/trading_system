@@ -5,6 +5,7 @@ import { Select } from '../components/ui/Form'
 import { PageHeader } from '../components/ui/PageHeader'
 import { StrategyCatalogLeaderboard } from '../components/backtester/StrategyCatalogLeaderboard'
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
+import { AutoTradeWidget } from '../components/auto-trade/AutoTradeWidget'
 
 type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 
@@ -25,6 +26,8 @@ export default function Backtester() {
         title="Backtester"
         description="Backtest built-in rules, Trading Hubs, TA screeners, and Strategy Lab presets — run live or named background jobs with auto-saved reports"
       />
+
+      <AutoTradeWidget limit={4} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex gap-2">

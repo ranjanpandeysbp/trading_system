@@ -10,11 +10,17 @@ def backtest_signals(
     *,
     period: str | None = None,
     enrich_advanced: bool = True,
+    direction: str = "both",
 ) -> dict:
+    """direction: "both" (default, flips long<->short on opposite signals),
+    "long_only" (opposite signal just exits to flat, never opens a short), or
+    "short_only" (opposite signal just exits to flat, never opens a long)."""
     data = df.copy().dropna(subset=["close"])
     position = 0
     entry_price = None
     trades = []
+    allow_long = direction in ("both", "long_only")
+    allow_short = direction in ("both", "short_only")
 
     for ts, row in data.iterrows():
         sig = row[signal_col]
@@ -23,14 +29,20 @@ def backtest_signals(
             if position == -1:
                 pnl = (entry_price - price) / entry_price - costs_pct
                 trades.append({"exit_time": ts, "side": "short", "pnl_pct": pnl, "entry_price": entry_price, "exit_price": price})
-            position = 1
-            entry_price = price
+                position = 0
+                entry_price = None
+            if allow_long:
+                position = 1
+                entry_price = price
         elif sig == -1 and position >= 0:
             if position == 1:
                 pnl = (price - entry_price) / entry_price - costs_pct
                 trades.append({"exit_time": ts, "side": "long", "pnl_pct": pnl, "entry_price": entry_price, "exit_price": price})
-            position = -1
-            entry_price = price
+                position = 0
+                entry_price = None
+            if allow_short:
+                position = -1
+                entry_price = price
 
     if position != 0 and entry_price is not None:
         last_price = data["close"].iloc[-1]

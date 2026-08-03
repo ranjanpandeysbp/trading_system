@@ -47,6 +47,25 @@ const TF_REFRESH_MS: Record<string, number> = {
   '1M': 2_592_000_000,
 }
 
+// Backend timestamps are naive UTC (`datetime.utcnow()`, no "Z"/offset suffix) —
+// append "Z" so Date parses them as UTC, then format explicitly in IST so the
+// displayed time is correct regardless of the viewing browser's own timezone.
+function formatIST(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`)
+  if (Number.isNaN(d.getTime())) return iso
+  return `${d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  })} IST`
+}
+
 const TABS = [
   { id: 'configure', label: 'Configure' },
   { id: 'signals-crypto', label: 'Live Signals · Crypto' },
@@ -488,7 +507,7 @@ function TriggerHistoryPanel({ assetClass }: { assetClass: AssetClassFilter }) {
                 <Td>
                   <input type="checkbox" checked={selected.includes(h.id)} onChange={() => toggle(h.id)} aria-label={`Select hit ${h.id}`} />
                 </Td>
-                <Td className="text-xs">{h.created_at ? h.created_at.replace('T', ' ').slice(0, 19) : '—'}</Td>
+                <Td className="text-xs">{formatIST(h.created_at)}</Td>
                 <Td>{h.candidate_name}</Td>
                 <Td className="text-xs">{h.strategy_label}</Td>
                 <Td className="font-medium">{h.ticker}</Td>

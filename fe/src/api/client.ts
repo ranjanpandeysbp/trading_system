@@ -223,6 +223,7 @@ export const startBacktesterLeaderboardJob = (payload: {
   costs_pct?: number
   bars?: number
   forward_bars?: number
+  direction?: 'both' | 'long_only' | 'short_only'
   report_name?: string
   run_in_background?: boolean
 }) => api.post('/backtester/leaderboard/start', payload).then((r) => r.data)
@@ -976,6 +977,56 @@ export const closeEtfShopLot = (lotId: number, payload: { sale_price: number; sa
 
 export const runEtfShopDaily = () =>
   api.post('/etf-ta/stf-shop/daily', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export interface AutoTradeSchedule {
+  enabled: boolean
+  interval_minutes: number
+  universe_cap: number
+  top_n: number
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: string | null
+}
+
+export interface AutoTradeSuggestion {
+  id: number
+  batch_id: string
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  style: 'scalping' | 'intraday' | 'swing' | 'investing'
+  ticker: string
+  action: 'BUY' | 'SELL' | 'WAIT'
+  confidence_pct: number
+  grade: 'A' | 'B' | 'C'
+  entry_price: number | null
+  sl_pct: number | null
+  tp_pct: number | null
+  stop_price: number | null
+  target_price: number | null
+  reasons: string[]
+  plain_english: string
+  rank: number
+  created_at: string
+}
+
+export const fetchAutoTradeSchedule = () =>
+  api.get<AutoTradeSchedule>('/suggestions/schedule', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const updateAutoTradeSchedule = (payload: { interval_minutes?: number; universe_cap?: number; top_n?: number }) =>
+  api.put<AutoTradeSchedule>('/suggestions/schedule', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const startAutoTradeSchedule = () =>
+  api.post<AutoTradeSchedule>('/suggestions/schedule/start', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const stopAutoTradeSchedule = () =>
+  api.post<AutoTradeSchedule>('/suggestions/schedule/stop', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runAutoTradeNow = () =>
+  api.post('/suggestions/schedule/run-now', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchAutoTradeSuggestions = (params?: { asset_class?: string; style?: string }) =>
+  api
+    .get<{ suggestions: AutoTradeSuggestion[] }>('/suggestions', { params, timeout: MP_TIMEOUT })
+    .then((r) => r.data)
 
 export interface WatchlistInfo {
   id: number
