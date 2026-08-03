@@ -709,3 +709,109 @@ export function ZeroToHeroPanel({ data }: { data: Row }) {
     </div>
   )
 }
+
+function marketViewBadgeClass(view: string): string {
+  if (view.startsWith('HEALTHY')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  if (view.startsWith('BEARISH') || view.startsWith('BULLISH')) return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+  if (view.startsWith('CAUTIOUS')) return 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+  return 'border-slate-700/60 bg-slate-800/50 text-slate-300'
+}
+
+function riskStanceBadgeClass(stance: string): string {
+  if (stance === 'HIGH') return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+  if (stance === 'MODERATE') return 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+  return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+}
+
+export function MarketPredictionPanel({ data }: { data: Row }) {
+  if (data.error) return <p className="text-sm text-rose-400">{String(data.error)}</p>
+
+  const marketView = String(data.market_view ?? '—')
+  const riskStance = String(data.risk_stance ?? '—')
+  const warnings = (data.warnings as string[]) ?? []
+  const confirmations = (data.confirmations as string[]) ?? []
+  const vix = (data.vix as Row) ?? {}
+  const lateJump = (data.late_session_jump as Row) ?? {}
+  const manualBasis = data.manual_futures_basis as Row | null
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold ${marketViewBadgeClass(marketView)}`}>
+            {marketView}
+          </span>
+          <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-medium ${riskStanceBadgeClass(riskStance)}`}>
+            {riskStance} risk
+          </span>
+          <span className="text-xs text-slate-500">
+            Composite score {fmtNum(data.composite_score, 1)} · {String(data.symbol ?? '')} {fmtNum(data.spot)}
+            {data.price_chg_pct != null && <> ({fmtNum(data.price_chg_pct)}%)</>}
+          </span>
+        </div>
+        {data.trading_guidance != null && (
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">{String(data.trading_guidance)}</p>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">India VIX</p>
+          <p className="mt-1 text-lg font-semibold text-white">{vix.available ? fmtNum(vix.level) : '—'}</p>
+          {Boolean(vix.available) && vix.change_pct != null && (
+            <p className={`text-xs ${Number(vix.change_pct) >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {fmtNum(vix.change_pct)}% today
+            </p>
+          )}
+        </div>
+        <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Late-session move</p>
+          <p className="mt-1 text-lg font-semibold text-white">{lateJump.available ? `${fmtNum(lateJump.last_move_pct)}%` : '—'}</p>
+          {Boolean(lateJump.available) && (
+            <p className={`text-xs ${lateJump.unusual ? 'text-amber-400' : 'text-slate-500'}`}>
+              {lateJump.unusual ? 'Unusual' : 'Normal'} ({fmtNum(lateJump.zscore)}σ)
+            </p>
+          )}
+        </div>
+        <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+            {manualBasis ? 'Futures basis (your input)' : 'Synthetic futures (options-implied)'}
+          </p>
+          <p className="mt-1 text-lg font-semibold text-white">
+            {manualBasis
+              ? `${fmtNum(manualBasis.basis_pct)}%`
+              : (data.premium as Row | undefined)?.available
+                ? `${fmtNum((data.premium as Row).premium_pct)}%`
+                : '—'}
+          </p>
+        </div>
+      </div>
+
+      {warnings.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-rose-400">⚠ Divergence warnings</p>
+          <div className="space-y-1.5">
+            {warnings.map((w) => (
+              <p key={w} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs leading-relaxed text-rose-200/90">
+                {w}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {confirmations.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-emerald-400">✓ Confirming signals</p>
+          <div className="space-y-1.5">
+            {confirmations.map((c) => (
+              <p key={c} className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs leading-relaxed text-emerald-200/90">
+                {c}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -46,6 +46,10 @@ from app.models.schemas import (
     CommandCenterMegaAdviceRequest,
     CommandCenterMfHoldingsRequest,
     SaveMfHoldingsReportRequest,
+    CommandCenterBestMfRequest,
+    SaveBestMfReportRequest,
+    TradingHubBackgroundScanRequest,
+    SaveTradingHubReportRequest,
     CommandCenterEtfIndiaHoldingsRequest,
     CommandCenterEtfYahooHoldingsRequest,
     CommandCenterIndiaFiiDiiHoldingsRequest,
@@ -74,6 +78,7 @@ from app.models.schemas import (
     OptionsDoubleCalendarPnlRequest,
     OptionsDoubleCalendarRequest,
     OptionsGokulChhabraRequest,
+    OptionsMarketPredictionRequest,
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
@@ -300,12 +305,15 @@ async def list_markets():
 
 @router.get("/market/marquee")
 async def market_marquee(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Popular India / US / Crypto / Commodity LTPs for the header marquee."""
     from app.services.marquee_quotes_service import fetch_marquee_quotes
 
-    return await fetch_marquee_quotes()
+    settings = SettingsService(db)
+    token = await settings.get_groww_token() or ""
+    return await fetch_marquee_quotes(groww_token=token)
 
 
 @router.get("/ai/config", response_model=AIConfigResponse)
@@ -1567,6 +1575,144 @@ async def command_center_mf_holdings_delete_report(
     return await service.delete_mutual_fund_holdings_report(report_id, user_id=current_user.id)
 
 
+@router.get("/best-mf/options")
+async def best_mf_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AMC list is shared with Mutual Fund Holdings — GET /command-center/mutual-fund/amcs."""
+    return await CommandCenterService(SettingsService(db)).best_mf_options()
+
+
+@router.post("/best-mf/run")
+async def best_mf_run(
+    payload: CommandCenterBestMfRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).best_mf_run(
+        payload.amc_ids, payload.asset_type_id,
+        category_filter=payload.category_filter, rank_period=payload.rank_period, top_n=payload.top_n,
+    )
+
+
+@router.post("/best-mf/start")
+async def best_mf_start(
+    payload: CommandCenterBestMfRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the ranking run as a background job and return immediately
+    with a job id. Poll GET /best-mf/jobs/{id} for progress and result.
+
+    When ``run_in_background`` is true (or ``report_name`` is set), the
+    finished result is auto-saved under that name for later viewing.
+    """
+    from app.services.best_mf_jobs import BEST_MF_SOURCE, create_job, run_best_mf_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=BEST_MF_SOURCE,
+        meta={
+            "amc_count": len(payload.amc_ids),
+            "asset_type_id": payload.asset_type_id,
+            "category_filter": payload.category_filter,
+            "rank_period": payload.rank_period,
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "amc_ids": payload.amc_ids,
+            "asset_type_id": payload.asset_type_id,
+            "category_filter": payload.category_filter,
+            "rank_period": payload.rank_period,
+            "top_n": payload.top_n,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_best_mf_job(
+        job.id, payload.amc_ids, payload.asset_type_id,
+        category_filter=payload.category_filter, rank_period=payload.rank_period, top_n=payload.top_n,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+    }
+
+
+@router.get("/best-mf/jobs")
+async def best_mf_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.best_mf_jobs import BEST_MF_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=BEST_MF_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/best-mf/jobs/{job_id}")
+async def best_mf_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.best_mf_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/best-mf/reports")
+async def best_mf_save_report(
+    payload: SaveBestMfReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.save_best_mf_report(payload.name, payload.payload, user_id=current_user.id)
+
+
+@router.get("/best-mf/reports")
+async def best_mf_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.list_best_mf_reports(user_id=current_user.id)
+
+
+@router.get("/best-mf/reports/{report_id}")
+async def best_mf_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.get_best_mf_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/best-mf/reports/{report_id}")
+async def best_mf_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.delete_best_mf_report(report_id, user_id=current_user.id)
+
+
 @router.get("/command-center/etf/amcs")
 async def command_center_etf_amcs(
     db: AsyncSession = Depends(get_db),
@@ -2743,6 +2889,124 @@ async def trading_hubs_scan(
     )
 
 
+@router.post("/trading-hubs/intra-hedging/start")
+async def trading_hubs_intra_hedging_start(
+    payload: TradingHubBackgroundScanRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off an Intra-Hedging scan as a background job and return
+    immediately with a job id. Poll GET
+    /trading-hubs/intra-hedging/jobs/{id} for progress and result.
+
+    When ``run_in_background`` is true (or ``report_name`` is set), the
+    finished result is auto-saved under that name for later viewing.
+    """
+    from app.services.intra_hedging_jobs import INTRA_HEDGING_SOURCE, create_job, run_intra_hedging_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=INTRA_HEDGING_SOURCE,
+        meta={
+            "asset_class": payload.asset_class,
+            "universe_mode": (payload.config or {}).get("universe_mode"),
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "tickers": payload.tickers,
+            "asset_class": payload.asset_class,
+            "config": payload.config,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_intra_hedging_job(
+        job.id, payload.tickers, payload.asset_class, payload.config,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+    }
+
+
+@router.get("/trading-hubs/intra-hedging/jobs")
+async def trading_hubs_intra_hedging_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.intra_hedging_jobs import INTRA_HEDGING_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=INTRA_HEDGING_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/trading-hubs/intra-hedging/jobs/{job_id}")
+async def trading_hubs_intra_hedging_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.intra_hedging_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/trading-hubs/intra-hedging/reports")
+async def trading_hubs_intra_hedging_save_report(
+    payload: SaveTradingHubReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = TradingHubService(SettingsService(db), db)
+    result = payload.payload
+    tickers = [r.get("ticker") for r in (result.get("results") or []) if isinstance(r, dict) and r.get("ticker")]
+    return await service.save_intra_hedging_report(
+        payload.name, tickers, str(result.get("market") or "india"),
+        result, user_id=current_user.id,
+    )
+
+
+@router.get("/trading-hubs/intra-hedging/reports")
+async def trading_hubs_intra_hedging_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = TradingHubService(SettingsService(db), db)
+    return await service.list_intra_hedging_reports(user_id=current_user.id)
+
+
+@router.get("/trading-hubs/intra-hedging/reports/{report_id}")
+async def trading_hubs_intra_hedging_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = TradingHubService(SettingsService(db), db)
+    return await service.get_intra_hedging_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/trading-hubs/intra-hedging/reports/{report_id}")
+async def trading_hubs_intra_hedging_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = TradingHubService(SettingsService(db), db)
+    return await service.delete_intra_hedging_report(report_id, user_id=current_user.id)
+
+
 @router.post("/trading-hubs/support-resistance/chart")
 async def support_resistance_chart(
     payload: SupportResistanceChartRequest,
@@ -3243,6 +3507,20 @@ async def options_gokul_chhabra(
             "target_delta_min": payload.target_delta_min,
             "target_delta_max": payload.target_delta_max,
         },
+    )
+
+
+@router.post("/options/market-prediction")
+async def options_market_prediction(
+    payload: OptionsMarketPredictionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).market_prediction(
+        payload.symbol,
+        exchange=payload.exchange,
+        futures_price=payload.futures_price,
+        fii_index_position_cut=payload.fii_index_position_cut,
     )
 
 

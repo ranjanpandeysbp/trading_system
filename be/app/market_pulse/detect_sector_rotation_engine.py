@@ -329,6 +329,31 @@ def _yf_weekly(symbol: str, years: int = 5) -> pd.Series | None:
         return None
 
 
+def _groww_weekly(etf_symbol: str, groww_token: str, years: int = 5) -> pd.Series | None:
+    """Weekly close series for a *tradeable* India ETF symbol via Groww
+    (authenticated API when a token is configured, else Groww's public
+    charting service). Groww's candle API only covers real CASH-segment
+    instruments (stocks/ETFs) — bare index symbols like NIFTY/BANKNIFTY
+    return near-empty data — so this is only called with an ETF proxy
+    (e.g. NIFTYBEES, BANKBEES), never the raw index ticker."""
+    from app.data.groww_client import fetch_groww_ohlcv
+
+    sym = (etf_symbol or "").strip().upper().removesuffix(".NS").removesuffix(".BO")
+    if not sym:
+        return None
+    limit = max(60, years * 53 + 5)
+    try:
+        df = fetch_groww_ohlcv(sym, "NSE", "1w", api_token=groww_token, limit=limit)
+    except Exception as exc:
+        logger.debug("Groww weekly failed for %s: %s", sym, exc)
+        return None
+    if df is not None and not df.empty and "close" in df.columns:
+        s = df["close"].astype(float).dropna()
+        if len(s) >= 40:
+            return s
+    return None
+
+
 def _crypto_weekly(symbol: str, limit: int = 300) -> pd.Series | None:
     try:
         from app.market_pulse.heatmap import fetch_coindcx_ohlcv
@@ -593,8 +618,14 @@ def _attach_instruments(row: dict[str, Any], market: MarketKind) -> dict[str, An
 
 
 def _load_sector_series(
-    market: MarketKind, name: str, symbol: str, years: int,
+    market: MarketKind, name: str, symbol: str, years: int, *, groww_token: str = "",
 ) -> pd.Series | None:
+    if market == "india":
+        proxy = INDIA_SECTOR_FALLBACKS.get(name)
+        if proxy:
+            s = _groww_weekly(proxy, groww_token, years=years)
+            if s is not None:
+                return s
     s = _fetch_weekly_close(market, symbol, years=years)
     if s is not None and len(s) >= 40:
         return s
@@ -611,6 +642,7 @@ def scan_detect_sector_rotation(
     cfg: DetectSectorRotationConfig | None = None,
     sector_filter: list[str] | None = None,
     max_workers: int = 6,
+    groww_token: str = "",
 ) -> dict[str, Any]:
     """Scan all (or filtered) sectors for a market; return ranked rotation snapshot."""
     cfg = cfg or DetectSectorRotationConfig()
@@ -621,7 +653,11 @@ def scan_detect_sector_rotation(
         if not sectors:
             sectors = dict(_universe(market)[0])
 
-    bench = _fetch_weekly_close(market, bench_sym, years=cfg.lookback_years)
+    bench = None
+    if market == "india":
+        bench = _groww_weekly(INDIA_BENCHMARK_FALLBACK, groww_token, years=cfg.lookback_years)
+    if bench is None or len(bench) < cfg.min_weeks:
+        bench = _fetch_weekly_close(market, bench_sym, years=cfg.lookback_years)
     if (bench is None or len(bench) < cfg.min_weeks) and market == "india":
         bench = _fetch_weekly_close(market, INDIA_BENCHMARK_FALLBACK, years=cfg.lookback_years)
     if bench is None or len(bench) < cfg.min_weeks:
@@ -638,7 +674,7 @@ def scan_detect_sector_rotation(
 
     def _one(item: tuple[str, str]) -> dict[str, Any]:
         name, sym = item
-        series = _load_sector_series(market, name, sym, cfg.lookback_years)
+        series = _load_sector_series(market, name, sym, cfg.lookback_years, groww_token=groww_token)
         if series is None or len(series) < 40:
             return _attach_instruments({"name": name, "symbol": sym, "error": "No weekly data."}, market)
         row = analyze_sector_pair(series, bench, name=name, symbol=sym, cfg=cfg)

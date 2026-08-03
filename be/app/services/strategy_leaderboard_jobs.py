@@ -233,6 +233,8 @@ async def resume_orphaned_jobs() -> int:
     from app.models.db_models import BackgroundJob
     from app.services.backtester_leaderboard_jobs import BACKTESTER_SOURCE, run_backtester_job
     from app.services.mf_holdings_jobs import MF_HOLDINGS_SOURCE, run_mf_holdings_job
+    from app.services.best_mf_jobs import BEST_MF_SOURCE, run_best_mf_job
+    from app.services.intra_hedging_jobs import INTRA_HEDGING_SOURCE, run_intra_hedging_job
 
     resumed = 0
     try:
@@ -267,6 +269,19 @@ async def resume_orphaned_jobs() -> int:
                     run_mf_holdings_job(
                         row.id, payload.get("scheme_ids", []), payload.get("scheme_names", {}),
                         payload.get("from_date", ""), payload.get("to_date", ""),
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif row.source == BEST_MF_SOURCE:
+                    run_best_mf_job(
+                        row.id, payload.get("amc_ids", []), payload.get("asset_type_id", 1),
+                        category_filter=payload.get("category_filter", ""),
+                        rank_period=payload.get("rank_period", 365), top_n=payload.get("top_n", 30),
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif row.source == INTRA_HEDGING_SOURCE:
+                    run_intra_hedging_job(
+                        row.id, payload.get("tickers", []), payload.get("asset_class", "india"),
+                        payload.get("config"),
                         report_name=payload.get("report_name"), user_id=row.user_id,
                     )
                 else:

@@ -800,6 +800,32 @@ export const runTradingHubScan = (payload: {
   run_backtest?: boolean
 }) => api.post('/trading-hubs/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const startIntraHedgingJob = (payload: {
+  tickers: string[]
+  asset_class?: string
+  config?: Record<string, unknown>
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post('/trading-hubs/intra-hedging/start', payload).then((r) => r.data)
+
+export const fetchIntraHedgingJobs = (status?: string) =>
+  api.get('/trading-hubs/intra-hedging/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchIntraHedgingJob = (jobId: string) =>
+  api.get(`/trading-hubs/intra-hedging/jobs/${jobId}`).then((r) => r.data)
+
+export const saveIntraHedgingReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/trading-hubs/intra-hedging/reports', payload).then((r) => r.data)
+
+export const fetchIntraHedgingReports = () =>
+  api.get('/trading-hubs/intra-hedging/reports').then((r) => r.data)
+
+export const fetchIntraHedgingReport = (reportId: number) =>
+  api.get(`/trading-hubs/intra-hedging/reports/${reportId}`).then((r) => r.data)
+
+export const deleteIntraHedgingReport = (reportId: number) =>
+  api.delete(`/trading-hubs/intra-hedging/reports/${reportId}`).then((r) => r.data)
+
 export interface SRTradeSetup {
   verdict: string | null
   direction: string | null
@@ -1369,6 +1395,51 @@ export const fetchMutualFundHoldingsReport = (reportId: number) =>
 export const deleteMutualFundHoldingsReport = (reportId: number) =>
   api.delete(`/command-center/mutual-fund/holdings/reports/${reportId}`).then((r) => r.data)
 
+export type BestMfOption = { value: number; label: string }
+
+export const fetchBestMfOptions = () =>
+  api.get<{
+    asset_types: BestMfOption[]
+    category_hints: Record<string, string[]>
+    return_periods: BestMfOption[]
+  }>('/best-mf/options').then((r) => r.data)
+
+export const runBestMf = (payload: {
+  amc_ids: number[]
+  asset_type_id: number
+  category_filter?: string
+  rank_period?: number
+  top_n?: number
+}) => api.post('/best-mf/run', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const startBestMfJob = (payload: {
+  amc_ids: number[]
+  asset_type_id: number
+  category_filter?: string
+  rank_period?: number
+  top_n?: number
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post('/best-mf/start', payload).then((r) => r.data)
+
+export const fetchBestMfJobs = (status?: string) =>
+  api.get('/best-mf/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchBestMfJob = (jobId: string) =>
+  api.get(`/best-mf/jobs/${jobId}`).then((r) => r.data)
+
+export const saveBestMfReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/best-mf/reports', payload).then((r) => r.data)
+
+export const fetchBestMfReports = () =>
+  api.get('/best-mf/reports').then((r) => r.data)
+
+export const fetchBestMfReport = (reportId: number) =>
+  api.get(`/best-mf/reports/${reportId}`).then((r) => r.data)
+
+export const deleteBestMfReport = (reportId: number) =>
+  api.delete(`/best-mf/reports/${reportId}`).then((r) => r.data)
+
 export type EtfCatalogItem = {
   symbol: string
   name: string
@@ -1578,6 +1649,13 @@ export const runOptionsGokulChhabra = (payload?: {
   target_delta_min?: number
   target_delta_max?: number
 }) => api.post('/options/gokul-chhabra', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsMarketPrediction = (payload?: {
+  symbol?: string
+  exchange?: string
+  futures_price?: number
+  fii_index_position_cut?: boolean
+}) => api.post('/options/market-prediction', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOptionsZeroToHero = (payload?: {
   tickers?: string[]

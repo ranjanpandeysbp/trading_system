@@ -185,6 +185,33 @@ class OptionsService:
         payload["currency"] = market_currency(market)
         return json_safe(payload)
 
+    async def market_prediction(
+        self,
+        symbol: str,
+        *,
+        exchange: str | None = None,
+        futures_price: float | None = None,
+        fii_index_position_cut: bool | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.market_prediction_engine import (
+            MarketPredictionConfig,
+            analyze_market_prediction,
+        )
+
+        market, default_exchange = await self._asset_ctx("india")
+        _, token, _ = await self._ctx()
+        resolved_exchange = exchange or default_exchange
+        cfg = MarketPredictionConfig()
+
+        def _run():
+            return analyze_market_prediction(
+                symbol, is_index=True, groww_token=token, exchange=resolved_exchange, cfg=cfg,
+                futures_price=futures_price, fii_index_position_cut=fii_index_position_cut,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        return json_safe(payload)
+
     async def zero_to_hero(
         self, *, tickers: list[str] | None = None, exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,

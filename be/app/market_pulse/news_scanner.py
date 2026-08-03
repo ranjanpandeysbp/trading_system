@@ -984,11 +984,68 @@ def _monthly_return_from_close(close_series) -> float | None:
     return float((closes.iloc[-1] / closes.iloc[0] - 1) * 100)
 
 
+def _fetch_monthly_returns_groww(symbols: list[str], token: str) -> tuple[list[dict], set[str]]:
+    """Compute ~1-month % return for NSE symbols from Groww daily OHLCV,
+    fetched concurrently (one authenticated call per symbol). Returns the
+    covered rows plus the set of symbols Groww actually answered for, so the
+    caller can fall back to yfinance for whatever's left uncovered."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from app.data.groww_client import fetch_groww_ohlcv
+
+    def _one(sym: str) -> dict | None:
+        df = fetch_groww_ohlcv(sym, "NSE", "1d", api_token=token, limit=26)
+        if df is None or df.empty or len(df) < 2:
+            return None
+        closes = df["close"].dropna()
+        if len(closes) < 2:
+            return None
+        pct = float((closes.iloc[-1] / closes.iloc[0] - 1) * 100)
+        return {"symbol": sym, "pct": pct, "last": float(closes.iloc[-1])}
+
+    results: list[dict] = []
+    covered: set[str] = set()
+    with ThreadPoolExecutor(max_workers=15) as ex:
+        futures = {ex.submit(_one, s): s for s in symbols}
+        for fut in as_completed(futures):
+            sym = futures[fut]
+            try:
+                row = fut.result()
+            except Exception as e:
+                logger.debug(f"Groww monthly-return fetch failed for {sym}: {e}")
+                row = None
+            if row:
+                results.append(row)
+                covered.add(sym)
+    return results, covered
+
+
 def _fetch_monthly_returns_for_symbols(symbols: list[str]) -> list[dict]:
-    """Compute ~1-month % return for NSE symbols via yfinance."""
+    """Compute ~1-month % return for NSE symbols — Groww daily OHLCV first
+    (when a token is configured), yfinance for whatever Groww didn't cover."""
     symbols = [s for s in symbols if s]
     if _MONTHLY_STOCK_MAX_CONSTITUENTS is not None and _MONTHLY_STOCK_MAX_CONSTITUENTS > 0:
         symbols = symbols[:_MONTHLY_STOCK_MAX_CONSTITUENTS]
+    if not symbols:
+        return []
+
+    token = get_active_groww_token()
+    groww_results: list[dict] = []
+    if token:
+        try:
+            groww_results, covered = _fetch_monthly_returns_groww(symbols, token)
+        except Exception as e:
+            logger.debug(f"Groww monthly-return batch failed: {e}")
+            covered = set()
+        symbols = [s for s in symbols if s not in covered]
+        if not symbols:
+            return groww_results
+
+    return groww_results + _fetch_monthly_returns_yfinance(symbols)
+
+
+def _fetch_monthly_returns_yfinance(symbols: list[str]) -> list[dict]:
+    """Compute ~1-month % return for NSE symbols via yfinance."""
     if not symbols:
         return []
     tickers = [stock_symbol_to_yf(s) for s in symbols]

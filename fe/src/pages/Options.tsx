@@ -7,11 +7,12 @@ import {
   runOptionsDoubleCalendar,
   runOptionsGokulChhabra,
   runOptionsHedging,
+  runOptionsMarketPrediction,
   runOptionsZeroToHero,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
-import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -25,7 +26,31 @@ const SECTIONS = [
   { id: 'hedging', label: '🛡️ Hedging' },
   { id: 'gokul_chhabra', label: '🎯 Gokul Chhabra 3m ITM' },
   { id: 'zero_to_hero', label: '🚀 Zero to Hero' },
+  { id: 'market_prediction', label: '🔮 Market Prediction' },
 ] as const
+
+const MARKET_PREDICTION_EXPLANATION = `Checks whether today's index move is actually backed by conviction in the derivatives data, or is a
+"hollow" move — price rising while the options market quietly prices in doubt — the same read a derivatives
+desk makes before trusting a rally or a selloff.
+
+Signals combined:
+1. Synthetic futures premium/discount — a Put-Call-Parity synthetic futures price (Spot + ATM Call LTP - ATM
+   Put LTP), standing in for a live NSE futures feed this app doesn't have. A discount during a rally (or
+   premium during a selloff) is a classic bearish/bullish divergence.
+2. OI buildup — Long/Short Buildup (fresh conviction) vs Short Covering/Long Unwinding (existing positions
+   being cut, not fresh ones opened), read off the options chain's aggregate OI change vs price.
+3. IV skew — elevated ATM Put IV vs Call IV (hedging demand) during a rally, or the reverse during a selloff.
+4. India VIX — rising fear alongside a rally (or falling fear alongside a selloff) is a mismatch.
+5. Late-session move check — today's last-5-minute move compared against the day's own typical 5-minute
+   swing, flagging an outsized, low-context late move.
+6. FII/DII cash-market flow (NSE/StockEdge) — net institutional buying/selling that contradicts the move.
+
+This app has no live NSE index-futures price feed or FII index-derivative (not cash) positioning data — if
+you have today's actual futures LTP or know FII index positions were cut, enter them below to fold in real
+numbers instead of the built-in stand-ins; otherwise the synthetic-futures and cash-market FII/DII reads are
+used, clearly labeled as such in every reason shown.
+
+Research / education only — not financial advice.`
 
 type SectionId = (typeof SECTIONS)[number]['id']
 type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
@@ -322,6 +347,24 @@ export default function Options() {
   })
   const gkData = runGkMutation.data as Record<string, unknown> | undefined
   const gkAskContext = gkData ? buildAskContext('Gokul Chhabra', gkData) : ''
+
+  const [mpError, setMpError] = useState('')
+  const [mpSymbol, setMpSymbol] = useState<'NIFTY' | 'BANKNIFTY' | 'FINNIFTY'>('NIFTY')
+  const [mpFuturesPrice, setMpFuturesPrice] = useState('')
+  const [mpFiiCut, setMpFiiCut] = useState<'unset' | 'yes' | 'no'>('unset')
+
+  const runMpMutation = useMutation({
+    mutationFn: () =>
+      runOptionsMarketPrediction({
+        symbol: mpSymbol,
+        futures_price: mpFuturesPrice.trim() ? Number(mpFuturesPrice) : undefined,
+        fii_index_position_cut: mpFiiCut === 'unset' ? undefined : mpFiiCut === 'yes',
+      }),
+    onSuccess: () => setMpError(''),
+    onError: (e) => setMpError(apiErrorMessage(e)),
+  })
+  const mpData = runMpMutation.data as Record<string, unknown> | undefined
+  const mpAskContext = mpData ? buildAskContext('Market Prediction', mpData) : ''
 
   const [zthError, setZthError] = useState('')
   const [zthTf, setZthTf] = useState('15m')
@@ -791,6 +834,75 @@ export default function Options() {
 
           {zthAskContext && !runZthMutation.isPending && (
             <AskAIPanel context={zthAskContext} section="options/zero_to_hero" />
+          )}
+        </div>
+      )}
+
+      {section === 'market_prediction' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Is today's move backed by real conviction in the derivatives data, or is it hollow? Combines
+            synthetic futures premium/discount, OI buildup, IV skew, India VIX, a late-session move check, and
+            FII/DII flow into one divergence read.
+          </p>
+
+          <CollapsibleSection title="📖 How Market Prediction works">
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{MARKET_PREDICTION_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <FormField label="Index">
+              <select
+                className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                value={mpSymbol}
+                onChange={(e) => setMpSymbol(e.target.value as typeof mpSymbol)}
+              >
+                <option value="NIFTY">Nifty 50</option>
+                <option value="BANKNIFTY">Bank Nifty</option>
+                <option value="FINNIFTY">Nifty Financial Services</option>
+              </select>
+            </FormField>
+
+            <div className="mt-4">
+              <CollapsibleSection title="⚙️ Optional — your own futures / FII data (real numbers, if you have them)">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField label="Today's NSE futures LTP (optional)">
+                    <Input
+                      type="number" step={0.05} placeholder="Leave blank to use options-implied synthetic futures"
+                      value={mpFuturesPrice} onChange={(e) => setMpFuturesPrice(e.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="FII index derivative positions cut today? (optional)">
+                    <select
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                      value={mpFiiCut}
+                      onChange={(e) => setMpFiiCut(e.target.value as typeof mpFiiCut)}
+                    >
+                      <option value="unset">Unknown / not entering</option>
+                      <option value="yes">Yes — being cut</option>
+                      <option value="no">No — not being cut</option>
+                    </select>
+                  </FormField>
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            <Button className="mt-4" onClick={() => runMpMutation.mutate()} disabled={runMpMutation.isPending}>
+              {runMpMutation.isPending ? 'Analyzing…' : `🔮 Run Market Prediction (${mpSymbol})`}
+            </Button>
+            {mpError && <div className="mt-3"><Alert type="error">{mpError}</Alert></div>}
+          </Card>
+
+          {runMpMutation.isPending && <Loading message="Fetching option chain, VIX, and intraday data…" />}
+
+          {mpData && !runMpMutation.isPending && (
+            <Card>
+              <MarketPredictionPanel data={mpData} />
+            </Card>
+          )}
+
+          {mpAskContext && !runMpMutation.isPending && (
+            <AskAIPanel context={mpAskContext} section="options/market_prediction" />
           )}
         </div>
       )}

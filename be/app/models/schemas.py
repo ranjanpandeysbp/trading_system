@@ -301,7 +301,7 @@ class CommandCenterMegaRequest(BaseModel):
 
 class CommandCenterTickerScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
-    asset_class: Literal["india", "us", "crypto"] = "india"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     timeframes: list[str] | None = None
 
 
@@ -351,6 +351,21 @@ class CommandCenterMfHoldingsRequest(BaseModel):
 
 
 class SaveMfHoldingsReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
+
+
+class CommandCenterBestMfRequest(BaseModel):
+    amc_ids: list[int] = Field(..., min_length=1)
+    asset_type_id: int = 1
+    category_filter: str = ""
+    rank_period: int = 365
+    top_n: int = 30
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveBestMfReportRequest(BaseModel):
     name: str
     payload: dict[str, Any]
 
@@ -461,6 +476,19 @@ class TradingHubScanRequest(BaseModel):
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     config: dict[str, Any] | None = None
     run_backtest: bool = False
+
+
+class TradingHubBackgroundScanRequest(BaseModel):
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    config: dict[str, Any] | None = None
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveTradingHubReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
 
 
 class SupportResistanceChartRequest(BaseModel):
@@ -889,6 +917,13 @@ class OptionsGokulChhabraRequest(BaseModel):
     min_rr: float = 2.0
     target_delta_min: float = 0.60
     target_delta_max: float = 0.75
+
+
+class OptionsMarketPredictionRequest(BaseModel):
+    symbol: str = "NIFTY"
+    exchange: str | None = None
+    futures_price: float | None = None
+    fii_index_position_cut: bool | None = None
 
 
 class OptionsZeroToHeroRequest(BaseModel):

@@ -166,3 +166,110 @@ class TradingHubService:
             import logging
             logging.getLogger(__name__).debug("Trading Hub position sizing failed: %s", exc)
             return None
+
+    # ------------------------------------------------------------------
+    # Saved Intra-Hedging reports — shares the SavedBacktestReport table
+    # (source="intra_hedging") with the other background-job features.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _intra_hedging_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        pairs = payload.get("pair_recommendations") or []
+        best = pairs[0] if pairs else None
+        return {
+            "universe_desc": payload.get("universe_desc"),
+            "universe_mode": payload.get("universe_mode"),
+            "pair_count": len(pairs),
+            "best_pair": (
+                f"{best.get('long_label')} / {best.get('short_label')}" if best else None
+            ),
+            "best_pair_confidence_pct": best.get("confidence_pct") if best else None,
+        }
+
+    async def save_intra_hedging_report(
+        self,
+        name: str,
+        tickers: list[str],
+        asset_class: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"Intra-Hedging {datetime_cls.utcnow().isoformat()}",
+            asset_class=asset_class,
+            tickers=",".join(tickers or []),
+            timeframes=str(payload.get("universe_mode") or ""),
+            payload_json=json.dumps(payload),
+            source="intra_hedging",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_intra_hedging_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "intra_hedging"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._intra_hedging_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_intra_hedging_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "intra_hedging" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_intra_hedging_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "intra_hedging" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}

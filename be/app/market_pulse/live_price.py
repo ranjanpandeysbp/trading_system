@@ -51,10 +51,39 @@ def get_last_traded_price(
     }
 
 
-def get_index_last_traded_price(index_name: str) -> dict[str, Any]:
+def get_index_last_traded_price(
+    index_name: str, *, groww_token: str = "", exchange: str = "NSE",
+) -> dict[str, Any]:
     """LTP for an NSE/BSE index by display name (e.g. 'Nifty 50', 'Bank Nifty',
-    'Sensex') via its Yahoo Finance index ticker (^NSEI / ^NSEBANK / ^BSESN)."""
+    'Sensex') — tries Groww's public live-index feed first (works even
+    without a token), then a Groww authenticated quote, then a Yahoo Finance
+    index ticker (^NSEI / ^NSEBANK / ^BSESN) as the last resort."""
+    from app.data.groww_client import fetch_groww_live_quote, fetch_groww_quote
+    from app.data.nse_symbols import resolve_groww_symbol_candidates
     from app.market_pulse.nse_index_yfinance import market_display_to_yf
+
+    for sym in resolve_groww_symbol_candidates(index_name):
+        try:
+            live = fetch_groww_live_quote(sym, exchange, prefer_index=True)
+        except Exception as exc:
+            logger.debug("Groww index LTP fetch failed for %s (%s): %s", index_name, sym, exc)
+            live = None
+        if live and live.get("price", 0) > 0:
+            return {"price": float(live["price"]), "change_pct": None, "is_live": True}
+
+    token = (groww_token or "").strip()
+    if token:
+        for sym in resolve_groww_symbol_candidates(index_name):
+            try:
+                quote = fetch_groww_quote(sym, exchange, token)
+            except Exception as exc:
+                logger.debug("Groww auth index LTP fetch failed for %s (%s): %s", index_name, sym, exc)
+                quote = None
+            if quote:
+                for key in ("last_price", "ltp", "lastPrice", "close"):
+                    val = quote.get(key)
+                    if val and float(val) > 0:
+                        return {"price": float(val), "change_pct": None, "is_live": True}
 
     yf_sym = market_display_to_yf(index_name)
     if not yf_sym:

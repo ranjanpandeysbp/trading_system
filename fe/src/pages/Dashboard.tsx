@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
+  ArrowUpDown,
   BarChart3,
   Bot,
   Clapperboard,
@@ -9,6 +10,7 @@ import {
   Gauge,
   Landmark,
   Search,
+  Trophy,
   Wallet,
   Layers,
   BookOpen,
@@ -40,6 +42,24 @@ const quickLinks = [
     icon: Gauge,
     color: 'text-cyan-400',
     bg: 'bg-cyan-500/10',
+  },
+  {
+    to: '/command-center?tab=market_movers',
+    title: 'Market Movers',
+    description:
+      'Pick an asset class, index, and timeframe — see which constituents moved the most in each direction.',
+    icon: ArrowUpDown,
+    color: 'text-orange-400',
+    bg: 'bg-orange-500/10',
+  },
+  {
+    to: '/best-mf',
+    title: 'Best MF',
+    description:
+      'Rank mutual fund schemes by trailing return across chosen AMCs and category — run live or as a saved background job.',
+    icon: Trophy,
+    color: 'text-yellow-400',
+    bg: 'bg-yellow-500/10',
   },
   {
     to: '/investing-agent',

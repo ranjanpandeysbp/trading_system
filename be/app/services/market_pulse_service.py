@@ -42,8 +42,10 @@ class MarketPulseService:
         import app.market_pulse.news_scanner as ns
 
         attach_clear_stubs(ns)
+        token = await self._groww_token()
 
         def _fetch():
+            set_groww_token(token)
             try:
                 breadth = ns.fetch_nse_market_breadth()
                 if not breadth:
@@ -88,8 +90,10 @@ class MarketPulseService:
         import app.market_pulse.news_scanner as ns
 
         attach_clear_stubs(ns)
+        token = await self._groww_token()
 
         def _fetch():
+            set_groww_token(token)
             try:
                 breadth = ns.fetch_nse_market_breadth()
                 if not breadth:

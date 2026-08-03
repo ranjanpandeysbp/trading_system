@@ -729,6 +729,130 @@ class CommandCenterService:
         await self.db.commit()
         return {"deleted": True}
 
+    # ------------------------------------------------------------------
+    # Best MF — rank mutual fund schemes by trailing return across selected
+    # AMCs + asset class, optionally filtered to a category substring.
+    # Saved reports share the SavedBacktestReport table (source="best_mf").
+    # ------------------------------------------------------------------
+
+    async def best_mf_options(self) -> dict[str, Any]:
+        from app.market_pulse.best_mf_engine import ASSET_TYPE_OPTIONS, CATEGORY_HINTS, RETURN_PERIOD_OPTIONS
+
+        return json_safe({
+            "asset_types": ASSET_TYPE_OPTIONS,
+            "category_hints": CATEGORY_HINTS,
+            "return_periods": RETURN_PERIOD_OPTIONS,
+        })
+
+    async def best_mf_run(
+        self,
+        amc_ids: list[int],
+        asset_type_id: int,
+        *,
+        category_filter: str = "",
+        rank_period: int = 365,
+        top_n: int = 30,
+    ) -> dict[str, Any]:
+        from app.market_pulse.best_mf_engine import rank_best_funds_async
+
+        result = await rank_best_funds_async(
+            amc_ids, asset_type_id,
+            category_filter=category_filter, rank_period=rank_period, top_n=top_n,
+        )
+        return json_safe(result)
+
+    async def save_best_mf_report(
+        self, name: str, payload: dict[str, Any], *, user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        top = payload.get("top") or []
+        names = [str(r.get("scheme_name")) for r in top if isinstance(r, dict) and r.get("scheme_name")]
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"Best MF {datetime_cls.utcnow().isoformat()}",
+            asset_class="india",
+            tickers=",".join(names[:20]),
+            timeframes=f"asset_type={payload.get('asset_type_id')}·period={payload.get('rank_period')}",
+            payload_json=json.dumps(payload),
+            source="best_mf",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_best_mf_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "best_mf"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            top = payload.get("top") or []
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "top_scheme_names": r.tickers.split(",") if r.tickers else [],
+                "created_at": r.created_at.isoformat(),
+                "summary": {
+                    "universe_count": payload.get("universe_count"),
+                    "category_filter": payload.get("category_filter"),
+                    "rank_period": payload.get("rank_period"),
+                    "asset_type_id": payload.get("asset_type_id"),
+                    "best_scheme": top[0].get("scheme_name") if top else None,
+                    "best_return_pct": top[0].get("return_pct") if top else None,
+                },
+            })
+        return {"reports": reports}
+
+    async def get_best_mf_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "best_mf" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_best_mf_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "best_mf" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
+
     async def etf_amc_list(self) -> dict[str, Any]:
         from app.market_pulse.etf_holdings_engine import fetch_amc_list
 
@@ -1237,9 +1361,10 @@ class CommandCenterService:
             pullback_months=pullback_months,
             pullback_mode=pullback_mode,
         )
+        token = await self.settings.get_groww_token() or ""
 
         def _run():
-            return scan_detect_sector_rotation(m, cfg=cfg, sector_filter=sectors or None)
+            return scan_detect_sector_rotation(m, cfg=cfg, sector_filter=sectors or None, groww_token=token)
 
         return json_safe(await asyncio.to_thread(_run))
 

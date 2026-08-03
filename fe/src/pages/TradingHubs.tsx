@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { BarChart2, Clock, Crosshair, TrendingUp } from 'lucide-react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { BarChart2, Clock, Crosshair, FolderOpen, Save, Trash2, TrendingUp, X } from 'lucide-react'
 import {
   apiErrorMessage,
+  deleteIntraHedgingReport,
+  fetchIntraHedgingJob,
+  fetchIntraHedgingJobs,
+  fetchIntraHedgingReport,
+  fetchIntraHedgingReports,
   fetchTradingHubs,
   runTradingHubScan,
+  saveIntraHedgingReport,
+  startIntraHedgingJob,
   type TradingHub,
   type TradingHubSection,
 } from '../api/client'
@@ -23,6 +30,45 @@ import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
+
+interface IhSavedReportSummary {
+  id: number
+  name: string
+  asset_class: string
+  created_at: string
+  summary?: {
+    universe_desc?: string | null
+    universe_mode?: string | null
+    pair_count?: number
+    best_pair?: string | null
+    best_pair_confidence_pct?: number | null
+  }
+}
+
+interface IhBgJobStatus {
+  job_id: string
+  status: string
+  progress?: number
+  progress_note?: string
+  name?: string | null
+  report_id?: number | null
+  error?: string | null
+  result?: Record<string, unknown>
+  meta?: {
+    asset_class?: string
+    universe_mode?: string | null
+  }
+  created_at?: number
+}
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
 
 const HUB_ICONS: Record<string, typeof TrendingUp> = {
   swing: TrendingUp,
@@ -103,6 +149,153 @@ export default function TradingHubs() {
   const [config, setConfig] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
 
+  const queryClient = useQueryClient()
+  const isIntraHedging = sectionId === 'intra_hedging'
+  const [runInBackground, setRunInBackground] = useState(false)
+  const [bgReportName, setBgReportName] = useState('')
+  const [bgJobIds, setBgJobIds] = useState<string[]>([])
+  const [bgError, setBgError] = useState('')
+  const [bgMsg, setBgMsg] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [showSaveForm, setShowSaveForm] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+  const [viewedReportId, setViewedReportId] = useState<number | null>(null)
+  const handledDoneRef = useRef<Set<string>>(new Set())
+
+  const ihReportsQuery = useQuery({
+    queryKey: ['ih-reports'],
+    queryFn: fetchIntraHedgingReports,
+    enabled: isIntraHedging,
+  })
+  const ihReports = ((ihReportsQuery.data as { reports?: IhSavedReportSummary[] } | undefined)?.reports) ?? []
+
+  const ihRunningJobsQuery = useQuery({
+    queryKey: ['ih-jobs-running'],
+    queryFn: () => fetchIntraHedgingJobs('running'),
+    enabled: isIntraHedging,
+    refetchInterval: isIntraHedging ? 2000 : false,
+  })
+  const ihRecentJobsQuery = useQuery({
+    queryKey: ['ih-jobs-recent'],
+    queryFn: () => fetchIntraHedgingJobs('all'),
+    enabled: isIntraHedging,
+  })
+  const ihRecentJobs = ((ihRecentJobsQuery.data as { jobs?: IhBgJobStatus[] } | undefined)?.jobs) ?? []
+  const ihRecentFinished = ihRecentJobs.filter((j) => j.status !== 'running').slice(0, 8)
+
+  useEffect(() => {
+    const serverJobs = ((ihRunningJobsQuery.data as { jobs?: IhBgJobStatus[] } | undefined)?.jobs) ?? []
+    const ids = serverJobs.map((j) => j.job_id)
+    if (!ids.length) return
+    setBgJobIds((prev) => Array.from(new Set([...ids, ...prev])))
+  }, [ihRunningJobsQuery.data])
+
+  const ihJobQueries = useQueries({
+    queries: bgJobIds.map((id) => ({
+      queryKey: ['ih-job', id],
+      queryFn: () => fetchIntraHedgingJob(id) as Promise<IhBgJobStatus>,
+      enabled: isIntraHedging,
+      refetchInterval: (q: { state: { data?: IhBgJobStatus } }) =>
+        q.state.data?.status === 'running' ? 1500 : false,
+      refetchIntervalInBackground: true,
+      retry: false,
+    })),
+  })
+  const ihJobById = useMemo(() => {
+    const map = new Map<string, IhBgJobStatus>()
+    ihJobQueries.forEach((q, i) => {
+      const id = bgJobIds[i]
+      if (id && q.data) map.set(id, q.data as IhBgJobStatus)
+    })
+    return map
+  }, [ihJobQueries, bgJobIds])
+
+  useEffect(() => {
+    if (!isIntraHedging) return
+    let changed = false
+    const stillRunning: string[] = []
+    for (const id of bgJobIds) {
+      const job = ihJobById.get(id)
+      if (!job || job.status === 'running') {
+        stillRunning.push(id)
+        continue
+      }
+      if (!handledDoneRef.current.has(id)) {
+        handledDoneRef.current.add(id)
+        changed = true
+        if (job.status === 'done' && job.report_id) {
+          setViewedReportId(job.report_id)
+          setBgMsg(`Background report saved${job.name ? `: ${job.name}` : ''}.`)
+        } else if (job.status === 'done') {
+          setBgMsg(job.name ? `Background run "${job.name}" finished.` : 'Background run finished.')
+        } else if (job.status === 'error') {
+          setBgError(job.error || `Background job failed: ${job.name || id}`)
+        }
+      }
+    }
+    if (stillRunning.length !== bgJobIds.length) setBgJobIds(stillRunning)
+    if (changed) {
+      queryClient.invalidateQueries({ queryKey: ['ih-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['ih-jobs-running'] })
+      queryClient.invalidateQueries({ queryKey: ['ih-jobs-recent'] })
+    }
+  }, [bgJobIds, ihJobById, isIntraHedging, queryClient])
+
+  const ihOngoingBg = bgJobIds
+    .map((id) => ihJobById.get(id))
+    .filter((j): j is IhBgJobStatus => !!j && j.status === 'running')
+  const ihServerRunning = ((ihRunningJobsQuery.data as { jobs?: IhBgJobStatus[] } | undefined)?.jobs) ?? []
+  const ihOngoingMap = new Map<string, IhBgJobStatus>()
+  for (const j of [...ihServerRunning, ...ihOngoingBg]) {
+    if (j.status === 'running') ihOngoingMap.set(j.job_id, j)
+  }
+  const ihOngoingList = Array.from(ihOngoingMap.values()).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+
+  const ihReportDetailQuery = useQuery({
+    queryKey: ['ih-report', viewedReportId],
+    queryFn: () => fetchIntraHedgingReport(viewedReportId as number),
+    enabled: isIntraHedging && viewedReportId != null,
+  })
+
+  const ihStartBgMutation = useMutation({
+    mutationFn: startIntraHedgingJob,
+    onSuccess: (data) => {
+      const id = data.job_id as string
+      setBgError('')
+      setBgMsg(`Background run started${data.name ? `: ${data.name}` : ''}.`)
+      setBgReportName('')
+      setBgJobIds((prev) => Array.from(new Set([id, ...prev])))
+      queryClient.invalidateQueries({ queryKey: ['ih-jobs-running'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const ihSaveReportMutation = useMutation({
+    mutationFn: saveIntraHedgingReport,
+    onSuccess: () => {
+      setSaveMsg('Report saved.')
+      setShowSaveForm(false)
+      setSaveName('')
+      queryClient.invalidateQueries({ queryKey: ['ih-reports'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const ihDeleteReportMutation = useMutation({
+    mutationFn: deleteIntraHedgingReport,
+    onSuccess: (_data, reportId) => {
+      if (viewedReportId === reportId) setViewedReportId(null)
+      queryClient.invalidateQueries({ queryKey: ['ih-reports'] })
+    },
+  })
+
+  useEffect(() => {
+    setViewedReportId(null)
+    setBgError('')
+    setBgMsg('')
+    setRunInBackground(false)
+  }, [sectionId])
+
   const hubsQ = useQuery({ queryKey: ['trading-hubs'], queryFn: fetchTradingHubs })
 
   const activeHub = useMemo(
@@ -158,8 +351,32 @@ export default function TradingHubs() {
       })
     },
     onError: (e) => setError(apiErrorMessage(e)),
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); setViewedReportId(null) },
   })
+
+  const startIntraHedgingBackgroundRun = () => {
+    if (!scanTickers.length) {
+      setBgError('Select at least one ticker')
+      return
+    }
+    if (!bgReportName.trim()) {
+      setBgError('Enter a report name for the background run')
+      return
+    }
+    setBgError('')
+    setBgMsg('')
+    ihStartBgMutation.mutate({
+      tickers: scanTickers,
+      asset_class: fixedUniverse ? 'india' : assetClass,
+      config: Object.keys(config).length ? config : undefined,
+      run_in_background: true,
+      report_name: bgReportName.trim(),
+    })
+  }
+
+  const ihViewedReport = ihReportDetailQuery.data as { name?: string; payload?: Record<string, unknown>; created_at?: string; error?: string } | undefined
+  const ihResult: Record<string, unknown> | undefined =
+    isIntraHedging && viewedReportId != null ? ihViewedReport?.payload : (scanMutation.data as Record<string, unknown> | undefined)
 
   const watchlistMarket: WatchlistMarket =
     assetClass === 'us' || assetClass === 'commodity' ? 'us' : assetClass === 'crypto' ? 'crypto' : 'india'
@@ -294,7 +511,7 @@ export default function TradingHubs() {
             ))}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length}>
+              <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length || (isIntraHedging && runInBackground)}>
                 {scanMutation.isPending
                   ? `Scanning ${scanTickers.length} ticker${scanTickers.length === 1 ? '' : 's'}…`
                   : `Run live scan${scanTickers.length ? ` (${scanTickers.length})` : ''}`}
@@ -304,19 +521,220 @@ export default function TradingHubs() {
               )}
             </div>
             {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+
+            {isIntraHedging && (
+              <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">
+                <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-teal-500"
+                    checked={runInBackground}
+                    onChange={(e) => setRunInBackground(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-slate-100">Run in background</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      Name the run — it keeps going if you leave this page, then auto-saves into Saved
+                      reports below when done. You can start several background runs at once.
+                    </span>
+                  </span>
+                </label>
+                {runInBackground && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[16rem] flex-1">
+                      <FormField label="Report name">
+                        <Input
+                          value={bgReportName}
+                          onChange={(e) => setBgReportName(e.target.value)}
+                          placeholder={`Intra-Hedging · ${new Date().toLocaleDateString()}`}
+                          maxLength={200}
+                        />
+                      </FormField>
+                    </div>
+                    <Button onClick={startIntraHedgingBackgroundRun} disabled={ihStartBgMutation.isPending}>
+                      {ihStartBgMutation.isPending ? 'Starting…' : 'Start background run'}
+                    </Button>
+                  </div>
+                )}
+                {bgError && <Alert type="error">{bgError}</Alert>}
+                {bgMsg && <Alert type="success">{bgMsg}</Alert>}
+              </div>
+            )}
           </>
         )}
       </Card>
 
       {hubsQ.isLoading && <Loading message="Loading trading hubs…" />}
 
+      {isIntraHedging && ihOngoingList.length > 0 && (
+        <Card className="mb-4">
+          <h4 className="mb-3 font-medium text-white">Background runs in progress ({ihOngoingList.length})</h4>
+          <div className="space-y-3">
+            {ihOngoingList.map((job) => (
+              <div key={job.job_id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-amber-100">{job.name || 'Untitled background run'}</p>
+                  <p className="text-xs text-slate-500">{Math.round((job.progress ?? 0) * 100)}%</p>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">{job.progress_note || 'Starting…'}</p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-amber-400 transition-all"
+                    style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isIntraHedging && ihRecentFinished.length > 0 && (
+        <Card className="mb-4">
+          <h4 className="mb-3 font-medium text-white">Recent background runs</h4>
+          <div className="space-y-2">
+            {ihRecentFinished.map((job) => (
+              <div
+                key={job.job_id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  job.status === 'error' ? 'border-rose-500/30 bg-rose-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div>
+                  {job.status === 'done' && job.report_id ? (
+                    <button className="font-medium text-slate-200 hover:text-teal-400" onClick={() => setViewedReportId(job.report_id as number)}>
+                      {job.name || 'Untitled background run'}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-slate-200">{job.name || 'Untitled background run'}</span>
+                  )}
+                  {job.status === 'error' && (
+                    <p className="mt-1 text-xs text-rose-400">{job.error || 'Failed — no further detail available.'}</p>
+                  )}
+                </div>
+                <span className={`text-xs font-medium ${job.status === 'error' ? 'text-rose-400' : job.report_id ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {job.status === 'error' ? 'Failed' : job.report_id ? 'Saved' : 'Done (not saved)'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isIntraHedging && (
+        <Card className="mb-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h4 className="inline-flex items-center gap-2 font-medium text-white">
+              <FolderOpen size={16} className="text-slate-400" />
+              Saved reports
+              <span className="text-sm font-normal text-slate-500">({ihReports.length})</span>
+            </h4>
+            <Button variant="ghost" size="sm" onClick={() => ihReportsQuery.refetch()} disabled={ihReportsQuery.isFetching}>
+              Refresh
+            </Button>
+          </div>
+          {ihReportsQuery.isLoading && <Loading message="Loading saved reports…" />}
+          {!ihReportsQuery.isLoading && !ihReports.length && (
+            <p className="text-sm text-slate-500">No saved reports yet. Run a scan and save it, or start a named background run.</p>
+          )}
+          <div className="space-y-2">
+            {ihReports.map((r) => {
+              const s = r.summary
+              return (
+                <div
+                  key={r.id}
+                  className={`flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+                    viewedReportId === r.id ? 'border-teal-500/50 bg-teal-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <button className="font-medium text-slate-200 hover:text-teal-400" onClick={() => setViewedReportId(r.id)}>
+                      {r.name}
+                    </button>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Saved {formatWhen(r.created_at)}
+                      {s?.universe_desc ? ` · ${s.universe_desc}` : ''}
+                    </p>
+                    {s?.best_pair && (
+                      <p className="mt-1 text-xs text-teal-400/90">
+                        Best pair: {s.best_pair}{s.best_pair_confidence_pct != null ? ` · ${s.best_pair_confidence_pct.toFixed(0)}% confidence` : ''}
+                        {s.pair_count != null ? ` · ${s.pair_count} pair(s) found` : ''}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (window.confirm(`Delete saved report "${r.name}"? This cannot be undone.`)) {
+                        ihDeleteReportMutation.mutate(r.id)
+                      }
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       {!activeSection?.multi_strategy && scanMutation.isPending && (
         <Loading message="Running live scan — fetching OHLCV from Groww/yfinance (1–3 min)…" />
       )}
 
-      {!activeSection?.multi_strategy && !scanMutation.isPending && scanMutation.data && (
+      {!activeSection?.multi_strategy && !scanMutation.isPending && ihResult && (
         <Card>
-          <TradingHubResultsPanel data={scanMutation.data as Record<string, unknown>} sectionId={sectionId} assetClass={fixedUniverse ? 'india' : assetClass} />
+          {isIntraHedging && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                {viewedReportId != null && ihViewedReport?.name && (
+                  <p className="text-sm text-slate-400">
+                    Viewing saved report: <span className="text-slate-200">{ihViewedReport.name}</span>
+                    {ihViewedReport.created_at ? ` · saved ${formatWhen(ihViewedReport.created_at)}` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {viewedReportId == null && (
+                  <Button variant="secondary" size="sm" onClick={() => setShowSaveForm(true)}>
+                    <span className="inline-flex items-center gap-1.5"><Save size={14} />Save for future reference</span>
+                  </Button>
+                )}
+                {viewedReportId != null && (
+                  <Button variant="ghost" size="sm" onClick={() => setViewedReportId(null)}>
+                    <X size={14} />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {isIntraHedging && showSaveForm && (
+            <div className="mb-4 rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <FormField label="Report name">
+                <div className="flex gap-2">
+                  <Input
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder={`Intra-Hedging — ${new Date().toLocaleDateString()}`}
+                  />
+                  <Button
+                    onClick={() => ihSaveReportMutation.mutate({
+                      name: saveName.trim() || `Intra-Hedging ${new Date().toLocaleString()}`,
+                      payload: ihResult,
+                    })}
+                    disabled={ihSaveReportMutation.isPending}
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Save size={14} />Save</span>
+                  </Button>
+                  <Button variant="ghost" onClick={() => setShowSaveForm(false)}>Cancel</Button>
+                </div>
+              </FormField>
+              {saveMsg && <p className="mt-2 text-xs text-emerald-400">{saveMsg}</p>}
+            </div>
+          )}
+          <TradingHubResultsPanel data={ihResult} sectionId={sectionId} assetClass={fixedUniverse ? 'india' : assetClass} />
         </Card>
       )}
     </div>

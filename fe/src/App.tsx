@@ -8,6 +8,7 @@ import InvestingAgent from './pages/InvestingAgent'
 import Alerts from './pages/Alerts'
 import WatchlistPage from './pages/Watchlist'
 import TodosPage from './pages/Todos'
+import BestMf from './pages/BestMf'
 import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import Scanner from './pages/Scanner'
@@ -91,6 +92,7 @@ export default function App() {
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/todos" element={<TodosPage />} />
+                <Route path="/best-mf" element={<BestMf />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
                 <Route path="/trade-candidate" element={<Navigate to="/trade-candidate/configure" replace />} />
                 <Route path="/trade-candidate/:tab" element={<TradeCandidate />} />

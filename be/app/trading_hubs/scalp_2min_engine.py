@@ -619,7 +619,7 @@ def scan_universe(
                 f"(max SL {cfg.sl_points_option:g} pts on premium)."
             )
 
-        ltp = get_index_last_traded_price(ticker)
+        ltp = get_index_last_traded_price(ticker, groww_token=groww_token, exchange=exchange)
         if ltp.get("price") is not None:
             reasons.insert(0, f"LTP {ltp['price']:,.2f} (live index quote) vs {cfg.ema_slow}-EMA candle close {r.get('spot')}.")
 
