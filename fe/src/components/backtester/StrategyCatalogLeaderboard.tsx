@@ -1020,7 +1020,7 @@ function BacktesterResults({
         <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
           All results ({sorted.length} strategy × ticker combinations) — click a row for its advanced report
         </p>
-        <DataTable>
+        <DataTable title={`Backtest Results - ${(data.tickers ?? []).join('-') || 'all'}`}>
           <thead>
             <tr>
               <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>

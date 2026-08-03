@@ -318,7 +318,7 @@ export default function PaperTrading() {
             </Button>
           </div>
           {account?.positions.length ? (
-            <DataTable>
+            <DataTable title="Open Positions">
               <thead>
                 <tr>
                   <SortableTh active={positionsSortKey === 'ticker'} direction={positionsSortDir} onSort={() => handlePositionsSort('ticker')}>Ticker</SortableTh>
@@ -359,7 +359,7 @@ export default function PaperTrading() {
       {pendingOrders.length > 0 && (
         <Card className="mt-6">
           <h3 className="mb-4 font-semibold text-white">Pending Orders</h3>
-          <DataTable>
+          <DataTable title="Pending Orders">
             <thead>
               <tr>
                 <Th>Ticker</Th>
@@ -391,7 +391,7 @@ export default function PaperTrading() {
       {account && account.recent_orders.length > 0 && (
         <Card className="mt-6">
           <h3 className="mb-4 font-semibold text-white">Recent Orders</h3>
-          <DataTable>
+          <DataTable title="Recent Orders">
             <thead>
               <tr>
                 <SortableTh active={ordersSortKey === 'created_at'} direction={ordersSortDir} onSort={() => handleOrdersSort('created_at')}>Time</SortableTh>

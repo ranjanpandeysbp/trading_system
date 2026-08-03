@@ -244,7 +244,7 @@ export function IndiaFiiDiiHoldingsPanel() {
                 {!summary.length ? (
                   <p className="text-sm text-slate-500">No successful tickers.</p>
                 ) : (
-                  <DataTable minWidth={980}>
+                  <DataTable minWidth={980} title="FII-DII Holdings">
                     <thead>
                       <tr>
                         <Th>Ticker</Th>

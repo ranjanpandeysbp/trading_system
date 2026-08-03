@@ -485,7 +485,7 @@ function TriggerHistoryPanel({ assetClass }: { assetClass: AssetClassFilter }) {
       {hits.length === 0 ? (
         <p className="text-sm text-slate-500">No triggers yet. Check a candidate in Live Signals to populate.</p>
       ) : (
-        <DataTable minWidth={780}>
+        <DataTable minWidth={780} title={`Trigger History - ${assetClass}`}>
           <thead>
             <tr>
               <Th>
