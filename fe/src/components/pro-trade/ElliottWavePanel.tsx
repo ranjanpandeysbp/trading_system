@@ -24,6 +24,21 @@ function signalTone(direction: string): string {
   return 'HOLD'
 }
 
+function SignalBadge({ signal }: { signal: string }) {
+  const s = signal.toUpperCase()
+  const cls =
+    s === 'BULLISH'
+      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+      : s === 'BEARISH'
+        ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+        : 'border-slate-700/60 bg-slate-800/40 text-slate-400'
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${cls}`}>
+      {s}
+    </span>
+  )
+}
+
 function fmtNum(v: unknown) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'
@@ -64,11 +79,16 @@ function TickerResultCard({
 
   const chartLevels = useMemo<VpLevel[]>(() => {
     const out: VpLevel[] = []
+    if (take) {
+      if (result.entry_price != null) out.push({ label: 'Entry', price: Number(result.entry_price), color: '#38bdf8' })
+      if (result.stop_price != null) out.push({ label: 'SL', price: Number(result.stop_price), color: '#f87171' })
+      if (result.target_price != null) out.push({ label: 'TP', price: Number(result.target_price), color: '#34d399' })
+    }
     Object.entries(targets).forEach(([label, price], i) => {
       out.push({ label, price: Number(price), color: i === 0 ? '#facc15' : '#94a3b8' })
     })
     return out
-  }, [targets])
+  }, [targets, take, result.entry_price, result.stop_price, result.target_price])
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -86,9 +106,12 @@ function TickerResultCard({
               {String(result.ltp)}
             </span>
           )}
+          <SignalBadge signal={String(result.signal ?? 'NEUTRAL')} />
           {take && <Badge action={signalTone(String(result.direction ?? ''))} />}
+          {result.confidence_pct != null && (
+            <span className="text-xs font-medium text-slate-300">{Number(result.confidence_pct).toFixed(0)}% confidence</span>
+          )}
           <span className={`text-xs font-medium ${PATTERN_COLORS[pattern] ?? 'text-slate-400'}`}>{pattern}</span>
-          <span className="text-xs text-slate-500">{String(result.verdict ?? '—')}</span>
           {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
         </button>
         <AddToWatchlistButton ticker={String(result.ticker ?? '')} marketType={assetClass} compact />
@@ -104,6 +127,38 @@ function TickerResultCard({
               }`}
             >
               {String(result.plain_english)}
+            </div>
+          )}
+
+          {take && (
+            <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
+              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <p className="text-xs text-slate-500">Entry</p>
+                  <p className="font-medium text-white">
+                    {currency}
+                    {fmtNum(result.entry_price)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Stop-loss</p>
+                  <p className="font-medium text-rose-400">
+                    {result.sl_pct != null ? `-${Number(result.sl_pct).toFixed(1)}%` : '—'} ({currency}
+                    {fmtNum(result.stop_price)})
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Target</p>
+                  <p className="font-medium text-emerald-400">
+                    {result.tp_pct != null ? `+${Number(result.tp_pct).toFixed(1)}%` : '—'} ({currency}
+                    {fmtNum(result.target_price)})
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Reward : Risk</p>
+                  <p className="font-medium text-white">{result.rr != null ? `1 : ${Number(result.rr).toFixed(2)}` : '—'}</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -193,6 +248,15 @@ export function ElliottWavePanel({ data }: { data: Row }) {
         5-wave trend just finished, expect a pullback next. <strong className="text-amber-400">CORRECTIVE</strong> = an
         ABC pullback just finished, expect the original trend to resume. <strong className="text-slate-400">INCOMPLETE</strong>{' '}
         = the swings don't form a clean pattern yet — nothing to act on, just watch.
+        <br />
+        <br />
+        Every card also shows a <strong className="text-sky-300">SIGNAL</strong> —{' '}
+        <strong className="text-emerald-400">BULLISH</strong> (go long),{' '}
+        <strong className="text-rose-400">BEARISH</strong> (go short), or{' '}
+        <strong className="text-slate-400">NEUTRAL</strong> (no trade yet) — only produced once a pattern is fully
+        complete. A signal always comes with a <strong>confidence %</strong> (how strong the setup is), plus a{' '}
+        <strong>stop-loss %</strong> and <strong>target %</strong> so you know exactly how much you'd be risking vs.
+        aiming to make.
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">

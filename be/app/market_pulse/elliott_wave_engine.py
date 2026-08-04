@@ -8,7 +8,10 @@ with wave connector lines, labels, and Fibonacci-projected targets.
 
 Wave-count detection itself lives in price_action.py (analyze_elliott_waves) —
 this module is the fetch/chart-data/scan wiring around that pure function,
-matching the pattern of the other Pro Trade engines in this package.
+plus a trade-plan layer (signal/confidence/SL/TP) built the same way as the
+other Pro Trade engines (pro_trade_shared.ConfidenceScore + sl_tp_pct), so
+Elliott Wave results carry the same institutional-grade shape instead of a
+bare pattern label.
 
 Research / education only — not financial advice. Elliott Wave labels are
 algorithmic estimates, not certified wave counts.
@@ -25,6 +28,7 @@ import pandas as pd
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.price_action import analyze_elliott_waves
+from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, rr_ratio, sl_tp_pct
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ class ElliottWaveConfig:
     min_bars: int = 30
     start_date: str = ""  # optional "YYYY-MM-DD" — crops the fetched history to this window
     end_date: str = ""  # optional "YYYY-MM-DD"
+    sl_atr_mult: float = 0.5  # stop buffer beyond the signal wave's extreme, in ATR
+    min_rr: float = 1.3  # reward:risk floor used as a confidence factor
 
 
 def _build_chart_data(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -73,6 +79,84 @@ def _enrich_waves_with_time(waves: list[dict[str, Any]], df: pd.DataFrame) -> li
     return out
 
 
+def _build_trade_plan(out: dict[str, Any], df: pd.DataFrame, cfg: ElliottWaveConfig) -> None:
+    """Attach entry/stop/target/sl_pct/tp_pct/confidence_pct/signal to `out`
+    for a take_trade result — same ConfidenceScore + sl_tp_pct machinery the
+    rest of Pro Trade uses, so a wave count turns into an actual risk-managed
+    plan instead of just a pattern label."""
+    waves = out["waves"]
+    signal_wave = waves[-1]
+    entry = out["ltp"]
+    direction = out["direction"]
+    is_long = direction == "LONG"
+
+    atr_series = _atr_ind(df, 14)
+    atr_val = float(atr_series.iloc[-1]) if pd.notna(atr_series.iloc[-1]) else entry * 0.01
+    buffer = atr_val * cfg.sl_atr_mult
+    extreme = float(signal_wave["end_price"])
+    stop = extreme - buffer if is_long else extreme + buffer
+
+    targets = out["wave_targets"]
+    if out["pattern"] == "IMPULSE":
+        # Nearest Fibonacci retracement (38.2%) — the most likely level to be
+        # tagged first, used as the primary target rather than a stretch goal.
+        target = targets.get("ABC 38.2%")
+    else:
+        target = targets.get("Reversal target")
+
+    sl_pct, tp_pct = sl_tp_pct(direction, entry, stop, target)
+    rr = rr_ratio(sl_pct, tp_pct)
+
+    n = len(df)
+    bars_since_signal = (n - 1) - int(signal_wave["end_idx"])
+    is_fresh = bars_since_signal <= max(3, round(n * 0.08))
+
+    if out["pattern"] == "IMPULSE":
+        w1_len = abs(waves[0]["end_price"] - waves[0]["start_price"])
+        w3_len = abs(waves[2]["end_price"] - waves[2]["start_price"])
+        w5_len = abs(waves[4]["end_price"] - waves[4]["start_price"])
+        wave3_extended = w3_len > 1.3 * max(w1_len, w5_len)
+        score = ConfidenceScore(45, "Strictly valid 5-wave impulse (Elliott's overlap/shortest-wave rules satisfied)")
+        score.add(
+            wave3_extended, 10,
+            "Wave 3 is clearly extended vs Waves 1 & 5 — a textbook-strength impulse",
+            "Wave 3 isn't strongly extended — a weaker, less textbook impulse",
+        )
+    else:
+        w_a = waves[0]
+        w_b = waves[1]
+        a_len = abs(w_a["end_price"] - w_a["start_price"])
+        b_retrace = abs(w_b["end_price"] - w_b["start_price"]) / a_len if a_len else 0
+        clean_b = 0.35 <= b_retrace <= 0.85
+        score = ConfidenceScore(45, "Valid 3-leg ABC correction (B didn't retrace beyond A's start)")
+        score.add(
+            clean_b, 8,
+            "Wave B retraced a normal 35-85% of Wave A — a clean correction",
+            "Wave B's retracement of Wave A is unusually shallow or deep — a messier correction",
+        )
+
+    score.add(
+        is_fresh, 10,
+        f"Signal wave completed only {bars_since_signal} bar(s) ago — fresh, still actionable",
+        f"Signal wave completed {bars_since_signal} bars ago — getting stale",
+    )
+    score.add(
+        rr is not None and rr >= cfg.min_rr, 12,
+        f"Reward:risk clears the {cfg.min_rr:g}:1 floor",
+        "Reward:risk is thin for this setup",
+    )
+    confidence_pct, reasons = score.finalize()
+
+    out["entry_price"] = round(entry, 6)
+    out["stop_price"] = round(stop, 6)
+    out["target_price"] = round(target, 6) if target is not None else None
+    out["sl_pct"] = sl_pct
+    out["tp_pct"] = tp_pct
+    out["rr"] = rr
+    out["confidence_pct"] = confidence_pct
+    out["confidence_reasons"] = reasons
+
+
 def analyze_ticker(
     ticker: str,
     market: str,
@@ -94,7 +178,11 @@ def analyze_ticker(
         "notes": "",
         "chart_data": [],
         "take_trade": False,
+        "signal": "NEUTRAL",
         "verdict": "NO PATTERN",
+        "confidence_pct": None,
+        "sl_pct": None,
+        "tp_pct": None,
         "rules": [
             "ZigZag filter marks significant swing pivots at the configured sensitivity %.",
             "5-wave impulse: Wave 3 cannot be shortest, Wave 2 cannot retrace below Wave 1 start, "
@@ -102,6 +190,8 @@ def analyze_ticker(
             "ABC corrective: B must not retrace beyond A's start.",
             "After a valid 5-wave impulse, Fibonacci-projected ABC correction targets are shown "
             "(38.2% / 50% / 61.8% retracement of the impulse range).",
+            "A trade plan (signal, confidence%, SL%, TP%) is only produced once a pattern is fully "
+            "complete — Wave 5 for an impulse, Wave C for a correction.",
         ],
     }
 
@@ -155,7 +245,9 @@ def analyze_ticker(
         direction = last_wave.get("direction") if last_wave else None
         out["take_trade"] = True
         out["direction"] = "SHORT" if direction == "UP" else "LONG"
+        out["signal"] = "BEARISH" if out["direction"] == "SHORT" else "BULLISH"
         out["verdict"] = f"Wave {out['current_wave']} complete — expect ABC correction ({out['direction']})"
+        _build_trade_plan(out, df, cfg)
     elif out["pattern"] == "CORRECTIVE":
         last_wave = out["waves"][-1] if out["waves"] else None
         direction = last_wave.get("direction") if last_wave else None
@@ -166,6 +258,9 @@ def analyze_ticker(
             if out["take_trade"]
             else f"Corrective ABC in progress (currently Wave {out['current_wave']})"
         )
+        if out["take_trade"]:
+            out["signal"] = "BULLISH" if out["direction"] == "LONG" else "BEARISH"
+            _build_trade_plan(out, df, cfg)
     elif out["pattern"] == "INCOMPLETE":
         out["verdict"] = f"{len(out['waves'])} pivot legs — no valid impulse/corrective count yet"
     else:
@@ -177,35 +272,51 @@ def analyze_ticker(
 
 def _explain(out: dict[str, Any]) -> str:
     pattern = out["pattern"]
-    notes = out.get("notes") or ""
+    signal = out.get("signal", "NEUTRAL")
+
+    def _plan_line() -> str:
+        parts = [f"SIGNAL: {signal}" + (f" ({out['direction']})" if out.get("direction") else "")]
+        conf = out.get("confidence_pct")
+        sl, tp, rr = out.get("sl_pct"), out.get("tp_pct"), out.get("rr")
+        if conf is not None:
+            parts.append(f"confidence {conf:.0f}%")
+        if sl is not None and tp is not None:
+            rr_note = f" (reward:risk 1:{rr:g})" if rr else ""
+            parts.append(f"SL {sl:.1f}% · TP {tp:.1f}%{rr_note}")
+        return " — ".join(parts)
+
     if pattern == "IMPULSE" and out["valid_impulse"]:
         targets = out.get("wave_targets") or {}
         tgt_note = ""
         if targets:
-            parts = ", ".join(f"{k} {v:g}" for k, v in targets.items())
-            tgt_note = f" Watch the Fibonacci ABC retracement zone for the correction: {parts}."
+            parts = ", ".join(f"{k} ₹{v:g}" for k, v in targets.items())
+            tgt_note = f" Watch for the pullback to reach one of these Fibonacci zones: {parts}."
         return (
-            f"A valid 5-wave impulse completed, currently at Wave {out['current_wave']}. {notes} "
-            f"TRADE CASE: the impulse is exhausted — favor {out.get('direction', '—')} for the corrective ABC leg, "
-            "not a continuation of the same direction." + tgt_note
+            f"{_plan_line()}. A clean 5-wave impulse ({out['current_wave']} legs) just completed — the trending "
+            "move looks exhausted, so the next leg is expected to correct AGAINST it, not extend further in the "
+            f"same direction. That is why the trade case is {signal}, the opposite of the impulse's own direction."
+            + tgt_note
         )
     if pattern == "CORRECTIVE":
         if out["take_trade"]:
             return (
-                f"Wave C of the ABC correction has completed. {notes} "
-                f"TRADE CASE: the correction looks done — favor {out.get('direction', '—')} for resumption of the "
-                "prior trend, with a stop beyond the Wave C extreme."
+                f"{_plan_line()}. Price just finished a 3-leg corrective bounce (A-B-C) inside a larger trend — "
+                "that bounce has topped out at Wave C, so it is considered done. The original trend is expected "
+                f"to resume from here, which is why the trade case is {signal}: stop placed just beyond the Wave C "
+                "extreme, target back near where the correction began."
             )
         return (
-            f"An ABC corrective sequence is in progress (currently Wave {out['current_wave']}). {notes} "
-            "TRADE CASE: wait — the correction hasn't finished, entries here risk being caught in the middle of it."
+            f"SIGNAL: NEUTRAL. A 3-leg corrective bounce is still forming (currently Wave {out['current_wave']} "
+            "of A-B-C) — it has not finished yet, so there is no trade case here. Entering now risks getting "
+            "caught mid-correction; wait for Wave C to complete."
         )
     if pattern == "INCOMPLETE":
         return (
-            f"{notes} TRADE CASE: nothing tradable yet — the pivot structure doesn't clear this strategy's "
-            "impulse or corrective validation rules. Wait for a cleaner count, or loosen ZigZag sensitivity."
+            f"SIGNAL: NEUTRAL. {len(out['waves'])} swing legs found but none form a valid 5-wave impulse or "
+            "3-leg ABC correction under this strategy's strict rules. Nothing tradable — wait for a cleaner "
+            "count, or loosen ZigZag sensitivity to catch smaller swings."
         )
-    return f"{notes or 'No swing pivots detected at this ZigZag sensitivity.'} TRADE CASE: nothing to trade."
+    return "SIGNAL: NEUTRAL. No meaningful swing pivots detected at this ZigZag sensitivity — nothing to trade."
 
 
 def scan_universe(
@@ -226,6 +337,7 @@ def scan_universe(
             results.append({"ticker": t, "error": str(exc)[:300], "take_trade": False, "waves": []})
 
     entries = [r for r in results if not r.get("error") and r.get("take_trade")]
+    entries.sort(key=lambda r: -(r.get("confidence_pct") or 0))
 
     return {
         "strategy": STRATEGY_NAME,
