@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
+  runProTradeElliottWave,
   runProTradePaVolumeProfile,
   runProTradePaVpSmc,
   runProTradeVolumeProfileCe,
@@ -16,6 +17,7 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
 import { PaVpSmcPanel } from '../components/pro-trade/PaVpSmcPanel'
 import { VolumeProfileCePanel } from '../components/pro-trade/VolumeProfileCePanel'
@@ -35,6 +37,7 @@ const PA_TFS = ['5m', '15m', '30m', '1h', '4h', '1d', '1wk'] as const
 const SMC_HTF_TFS = ['30m', '1h', '4h', '1d'] as const
 const SMC_LTF_TFS = ['5m', '15m', '30m', '1h'] as const
 const VSA_TFS = ['5m', '15m', '30m', '1h', '4h', '1d'] as const
+const EW_TFS = ['15m', '30m', '1h', '4h', '1d', '1wk'] as const
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
   { id: 'us', label: 'US' },
@@ -1018,6 +1021,153 @@ function VolumeSpreadNextCandlePage() {
   )
 }
 
+const EW_OVERVIEW = `Elliott Wave Analyzer — algorithmic 5-wave impulse / ABC corrective detection
+
+Elliott Wave theory says price moves in a repeating fractal pattern: a 5-wave "impulse" in the direction of the
+larger trend, followed by a 3-wave "ABC" correction against it. This scanner runs a ZigZag pivot filter over the
+selected timeframe, then checks whether the resulting swings satisfy the strict validation rules for either pattern.
+
+Research / education only — algorithmic wave counts are estimates, not certified Elliott Wave analysis.`
+
+const EW_RULES = `How the count works & rules of engagement
+
+**5-wave impulse** — Wave 3 can never be the shortest of waves 1/3/5; Wave 2 cannot retrace below Wave 1's start;
+Wave 4 cannot overlap Wave 1's price territory. Once a valid impulse completes, this app projects Fibonacci
+38.2% / 50% / 61.8% retracement targets for the expected ABC correction.
+
+**ABC correction** — Wave B cannot retrace beyond Wave A's start. Once Wave C completes, the correction is
+considered done and a resumption of the prior trend is favored.
+
+**ZigZag sensitivity** — lower % = more pivots (noisier, catches smaller waves); higher % = fewer, larger swings.
+Tune this per instrument — a volatile stock needs a wider % than a stable index.
+
+Wave connector lines and numbered labels are drawn directly on the chart (candle or line view) so you can see the
+exact swing structure the count is built from.`
+
+function ElliottWavePage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
+  const [error, setError] = useState('')
+  const [timeframe, setTimeframe] = useState('1d')
+  const [lookback, setLookback] = useState(250)
+  const [zigzagPct, setZigzagPct] = useState(3.0)
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeElliottWave({
+        tickers: picker.tickers,
+        asset_class: assetClass,
+        timeframe,
+        lookback_bars: lookback,
+        zigzag_pct: zigzagPct,
+      })
+    },
+    onSuccess: () => setError(''),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = runMut.data as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Elliott Wave', data) : ''
+
+  return (
+    <div>
+      <PageHeader
+        title="Elliott Wave"
+        description="ZigZag-filtered 5-wave impulse / ABC corrective detection · wave lines on candle & line chart"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="Overview" defaultOpen>
+          {EW_OVERVIEW}
+        </CollapsibleSection>
+        <CollapsibleSection title="How the count works & rules of engagement">{EW_RULES}</CollapsibleSection>
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['1d'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-3">
+          <FormField label="Timeframe">
+            <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+              {EW_TFS.map((tf) => (
+                <option key={tf} value={tf}>
+                  {tf}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Candle history">
+            <Input
+              type="number"
+              min={50}
+              max={650}
+              value={lookback}
+              onChange={(e) => setLookback(Number(e.target.value) || 250)}
+            />
+          </FormField>
+          <FormField label="ZigZag sensitivity %">
+            <Input
+              type="number"
+              step="0.5"
+              min={1}
+              max={10}
+              value={zigzagPct}
+              onChange={(e) => setZigzagPct(Number(e.target.value) || 3.0)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+            {runMut.isPending ? 'Scanning…' : `Scan Elliott Wave (${picker.tickers.length})`}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {runMut.isPending && <Loading message="Running ZigZag pivots and validating wave structure…" />}
+
+      {data && !runMut.isPending && (
+        <>
+          <Card className="mb-4">
+            <ElliottWavePanel data={data} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/elliott-wave" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ProTrade() {
   const { tab } = useParams<{ tab?: string }>()
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
@@ -1026,5 +1176,6 @@ export default function ProTrade() {
   if (tab === 'pa-volume-profile') return <PaVolumeProfilePage />
   if (tab === 'pa-vp-smc') return <PaVpSmcPage />
   if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
+  if (tab === 'elliott-wave') return <ElliottWavePage />
   return <Navigate to="/pro-trade/volume-profile-ce" replace />
 }

@@ -27,6 +27,7 @@ import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
+from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
 from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, sl_tp_pct
 from app.market_pulse.run_summary import make_trade_plan
 from app.trading_hubs.smart_money_shared import hold_for_tf
@@ -149,6 +150,82 @@ def calculate_vsa(df: pd.DataFrame, cfg: VolumeSpreadConfig) -> pd.DataFrame:
     )
 
     return work
+
+
+def _support_resistance(work: pd.DataFrame, cfg: VolumeSpreadConfig) -> dict[str, Any]:
+    """Nearest classic swing support/resistance around the current price —
+    reuses PA-VP-SMC's swing-fractal S/R detector so this strategy's chart
+    shows the same institutional-grade levels rather than a second,
+    diverging notion of "support"."""
+    sr_cfg = PaVpSmcConfig(swing_window=5, lookback_bars=min(cfg.lookback_bars, 300))
+    try:
+        zones = find_swing_sr_zones(work, sr_cfg)
+    except Exception:
+        return {"support": None, "resistance": None}
+    support = zones.get("support")
+    resistance = zones.get("resistance")
+    return {
+        "support": round(float(support["top"]), 6) if support else None,
+        "resistance": round(float(resistance["bottom"]), 6) if resistance else None,
+    }
+
+
+def _trade_explanation(
+    *,
+    take_trade: bool,
+    verdict: str,
+    best: dict[str, Any] | None,
+    threshold: float,
+    stats: dict[str, Any],
+    sr: dict[str, Any],
+    ltp: float,
+) -> str:
+    """Plain-English "should I actually trade this" paragraph — the short
+    ConfidenceScore reason strings explain the score's math, this explains
+    the decision in trader language."""
+    hit_rate = stats.get("hit_rate_pct")
+    hit_note = (
+        f" This ticker's VSA signals have hit their next-candle direction {hit_rate}% of the time "
+        f"({stats.get('wins')}/{stats.get('samples')}) recently — informational, not a guarantee."
+        if hit_rate is not None
+        else ""
+    )
+    sr_note = ""
+    if sr.get("support") is not None and sr.get("resistance") is not None:
+        sr_note = f" Nearest swing support is {sr['support']:g}, nearest resistance is {sr['resistance']:g}."
+    elif sr.get("support") is not None:
+        sr_note = f" Nearest swing support is {sr['support']:g}."
+    elif sr.get("resistance") is not None:
+        sr_note = f" Nearest swing resistance is {sr['resistance']:g}."
+
+    if best is None:
+        return (
+            "No VSA Downthrust / No Supply / Upthrust / No Demand signal printed on the latest closed candle — "
+            "there is nothing here to trade right now." + sr_note + hit_note
+        )
+
+    setup_label = str(best.get("setup", "")).replace("_", " ")
+    direction = str(best.get("direction", ""))
+    conf = float(best.get("confidence_pct") or 0)
+    rr = best.get("rr_ratio")
+
+    if take_trade:
+        verdict_line = (
+            f"TRADE CASE: worth taking. Confidence {conf:.0f}% clears the {threshold:.0f}% bar for action, "
+            f"and the setup targets roughly 1:{rr:g} reward-to-risk."
+        )
+    else:
+        verdict_line = (
+            f"TRADE CASE: watch only, don't size in yet. Confidence is {conf:.0f}%, below the {threshold:.0f}% bar "
+            "this strategy requires before calling it actionable — the pattern is real but not yet convincing enough "
+            "on volume/context to risk capital."
+        )
+
+    return (
+        f"{setup_label.title()} fired on the latest closed candle, favoring {direction}. "
+        f"{verdict_line} Remember this is a next-candle-only edge — if the very next bar doesn't move your way, "
+        "the setup has failed and there is no reason to hold for a slower reversal." + sr_note + hit_note
+    )
 
 
 def _next_candle_result(work: pd.DataFrame, i: int, direction: str) -> str | None:
@@ -341,10 +418,15 @@ def analyze_ticker(
 
     work = calculate_vsa(df, cfg)
     setups = extract_setups(work, cfg)
-    out["ltp"] = round(float(work["close"].iloc[-1]), 6)
+    ltp = round(float(work["close"].iloc[-1]), 6)
+    out["ltp"] = ltp
     out["chart_data"] = _build_chart_data(work)
     out["setups"] = setups
     out["bars"] = len(work)
+
+    sr = _support_resistance(work, cfg)
+    out["support_level"] = sr["support"]
+    out["resistance_level"] = sr["resistance"]
 
     live = [s for s in setups if s.get("is_live") and s.get("signal") in ("BUY", "SELL")]
     hist = [s for s in setups if s.get("next_candle_result") in ("Win", "Loss")]
@@ -383,6 +465,15 @@ def analyze_ticker(
         out["active_setup"] = best["setup"]
         out["trade_plan"] = {**plan, "holding_period": hold}
         out["reasons"] = best.get("reasons") or [best.get("logic")]
+        out["plain_english"] = _trade_explanation(
+            take_trade=take,
+            verdict=out["verdict"],
+            best=best,
+            threshold=cfg.take_confidence_threshold,
+            stats=out["next_candle_stats"],
+            sr=sr,
+            ltp=ltp,
+        )
     else:
         watch = [s for s in setups if s.get("signal") in ("CONFIRMED", "WATCH", "FAILED")]
         out["verdict"] = "WATCH" if watch else "WAIT"
@@ -390,6 +481,15 @@ def analyze_ticker(
         out["reasons"] = [
             "No VSA signal on the latest closed bar — waiting for Downthrust / No Supply / Upthrust / No Demand.",
         ]
+        out["plain_english"] = _trade_explanation(
+            take_trade=False,
+            verdict=out["verdict"],
+            best=None,
+            threshold=cfg.take_confidence_threshold,
+            stats=out["next_candle_stats"],
+            sr=sr,
+            ltp=ltp,
+        )
 
     out["profile"] = {
         "tf": cfg.timeframe,

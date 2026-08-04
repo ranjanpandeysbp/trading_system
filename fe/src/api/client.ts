@@ -1770,6 +1770,15 @@ export const runProTradeVolumeSpreadNextCandle = (payload: {
   rr_ratio?: number
 }) => api.post('/pro-trade/volume-spread-next-candle', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeElliottWave = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  zigzag_pct?: number
+}) => api.post('/pro-trade/elliott-wave', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 
 export type InvestingAgentStreamEvent =

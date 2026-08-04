@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '../ui/Badge'
 import { Card } from '../ui/Card'
+import { Chip } from '../ui/Chip'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpHistBin, type VpLevel } from './VolumeProfileChart'
@@ -216,15 +217,28 @@ function TickerResultCard({
   )
 }
 
+function confidenceOf(result: Row): number {
+  const confluence = (result.confluence as Row) || {}
+  const v = confluence.confidence_pct
+  return v == null ? -1 : Number(v)
+}
+
 export function PaVpSmcPanel({ data }: { data: Row }) {
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
+  const [actionableOnly, setActionableOnly] = useState(false)
+
+  const sorted = useMemo(() => {
+    const filtered = actionableOnly ? results.filter((r) => Boolean(r.take_trade)) : results
+    return [...filtered].sort((a, b) => confidenceOf(b) - confidenceOf(a))
+  }, [results, actionableOnly])
+
   if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3 text-sm text-slate-400">
+      <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
         {data.entry_count != null && (
           <span>
             Actionable: <strong className="text-white">{String(data.entry_count)}</strong>
@@ -235,11 +249,23 @@ export function PaVpSmcPanel({ data }: { data: Row }) {
             Scanned: <strong className="text-white">{String(data.scanned)}</strong>
           </span>
         )}
+        <div className="ml-auto flex gap-2">
+          <Chip selected={!actionableOnly} onClick={() => setActionableOnly(false)}>
+            All
+          </Chip>
+          <Chip selected={actionableOnly} onClick={() => setActionableOnly(true)}>
+            Actionable only
+          </Chip>
+        </div>
       </div>
       <div className="space-y-2">
-        {results.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
-        ))}
+        {sorted.length === 0 ? (
+          <p className="text-sm text-slate-500">No actionable setups right now.</p>
+        ) : (
+          sorted.map((res, i) => (
+            <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+          ))
+        )}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}
     </div>

@@ -88,6 +88,7 @@ from app.models.schemas import (
     ProTradePaVolumeProfileRequest,
     ProTradePaVpSmcRequest,
     ProTradeVolumeSpreadNextCandleRequest,
+    ProTradeElliottWaveRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -3692,5 +3693,23 @@ async def pro_trade_volume_spread_next_candle(
             "ultra_vol_lookback": payload.ultra_vol_lookback,
             "low_spread_factor": payload.low_spread_factor,
             "rr_ratio": payload.rr_ratio,
+        },
+    )
+
+
+@router.post("/pro-trade/elliott-wave")
+async def pro_trade_elliott_wave(
+    payload: ProTradeElliottWaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).elliott_wave(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "zigzag_pct": payload.zigzag_pct,
         },
     )

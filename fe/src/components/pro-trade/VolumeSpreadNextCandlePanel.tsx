@@ -72,11 +72,13 @@ function TickerResultCard({
   )
   const chartLevels = useMemo(() => {
     const out: VpLevel[] = []
+    if (result.support_level != null) out.push({ label: 'Support', price: Number(result.support_level), color: '#34d399' })
+    if (result.resistance_level != null) out.push({ label: 'Resistance', price: Number(result.resistance_level), color: '#f87171' })
     if (result.entry_price != null) out.push({ label: 'Entry', price: Number(result.entry_price), color: '#38bdf8' })
     if (result.stop_price != null) out.push({ label: 'SL', price: Number(result.stop_price), color: '#94a3b8' })
     if (result.target_price != null) out.push({ label: 'TP', price: Number(result.target_price), color: '#a78bfa' })
     return out
-  }, [result.entry_price, result.stop_price, result.target_price])
+  }, [result.support_level, result.resistance_level, result.entry_price, result.stop_price, result.target_price])
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -110,6 +112,18 @@ function TickerResultCard({
       </div>
       {open && (
         <div className="space-y-3 border-t border-slate-800/70 px-4 py-3">
+          {result.plain_english != null && (
+            <div
+              className={`rounded-lg border px-3 py-2.5 text-sm leading-relaxed ${
+                take
+                  ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-100'
+                  : 'border-slate-700/60 bg-slate-950/50 text-slate-300'
+              }`}
+            >
+              {String(result.plain_english)}
+            </div>
+          )}
+
           {((result.reasons as string[]) ?? []).length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs text-slate-500">
               {(result.reasons as string[]).map((r) => (

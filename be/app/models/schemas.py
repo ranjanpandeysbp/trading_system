@@ -1013,6 +1013,16 @@ class ProTradeVolumeSpreadNextCandleRequest(BaseModel):
     rr_ratio: float = Field(default=1.5, ge=0.5, le=5.0)
 
 
+class ProTradeElliottWaveRequest(BaseModel):
+    """Elliott Wave — ZigZag-filtered 5-wave impulse / ABC corrective detection."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=250, ge=50, le=650)
+    zigzag_pct: float = Field(default=3.0, ge=1.0, le=10.0)
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user
