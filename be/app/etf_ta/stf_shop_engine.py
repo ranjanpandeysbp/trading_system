@@ -305,6 +305,8 @@ def rank_1_buy(
         return None
 
     row = ranked[0]
+    price = float(row.get("price") or 0)
+    quantity = int(slot_amount // price) if price > 0 else 0
     return {
         "action": "BUY",
         "buy_type": "standard",
@@ -313,6 +315,8 @@ def rank_1_buy(
         "price": row.get("price"),
         "pct_from_dma": row.get("pct_from_dma"),
         "slot_amount": slot_amount,
+        "quantity": quantity,
+        "actual_amount": round(quantity * price, 2) if quantity else 0.0,
         "reason": (
             f"Rank {row['rank']} — cheapest vs 20 DMA ({row.get('pct_from_dma'):.2f}%). "
             f"Standard shop: buy 1 ETF/day at top rank."
@@ -327,6 +331,9 @@ def sip_buy_recommendation(
     if not sip_candidates:
         return None
     row = sip_candidates[0]
+    price = float(row.get("price") or 0)
+    sip_amount = float(row.get("sip_amount") or 0)
+    quantity = int(sip_amount // price) if price > 0 else 0
     return {
         "action": "BUY",
         "buy_type": "sip",
@@ -336,6 +343,8 @@ def sip_buy_recommendation(
         "fall_from_last_buy_pct": row.get("fall_from_last_buy_pct"),
         "slot_amount": row.get("sip_amount"),
         "sip_amount": row.get("sip_amount"),
+        "quantity": quantity,
+        "actual_amount": round(quantity * price, 2) if quantity else 0.0,
         "total_invested": row.get("total_invested"),
         "reason": (
             f"SIP #{row.get('sip_rank')} — largest fall from last buy "
@@ -581,7 +590,16 @@ def daily_stf_recommendation(
 
     if buy:
         need = float(buy.get("slot_amount") or buy.get("sip_amount") or slot_amt)
-        if free < need * 0.95:
+        if buy.get("quantity", 0) == 0:
+            buy = {
+                **buy,
+                "blocked": True,
+                "block_reason": (
+                    f"ETF price ₹{float(buy.get('price') or 0):,.2f} exceeds the slot size ₹{need:,.0f} — "
+                    "not even 1 unit affordable. Increase capital or reduce the slots divisor."
+                ),
+            }
+        elif free < need * 0.95:
             buy = {
                 **buy,
                 "blocked": True,

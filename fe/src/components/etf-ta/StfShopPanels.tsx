@@ -113,15 +113,26 @@ export function StfShopRecommendationPanel({
             <p className="text-lg font-bold text-white">{String(buy.action ?? '—')}</p>
             {buy.symbol != null && <p>Symbol: <strong>{String(buy.symbol)}</strong></p>}
             {buy.buy_type != null && <p>Type: {String(buy.buy_type)}</p>}
+            {buy.price != null && <p>CMP: {fmtInr(Number(buy.price))}</p>}
             {buy.slot_amount != null && <p>Amount: {fmtInr(Number(buy.slot_amount))}</p>}
             {buy.sip_amount != null && <p>SIP amount: {fmtInr(Number(buy.sip_amount))}</p>}
+            {buy.quantity != null && (
+              <p>
+                Quantity: <strong>{Number(buy.quantity).toLocaleString('en-IN')} unit{Number(buy.quantity) === 1 ? '' : 's'}</strong>
+                {buy.actual_amount != null && Number(buy.quantity) > 0 && (
+                  <span className="text-slate-400"> · actual outlay {fmtInr(Number(buy.actual_amount))}</span>
+                )}
+              </p>
+            )}
             {buy.reason != null && <p className="text-slate-400">{String(buy.reason)}</p>}
             {buy.blocked === true && buy.block_reason != null && (
               <Alert type="error">{String(buy.block_reason)}</Alert>
             )}
             {buyActionable && onExecuteBuy && (
               <Button size="sm" className="mt-2" onClick={onExecuteBuy} disabled={buyPending}>
-                {buyPending ? 'Recording…' : `Execute buy — ${fmtInr(Number(buy.slot_amount ?? buy.sip_amount))}`}
+                {buyPending
+                  ? 'Recording…'
+                  : `Execute buy — ${Number(buy.quantity ?? 0)} unit${Number(buy.quantity) === 1 ? '' : 's'} (${fmtInr(Number(buy.actual_amount ?? buy.slot_amount ?? buy.sip_amount))})`}
               </Button>
             )}
           </div>

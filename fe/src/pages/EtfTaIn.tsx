@@ -168,7 +168,8 @@ export default function EtfTaIn() {
     if (!buy || buy.action !== 'BUY') return
     const symbol = String(buy.symbol ?? '')
     const price = Number(buy.price)
-    const amount = Number(buy.slot_amount ?? buy.sip_amount)
+    const quantity = Number(buy.quantity ?? 0)
+    const amount = quantity > 0 ? Number(buy.actual_amount) : Number(buy.slot_amount ?? buy.sip_amount)
     if (!symbol || !price || !amount) return
     addLotMutation.mutate({ symbol, price, amount, lot_type: String(buy.buy_type ?? 'standard') })
   }
