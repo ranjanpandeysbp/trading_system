@@ -1777,6 +1777,8 @@ export const runProTradeElliottWave = (payload: {
   timeframe?: string
   lookback_bars?: number
   zigzag_pct?: number
+  start_date?: string
+  end_date?: string
 }) => api.post('/pro-trade/elliott-wave', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */

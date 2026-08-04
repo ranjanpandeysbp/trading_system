@@ -1044,6 +1044,27 @@ Tune this per instrument — a volatile stock needs a wider % than a stable inde
 Wave connector lines and numbered labels are drawn directly on the chart (candle or line view) so you can see the
 exact swing structure the count is built from.`
 
+const EW_LAYMAN = `In plain English — no jargon
+
+Think of price as walking in a repeating rhythm: it takes 5 steps in one direction (a "trend"), then 3 steps back
+(a "correction"), then the cycle can repeat. This tool watches a chart, marks each significant zig-zag turn, and
+checks whether the last several turns fit that 5-step-then-3-step rhythm.
+
+• **Numbers 1 → 5** on the chart = the trending move. Each number is one leg of that move.
+• **Letters A → B → C** = the pullback against the trend that (usually) follows.
+• **Colored connector lines** trace the actual price swings the count is based on — follow them in order.
+• **Dashed lines** are projected price levels for where the next move might reach, based on common Fibonacci ratios.
+• **Green legs** = price rose in that leg. **Red legs** = price fell.
+
+What the pattern label means for you:
+- **IMPULSE** — a clean 5-step trend just wrapped up. Expect a pullback (correction) next, not more of the same move.
+- **CORRECTIVE** — an A-B-C pullback just wrapped up. Expect the original trend to resume.
+- **INCOMPLETE** — the recent swings don't cleanly fit either pattern. There's nothing reliable to act on yet — wait,
+  or try a lower ZigZag sensitivity % to catch a cleaner structure.
+
+This is a mechanical estimate, not a certified wave count — treat it as one input among several, not a standalone
+signal.`
+
 function ElliottWavePage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
@@ -1051,6 +1072,8 @@ function ElliottWavePage() {
   const [timeframe, setTimeframe] = useState('1d')
   const [lookback, setLookback] = useState(250)
   const [zigzagPct, setZigzagPct] = useState(3.0)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -1063,6 +1086,8 @@ function ElliottWavePage() {
         timeframe,
         lookback_bars: lookback,
         zigzag_pct: zigzagPct,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
       })
     },
     onSuccess: () => setError(''),
@@ -1080,9 +1105,10 @@ function ElliottWavePage() {
       />
 
       <div className="mb-4 space-y-2">
-        <CollapsibleSection title="Overview" defaultOpen>
-          {EW_OVERVIEW}
+        <CollapsibleSection title="In plain English — how to interpret your results" defaultOpen>
+          {EW_LAYMAN}
         </CollapsibleSection>
+        <CollapsibleSection title="Overview">{EW_OVERVIEW}</CollapsibleSection>
         <CollapsibleSection title="How the count works & rules of engagement">{EW_RULES}</CollapsibleSection>
       </div>
 
@@ -1141,6 +1167,19 @@ function ElliottWavePage() {
             />
           </FormField>
         </div>
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">
+          <FormField label="From date (optional)">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </FormField>
+          <FormField label="To date (optional)">
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </FormField>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          Leave blank to use the most recent Candle History bars. A date range crops that fetched history to the
+          window you pick — if it needs more bars than fetched, raise Candle History above.
+        </p>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>

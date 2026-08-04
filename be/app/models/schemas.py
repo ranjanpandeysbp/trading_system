@@ -1021,6 +1021,8 @@ class ProTradeElliottWaveRequest(BaseModel):
     timeframe: str = "1d"
     lookback_bars: int = Field(default=250, ge=50, le=650)
     zigzag_pct: float = Field(default=3.0, ge=1.0, le=10.0)
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 class YoutubeAnalysisScanRequest(BaseModel):

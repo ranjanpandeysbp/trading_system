@@ -31,16 +31,14 @@ function fmtNum(v: unknown) {
 
 function TickerResultCard({
   result,
-  index,
   currency,
   assetClass,
 }: {
   result: Row
-  index: number
   currency: string
   assetClass: WatchlistMarket
 }) {
-  const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
+  const [open, setOpen] = useState(true)
   const take = Boolean(result.take_trade)
   const pattern = String(result.pattern ?? 'NONE')
   const waves = (result.waves as Row[]) ?? []
@@ -187,6 +185,16 @@ export function ElliottWavePanel({ data }: { data: Row }) {
 
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-2.5 text-xs leading-relaxed text-slate-300">
+        <strong className="text-sky-300">How to read this, in plain terms:</strong> numbers <strong>1→5</strong> mark a
+        trending move ("impulse"); letters <strong>A→B→C</strong> mark a pullback against that trend ("correction").
+        The colored lines on each chart connect the swings in order — follow the numbers/letters to see the count.
+        Dashed lines are projected price targets. <strong className="text-emerald-400">IMPULSE</strong> = a clean
+        5-wave trend just finished, expect a pullback next. <strong className="text-amber-400">CORRECTIVE</strong> = an
+        ABC pullback just finished, expect the original trend to resume. <strong className="text-slate-400">INCOMPLETE</strong>{' '}
+        = the swings don't form a clean pattern yet — nothing to act on, just watch.
+      </div>
+
       <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
         {data.entry_count != null && (
           <span>
@@ -211,7 +219,7 @@ export function ElliottWavePanel({ data }: { data: Row }) {
       <div className="space-y-2">
         {sorted.length === 0 && <p className="text-sm text-slate-500">No tickers match this filter.</p>}
         {sorted.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} currency={currency} assetClass={assetClass} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

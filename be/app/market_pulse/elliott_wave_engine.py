@@ -37,6 +37,8 @@ class ElliottWaveConfig:
     lookback_bars: int = 250
     zigzag_pct: float = 3.0
     min_bars: int = 30
+    start_date: str = ""  # optional "YYYY-MM-DD" — crops the fetched history to this window
+    end_date: str = ""  # optional "YYYY-MM-DD"
 
 
 def _build_chart_data(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -117,7 +119,23 @@ def analyze_ticker(
         return out
 
     df = normalize_ohlcv(df)
-    if df is None or df.empty or len(df) < cfg.min_bars:
+    if df is None or df.empty:
+        out["error"] = "Insufficient OHLCV for Elliott Wave analysis"
+        return out
+
+    if cfg.start_date or cfg.end_date:
+        full_start = df.index.min()
+        full_end = df.index.max()
+        df = df.loc[(cfg.start_date or None):(cfg.end_date or None)]
+        if df.empty or len(df) < cfg.min_bars:
+            out["error"] = (
+                f"Only {len(df)} bars in {cfg.start_date or '…'} → {cfg.end_date or '…'} "
+                f"(need ≥{cfg.min_bars}). Fetched history covers {full_start} → {full_end} — "
+                "widen the date range or increase Candle History."
+            )
+            return out
+
+    if len(df) < cfg.min_bars:
         out["error"] = "Insufficient OHLCV for Elliott Wave analysis"
         return out
 

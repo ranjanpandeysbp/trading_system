@@ -3711,5 +3711,7 @@ async def pro_trade_elliott_wave(
             "timeframe": payload.timeframe,
             "lookback_bars": payload.lookback_bars,
             "zigzag_pct": payload.zigzag_pct,
+            "start_date": payload.start_date or "",
+            "end_date": payload.end_date or "",
         },
     )
