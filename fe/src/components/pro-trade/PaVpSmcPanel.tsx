@@ -69,13 +69,16 @@ function TickerResultCard({
     [result.vp_histogram],
   )
   const levels = useMemo<VpLevel[]>(() => {
-    if (!vp) return []
     const out: VpLevel[] = []
-    if (vp.val != null) out.push({ label: 'VAL', price: Number(vp.val), color: '#34d399' })
-    if (vp.poc != null) out.push({ label: 'POC', price: Number(vp.poc), color: '#fbbf24' })
-    if (vp.vah != null) out.push({ label: 'VAH', price: Number(vp.vah), color: '#f87171' })
+    if (vp?.val != null) out.push({ label: 'VAL', price: Number(vp.val), color: '#34d399' })
+    if (vp?.poc != null) out.push({ label: 'POC', price: Number(vp.poc), color: '#fbbf24' })
+    if (vp?.vah != null) out.push({ label: 'VAH', price: Number(vp.vah), color: '#f87171' })
+    const supportZone = result.support_zone as [number, number] | null | undefined
+    const resistanceZone = result.resistance_zone as [number, number] | null | undefined
+    if (supportZone) out.push({ label: 'Support', price: Number(supportZone[1]), color: '#22c55e' })
+    if (resistanceZone) out.push({ label: 'Resistance', price: Number(resistanceZone[0]), color: '#ef4444' })
     return out
-  }, [vp])
+  }, [vp, result.support_zone, result.resistance_zone])
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">

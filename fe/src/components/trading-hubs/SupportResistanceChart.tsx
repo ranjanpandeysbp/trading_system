@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -108,6 +108,16 @@ export function SupportResistanceChart({
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const toggleHidden = (key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const isHidden = (key: string) => hidden.has(key)
 
   const emaPeriods = Object.keys(emas).sort((a, b) => Number(a) - Number(b))
   // Merge each EMA series into the same row-per-timestamp shape the price
@@ -174,13 +184,20 @@ export function SupportResistanceChart({
 
   const lows = view.map((b) => b.low)
   const highs = view.map((b) => b.high)
-  const emaValues = emaPeriods.flatMap((p) => (emas[p] || []).filter((pt) => pt.time >= (viewStart ?? '') && pt.time <= (viewEnd ?? '')).map((pt) => pt.value))
-  const fibValues = fibonacci ? fibonacci.levels.map((lv) => lv.price) : []
-  const zoneValues = [...supplyDemandZones, ...orderBlocks].flatMap((z) => [z.top, z.bottom])
-  const levelValues = levels.map((lv) => lv.price)
+  const visibleEmaPeriods = emaPeriods.filter((p) => !isHidden(`ema:${p}`))
+  const emaValues = visibleEmaPeriods.flatMap((p) => (emas[p] || []).filter((pt) => pt.time >= (viewStart ?? '') && pt.time <= (viewEnd ?? '')).map((pt) => pt.value))
+  const fibValues = fibonacci && !isHidden('fibonacci') ? fibonacci.levels.map((lv) => lv.price) : []
+  const visibleSupplyDemand = isHidden('supplyDemand') ? [] : supplyDemandZones
+  const visibleOrderBlocks = isHidden('orderBlocks') ? [] : orderBlocks
+  const zoneValues = [...visibleSupplyDemand, ...visibleOrderBlocks].flatMap((z) => [z.top, z.bottom])
+  const visibleLevels = levels.filter((lv) => !isHidden(`level:${lv.label}`))
+  const levelValues = visibleLevels.map((lv) => lv.price)
+  const visibleSupportZone = supportZone && !isHidden('supportZone') ? supportZone : null
+  const visibleResistanceZone = resistanceZone && !isHidden('resistanceZone') ? resistanceZone : null
+  const visibleTrendlines = isHidden('trendlines') ? [] : trendlines
   const padding = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) - padding
-  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(supportZone ?? []), ...(resistanceZone ?? [])) + padding
+  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
+  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
 
   const hasVolume = chartData.some((b) => b.volume != null)
   const hasRsi = Boolean(rsi && rsi.length)
@@ -216,32 +233,32 @@ export function SupportResistanceChart({
             />
             <Tooltip content={<PriceTooltip chartType={chartType} />} />
 
-            {supportZone && (
+            {visibleSupportZone && (
               <ReferenceArea
-                y1={supportZone[0]} y2={supportZone[1]}
+                y1={visibleSupportZone[0]} y2={visibleSupportZone[1]}
                 fill="#10b981" fillOpacity={0.15} stroke="#10b981" strokeOpacity={0.4} strokeDasharray="3 3"
                 label={{
-                  value: supportZone[0] === supportZone[1]
-                    ? `Support ${fmtNum(supportZone[0])}`
-                    : `Support ${fmtNum(supportZone[0])}–${fmtNum(supportZone[1])}`,
+                  value: visibleSupportZone[0] === visibleSupportZone[1]
+                    ? `Support ${fmtNum(visibleSupportZone[0])}`
+                    : `Support ${fmtNum(visibleSupportZone[0])}–${fmtNum(visibleSupportZone[1])}`,
                   position: 'insideBottomLeft', fill: '#34d399', fontSize: 11,
                 }}
               />
             )}
-            {resistanceZone && (
+            {visibleResistanceZone && (
               <ReferenceArea
-                y1={resistanceZone[0]} y2={resistanceZone[1]}
+                y1={visibleResistanceZone[0]} y2={visibleResistanceZone[1]}
                 fill="#f43f5e" fillOpacity={0.15} stroke="#f43f5e" strokeOpacity={0.4} strokeDasharray="3 3"
                 label={{
-                  value: resistanceZone[0] === resistanceZone[1]
-                    ? `Resistance ${fmtNum(resistanceZone[0])}`
-                    : `Resistance ${fmtNum(resistanceZone[0])}–${fmtNum(resistanceZone[1])}`,
+                  value: visibleResistanceZone[0] === visibleResistanceZone[1]
+                    ? `Resistance ${fmtNum(visibleResistanceZone[0])}`
+                    : `Resistance ${fmtNum(visibleResistanceZone[0])}–${fmtNum(visibleResistanceZone[1])}`,
                   position: 'insideTopLeft', fill: '#fb7185', fontSize: 11,
                 }}
               />
             )}
 
-            {supplyDemandZones.map((z, i) => (
+            {visibleSupplyDemand.map((z, i) => (
               <ReferenceArea
                 key={`sd-${i}`}
                 y1={z.bottom} y2={z.top}
@@ -254,7 +271,7 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {orderBlocks.map((ob, i) => (
+            {visibleOrderBlocks.map((ob, i) => (
               <ReferenceArea
                 key={`ob-${i}`}
                 y1={ob.bottom} y2={ob.top}
@@ -267,7 +284,7 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {trendlines.map((tl, i) => {
+            {visibleTrendlines.map((tl, i) => {
               const pts = tl.points
               if (pts.length < 2) return null
               const first = pts[0]
@@ -284,7 +301,7 @@ export function SupportResistanceChart({
               )
             })}
 
-            {fibonacci?.levels.map((lv) => (
+            {!isHidden('fibonacci') && fibonacci?.levels.map((lv) => (
               <ReferenceLine
                 key={`fib-${lv.ratio}`}
                 y={lv.price}
@@ -296,7 +313,7 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {lastClose != null && (
+            {lastClose != null && !isHidden('lastClose') && (
               <ReferenceLine
                 y={lastClose}
                 stroke="#e2e8f0"
@@ -305,7 +322,7 @@ export function SupportResistanceChart({
               />
             )}
 
-            {levels.map((lv, i) => (
+            {visibleLevels.map((lv, i) => (
               <ReferenceLine
                 key={`level-${i}-${lv.price}`}
                 y={lv.price}
@@ -317,7 +334,7 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {emaPeriods.map((period) => (
+            {visibleEmaPeriods.map((period) => (
               <Line
                 key={period}
                 type="monotone"
@@ -343,7 +360,9 @@ export function SupportResistanceChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-[10px] text-slate-600">Drag across the chart to zoom into a section.</p>
+      <p className="text-[10px] text-slate-600">
+        Drag across the chart to zoom into a section. Click a chip below to hide/show that line.
+      </p>
 
       {hasVolume && (
         <div className="h-20 w-full">
@@ -383,42 +402,121 @@ export function SupportResistanceChart({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 text-[11px] text-slate-500">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        {(supportZone || resistanceZone || trendlines.length > 0 || fibonacci || supplyDemandZones.length > 0 ||
+          orderBlocks.length > 0 || levels.length > 0 || emaPeriods.length > 0) && (
+          <>
+            <button
+              type="button"
+              onClick={() => setHidden(new Set())}
+              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            >
+              Show all
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const all = new Set<string>()
+                if (supportZone) all.add('supportZone')
+                if (resistanceZone) all.add('resistanceZone')
+                if (trendlines.length) all.add('trendlines')
+                if (fibonacci) all.add('fibonacci')
+                if (supplyDemandZones.length) all.add('supplyDemand')
+                if (orderBlocks.length) all.add('orderBlocks')
+                if (lastClose != null) all.add('lastClose')
+                emaPeriods.forEach((p) => all.add(`ema:${p}`))
+                levels.forEach((lv) => all.add(`level:${lv.label}`))
+                setHidden(all)
+              }}
+              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            >
+              Hide all
+            </button>
+          </>
+        )}
         {chartType === 'candles' ? (
           <>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BULL_COLOR }} /> Bullish candle</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BEAR_COLOR }} /> Bearish candle</span>
+            <span className="inline-flex items-center gap-1 text-slate-500"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BULL_COLOR }} /> Bullish candle</span>
+            <span className="inline-flex items-center gap-1 text-slate-500"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BEAR_COLOR }} /> Bearish candle</span>
           </>
         ) : null}
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500/60" /> Support zone</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-rose-500/60" /> Resistance zone</span>
-        {trendlines.some((t) => t.type === 'ascending') && (
-          <span className="inline-flex items-center gap-1"><span className="h-0.5 w-3 bg-sky-400" /> Ascending trendline</span>
+        {supportZone && (
+          <LegendToggle active={!isHidden('supportZone')} color="#34d399" onClick={() => toggleHidden('supportZone')}>
+            Support zone
+          </LegendToggle>
         )}
-        {trendlines.some((t) => t.type === 'descending') && (
-          <span className="inline-flex items-center gap-1"><span className="h-0.5 w-3 bg-orange-400" /> Descending trendline</span>
+        {resistanceZone && (
+          <LegendToggle active={!isHidden('resistanceZone')} color="#fb7185" onClick={() => toggleHidden('resistanceZone')}>
+            Resistance zone
+          </LegendToggle>
+        )}
+        {trendlines.length > 0 && (
+          <LegendToggle active={!isHidden('trendlines')} color="#38bdf8" onClick={() => toggleHidden('trendlines')}>
+            Trendlines
+          </LegendToggle>
         )}
         {emaPeriods.map((p) => (
-          <span key={p} className="inline-flex items-center gap-1">
-            <span className="h-0.5 w-3" style={{ backgroundColor: EMA_COLORS[p] ?? '#94a3b8' }} /> {p} EMA
-          </span>
+          <LegendToggle key={p} active={!isHidden(`ema:${p}`)} color={EMA_COLORS[p] ?? '#94a3b8'} onClick={() => toggleHidden(`ema:${p}`)}>
+            {p} EMA
+          </LegendToggle>
         ))}
         {fibonacci && (
-          <span className="inline-flex items-center gap-1"><span className="h-0.5 w-3 bg-violet-400" /> Fibonacci retracement ({fibonacci.trend})</span>
+          <LegendToggle active={!isHidden('fibonacci')} color="#a78bfa" onClick={() => toggleHidden('fibonacci')}>
+            Fibonacci ({fibonacci.trend})
+          </LegendToggle>
         )}
-        {supplyDemandZones.some((z) => z.type === 'demand') && (
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: '#2dd4bf' }} /> Demand zone</span>
+        {supplyDemandZones.length > 0 && (
+          <LegendToggle active={!isHidden('supplyDemand')} color="#2dd4bf" onClick={() => toggleHidden('supplyDemand')}>
+            Supply / Demand zones
+          </LegendToggle>
         )}
-        {supplyDemandZones.some((z) => z.type === 'supply') && (
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: '#fbbf24' }} /> Supply zone</span>
+        {orderBlocks.length > 0 && (
+          <LegendToggle active={!isHidden('orderBlocks')} color="#818cf8" onClick={() => toggleHidden('orderBlocks')}>
+            Order blocks
+          </LegendToggle>
         )}
-        {orderBlocks.some((o) => o.type === 'bullish') && (
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: '#22d3ee' }} /> Bullish order block</span>
+        {lastClose != null && (
+          <LegendToggle active={!isHidden('lastClose')} color="#e2e8f0" onClick={() => toggleHidden('lastClose')}>
+            Now line
+          </LegendToggle>
         )}
-        {orderBlocks.some((o) => o.type === 'bearish') && (
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: '#818cf8' }} /> Bearish order block</span>
-        )}
+        {levels.map((lv) => (
+          <LegendToggle
+            key={lv.label}
+            active={!isHidden(`level:${lv.label}`)}
+            color={lv.color ?? '#facc15'}
+            onClick={() => toggleHidden(`level:${lv.label}`)}
+          >
+            {lv.label}
+          </LegendToggle>
+        ))}
       </div>
     </div>
+  )
+}
+
+function LegendToggle({
+  active,
+  color,
+  onClick,
+  children,
+}: {
+  active: boolean
+  color: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Click to toggle this line"
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+        active ? 'border-slate-700/70 text-slate-400' : 'border-slate-800 text-slate-600 line-through'
+      }`}
+    >
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: active ? color : '#475569' }} />
+      {children}
+    </button>
   )
 }

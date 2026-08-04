@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -117,6 +118,10 @@ export function VolumeProfileChart({
   waves?: VpWaveSegment[]
 }) {
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [refLeft, setRefLeft] = useState<string | null>(null)
+  const [refRight, setRefRight] = useState<string | null>(null)
+  const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
 
   const merged = useMemo(() => {
     const base = chartData.map((b) => ({ ...b, range: [b.low, b.high] as [number, number] }))
@@ -133,14 +138,65 @@ export function VolumeProfileChart({
     })
   }, [chartData, waves])
 
+  // Reset any in-flight/applied zoom whenever the underlying series changes
+  // (new ticker, refreshed scan) so a stale index range never gets applied
+  // to a differently-sized dataset.
+  const dataKeyForReset = chartData.length ? `${chartData[0].time}|${chartData[chartData.length - 1].time}|${chartData.length}` : ''
+  const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
+  if (dataKeyForReset !== lastResetKey) {
+    setLastResetKey(dataKeyForReset)
+    if (zoomRange) setZoomRange(null)
+    if (refLeft || refRight) { setRefLeft(null); setRefRight(null) }
+  }
+
+  const timeIndex = useMemo(() => {
+    const m = new Map<string, number>()
+    merged.forEach((bar, i) => m.set(bar.time, i))
+    return m
+  }, [merged])
+
+  const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged
+
+  const handleMouseDown = (e: any) => {
+    if (e?.activeLabel != null) setRefLeft(e.activeLabel)
+  }
+  const handleMouseMove = (e: any) => {
+    if (refLeft != null && e?.activeLabel != null) setRefRight(e.activeLabel)
+  }
+  const handleMouseUp = () => {
+    if (refLeft != null && refRight != null && refLeft !== refRight) {
+      const i1 = timeIndex.get(refLeft)
+      const i2 = timeIndex.get(refRight)
+      if (i1 != null && i2 != null && Math.abs(i1 - i2) >= 2) {
+        setZoomRange([Math.min(i1, i2), Math.max(i1, i2)])
+      }
+    }
+    setRefLeft(null)
+    setRefRight(null)
+  }
+  const resetZoom = () => setZoomRange(null)
+
+  const toggleHidden = (key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   if (!chartData.length) {
     return <p className="text-xs text-slate-500">No chart data for this ticker.</p>
   }
 
-  const lows = merged.map((b) => b.low)
-  const highs = merged.map((b) => b.high)
-  const levelPrices = levels.map((l) => l.price)
-  const wavePrices = waves.flatMap((w) => [w.startPrice, w.endPrice])
+  const visibleLevels = levels.filter((l) => !hidden.has(`level:${l.label}`))
+  const visibleWaves = waves.filter((_, i) => !hidden.has(`wave:${i}`))
+  const anyHideable = levels.length > 0 || waves.length > 0
+
+  const lows = view.map((b) => b.low)
+  const highs = view.map((b) => b.high)
+  const levelPrices = visibleLevels.map((l) => l.price)
+  const wavePrices = visibleWaves.flatMap((w) => [w.startPrice, w.endPrice])
   const pad = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
   const yMin = Math.min(...lows, ...levelPrices, ...wavePrices) - pad
   const yMax = Math.max(...highs, ...levelPrices, ...wavePrices) + pad
@@ -159,36 +215,99 @@ export function VolumeProfileChart({
         <Chip selected={chartType === 'line'} onClick={() => setChartType('line')}>
           Line
         </Chip>
-        <div className="ml-auto flex flex-wrap gap-3 text-[11px] text-slate-500">
-          {waves.map((w, i) => (
-            <span key={`wave-legend-${i}`} className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: w.color }} />
-              Wave {w.label}
-            </span>
-          ))}
-          {levels.map((l) => (
-            <span key={l.label} className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: l.color }} />
-              {l.label} {fmtNum(l.price)}
-            </span>
-          ))}
+        {anyHideable && (
+          <>
+            <button
+              type="button"
+              onClick={() => setHidden(new Set())}
+              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            >
+              Show all
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const all = new Set<string>()
+                waves.forEach((_, i) => all.add(`wave:${i}`))
+                levels.forEach((l) => all.add(`level:${l.label}`))
+                setHidden(all)
+              }}
+              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            >
+              Hide all
+            </button>
+          </>
+        )}
+        <div className="ml-auto flex flex-wrap gap-2 text-[11px]">
+          {waves.map((w, i) => {
+            const key = `wave:${i}`
+            const isHidden = hidden.has(key)
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => toggleHidden(key)}
+                title="Click to toggle this wave line"
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                }`}
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : w.color }} />
+                Wave {w.label}
+              </button>
+            )
+          })}
+          {levels.map((l) => {
+            const key = `level:${l.label}`
+            const isHidden = hidden.has(key)
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => toggleHidden(key)}
+                title="Click to toggle this line"
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                }`}
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : l.color }} />
+                {l.label} {fmtNum(l.price)}
+              </button>
+            )
+          })}
         </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[1fr_160px]">
-        <div className="h-72 w-full">
+        <div className="relative h-72 w-full select-none">
+          {zoomRange && (
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="absolute right-2 top-0 z-10 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+            >
+              Reset zoom
+            </button>
+          )}
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={merged} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+            <ComposedChart
+              data={view}
+              margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={36} />
+              <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={36} allowDataOverflow />
               <YAxis
                 domain={[yMin, yMax]}
                 tick={{ fill: '#94a3b8', fontSize: 10 }}
                 width={60}
                 tickFormatter={fmtNum}
+                allowDataOverflow
               />
               <Tooltip content={<PriceTooltip chartType={chartType} />} />
-              {levels.map((l) => (
+              {visibleLevels.map((l) => (
                 <ReferenceLine
                   key={l.label}
                   y={l.price}
@@ -196,6 +315,7 @@ export function VolumeProfileChart({
                   strokeDasharray="4 3"
                   strokeWidth={1.5}
                   label={{ value: l.label, position: 'insideTopRight', fill: l.color, fontSize: 10 }}
+                  ifOverflow="extendDomain"
                 />
               ))}
               {chartType === 'candles' ? (
@@ -211,7 +331,8 @@ export function VolumeProfileChart({
                   name="Close"
                 />
               )}
-              {waves.map((w, i) => {
+              {visibleWaves.map((w) => {
+                const i = waves.indexOf(w)
                 const key = `__wave_${i}`
                 return (
                   <Line
@@ -227,6 +348,9 @@ export function VolumeProfileChart({
                   />
                 )
               })}
+              {refLeft != null && refRight != null && (
+                <ReferenceArea x1={refLeft} x2={refRight} strokeOpacity={0.3} fill="#38bdf8" fillOpacity={0.15} />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -260,6 +384,9 @@ export function VolumeProfileChart({
           </div>
         )}
       </div>
+      <p className="text-[10px] text-slate-600">
+        Drag across the chart to zoom into a section. Click a line's chip above to hide/show it.
+      </p>
     </div>
   )
 }
