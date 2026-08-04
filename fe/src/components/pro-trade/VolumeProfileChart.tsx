@@ -89,21 +89,63 @@ function CandlestickShape(props: any) {
 }
 
 function waveDotRenderer(wave: VpWaveSegment, dataKey: string) {
+  // Elliott/impulse legs alternate direction by construction (peak, trough,
+  // peak, ...), so anchoring the label on the opposite side of the swing
+  // it ends on — above a peak, below a trough — keeps consecutive wave
+  // labels from stacking on top of each other without needing full
+  // multi-point collision detection.
+  const isPeak = wave.endPrice >= wave.startPrice
   return (props: any) => {
     const { cx, cy, payload, key } = props
     if (cx == null || cy == null || payload?.[dataKey] == null) return <g key={key} />
     const isEnd = payload.time === wave.endTime
+    if (!isEnd) {
+      return <circle key={key} cx={cx} cy={cy} r={2.5} fill={wave.color} stroke="#0f172a" strokeWidth={1} />
+    }
+    const labelY = isPeak ? cy - 16 : cy + 20
     return (
       <g key={key}>
-        <circle cx={cx} cy={cy} r={isEnd ? 4 : 3} fill={wave.color} stroke="#0f172a" strokeWidth={1} />
-        {isEnd && (
-          <text x={cx} y={cy - 10} fill={wave.color} fontSize={11} fontWeight={700} textAnchor="middle">
-            {wave.label}
-          </text>
-        )}
+        <circle cx={cx} cy={cy} r={4} fill={wave.color} stroke="#0f172a" strokeWidth={1.5} />
+        <rect x={cx - 8} y={labelY - 10} width={16} height={14} rx={3} fill="#0f172a" fillOpacity={0.85} />
+        <text x={cx} y={labelY} fill={wave.color} fontSize={11} fontWeight={700} textAnchor="middle">
+          {wave.label}
+        </text>
       </g>
     )
   }
+}
+
+const CHART_HEIGHT = 288 // matches the fixed `h-72` container below
+const PLOT_MARGIN_TOP = 8
+const PLOT_MARGIN_BOTTOM = 4
+const XAXIS_HEIGHT_ESTIMATE = 28 // recharts' default single-line category axis reservation
+
+function priceToPixelY(price: number, yMin: number, yMax: number): number {
+  const plotHeight = CHART_HEIGHT - PLOT_MARGIN_TOP - PLOT_MARGIN_BOTTOM - XAXIS_HEIGHT_ESTIMATE
+  const ratio = (yMax - price) / (yMax - yMin || 1)
+  return PLOT_MARGIN_TOP + ratio * plotHeight
+}
+
+/** Reference-line labels that sit close in price (e.g. clustered Fibonacci
+ * targets) otherwise render on top of each other — nudge apart any that
+ * are closer than `minGapPx` once sorted by their approximate pixel Y. */
+function declutterLabelY(
+  items: { key: string; price: number }[],
+  yMin: number,
+  yMax: number,
+  minGapPx = 14,
+): Record<string, number> {
+  const withY = items
+    .map((it) => ({ ...it, y: priceToPixelY(it.price, yMin, yMax) }))
+    .sort((a, b) => a.y - b.y)
+  for (let i = 1; i < withY.length; i++) {
+    if (withY[i].y - withY[i - 1].y < minGapPx) {
+      withY[i].y = withY[i - 1].y + minGapPx
+    }
+  }
+  const out: Record<string, number> = {}
+  withY.forEach((it) => { out[it.key] = it.y })
+  return out
 }
 
 export function VolumeProfileChart({
@@ -204,6 +246,12 @@ export function VolumeProfileChart({
   const histSorted = useMemo(
     () => [...histogram].sort((a, b) => a.price - b.price),
     [histogram],
+  )
+
+  const levelLabelY = useMemo(
+    () => declutterLabelY(visibleLevels.map((l) => ({ key: l.label, price: l.price })), yMin, yMax),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleLevels, yMin, yMax],
   )
 
   return (
@@ -314,8 +362,21 @@ export function VolumeProfileChart({
                   stroke={l.color}
                   strokeDasharray="4 3"
                   strokeWidth={1.5}
-                  label={{ value: l.label, position: 'insideTopRight', fill: l.color, fontSize: 10 }}
                   ifOverflow="extendDomain"
+                  label={(props: any) => {
+                    const vb = props.viewBox
+                    const y = levelLabelY[l.label] ?? vb.y
+                    const x = vb.x + vb.width - 4
+                    const textWidth = 8 + l.label.length * 5.2
+                    return (
+                      <g>
+                        <rect x={x - textWidth} y={y - 9} width={textWidth} height={13} rx={2} fill="#0f172a" fillOpacity={0.85} />
+                        <text x={x - 3} y={y + 1} textAnchor="end" fill={l.color} fontSize={10}>
+                          {l.label}
+                        </text>
+                      </g>
+                    )
+                  }}
                 />
               ))}
               {chartType === 'candles' ? (
