@@ -723,6 +723,33 @@ function riskStanceBadgeClass(stance: string): string {
   return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
 }
 
+function tradeActionBadgeClass(action: string): string {
+  if (action === 'BUY') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  if (action === 'SELL') return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+  return 'border-slate-700/60 bg-slate-800/50 text-slate-300'
+}
+
+function OutlookLeg({ leg }: { leg: Row }) {
+  const direction = String(leg.direction ?? 'NEUTRAL')
+  const dirClass =
+    direction === 'LONG' ? 'text-emerald-400' : direction === 'SHORT' ? 'text-rose-400' : 'text-slate-400'
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
+      <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{String(leg.horizon ?? '')}</p>
+      <p className={`mt-1 text-sm font-semibold ${dirClass}`}>
+        {String(leg.bias ?? direction)}
+        {leg.strength_label != null && <span className="ml-1.5 text-xs font-normal text-slate-400">({String(leg.strength_label)} trend)</span>}
+      </p>
+      {leg.reversal_probability_pct != null && (
+        <p className="mt-0.5 text-xs text-slate-500">Reversal risk: {fmtNum(leg.reversal_probability_pct, 0)}%</p>
+      )}
+      {leg.plain_english != null && (
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{String(leg.plain_english)}</p>
+      )}
+    </div>
+  )
+}
+
 export function MarketPredictionPanel({ data }: { data: Row }) {
   if (data.error) return <p className="text-sm text-rose-400">{String(data.error)}</p>
 
@@ -734,10 +761,13 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
   const lateJump = (data.late_session_jump as Row) ?? {}
   const manualBasis = data.manual_futures_basis as Row | null
   const asOfDate = data.as_of_date != null ? String(data.as_of_date) : null
+  const predictionForDate = data.prediction_for_date != null ? String(data.prediction_for_date) : null
   const generatedAt = data.generated_at != null ? String(data.generated_at) : null
   const expiry = data.option_chain_expiry != null ? String(data.option_chain_expiry) : null
   const plainEnglish = data.plain_english != null ? String(data.plain_english) : null
   const chainSignal = (data.chain_signal as Row | null) ?? null
+  const outlook = (data.outlook as Row | null) ?? null
+  const trade = (data.trade_suggestion as Row | null) ?? null
 
   return (
     <div className="space-y-4">
@@ -755,11 +785,21 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
           </span>
         </div>
         {(asOfDate || expiry) && (
-          <p className="mt-2 text-xs text-slate-500">
-            {asOfDate && <>Showing results for <strong className="text-slate-300">{asOfDate}</strong> (last completed trading session)</>}
-            {expiry && <> · Option chain expiry: <strong className="text-slate-300">{expiry}</strong></>}
-            {generatedAt && <> · Generated {generatedAt}</>}
-          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            {asOfDate && (
+              <span>
+                📅 Data used: <strong className="text-slate-300">{asOfDate}</strong> (last completed NSE session)
+              </span>
+            )}
+            {predictionForDate && (
+              <span>
+                🔮 Outlook applies from: <strong className="text-slate-300">{predictionForDate}</strong> onward (approx next
+                trading session — doesn't account for exchange holidays)
+              </span>
+            )}
+            {expiry && <span>Option chain expiry: <strong className="text-slate-300">{expiry}</strong></span>}
+            {generatedAt && <span>Generated {generatedAt}</span>}
+          </div>
         )}
         {plainEnglish != null ? (
           <p className="mt-3 rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-2.5 text-sm leading-relaxed text-slate-200">
@@ -777,6 +817,67 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
           </p>
         )}
       </div>
+
+      {trade && (
+        <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold ${tradeActionBadgeClass(String(trade.action ?? 'WAIT'))}`}>
+              {String(trade.action ?? 'WAIT')}
+            </span>
+            {trade.confidence_pct != null && (
+              <span className="text-xs font-medium text-slate-300">{fmtNum(trade.confidence_pct, 0)}% confidence</span>
+            )}
+            {trade.grade != null && (
+              <span className="inline-flex items-center rounded-md border border-slate-700/60 bg-slate-800/50 px-2 py-0.5 text-xs font-semibold text-slate-300">
+                Grade {String(trade.grade)}
+              </span>
+            )}
+          </div>
+
+          {trade.action !== 'WAIT' && (
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-slate-500">Entry</p>
+                <p className="font-medium text-white">{fmtNum(trade.entry_price)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Stop-loss</p>
+                <p className="font-medium text-rose-400">
+                  {trade.sl_pct != null ? `-${fmtNum(trade.sl_pct, 1)}%` : '—'} ({fmtNum(trade.stop_price)})
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Target</p>
+                <p className="font-medium text-emerald-400">
+                  {trade.tp_pct != null ? `+${fmtNum(trade.tp_pct, 1)}%` : '—'} ({fmtNum(trade.target_price)})
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Reward : Risk</p>
+                <p className="font-medium text-white">{trade.rr != null ? `1 : ${fmtNum(trade.rr, 2)}` : '—'}</p>
+              </div>
+            </div>
+          )}
+
+          {trade.advice != null && (
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">{String(trade.advice)}</p>
+          )}
+        </div>
+      )}
+
+      {outlook != null && Boolean(outlook.available) && (
+        <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">📈 Outlook — what could happen next</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(outlook.near_term as Row | null) && (
+              <OutlookLeg leg={outlook.near_term as Row} />
+            )}
+            {(outlook.medium_term as Row | null) && (
+              <OutlookLeg leg={outlook.medium_term as Row} />
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">

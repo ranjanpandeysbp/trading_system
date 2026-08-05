@@ -36,11 +36,24 @@ Research / education only — NOT FINANCIAL ADVICE.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
+
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    liquidity_ok,
+    momentum_exhaustion_note,
+    quality_grade,
+    rr_ratio,
+    rsi as _rsi_ind,
+    sl_tp_pct,
+    volume_zscore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +382,192 @@ def _synthesize_view(
     }
 
 
+def _approx_next_trading_date(as_of: str) -> str:
+    """Next calendar trading day after `as_of` (YYYY-MM-DD), skipping
+    weekends only — this app has no NSE trading-holiday calendar, so this is
+    an approximation, always labeled as such in the response rather than
+    presented as exact."""
+    try:
+        d = datetime.strptime(as_of, "%Y-%m-%d").date()
+    except Exception:
+        return as_of
+    nd = d + timedelta(days=1)
+    while nd.weekday() >= 5:  # Sat=5, Sun=6
+        nd += timedelta(days=1)
+    return str(nd)
+
+
+def _build_outlook(symbol: str, *, groww_token: str, exchange: str) -> dict[str, Any]:
+    """Forward-looking trend/strength/reversal read for the days-to-weeks
+    ahead — layered on top of the same-day divergence read above, which only
+    judges whether TODAY's move is trustworthy, not where price goes next.
+    Reuses mtf_trend_strength_engine (ADX + Kaufman Efficiency Ratio trend
+    strength, multi-factor reversal probability), already proven elsewhere in
+    this app, on the daily (near-term, next few sessions) and weekly
+    (medium-term, coming weeks) timeframes rather than re-deriving trend
+    logic here."""
+    try:
+        from app.market_pulse.mtf_trend_strength_engine import analyze_ticker as _mtf_analyze_ticker
+
+        mtf = _mtf_analyze_ticker(symbol, ["1d", "1w"], "india", groww_token=groww_token, exchange=exchange)
+    except Exception as exc:
+        logger.debug("Outlook MTF fetch failed for %s: %s", symbol, exc)
+        return {"available": False}
+
+    tfs = mtf.get("timeframes") or {}
+
+    def _leg(r: dict | None, horizon: str) -> dict[str, Any] | None:
+        if not r:
+            return None
+        plain = r.get("plain_english")
+        return {
+            "horizon": horizon,
+            "direction": r.get("direction", "NEUTRAL"),
+            "bias": r.get("bias", "Neutral"),
+            "strength_score": r.get("strength_score"),
+            "strength_label": r.get("strength_label"),
+            "reversal_probability_pct": r.get("reversal_probability_pct"),
+            "reversal_reasons": r.get("reversal_reasons", []),
+            # mtf_trend_strength_engine's TIMEFRAMES labels carry column-alignment
+            # padding (e.g. "Daily     (Position)") meant for a dropdown, not prose.
+            "plain_english": re.sub(r" {2,}", " ", plain) if plain else plain,
+        }
+
+    near = _leg(tfs.get("1d"), "Next few trading sessions (days)")
+    medium = _leg(tfs.get("1w"), "Coming weeks")
+
+    parts = []
+    if near:
+        parts.append(f"Over the next few sessions: {near['plain_english']}")
+    if medium:
+        parts.append(f"Zooming out to the coming weeks: {medium['plain_english']}")
+    summary = " ".join(parts) if parts else "Not enough daily/weekly history to project a forward trend for this symbol yet."
+
+    return {"available": bool(near or medium), "near_term": near, "medium_term": medium, "summary": summary}
+
+
+def _build_trade_suggestion(
+    result: dict[str, Any], df_daily: pd.DataFrame, outlook: dict[str, Any], cfg: MarketPredictionConfig,
+) -> dict[str, Any]:
+    """Turns the divergence read + forward outlook above into an actual
+    risk-managed trade idea — action, %confidence, %SL/%TP, entry/stop/
+    target, an A/B/C grade and a plain advice line — using the same
+    ConfidenceScore + ATR-derived-stop + reward:risk-floor + momentum-
+    exhaustion + liquidity machinery the rest of Pro Trade uses, so this
+    isn't just a jargon read with no actionable levels attached."""
+    symbol = result["symbol"]
+    move_direction = result["move_direction"]
+    score = result["composite_score"]
+    view = result["market_view"]
+    entry = result.get("spot")
+
+    trade: dict[str, Any] = {
+        "action": "WAIT", "direction": "NONE", "entry_price": round(entry, 2) if entry else None,
+        "confidence_pct": None, "sl_pct": None, "tp_pct": None,
+        "stop_price": None, "target_price": None, "rr": None, "grade": None,
+        "reasons": [], "advice": "",
+    }
+
+    if not entry or move_direction == "FLAT":
+        trade["advice"] = (
+            "Price is essentially flat, so there's no directional move to build a trade around yet. "
+            "Wait for price to break one way or the other before considering a position."
+        )
+        return trade
+
+    if score < cfg.caution_score_threshold:
+        hollow = score <= cfg.divergence_score_threshold
+        trade["advice"] = (
+            f"The {'rally' if move_direction == 'UP' else 'decline'} itself looks "
+            f"{'hollow and at real reversal risk' if hollow else 'mixed / not clearly confirmed'} per the "
+            "derivatives read above — not clean enough to size a fresh position either with or against the "
+            "move right now. Wait for the divergence to resolve (price catches down/up to what the options "
+            "data is saying) or for the data to flip to genuine confirmation before entering."
+        )
+        return trade
+
+    action = "BUY" if move_direction == "UP" else "SELL"
+    direction = "LONG" if action == "BUY" else "SHORT"
+
+    atr_series = _atr_ind(df_daily, 14)
+    atr_val = float(atr_series.iloc[-1]) if len(atr_series) and pd.notna(atr_series.iloc[-1]) else entry * 0.01
+    is_long = direction == "LONG"
+    stop = entry - 1.5 * atr_val if is_long else entry + 1.5 * atr_val
+    target = entry + 3.0 * atr_val if is_long else entry - 3.0 * atr_val
+
+    sl_pct, tp_pct = sl_tp_pct(direction, entry, stop, target)
+    rr = rr_ratio(sl_pct, tp_pct)
+
+    conf = ConfidenceScore(45, f"Composite market-prediction score {score:+.1f} ({view})")
+    conf.add(
+        abs(score) >= 25, 15,
+        "Strong composite conviction — the derivatives data lines up clearly with today's move",
+        "Composite conviction is only moderate, not overwhelming",
+    )
+
+    near = (outlook or {}).get("near_term") if outlook else None
+    if near:
+        near_dir = near.get("direction")
+        aligned = (near_dir == "LONG" and is_long) or (near_dir == "SHORT" and not is_long)
+        conf.add(
+            aligned, 12,
+            f"Daily trend-strength read agrees ({near.get('strength_label', '')} {near_dir or 'trend'})",
+            "The daily trend-strength read doesn't clearly agree with this trade's direction",
+        )
+        reversal_pct = near.get("reversal_probability_pct")
+        if reversal_pct is not None:
+            conf.add(
+                reversal_pct < 40, 8,
+                f"Low reversal risk on the daily trend ({reversal_pct:.0f}%)",
+                f"Elevated reversal risk on the daily trend ({reversal_pct:.0f}%) — this move may be running out of room",
+            )
+
+    conf.add(
+        rr is not None and rr >= 1.5, 10,
+        f"Reward:risk of {rr:.1f}:1 clears the 1.5:1 floor" if rr else "Reward:risk floor cleared",
+        "Reward:risk is thin for this setup",
+    )
+
+    rsi_val = None
+    try:
+        rsi_series = _rsi_ind(df_daily["close"], 14).dropna()
+        if not rsi_series.empty:
+            rsi_val = float(rsi_series.iloc[-1])
+    except Exception:
+        pass
+    exhaustion_pts, exhaustion_note = momentum_exhaustion_note(rsi_val, direction)
+    if exhaustion_note:
+        conf.score += exhaustion_pts
+        conf.reasons.append(exhaustion_note)
+
+    confidence_pct, reasons = conf.finalize()
+
+    liquidity = True
+    try:
+        vz = volume_zscore(df_daily["volume"], 20).dropna()
+        liquidity = liquidity_ok(float(vz.iloc[-1]) if not vz.empty else None)
+    except Exception:
+        pass
+    grade = quality_grade(confidence_pct, rr, liquidity, False)
+
+    advice = (
+        f"{action} {symbol} near {entry:,.2f} — stop {stop:,.2f} ({sl_pct:.1f}%), target {target:,.2f} "
+        f"({tp_pct:.1f}%), reward:risk ~{rr:.1f}:1, grade {grade} at {confidence_pct:.0f}% confidence. "
+        "Size the position for the stop distance, not a fixed amount, and treat this as one read among "
+        "several to confirm — not a standalone signal to act on blindly."
+    )
+    if not liquidity:
+        advice += " Note: recent volume is unusually thin — expect wider slippage on entry/exit."
+
+    trade.update({
+        "action": action, "direction": direction,
+        "confidence_pct": confidence_pct, "sl_pct": sl_pct, "tp_pct": tp_pct,
+        "stop_price": round(stop, 4), "target_price": round(target, 4), "rr": rr, "grade": grade,
+        "reasons": reasons, "advice": advice,
+    })
+    return trade
+
+
 def analyze_market_prediction(
     symbol: str,
     *,
@@ -437,11 +636,20 @@ def analyze_market_prediction(
         fii_index_position_cut=fii_index_position_cut, cfg=cfg,
     )
 
-    # Which trading session this move is FOR (the last completed daily bar),
-    # vs when this specific read was generated — the two can differ if run
-    # after-hours or the next morning before fresh data is available.
+    # Which trading session this move is FOR (the last completed daily bar,
+    # i.e. the data this whole read is built from) vs when this specific read
+    # was generated (can differ if run after-hours/next morning) vs which
+    # session the forward-looking outlook/trade idea below actually applies
+    # to (the NEXT trading session onward) — all three shown explicitly so
+    # it's never ambiguous which date the analysis is "as of" vs "for".
     last_bar = df_daily.index[-1]
-    result["as_of_date"] = str(last_bar.date()) if hasattr(last_bar, "date") else str(last_bar)
+    as_of_date = str(last_bar.date()) if hasattr(last_bar, "date") else str(last_bar)
+    result["as_of_date"] = as_of_date
     result["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     result["option_chain_expiry"] = chain.get("current_expiry")
+    result["prediction_for_date"] = _approx_next_trading_date(as_of_date)
+
+    outlook = _build_outlook(symbol, groww_token=groww_token, exchange=exchange)
+    result["outlook"] = outlook
+    result["trade_suggestion"] = _build_trade_suggestion(result, df_daily, outlook, cfg)
     return result
