@@ -52,7 +52,9 @@ from app.models.schemas import (
     SaveTradingHubReportRequest,
     CommandCenterEtfIndiaHoldingsRequest,
     CommandCenterEtfYahooHoldingsRequest,
+    SaveEtfHoldingsReportRequest,
     CommandCenterIndiaFiiDiiHoldingsRequest,
+    SaveFiiDiiHoldingsReportRequest,
     CommandCenterSmartMoneyActivityRequest,
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
@@ -1777,6 +1779,174 @@ async def command_center_etf_holdings_yahoo(
     )
 
 
+@router.post("/command-center/etf/holdings/india/start")
+async def command_center_etf_holdings_india_start(
+    payload: CommandCenterEtfIndiaHoldingsRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the India ETF holdings-change analysis as a background job.
+    Poll GET /command-center/etf/holdings/jobs/{id} for progress and result."""
+    from app.services.etf_holdings_jobs import ETF_HOLDINGS_SOURCE, create_job, run_etf_holdings_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=ETF_HOLDINGS_SOURCE,
+        meta={
+            "asset_class": "india",
+            "names": list(payload.scheme_names.values()),
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "asset_class": "india",
+            "scheme_ids": payload.scheme_ids,
+            "scheme_names": payload.scheme_names,
+            "symbols": [],
+            "symbol_names": {},
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_etf_holdings_job(
+        job.id, "india", payload.scheme_ids, payload.scheme_names, [], {},
+        payload.from_date, payload.to_date,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {"job_id": job.id, "status": job.status, "name": job.name, "auto_save": auto_save}
+
+
+@router.post("/command-center/etf/holdings/yahoo/start")
+async def command_center_etf_holdings_yahoo_start(
+    payload: CommandCenterEtfYahooHoldingsRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the US/Crypto ETF holdings-change analysis as a background
+    job. Poll GET /command-center/etf/holdings/jobs/{id} for progress/result."""
+    from app.services.etf_holdings_jobs import ETF_HOLDINGS_SOURCE, create_job, run_etf_holdings_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=ETF_HOLDINGS_SOURCE,
+        meta={
+            "asset_class": payload.market,
+            "names": list(payload.symbol_names.values()) or payload.symbols,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "asset_class": payload.market,
+            "scheme_ids": [],
+            "scheme_names": {},
+            "symbols": payload.symbols,
+            "symbol_names": payload.symbol_names,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_etf_holdings_job(
+        job.id, payload.market, [], {}, payload.symbols, payload.symbol_names,
+        payload.from_date, payload.to_date,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {"job_id": job.id, "status": job.status, "name": job.name, "auto_save": auto_save}
+
+
+@router.get("/command-center/etf/holdings/jobs")
+async def command_center_etf_holdings_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.etf_holdings_jobs import ETF_HOLDINGS_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=ETF_HOLDINGS_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/command-center/etf/holdings/jobs/{job_id}")
+async def command_center_etf_holdings_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.etf_holdings_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/command-center/etf/holdings/reports")
+async def command_center_etf_holdings_save_report(
+    payload: SaveEtfHoldingsReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    result = payload.payload
+    asset_class = str(result.get("market") or "india")
+    scheme_names = result.get("scheme_names") or {}
+    names = list(scheme_names.values()) if isinstance(scheme_names, dict) else []
+    dates = result.get("dates") or []
+    return await service.save_etf_holdings_report(
+        payload.name,
+        asset_class,
+        names,
+        str(dates[0])[:10] if dates else "",
+        str(dates[-1])[:10] if dates else "",
+        result,
+        user_id=current_user.id,
+    )
+
+
+@router.get("/command-center/etf/holdings/reports")
+async def command_center_etf_holdings_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.list_etf_holdings_reports(user_id=current_user.id)
+
+
+@router.get("/command-center/etf/holdings/reports/{report_id}")
+async def command_center_etf_holdings_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.get_etf_holdings_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/command-center/etf/holdings/reports/{report_id}")
+async def command_center_etf_holdings_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.delete_etf_holdings_report(report_id, user_id=current_user.id)
+
+
 @router.post("/command-center/smart-money-activity")
 async def command_center_smart_money_activity(
     payload: CommandCenterSmartMoneyActivityRequest,
@@ -1819,6 +1989,115 @@ async def command_center_india_fii_dii_holdings(
         from_date=payload.from_date,
         to_date=payload.to_date,
     )
+
+
+@router.post("/command-center/india-fii-dii-holdings/start")
+async def command_center_india_fii_dii_holdings_start(
+    payload: CommandCenterIndiaFiiDiiHoldingsRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the FII-DII holdings analysis as a background job. Poll GET
+    /command-center/india-fii-dii-holdings/jobs/{id} for progress and result."""
+    from app.services.fii_dii_holdings_jobs import FII_DII_HOLDINGS_SOURCE, create_job, run_fii_dii_holdings_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=FII_DII_HOLDINGS_SOURCE,
+        meta={
+            "tickers": payload.tickers,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "auto_save": auto_save,
+        },
+        request_payload={
+            "tickers": payload.tickers,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_fii_dii_holdings_job(
+        job.id, payload.tickers, payload.from_date, payload.to_date,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {"job_id": job.id, "status": job.status, "name": job.name, "auto_save": auto_save}
+
+
+@router.get("/command-center/india-fii-dii-holdings/jobs")
+async def command_center_india_fii_dii_holdings_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.fii_dii_holdings_jobs import FII_DII_HOLDINGS_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=FII_DII_HOLDINGS_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/command-center/india-fii-dii-holdings/jobs/{job_id}")
+async def command_center_india_fii_dii_holdings_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.fii_dii_holdings_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/command-center/india-fii-dii-holdings/reports")
+async def command_center_india_fii_dii_holdings_save_report(
+    payload: SaveFiiDiiHoldingsReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    result = payload.payload
+    ok = result.get("ok") or []
+    tickers = [str(r.get("ticker")) for r in ok if isinstance(r, dict) and r.get("ticker")]
+    return await service.save_fii_dii_holdings_report(
+        payload.name, tickers, "", "", result, user_id=current_user.id,
+    )
+
+
+@router.get("/command-center/india-fii-dii-holdings/reports")
+async def command_center_india_fii_dii_holdings_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.list_fii_dii_holdings_reports(user_id=current_user.id)
+
+
+@router.get("/command-center/india-fii-dii-holdings/reports/{report_id}")
+async def command_center_india_fii_dii_holdings_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.get_fii_dii_holdings_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/command-center/india-fii-dii-holdings/reports/{report_id}")
+async def command_center_india_fii_dii_holdings_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.delete_fii_dii_holdings_report(report_id, user_id=current_user.id)
 
 
 @router.post("/command-center/upgrade-downgrade")
@@ -3759,5 +4038,6 @@ async def pro_trade_bb_mean_reversion(
             "rsi_oversold": payload.rsi_oversold,
             "zone_tolerance_pct": payload.zone_tolerance_pct,
             "min_rr": payload.min_rr,
+            "extra_checks": payload.extra_checks,
         },
     )

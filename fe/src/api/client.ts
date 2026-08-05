@@ -1306,6 +1306,32 @@ export const runIndiaFiiDiiHoldings = (payload: {
 }) =>
   api.post('/command-center/india-fii-dii-holdings', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const startIndiaFiiDiiHoldingsJob = (payload: {
+  tickers: string[]
+  from_date: string
+  to_date: string
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post('/command-center/india-fii-dii-holdings/start', payload).then((r) => r.data)
+
+export const fetchIndiaFiiDiiHoldingsJobs = (status?: string) =>
+  api.get('/command-center/india-fii-dii-holdings/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchIndiaFiiDiiHoldingsJob = (jobId: string) =>
+  api.get(`/command-center/india-fii-dii-holdings/jobs/${jobId}`).then((r) => r.data)
+
+export const saveIndiaFiiDiiHoldingsReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/command-center/india-fii-dii-holdings/reports', payload).then((r) => r.data)
+
+export const fetchIndiaFiiDiiHoldingsReports = () =>
+  api.get('/command-center/india-fii-dii-holdings/reports').then((r) => r.data)
+
+export const fetchIndiaFiiDiiHoldingsReport = (reportId: number) =>
+  api.get(`/command-center/india-fii-dii-holdings/reports/${reportId}`).then((r) => r.data)
+
+export const deleteIndiaFiiDiiHoldingsReport = (reportId: number) =>
+  api.delete(`/command-center/india-fii-dii-holdings/reports/${reportId}`).then((r) => r.data)
+
 export const runUpgradeDowngradeScan = (payload: { tickers: string[]; asset_class: string }) =>
   api.post('/command-center/upgrade-downgrade', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
@@ -1544,6 +1570,45 @@ export const runEtfYahooHoldingsChange = (payload: {
   from_date: string
   to_date: string
 }) => api.post('/command-center/etf/holdings/yahoo', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export type EtfHoldingsJobStartResponse = { job_id: string; status: string; name?: string | null; auto_save: boolean }
+
+export const startEtfIndiaHoldingsJob = (payload: {
+  scheme_ids: number[]
+  scheme_names: Record<string, string>
+  from_date: string
+  to_date: string
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post<EtfHoldingsJobStartResponse>('/command-center/etf/holdings/india/start', payload).then((r) => r.data)
+
+export const startEtfYahooHoldingsJob = (payload: {
+  market: 'us' | 'crypto'
+  symbols: string[]
+  symbol_names: Record<string, string>
+  from_date: string
+  to_date: string
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post<EtfHoldingsJobStartResponse>('/command-center/etf/holdings/yahoo/start', payload).then((r) => r.data)
+
+export const fetchEtfHoldingsJobs = (status?: string) =>
+  api.get('/command-center/etf/holdings/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchEtfHoldingsJob = (jobId: string) =>
+  api.get(`/command-center/etf/holdings/jobs/${jobId}`).then((r) => r.data)
+
+export const saveEtfHoldingsReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/command-center/etf/holdings/reports', payload).then((r) => r.data)
+
+export const fetchEtfHoldingsReports = () =>
+  api.get('/command-center/etf/holdings/reports').then((r) => r.data)
+
+export const fetchEtfHoldingsReport = (reportId: number) =>
+  api.get(`/command-center/etf/holdings/reports/${reportId}`).then((r) => r.data)
+
+export const deleteEtfHoldingsReport = (reportId: number) =>
+  api.delete(`/command-center/etf/holdings/reports/${reportId}`).then((r) => r.data)
 
 export type SmartMoneyTickerResult = {
   ticker: string
@@ -1803,6 +1868,7 @@ export const runProTradeBbMeanReversion = (payload: {
   rsi_oversold?: number
   zone_tolerance_pct?: number
   min_rr?: number
+  extra_checks?: string[]
 }) => api.post('/pro-trade/bb-mean-reversion', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */

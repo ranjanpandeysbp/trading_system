@@ -31,6 +31,16 @@ blindly trading every band touch:
 Every point is folded into pro_trade_shared.ConfidenceScore, so the final
 confidence_pct is auditable, not a black box.
 
+On top of that base read, the user can opt into up to 11 additional
+institutional-grade confluence checks (EXTRA_CHECK_OPTIONS below) — each one
+independently reused from an existing engine/indicator elsewhere in this app
+(Fibonacci, EMA stack/crossover, Stochastic RSI, VWAP, Volume Profile, Smart
+Money order blocks, chart-pattern/RSI-divergence reversal, MACD, classic
+Support/Resistance, and ADX trend direction/strength). None is required;
+selecting more simply raises the ceiling on how much independent evidence
+can back a single trade idea, exactly like a real desk building conviction
+from several unrelated reads rather than one indicator alone.
+
 Works across all 4 asset classes (india/us/crypto/commodity) via
 gap_trading.fetch_data_for_gap_scan, and scans one or more timeframes across
 one or more tickers via scan_universe.
@@ -41,7 +51,7 @@ Research / education only — not financial advice.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pandas as pd
@@ -69,6 +79,25 @@ STRATEGY_NAME = "BB Mean Reversion"
 
 TIMEFRAME_OPTIONS = ["5m", "15m", "30m", "1h", "4h", "1d", "1wk"]
 
+# Optional, user-selectable extra confluence factors — none required, each
+# adds independent evidence on top of the core %B/regime/RSI/candlestick/
+# volume read. Every one reuses an existing indicator/engine in this app
+# rather than re-deriving the math.
+EXTRA_CHECK_OPTIONS: list[dict[str, str]] = [
+    {"value": "fibonacci", "label": "Fibonacci retracement"},
+    {"value": "ema_position", "label": "EMA position (20/50 stack)"},
+    {"value": "ema_crossover", "label": "EMA crossover (9/21)"},
+    {"value": "stochastic_rsi", "label": "Stochastic RSI"},
+    {"value": "vwap", "label": "VWAP"},
+    {"value": "volume_profile", "label": "Volume Profile (POC/VAH/VAL)"},
+    {"value": "smart_money", "label": "Smart Money (Order Blocks)"},
+    {"value": "reversal_strategy", "label": "Reversal strategy (chart pattern + divergence)"},
+    {"value": "macd", "label": "MACD"},
+    {"value": "support_resistance", "label": "Support & Resistance zone"},
+    {"value": "trend_direction_strength", "label": "Trend direction & strength (ADX)"},
+]
+_EXTRA_CHECK_POINTS = 6.0
+
 
 @dataclass
 class BbMeanReversionConfig:
@@ -85,6 +114,7 @@ class BbMeanReversionConfig:
     zone_tolerance_pct: float = 1.2  # how close price must be to an independent S/R zone to count as confluence
     sl_atr_mult: float = 0.4  # stop buffer beyond the band edge, in ATR
     min_rr: float = 1.3
+    extra_checks: list[str] = field(default_factory=list)  # opt-in extras from EXTRA_CHECK_OPTIONS
 
 
 def _build_chart_data(df: pd.DataFrame, max_bars: int = 260) -> list[dict[str, Any]]:
@@ -149,6 +179,246 @@ def _near_zone(price: float, zone: dict[str, Any] | None, side: str, tol_pct: fl
     return abs(price - edge) / price * 100 <= tol_pct
 
 
+def _stoch_rsi(close: pd.Series, rsi_period: int = 14, stoch_period: int = 14) -> pd.Series:
+    """Stochastic RSI — the Stochastic oscillator's formula applied to RSI
+    instead of price, giving a more sensitive (and more prone to whipsaw)
+    overbought/oversold read than raw RSI. 0-1 scale."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / rsi_period, min_periods=rsi_period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / rsi_period, min_periods=rsi_period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, 1e-12)
+    rsi = 100 - (100 / (1 + rs))
+    lo = rsi.rolling(stoch_period).min()
+    hi = rsi.rolling(stoch_period).max()
+    return ((rsi - lo) / (hi - lo).replace(0, pd.NA)).clip(0, 1)
+
+
+def _ema_crossover_recent(df: pd.DataFrame, fast: int = 9, slow: int = 21, lookback: int = 5) -> str | None:
+    """Whether the fast/slow EMA pair crossed within the last `lookback`
+    bars — a fresh crossover, not a stale one from many bars ago."""
+    ema_f = df["close"].ewm(span=fast, adjust=False).mean()
+    ema_s = df["close"].ewm(span=slow, adjust=False).mean()
+    diff = (ema_f - ema_s).iloc[-lookback:]
+    if len(diff) < 2:
+        return None
+    sign = diff.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    if sign.iloc[0] <= 0 and sign.iloc[-1] > 0:
+        return "bullish"
+    if sign.iloc[0] >= 0 and sign.iloc[-1] < 0:
+        return "bearish"
+    return None
+
+
+def _apply_extra_checks(
+    score: ConfidenceScore,
+    df: pd.DataFrame,
+    entry: float,
+    direction: str,
+    is_long: bool,
+    checks: list[str],
+    support: dict[str, Any] | None,
+    resistance: dict[str, Any] | None,
+    zone_tolerance_pct: float,
+) -> dict[str, Any]:
+    """Applies each user-selected extra confluence factor to `score` in
+    place and returns a detail dict (raw values) for display — every check
+    here is optional, additive evidence on top of the core %B/regime/RSI/
+    candlestick/volume read, and every one reuses an existing indicator or
+    engine already proven elsewhere in this app rather than re-deriving the
+    math from scratch."""
+    detail: dict[str, Any] = {}
+    checks_set = set(checks or [])
+    pts = _EXTRA_CHECK_POINTS
+
+    if "fibonacci" in checks_set:
+        from app.market_pulse.indicators import add_fib_levels
+
+        lookback = min(100, len(df))
+        fdf = add_fib_levels(df.copy(), lookback=lookback)
+        last = fdf.iloc[-1]
+        levels = [last.get(f"fib_{r}_{lookback}") for r in ("0.236", "0.382", "0.5", "0.618", "0.786")]
+        levels = [float(v) for v in levels if v is not None and pd.notna(v)]
+        near = bool(levels) and entry > 0 and any(abs(entry - lv) / entry * 100 <= zone_tolerance_pct for lv in levels)
+        detail["fibonacci"] = {"near_level": near}
+        score.add(
+            near, pts,
+            "Price sits right at a Fibonacci retracement level — extra confluence",
+            "No Fibonacci retracement level near this price",
+        )
+
+    if "ema_position" in checks_set:
+        from app.market_pulse.pa_vp_smc_engine import classify_trend
+
+        trend = classify_trend(df)
+        aligned = (is_long and trend.get("trend") == "bullish") or (not is_long and trend.get("trend") == "bearish")
+        detail["ema_position"] = trend
+        score.add(
+            aligned, pts,
+            f"EMA stack is {trend.get('trend')} — this reads as a pullback {'buy' if is_long else 'sell'} within "
+            "the larger trend, not a pure counter-trend fade",
+            f"EMA stack is {trend.get('trend', 'mixed')} — doesn't support trading with the larger trend here",
+        )
+
+    if "ema_crossover" in checks_set:
+        cross = _ema_crossover_recent(df)
+        confirms = (is_long and cross == "bullish") or (not is_long and cross == "bearish")
+        detail["ema_crossover"] = cross
+        score.add(
+            confirms, pts,
+            f"9/21 EMA {cross} crossover just fired — short-term momentum turning the same way",
+            "No recent 9/21 EMA crossover confirming the turn",
+        )
+
+    if "stochastic_rsi" in checks_set:
+        srsi = _stoch_rsi(df["close"]).dropna()
+        srsi_val = float(srsi.iloc[-1]) if not srsi.empty else None
+        confirms = srsi_val is not None and ((is_long and srsi_val <= 0.2) or (not is_long and srsi_val >= 0.8))
+        detail["stochastic_rsi"] = round(srsi_val, 3) if srsi_val is not None else None
+        score.add(
+            confirms, pts,
+            f"Stochastic RSI ({srsi_val:.2f}) confirms the {'oversold' if is_long else 'overbought'} extreme" if srsi_val is not None else "",
+            f"Stochastic RSI ({srsi_val:.2f}) doesn't confirm the extreme" if srsi_val is not None else "Stochastic RSI unavailable",
+        )
+
+    if "vwap" in checks_set:
+        from app.market_pulse.indicators import add_vwap
+
+        vdf = add_vwap(df.copy())
+        last_vwap = vdf["vwap"].iloc[-1]
+        vwap_val = float(last_vwap) if pd.notna(last_vwap) else None
+        confirms = vwap_val is not None and ((is_long and entry < vwap_val) or (not is_long and entry > vwap_val))
+        detail["vwap"] = round(vwap_val, 6) if vwap_val is not None else None
+        score.add(
+            confirms, pts,
+            f"Price is {'below' if is_long else 'above'} VWAP ({vwap_val:,.4g}) — room to revert back toward volume-weighted fair value" if vwap_val is not None else "",
+            "Price is already on the richer side of VWAP for this trade direction" if vwap_val is not None else "VWAP unavailable",
+        )
+
+    if "volume_profile" in checks_set:
+        from app.market_pulse.volume_profile_ce_engine import calculate_volume_profile
+
+        try:
+            poc, vah, val, _vp = calculate_volume_profile(df, num_bins=40, value_area_pct=0.70)
+        except Exception:
+            poc = vah = val = None
+        confirms = False
+        note = "Volume profile unavailable"
+        if poc is not None:
+            if is_long and val is not None and entry <= val * (1 + zone_tolerance_pct / 100):
+                confirms, note = True, f"Price is at/below the Value Area Low ({val:,.4g}) — cheap relative to where most volume traded"
+            elif not is_long and vah is not None and entry >= vah * (1 - zone_tolerance_pct / 100):
+                confirms, note = True, f"Price is at/above the Value Area High ({vah:,.4g}) — rich relative to where most volume traded"
+            else:
+                note = "Price isn't at the value-area edge in this trade's direction"
+        detail["volume_profile"] = {"poc": poc, "vah": vah, "val": val}
+        score.add(confirms, pts, note if confirms else "", note if not confirms else "")
+
+    if "smart_money" in checks_set:
+        from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig as _ObCfg
+        from app.market_pulse.pa_vp_smc_engine import detect_order_blocks
+
+        try:
+            blocks = detect_order_blocks(df, _ObCfg(lookback_bars=min(len(df), 300)))
+        except Exception:
+            blocks = []
+        wanted = "bullish" if is_long else "bearish"
+        matched_ob = next(
+            (
+                b for b in blocks
+                if b["type"] == wanted and (
+                    b["bottom"] <= entry <= b["top"]
+                    or abs(entry - (b["bottom"] if is_long else b["top"])) / entry * 100 <= zone_tolerance_pct
+                )
+            ),
+            None,
+        )
+        detail["smart_money"] = matched_ob
+        score.add(
+            matched_ob is not None, pts,
+            f"Price is at an unmitigated {wanted} Order Block ({matched_ob['bottom']:,.4g}-{matched_ob['top']:,.4g}) — institutional footprint here" if matched_ob else "",
+            "No unmitigated Smart Money order block near this price",
+        )
+
+    if "reversal_strategy" in checks_set:
+        from app.trading_hubs.support_resistance_engine import SupportResistanceConfig, detect_chart_patterns, detect_rsi_divergence
+
+        sr_cfg2 = SupportResistanceConfig()
+        try:
+            chart_patterns = detect_chart_patterns(df, sr_cfg2)
+        except Exception:
+            chart_patterns = []
+        want_dir = "bullish" if is_long else "bearish"
+        matched_chart = next((p for p in chart_patterns if p.get("direction") == want_dir), None)
+        try:
+            divergences = detect_rsi_divergence(df, _rsi_ind(df["close"], 14), sr_cfg2)
+        except Exception:
+            divergences = []
+        matched_div = next((d for d in divergences if d.get("direction") == want_dir), None)
+        confirms = matched_chart is not None or matched_div is not None
+        detail["reversal_strategy"] = {
+            "chart_pattern": matched_chart["name"] if matched_chart else None,
+            "divergence": matched_div["name"] if matched_div else None,
+        }
+        note_true = ", ".join(x for x in [
+            matched_chart["name"] if matched_chart else None,
+            matched_div["name"] if matched_div else None,
+        ] if x)
+        score.add(
+            confirms, pts,
+            f"Independent reversal signal confirms: {note_true}" if note_true else "",
+            "No chart-pattern reversal (double top/bottom) or RSI divergence confirming this turn",
+        )
+
+    if "macd" in checks_set:
+        from app.market_pulse.indicators import add_macd
+
+        mdf = add_macd(df.copy())
+        hist_col = next((c for c in mdf.columns if c.startswith("macd_hist_")), None)
+        hist = mdf[hist_col].dropna() if hist_col else pd.Series(dtype=float)
+        confirms = False
+        if len(hist) >= 2:
+            rising = bool(hist.iloc[-1] > hist.iloc[-2])
+            confirms = (is_long and rising) or (not is_long and not rising)
+        detail["macd_histogram"] = round(float(hist.iloc[-1]), 6) if not hist.empty else None
+        score.add(
+            confirms, pts,
+            "MACD histogram is turning the same way as this trade — an early momentum shift",
+            "MACD histogram doesn't yet confirm a momentum shift",
+        )
+
+    if "support_resistance" in checks_set:
+        near = _near_zone(entry, support, "support", zone_tolerance_pct) if is_long else _near_zone(entry, resistance, "resistance", zone_tolerance_pct)
+        detail["support_resistance"] = near
+        score.add(
+            near, pts,
+            f"Band touch coincides with an independent swing {'Support' if is_long else 'Resistance'} zone — extra confluence",
+            f"No independent swing {'Support' if is_long else 'Resistance'} zone confirming this level",
+        )
+
+    if "trend_direction_strength" in checks_set:
+        from app.market_pulse.indicators import add_adx
+
+        adf = add_adx(df.copy(), 14)
+        plus_di = adf["plus_di_14"].dropna()
+        minus_di = adf["minus_di_14"].dropna()
+        adx_series = adf["adx_14"].dropna()
+        adx_val = float(adx_series.iloc[-1]) if not adx_series.empty else None
+        trend_dir = None
+        if not plus_di.empty and not minus_di.empty:
+            trend_dir = "up" if float(plus_di.iloc[-1]) > float(minus_di.iloc[-1]) else "down"
+        confirms = (is_long and trend_dir == "up") or (not is_long and trend_dir == "down")
+        detail["trend_direction_strength"] = {"direction": trend_dir, "adx": round(adx_val, 1) if adx_val is not None else None}
+        score.add(
+            confirms, pts,
+            f"Larger trend direction ({trend_dir}, ADX {adx_val:.0f}) supports this as a with-trend pullback, not a pure counter-trend bet" if trend_dir and adx_val is not None else "",
+            "Larger trend direction doesn't support this as a with-trend pullback" if trend_dir else "Trend direction unavailable",
+        )
+
+    return detail
+
+
 def analyze_ticker(
     ticker: str,
     market: str,
@@ -181,9 +451,12 @@ def analyze_ticker(
             "Core read: Bollinger %B — how stretched price is beyond its 20-bar, 2σ bands.",
             "Regime filter: Kaufman Efficiency Ratio blocks the trade entirely when the market is "
             "trending too cleanly to fade (mean reversion needs range-bound/choppy conditions).",
-            "Confirmation layer: RSI extreme, a reversal candlestick pattern at the band, a volume "
-            "climax on the reversal bar, and an independent swing Support/Resistance zone nearby — "
-            "each adds to confidence, none is required alone.",
+            "Confirmation layer: RSI extreme, a reversal candlestick pattern at the band, and a volume "
+            "climax on the reversal bar — each adds to confidence, none is required alone.",
+            "Optional extra confluence (pick any): Fibonacci, EMA position/crossover, Stochastic RSI, "
+            "VWAP, Volume Profile, Smart Money order blocks, chart-pattern/divergence reversal, MACD, "
+            "Support & Resistance, and ADX trend direction/strength — each selected factor adds "
+            "further independent evidence on top of the core read.",
             "Target is the mean (middle band); stop sits just beyond the band edge, sanity-checked "
             "against ATR so it isn't tighter than the instrument's real noise or wider than a real stop.",
         ],
@@ -311,15 +584,15 @@ def analyze_ticker(
         "No volume climax — the reversal lacks a participation spike" if vz_val is not None else "Volume data unavailable",
     )
     score.add(
-        zone_confluence, 10,
-        f"Band touch coincides with an independent swing {'Support' if is_long else 'Resistance'} zone — extra confluence",
-        f"No independent swing {'Support' if is_long else 'Resistance'} zone confirming this level",
-    )
-    score.add(
         rr is not None and rr >= cfg.min_rr, 8,
         f"Reward:risk of {rr:.1f}:1 clears the {cfg.min_rr:g}:1 floor" if rr else "",
         "Reward:risk is thin for this setup",
     )
+
+    extra_detail = _apply_extra_checks(
+        score, df, entry, direction, is_long, cfg.extra_checks, support, resistance, cfg.zone_tolerance_pct,
+    )
+
     confidence_pct, reasons = score.finalize()
 
     liquidity = liquidity_ok(vz_val)
@@ -347,6 +620,8 @@ def analyze_ticker(
         "matched_pattern": matched_pattern["name"] if matched_pattern else None,
         "zone_confluence": zone_confluence,
         "stop_adjusted_for_atr": stop_adjusted,
+        "extra_checks_applied": list(cfg.extra_checks or []),
+        "extra_checks_detail": extra_detail,
     })
     out["plain_english"] = _explain(out, cfg)
     return out
@@ -393,6 +668,12 @@ def _explain(out: dict[str, Any], cfg: BbMeanReversionConfig) -> str:
         parts.append(
             "Caution: the bands are unusually tight right now (a squeeze) — squeezes often resolve with a sharp "
             "breakout rather than a gentle reversion, so this setup carries extra risk of being wrong-footed."
+        )
+    extras = out.get("extra_checks_applied") or []
+    if extras:
+        parts.append(
+            f"{len(extras)} optional confluence check(s) selected ({', '.join(extras)}) — see the confidence "
+            "reasons below for exactly which ones lined up with this trade and which didn't."
         )
     return " ".join(parts)
 

@@ -41,6 +41,19 @@ const SMC_HTF_TFS = ['30m', '1h', '4h', '1d'] as const
 const SMC_LTF_TFS = ['5m', '15m', '30m', '1h'] as const
 const VSA_TFS = ['5m', '15m', '30m', '1h', '4h', '1d'] as const
 const EW_TFS = ['15m', '30m', '1h', '4h', '1d', '1wk'] as const
+const BB_EXTRA_CHECK_OPTIONS: { value: string; label: string }[] = [
+  { value: 'fibonacci', label: 'Fibonacci retracement' },
+  { value: 'ema_position', label: 'EMA position (20/50 stack)' },
+  { value: 'ema_crossover', label: 'EMA crossover (9/21)' },
+  { value: 'stochastic_rsi', label: 'Stochastic RSI' },
+  { value: 'vwap', label: 'VWAP' },
+  { value: 'volume_profile', label: 'Volume Profile (POC/VAH/VAL)' },
+  { value: 'smart_money', label: 'Smart Money (Order Blocks)' },
+  { value: 'reversal_strategy', label: 'Reversal strategy (chart pattern + divergence)' },
+  { value: 'macd', label: 'MACD' },
+  { value: 'support_resistance', label: 'Support & Resistance zone' },
+  { value: 'trend_direction_strength', label: 'Trend direction & strength (ADX)' },
+]
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
   { id: 'us', label: 'US' },
@@ -1282,8 +1295,11 @@ function BbMeanReversionPage() {
   const [bbPeriod, setBbPeriod] = useState(20)
   const [bbStd, setBbStd] = useState(2.0)
   const [showCharts, setShowCharts] = useState(false)
+  const [extraChecks, setExtraChecks] = useState<string[]>([])
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+  const toggleExtraCheck = (value: string) =>
+    setExtraChecks((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
 
   const runMut = useMutation({
     mutationFn: () => {
@@ -1296,6 +1312,7 @@ function BbMeanReversionPage() {
         lookback_bars: lookback,
         bb_period: bbPeriod,
         bb_std: bbStd,
+        extra_checks: extraChecks,
       })
     },
     onSuccess: () => setError(''),
@@ -1374,6 +1391,42 @@ function BbMeanReversionPage() {
               onChange={(e) => setBbStd(Number(e.target.value) || 2.0)}
             />
           </FormField>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+              Extra confluence checks (optional — pick any to add more confidence)
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-[11px] text-slate-500 hover:text-slate-300"
+                onClick={() => setExtraChecks(BB_EXTRA_CHECK_OPTIONS.map((o) => o.value))}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="text-[11px] text-slate-500 hover:text-slate-300"
+                onClick={() => setExtraChecks([])}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {BB_EXTRA_CHECK_OPTIONS.map((opt) => (
+              <Chip key={opt.value} selected={extraChecks.includes(opt.value)} onClick={() => toggleExtraCheck(opt.value)}>
+                {opt.label}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Each selected check reuses an existing, already-proven indicator/engine in this app and adds its own
+            independent vote to the confidence score — pick one or more for a more institutional-grade read; leave
+            all unchecked to use just the core Bollinger %B / regime / RSI / candlestick / volume read.
+          </p>
         </div>
 
         <div className="mt-3">

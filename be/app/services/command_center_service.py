@@ -932,6 +932,108 @@ class CommandCenterService:
     # Back-compat alias
     etf_yahoo_holdings_change = etf_us_holdings_change
 
+    # ------------------------------------------------------------------
+    # Saved ETF Holdings reports — shares the SavedBacktestReport table
+    # (source="etf_holdings") like Mutual Fund Holdings does. `asset_class`
+    # doubles as the mode marker: "india" (scheme-based) vs "us"/"crypto"
+    # (symbol-based), so a resumed background job knows which analyze
+    # function to re-run without a separate column.
+    # ------------------------------------------------------------------
+
+    async def save_etf_holdings_report(
+        self,
+        name: str,
+        asset_class: str,
+        names: list[str],
+        from_date: str,
+        to_date: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"ETF holdings {datetime_cls.utcnow().isoformat()}",
+            asset_class=asset_class,
+            tickers=",".join(names),
+            timeframes=f"{from_date}..{to_date}",
+            payload_json=json.dumps(payload),
+            source="etf_holdings",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_etf_holdings_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "etf_holdings"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            from_to = (r.timeframes or "").split("..")
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "names": r.tickers.split(",") if r.tickers else [],
+                "from_date": from_to[0] if len(from_to) > 0 else None,
+                "to_date": from_to[1] if len(from_to) > 1 else None,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._mf_holdings_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_etf_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "etf_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_etf_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "etf_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
+
     async def smart_money_activity(
         self,
         tickers: list[str],
@@ -1023,6 +1125,115 @@ class CommandCenterService:
                 r["ai_context"] = build_fii_dii_holdings_ai_prompt(r)
             result["ai_system_prompt"] = FII_DII_HOLDINGS_AI_SYSTEM
         return json_safe(result)
+
+    # ------------------------------------------------------------------
+    # Saved India FII-DII Holdings reports — shares the SavedBacktestReport
+    # table (source="india_fii_dii_holdings"), same shape as MF/ETF holdings.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _fii_dii_holdings_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        summary = payload.get("summary") or []
+        n_yes = sum(1 for r in summary if isinstance(r, dict) and str(r.get("Timing", "")).upper() == "YES")
+        n_no = sum(1 for r in summary if isinstance(r, dict) and str(r.get("Timing", "")).upper() == "NO")
+        return {
+            "ticker_count": len(summary),
+            "yes_count": n_yes,
+            "no_count": n_no,
+            "tickers": [str(r.get("Ticker")) for r in summary if isinstance(r, dict) and r.get("Ticker")],
+        }
+
+    async def save_fii_dii_holdings_report(
+        self,
+        name: str,
+        tickers: list[str],
+        from_date: str,
+        to_date: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"FII-DII holdings {datetime_cls.utcnow().isoformat()}",
+            asset_class="india",
+            tickers=",".join(tickers),
+            timeframes=f"{from_date}..{to_date}",
+            payload_json=json.dumps(payload),
+            source="india_fii_dii_holdings",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_fii_dii_holdings_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "india_fii_dii_holdings"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            from_to = (r.timeframes or "").split("..")
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "tickers": r.tickers.split(",") if r.tickers else [],
+                "from_date": from_to[0] if len(from_to) > 0 else None,
+                "to_date": from_to[1] if len(from_to) > 1 else None,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._fii_dii_holdings_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_fii_dii_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "india_fii_dii_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_fii_dii_holdings_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "india_fii_dii_holdings" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def stock_upgrade_downgrade(self, tickers: list[str], *, asset_class: str = "india") -> dict[str, Any]:
         from app.market_pulse.stock_upgrade_downgrade_engine import scan_tickers

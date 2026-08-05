@@ -375,6 +375,8 @@ class CommandCenterEtfIndiaHoldingsRequest(BaseModel):
     scheme_names: dict[int, str] = Field(default_factory=dict)
     from_date: str
     to_date: str
+    run_in_background: bool = False
+    report_name: str | None = None
 
 
 class CommandCenterEtfYahooHoldingsRequest(BaseModel):
@@ -383,6 +385,13 @@ class CommandCenterEtfYahooHoldingsRequest(BaseModel):
     symbol_names: dict[str, str] = Field(default_factory=dict)
     from_date: str
     to_date: str
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveEtfHoldingsReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
 
 
 class CommandCenterIndiaFiiDiiHoldingsRequest(BaseModel):
@@ -390,6 +399,13 @@ class CommandCenterIndiaFiiDiiHoldingsRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     from_date: str
     to_date: str
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveFiiDiiHoldingsReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
 
 
 class CommandCenterSmartMoneyActivityRequest(BaseModel):
@@ -1048,6 +1064,7 @@ class ProTradeBbMeanReversionRequest(BaseModel):
     rsi_oversold: float = Field(default=35.0, ge=15.0, le=45.0)
     zone_tolerance_pct: float = Field(default=1.2, ge=0.1, le=5.0)
     min_rr: float = Field(default=1.3, ge=0.5, le=5.0)
+    extra_checks: list[str] = Field(default_factory=list)
 
 
 class YoutubeAnalysisScanRequest(BaseModel):

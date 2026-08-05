@@ -8,6 +8,20 @@ import { SupportResistanceChart, type SRChartBar, type SRLevel } from '../tradin
 
 type Row = Record<string, unknown>
 
+const EXTRA_CHECK_LABELS: Record<string, string> = {
+  fibonacci: 'Fibonacci',
+  ema_position: 'EMA position',
+  ema_crossover: 'EMA crossover',
+  stochastic_rsi: 'Stochastic RSI',
+  vwap: 'VWAP',
+  volume_profile: 'Volume Profile',
+  smart_money: 'Smart Money',
+  reversal_strategy: 'Reversal strategy',
+  macd: 'MACD',
+  support_resistance: 'Support & Resistance',
+  trend_direction_strength: 'Trend direction & strength',
+}
+
 function signalTone(signal: string): string {
   const s = signal.toUpperCase()
   if (s === 'BULLISH') return 'BUY'
@@ -186,6 +200,17 @@ function TickerResultCard({
                 levels={levels}
                 readingGuide="Candles show price with the three Bollinger Band lines overlaid — Upper/Lower are the 20-bar, 2σ range, the middle line is the mean this strategy targets on a reversion. Price piercing the outer bands is 'stretched'; a move back toward the middle line is the expected reversion. The green/red Support/Resistance band marks an independent swing-based zone — a band touch that also lines up with this zone is stronger confluence. Entry/SL/TP lines (if shown) mark the suggested trade."
               />
+            </div>
+          )}
+
+          {((result.extra_checks_applied as string[]) ?? []).length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-slate-500">Extra checks applied:</span>
+              {(result.extra_checks_applied as string[]).map((c) => (
+                <span key={c} className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-300">
+                  {EXTRA_CHECK_LABELS[c] ?? c}
+                </span>
+              ))}
             </div>
           )}
 

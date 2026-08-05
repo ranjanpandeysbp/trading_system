@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FolderOpen, Save, Trash2, X } from 'lucide-react'
 import {
   CartesianGrid,
   Line,
@@ -9,7 +10,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiErrorMessage, runIndiaFiiDiiHoldings } from '../../api/client'
+import {
+  apiErrorMessage,
+  deleteIndiaFiiDiiHoldingsReport,
+  fetchIndiaFiiDiiHoldingsJob,
+  fetchIndiaFiiDiiHoldingsJobs,
+  fetchIndiaFiiDiiHoldingsReport,
+  fetchIndiaFiiDiiHoldingsReports,
+  runIndiaFiiDiiHoldings,
+  saveIndiaFiiDiiHoldingsReport,
+  startIndiaFiiDiiHoldingsJob,
+} from '../../api/client'
 import {
   AssetClassTickerPicker,
   type TickerPickerValue,
@@ -20,15 +31,56 @@ import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
-import { FormField } from '../ui/Form'
+import { FormField, Input } from '../ui/Form'
 import { DataTable, Td, Th } from '../ui/Table'
 
 type Row = Record<string, unknown>
+
+interface FiiDiiSavedReportSummary {
+  id: number
+  name: string
+  tickers: string[]
+  from_date: string | null
+  to_date: string | null
+  created_at: string
+  summary?: {
+    ticker_count?: number
+    yes_count?: number
+    no_count?: number
+    tickers?: string[]
+  }
+}
+
+interface FiiDiiBgJobStatus {
+  job_id: string
+  status: string
+  progress?: number
+  progress_note?: string
+  name?: string | null
+  report_id?: number | null
+  error?: string | null
+  result?: Row
+  meta?: {
+    tickers?: string[]
+    from_date?: string
+    to_date?: string
+  }
+  created_at?: number
+}
 
 function isoDaysAgo(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() - days)
   return d.toISOString().slice(0, 10)
+}
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function fmt(v: unknown, digits = 2): string {
@@ -126,6 +178,7 @@ function OwnershipChart({ rows, ticker }: { rows: Row[]; ticker: string }) {
  * Command Center — India FII-DII Holding (screener.in ownership + invest timing).
  */
 export function IndiaFiiDiiHoldingsPanel() {
+  const queryClient = useQueryClient()
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
   const [fromDate, setFromDate] = useState(isoDaysAgo(400))
   const [toDate, setToDate] = useState(isoDaysAgo(0))
@@ -133,6 +186,143 @@ export function IndiaFiiDiiHoldingsPanel() {
   const [data, setData] = useState<Row | null>(null)
   const [selected, setSelected] = useState('')
   const [showHow, setShowHow] = useState(false)
+
+  const [runInBackground, setRunInBackground] = useState(false)
+  const [bgReportName, setBgReportName] = useState('')
+  const [bgJobIds, setBgJobIds] = useState<string[]>([])
+  const [bgError, setBgError] = useState('')
+  const [bgMsg, setBgMsg] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [showSaveForm, setShowSaveForm] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+  const [viewedReportId, setViewedReportId] = useState<number | null>(null)
+  const handledDoneRef = useRef<Set<string>>(new Set())
+
+  const reportsQuery = useQuery({
+    queryKey: ['fii-dii-holdings-reports'],
+    queryFn: fetchIndiaFiiDiiHoldingsReports,
+  })
+  const reports = ((reportsQuery.data as { reports?: FiiDiiSavedReportSummary[] } | undefined)?.reports) ?? []
+
+  const runningJobsQuery = useQuery({
+    queryKey: ['fii-dii-holdings-jobs-running'],
+    queryFn: () => fetchIndiaFiiDiiHoldingsJobs('running'),
+    refetchInterval: 2000,
+  })
+
+  const recentJobsQuery = useQuery({
+    queryKey: ['fii-dii-holdings-jobs-recent'],
+    queryFn: () => fetchIndiaFiiDiiHoldingsJobs('all'),
+  })
+  const recentJobs = ((recentJobsQuery.data as { jobs?: FiiDiiBgJobStatus[] } | undefined)?.jobs) ?? []
+  const recentFinished = recentJobs.filter((j) => j.status !== 'running').slice(0, 8)
+
+  useEffect(() => {
+    const serverJobs = ((runningJobsQuery.data as { jobs?: FiiDiiBgJobStatus[] } | undefined)?.jobs) ?? []
+    const ids = serverJobs.map((j) => j.job_id)
+    if (!ids.length) return
+    setBgJobIds((prev) => Array.from(new Set([...ids, ...prev])))
+  }, [runningJobsQuery.data])
+
+  const jobQueries = useQueries({
+    queries: bgJobIds.map((id) => ({
+      queryKey: ['fii-dii-holdings-job', id],
+      queryFn: () => fetchIndiaFiiDiiHoldingsJob(id) as Promise<FiiDiiBgJobStatus>,
+      refetchInterval: (q: { state: { data?: FiiDiiBgJobStatus } }) =>
+        q.state.data?.status === 'running' ? 1500 : false,
+      refetchIntervalInBackground: true,
+      retry: false,
+    })),
+  })
+
+  const jobById = useMemo(() => {
+    const map = new Map<string, FiiDiiBgJobStatus>()
+    jobQueries.forEach((q, i) => {
+      const id = bgJobIds[i]
+      if (id && q.data) map.set(id, q.data as FiiDiiBgJobStatus)
+    })
+    return map
+  }, [jobQueries, bgJobIds])
+
+  useEffect(() => {
+    let changed = false
+    const stillRunning: string[] = []
+    for (const id of bgJobIds) {
+      const job = jobById.get(id)
+      if (!job || job.status === 'running') {
+        stillRunning.push(id)
+        continue
+      }
+      if (!handledDoneRef.current.has(id)) {
+        handledDoneRef.current.add(id)
+        changed = true
+        if (job.status === 'done' && job.report_id) {
+          setViewedReportId(job.report_id)
+          setBgMsg(`Background report saved${job.name ? `: ${job.name}` : ''}.`)
+        } else if (job.status === 'done') {
+          setBgMsg(job.name ? `Background run "${job.name}" finished.` : 'Background run finished.')
+        } else if (job.status === 'error') {
+          setBgError(job.error || `Background job failed: ${job.name || id}`)
+        }
+      }
+    }
+    if (stillRunning.length !== bgJobIds.length) {
+      setBgJobIds(stillRunning)
+    }
+    if (changed) {
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-jobs-running'] })
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-jobs-recent'] })
+    }
+  }, [bgJobIds, jobById, queryClient])
+
+  const ongoingBg = bgJobIds
+    .map((id) => jobById.get(id))
+    .filter((j): j is FiiDiiBgJobStatus => !!j && j.status === 'running')
+  const serverRunning = ((runningJobsQuery.data as { jobs?: FiiDiiBgJobStatus[] } | undefined)?.jobs) ?? []
+  const ongoingMap = new Map<string, FiiDiiBgJobStatus>()
+  for (const j of [...serverRunning, ...ongoingBg]) {
+    if (j.status === 'running') ongoingMap.set(j.job_id, j)
+  }
+  const ongoingList = Array.from(ongoingMap.values()).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+
+  const reportDetailQuery = useQuery({
+    queryKey: ['fii-dii-holdings-report', viewedReportId],
+    queryFn: () => fetchIndiaFiiDiiHoldingsReport(viewedReportId as number),
+    enabled: viewedReportId != null,
+  })
+
+  const startBgMutation = useMutation({
+    mutationFn: startIndiaFiiDiiHoldingsJob,
+    onSuccess: (res) => {
+      const id = res.job_id as string
+      setBgError('')
+      setBgMsg(`Background analysis started${res.name ? `: ${res.name}` : ''}.`)
+      setBgReportName('')
+      setBgJobIds((prev) => Array.from(new Set([id, ...prev])))
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-jobs-running'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const saveReportMutation = useMutation({
+    mutationFn: saveIndiaFiiDiiHoldingsReport,
+    onSuccess: () => {
+      setSaveMsg('Report saved.')
+      setShowSaveForm(false)
+      setSaveName('')
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-reports'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const deleteReportMutation = useMutation({
+    mutationFn: deleteIndiaFiiDiiHoldingsReport,
+    onSuccess: (_data, reportId) => {
+      if (viewedReportId === reportId) setViewedReportId(null)
+      queryClient.invalidateQueries({ queryKey: ['fii-dii-holdings-reports'] })
+    },
+  })
 
   const scanMut = useMutation({
     mutationFn: () =>
@@ -143,6 +333,7 @@ export function IndiaFiiDiiHoldingsPanel() {
       }),
     onSuccess: (res) => {
       setError('')
+      setViewedReportId(null)
       setData(res as Row)
       const ok = ((res as Row).ok as Row[]) ?? []
       setSelected(String(ok[0]?.ticker ?? ''))
@@ -153,14 +344,37 @@ export function IndiaFiiDiiHoldingsPanel() {
     },
   })
 
+  const startBackgroundRun = () => {
+    if (!picker.tickers.length) {
+      setBgError('Select at least one ticker')
+      return
+    }
+    if (!bgReportName.trim()) {
+      setBgError('Enter a report name for the background run')
+      return
+    }
+    setBgError('')
+    setBgMsg('')
+    startBgMutation.mutate({
+      tickers: picker.tickers,
+      from_date: fromDate,
+      to_date: toDate,
+      run_in_background: true,
+      report_name: bgReportName.trim(),
+    })
+  }
+
+  const viewedReport = reportDetailQuery.data as { name?: string; payload?: Row; created_at?: string; error?: string } | undefined
+  const effectiveData: Row | null = viewedReportId != null ? (viewedReport?.payload ?? null) : data
+
   const summary = useMemo(() => {
-    const s = data?.summary
+    const s = effectiveData?.summary
     if (Array.isArray(s)) return s as Row[]
     return []
-  }, [data])
+  }, [effectiveData])
 
-  const ok = ((data?.ok as Row[]) ?? [])
-  const chartAll = ((data?.chart_all as Row[]) ?? [])
+  const ok = ((effectiveData?.ok as Row[]) ?? [])
+  const chartAll = ((effectiveData?.chart_all as Row[]) ?? [])
   const detail = ok.find((r) => String(r.ticker) === selected) ?? ok[0]
   const categories = (detail?.categories as Record<string, Row>) ?? {}
 
@@ -217,7 +431,7 @@ export function IndiaFiiDiiHoldingsPanel() {
           <div className="flex items-end">
             <Button
               className="w-full"
-              disabled={scanMut.isPending || !picker.tickers.length || !fromDate || !toDate}
+              disabled={scanMut.isPending || runInBackground || !picker.tickers.length || !fromDate || !toDate}
               onClick={() => scanMut.mutate()}
             >
               {scanMut.isPending ? 'Analyzing…' : 'Analyze FII-DII holdings'}
@@ -227,16 +441,233 @@ export function IndiaFiiDiiHoldingsPanel() {
 
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
         {scanMut.isPending && <div className="mt-4"><Loading message="Fetching screener.in shareholding…" /></div>}
+
+        <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-teal-500"
+              checked={runInBackground}
+              onChange={(e) => setRunInBackground(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-slate-100">Run in background</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Name the run — it keeps going if you leave this page, then auto-saves into Saved reports
+                below when done. You can start several background runs at once.
+              </span>
+            </span>
+          </label>
+          {runInBackground && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[16rem] flex-1">
+                <FormField label="Report name">
+                  <Input
+                    value={bgReportName}
+                    onChange={(e) => setBgReportName(e.target.value)}
+                    placeholder={`${picker.tickers.slice(0, 2).join(' + ') || 'FII-DII holdings'} · ${fromDate}→${toDate}`}
+                    maxLength={200}
+                  />
+                </FormField>
+              </div>
+              <Button onClick={startBackgroundRun} disabled={startBgMutation.isPending}>
+                {startBgMutation.isPending ? 'Starting…' : 'Start background run'}
+              </Button>
+            </div>
+          )}
+          {bgError && <Alert type="error">{bgError}</Alert>}
+          {bgMsg && <Alert type="success">{bgMsg}</Alert>}
+        </div>
       </Card>
 
-      {data && !scanMut.isPending && (
+      {ongoingList.length > 0 && (
         <Card>
-          {data.error ? (
-            <Alert type="error">{String(data.error)}</Alert>
+          <h4 className="mb-3 font-medium text-white">Background runs in progress ({ongoingList.length})</h4>
+          <div className="space-y-3">
+            {ongoingList.map((job) => (
+              <div key={job.job_id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-amber-100">{job.name || 'Untitled background run'}</p>
+                  <p className="text-xs text-slate-500">{Math.round((job.progress ?? 0) * 100)}%</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {(job.meta?.tickers ?? []).slice(0, 4).join(', ')}
+                  {(job.meta?.tickers?.length ?? 0) > 4 ? '…' : ''}
+                  {job.meta?.from_date ? ` · ${job.meta.from_date}→${job.meta.to_date}` : ''}
+                </p>
+                <p className="mt-1 text-sm text-slate-300">{job.progress_note || 'Starting…'}</p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-amber-400 transition-all"
+                    style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {recentFinished.length > 0 && (
+        <Card>
+          <h4 className="mb-3 font-medium text-white">Recent background runs</h4>
+          <div className="space-y-2">
+            {recentFinished.map((job) => (
+              <div
+                key={job.job_id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  job.status === 'error' ? 'border-rose-500/30 bg-rose-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div>
+                  {job.status === 'done' && job.report_id ? (
+                    <button
+                      className="font-medium text-slate-200 hover:text-teal-400"
+                      onClick={() => setViewedReportId(job.report_id as number)}
+                    >
+                      {job.name || 'Untitled background run'}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-slate-200">{job.name || 'Untitled background run'}</span>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    {(job.meta?.tickers ?? []).slice(0, 4).join(', ')}
+                    {(job.meta?.tickers?.length ?? 0) > 4 ? '…' : ''}
+                  </p>
+                  {job.status === 'error' && (
+                    <p className="mt-1 text-xs text-rose-400">{job.error || 'Failed — no further detail available.'}</p>
+                  )}
+                </div>
+                <span className={`text-xs font-medium ${job.status === 'error' ? 'text-rose-400' : job.report_id ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {job.status === 'error' ? 'Failed' : job.report_id ? 'Saved' : 'Done (not saved)'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h4 className="inline-flex items-center gap-2 font-medium text-white">
+            <FolderOpen size={16} className="text-slate-400" />
+            Saved reports
+            <span className="text-sm font-normal text-slate-500">({reports.length})</span>
+          </h4>
+          <Button variant="ghost" size="sm" onClick={() => reportsQuery.refetch()} disabled={reportsQuery.isFetching}>
+            Refresh
+          </Button>
+        </div>
+        {reportsQuery.isLoading && <Loading message="Loading saved reports…" />}
+        {!reportsQuery.isLoading && !reports.length && (
+          <p className="text-sm text-slate-500">
+            No saved reports yet. Run an analysis and save it, or start a named background run.
+          </p>
+        )}
+        <div className="space-y-2">
+          {reports.map((r) => {
+            const s = r.summary
+            return (
+              <div
+                key={r.id}
+                className={`flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+                  viewedReportId === r.id ? 'border-teal-500/50 bg-teal-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <button
+                    className="font-medium text-slate-200 hover:text-teal-400"
+                    onClick={() => setViewedReportId(r.id)}
+                  >
+                    {r.name}
+                  </button>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Saved {formatWhen(r.created_at)}
+                    {r.from_date && r.to_date ? ` · ${r.from_date} → ${r.to_date}` : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {(r.tickers ?? []).slice(0, 6).join(', ')}
+                    {(r.tickers?.length ?? 0) > 6 ? '…' : ''}
+                  </p>
+                  {s && (s.yes_count != null || s.no_count != null) && (
+                    <p className="mt-1 text-xs text-teal-400/90">
+                      {s.ticker_count ?? 0} tickers · {s.yes_count ?? 0} YES · {s.no_count ?? 0} NO
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm(`Delete saved report "${r.name}"? This cannot be undone.`)) {
+                      deleteReportMutation.mutate(r.id)
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      {effectiveData && !scanMut.isPending && (
+        <Card>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              {viewedReportId != null && viewedReport?.name && (
+                <p className="text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{viewedReport.name}</span>
+                  {viewedReport.created_at ? ` · saved ${formatWhen(viewedReport.created_at)}` : ''}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {viewedReportId == null && !effectiveData.error && (
+                <Button variant="secondary" size="sm" onClick={() => setShowSaveForm(true)}>
+                  <span className="inline-flex items-center gap-1.5"><Save size={14} />Save for future reference</span>
+                </Button>
+              )}
+              {viewedReportId != null && (
+                <Button variant="ghost" size="sm" onClick={() => setViewedReportId(null)}>
+                  <X size={14} />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {showSaveForm && (
+            <div className="mb-4 rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <FormField label="Report name">
+                <div className="flex gap-2">
+                  <Input
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder={`${picker.tickers.slice(0, 2).join(' + ') || 'FII-DII holdings'} — ${new Date().toLocaleDateString()}`}
+                  />
+                  <Button
+                    onClick={() => saveReportMutation.mutate({
+                      name: saveName.trim() || `FII-DII holdings ${new Date().toLocaleString()}`,
+                      payload: effectiveData as unknown as Record<string, unknown>,
+                    })}
+                    disabled={saveReportMutation.isPending}
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Save size={14} />Save</span>
+                  </Button>
+                  <Button variant="ghost" onClick={() => setShowSaveForm(false)}>Cancel</Button>
+                </div>
+              </FormField>
+              {saveMsg && <p className="mt-2 text-xs text-emerald-400">{saveMsg}</p>}
+            </div>
+          )}
+
+          {effectiveData.error ? (
+            <Alert type="error">{String(effectiveData.error)}</Alert>
           ) : (
             <div className="space-y-5">
-              {Boolean(data.snapshot_note) && (
-                <p className="text-xs text-slate-500">{String(data.snapshot_note)}</p>
+              {Boolean(effectiveData.snapshot_note) && (
+                <p className="text-xs text-slate-500">{String(effectiveData.snapshot_note)}</p>
               )}
 
               <div>
@@ -370,7 +801,7 @@ export function IndiaFiiDiiHoldingsPanel() {
 
                       <AskAIPanel
                         context={String(detail.ai_context ?? '')}
-                        systemPrompt={String(data.ai_system_prompt ?? '')}
+                        systemPrompt={String(effectiveData.ai_system_prompt ?? '')}
                         section={`command-center/fii-dii/${String(detail.ticker)}`}
                       />
                     </>
@@ -379,11 +810,11 @@ export function IndiaFiiDiiHoldingsPanel() {
                 </div>
               )}
 
-              {((data.errors as Row[]) ?? []).length > 0 && (
+              {((effectiveData.errors as Row[]) ?? []).length > 0 && (
                 <div>
                   <p className="mb-1 text-xs text-slate-500">Failed tickers</p>
                   <ul className="space-y-1 text-xs text-rose-300/90">
-                    {((data.errors as Row[]) ?? []).map((e) => (
+                    {((effectiveData.errors as Row[]) ?? []).map((e) => (
                       <li key={String(e.ticker)}>{String(e.ticker)} — {String(e.error)}</li>
                     ))}
                   </ul>
