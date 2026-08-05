@@ -1788,6 +1788,23 @@ export const runProTradeElliottWave = (payload: {
   end_date?: string
 }) => api.post('/pro-trade/elliott-wave', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeBbMeanReversion = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  bb_period?: number
+  bb_std?: number
+  er_hard_block?: number
+  er_soft_ceiling?: number
+  squeeze_pctile_floor?: number
+  rsi_overbought?: number
+  rsi_oversold?: number
+  zone_tolerance_pct?: number
+  min_rr?: number
+}) => api.post('/pro-trade/bb-mean-reversion', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 
 export type InvestingAgentStreamEvent =

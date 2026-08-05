@@ -67,6 +67,12 @@ class ProTradeService:
                     "path": "/pro-trade/elliott-wave",
                     "youtube": None,
                 },
+                {
+                    "id": "bb_mean_reversion",
+                    "label": "BB Mean Reversion",
+                    "path": "/pro-trade/bb-mean-reversion",
+                    "youtube": None,
+                },
             ],
         }
 
@@ -235,6 +241,45 @@ class ProTradeService:
                 resolved,
                 market,
                 cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        return json_safe(payload)
+
+    async def bb_mean_reversion(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        timeframes: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.bb_mean_reversion_engine import BbMeanReversionConfig, scan_universe
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+        if not timeframes:
+            return {"error": "Select at least one timeframe", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        cfg_base = BbMeanReversionConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                timeframes,
+                market,
+                cfg_base=cfg_base,
                 groww_token=token,
                 exchange=resolved_exchange,
             )

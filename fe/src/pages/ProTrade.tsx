@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
+  runProTradeBbMeanReversion,
   runProTradeElliottWave,
   runProTradePaVolumeProfile,
   runProTradePaVpSmc,
@@ -17,6 +18,7 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import { BbMeanReversionPanel } from '../components/pro-trade/BbMeanReversionPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
@@ -1232,6 +1234,177 @@ function ElliottWavePage() {
   )
 }
 
+const BB_OVERVIEW = `BB Mean Reversion — Bollinger Band %B stretch, hardened with the checks a real mean-reversion desk applies
+
+When price closes outside its Bollinger Bands (20-bar mean ± 2 standard deviations), that stretch has historically
+tended to snap back toward the mean. But a naive "buy the lower band" bot gets run over the moment the market is
+actually trending — the band just walks with price. This strategy only calls a trade after several independent
+checks agree: the market is genuinely range-bound (not trending), RSI confirms the extreme, a reversal candlestick
+shows up right at the band, a volume climax backs the turn, and an independent Support/Resistance zone lines up
+with the same level.
+
+Research / education only — not financial advice.`
+
+const BB_RULES = `How the confidence score is built
+
+1. **Regime filter (hard block)** — Kaufman's Efficiency Ratio measures how directly price is moving vs. chopping.
+   If the market is trending too cleanly to fade, the trade is blocked outright rather than shown as a weak signal.
+2. **Band squeeze awareness** — Bollinger Bandwidth compared to its own recent percentile history; a tight squeeze
+   often resolves with a breakout, not a reversion, so it lowers confidence.
+3. **RSI extreme** — the %B stretch should be echoed by RSI overbought/oversold, not just price alone.
+4. **Candlestick reversal** — a confirming pattern (Hammer, Engulfing, Shooting Star, etc.) right at the band.
+5. **Volume climax** — a reversal on a volume spike carries more weight than one on quiet volume.
+6. **Independent Support/Resistance confluence** — a genuine swing-fractal zone near the band touch, from pure
+   price geometry rather than the bands themselves.
+7. **Risk plan** — stop just beyond the band edge (sanity-checked against ATR so it isn't unrealistically tight or
+   wide), target at the mean, reward:risk floor enforced, and a final A/B/C quality grade.`
+
+const BB_LAYMAN = `In plain English — no jargon
+
+Think of a rubber band stretched from a fixed point (the average price). The further it stretches, the more it
+tends to snap back — that's the core idea. This tool watches for that stretch (the "Bollinger Band" touch), then
+checks several independent things before trusting it: is the market actually calm enough for a snap-back to work
+(not in a strong one-way trend), does momentum (RSI) agree the move is overdone, did a classic reversal candle show
+up, did trading volume spike on the turn, and is there another independent price level nearby backing it up.
+
+- **SIGNAL: BULLISH** — price stretched too far down, a bounce back up toward the average is expected.
+- **SIGNAL: BEARISH** — price stretched too far up, a pullback down toward the average is expected.
+- **SIGNAL: WAIT (blocked)** — price is stretched, but the market is trending too cleanly to safely fade it.
+- **SIGNAL: NEUTRAL** — price isn't stretched enough yet; nothing to trade.
+
+The more of the confirming checks that line up, the higher the confidence % and the better the A/B/C grade.`
+
+function BbMeanReversionPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(250)
+  const [bbPeriod, setBbPeriod] = useState(20)
+  const [bbStd, setBbStd] = useState(2.0)
+  const [showCharts, setShowCharts] = useState(false)
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      return runProTradeBbMeanReversion({
+        tickers: picker.tickers,
+        asset_class: assetClass,
+        timeframes: picker.durations,
+        lookback_bars: lookback,
+        bb_period: bbPeriod,
+        bb_std: bbStd,
+      })
+    },
+    onSuccess: () => setError(''),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = runMut.data as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('BB Mean Reversion', data) : ''
+
+  return (
+    <div>
+      <PageHeader
+        title="BB Mean Reversion"
+        description="Bollinger %B stretch confirmed by regime filter, RSI, candlestick, volume climax & S/R confluence"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="In plain English — how to interpret your results" defaultOpen>
+          {BB_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="Overview">{BB_OVERVIEW}</CollapsibleSection>
+        <CollapsibleSection title="How the confidence score is built">{BB_RULES}</CollapsibleSection>
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['1d'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-3">
+          <FormField label="Candle history">
+            <Input
+              type="number"
+              min={60}
+              max={650}
+              value={lookback}
+              onChange={(e) => setLookback(Number(e.target.value) || 250)}
+            />
+          </FormField>
+          <FormField label="BB period">
+            <Input
+              type="number"
+              min={10}
+              max={50}
+              value={bbPeriod}
+              onChange={(e) => setBbPeriod(Number(e.target.value) || 20)}
+            />
+          </FormField>
+          <FormField label="BB std dev">
+            <Input
+              type="number"
+              step="0.1"
+              min={1}
+              max={3.5}
+              value={bbStd}
+              onChange={(e) => setBbStd(Number(e.target.value) || 2.0)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+            {runMut.isPending ? 'Scanning…' : `Scan BB Mean Reversion (${picker.tickers.length} × ${picker.durations.length})`}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {runMut.isPending && <Loading message="Computing Bollinger Bands, regime filter and confirmation checks…" />}
+
+      {data && !runMut.isPending && (
+        <>
+          <Card className="mb-4">
+            <BbMeanReversionPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/bb-mean-reversion" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ProTrade() {
   const { tab } = useParams<{ tab?: string }>()
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
@@ -1241,5 +1414,6 @@ export default function ProTrade() {
   if (tab === 'pa-vp-smc') return <PaVpSmcPage />
   if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
   if (tab === 'elliott-wave') return <ElliottWavePage />
+  if (tab === 'bb-mean-reversion') return <BbMeanReversionPage />
   return <Navigate to="/pro-trade/volume-profile-ce" replace />
 }

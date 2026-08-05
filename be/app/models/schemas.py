@@ -1031,6 +1031,25 @@ class ProTradeElliottWaveRequest(BaseModel):
     end_date: str | None = None
 
 
+class ProTradeBbMeanReversionRequest(BaseModel):
+    """BB Mean Reversion — Bollinger %B stretch confirmed by regime filter, RSI,
+    candlestick reversal, volume climax, and independent Support/Resistance confluence."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframes: list[str] = Field(default_factory=lambda: ["1d"])
+    lookback_bars: int = Field(default=250, ge=60, le=650)
+    bb_period: int = Field(default=20, ge=10, le=50)
+    bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
+    er_hard_block: float = Field(default=0.65, ge=0.3, le=0.9)
+    er_soft_ceiling: float = Field(default=0.42, ge=0.2, le=0.7)
+    squeeze_pctile_floor: float = Field(default=15.0, ge=0.0, le=40.0)
+    rsi_overbought: float = Field(default=65.0, ge=55.0, le=85.0)
+    rsi_oversold: float = Field(default=35.0, ge=15.0, le=45.0)
+    zone_tolerance_pct: float = Field(default=1.2, ge=0.1, le=5.0)
+    min_rr: float = Field(default=1.3, ge=0.5, le=5.0)
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user

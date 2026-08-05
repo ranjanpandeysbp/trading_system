@@ -90,6 +90,7 @@ from app.models.schemas import (
     ProTradePaVpSmcRequest,
     ProTradeVolumeSpreadNextCandleRequest,
     ProTradeElliottWaveRequest,
+    ProTradeBbMeanReversionRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -3732,5 +3733,31 @@ async def pro_trade_elliott_wave(
             "zigzag_pct": payload.zigzag_pct,
             "start_date": payload.start_date or "",
             "end_date": payload.end_date or "",
+        },
+    )
+
+
+@router.post("/pro-trade/bb-mean-reversion")
+async def pro_trade_bb_mean_reversion(
+    payload: ProTradeBbMeanReversionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).bb_mean_reversion(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "er_hard_block": payload.er_hard_block,
+            "er_soft_ceiling": payload.er_soft_ceiling,
+            "squeeze_pctile_floor": payload.squeeze_pctile_floor,
+            "rsi_overbought": payload.rsi_overbought,
+            "rsi_oversold": payload.rsi_oversold,
+            "zone_tolerance_pct": payload.zone_tolerance_pct,
+            "min_rr": payload.min_rr,
         },
     )
