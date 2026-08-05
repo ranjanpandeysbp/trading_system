@@ -69,11 +69,15 @@ function SetupCard({ setup }: { setup: Row }) {
   )
 }
 
-function vpLevelsFromSession(vp: Row): VpLevel[] {
+function vpLevelsFromSession(vp: Row, result: Row): VpLevel[] {
   const levels: VpLevel[] = []
   if (vp.val != null) levels.push({ label: 'VAL', price: Number(vp.val), color: '#34d399' })
   if (vp.poc != null) levels.push({ label: 'POC', price: Number(vp.poc), color: '#fbbf24' })
   if (vp.vah != null) levels.push({ label: 'VAH', price: Number(vp.vah), color: '#f87171' })
+  const supportZone = result.support_zone as [number, number] | null | undefined
+  const resistanceZone = result.resistance_zone as [number, number] | null | undefined
+  if (supportZone) levels.push({ label: 'Support', price: Number(supportZone[1]), color: '#22c55e' })
+  if (resistanceZone) levels.push({ label: 'Resistance', price: Number(resistanceZone[0]), color: '#ef4444' })
   return levels
 }
 
@@ -82,11 +86,13 @@ function TickerResultCard({
   index,
   currency,
   assetClass,
+  showCharts,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
+  showCharts: boolean
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
@@ -102,7 +108,7 @@ function TickerResultCard({
     () => ((result.vp_histogram as VpHistBin[]) ?? []).filter((b) => b && b.price != null),
     [result.vp_histogram],
   )
-  const levels = useMemo(() => vpLevelsFromSession(vp), [vp])
+  const levels = useMemo(() => vpLevelsFromSession(vp, result), [vp, result])
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -146,7 +152,7 @@ function TickerResultCard({
             </div>
           )}
 
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart chartData={chartData} levels={levels} histogram={histogram} />
             </div>
@@ -181,7 +187,7 @@ function TickerResultCard({
   )
 }
 
-export function VolumeProfileCePanel({ data }: { data: Row }) {
+export function VolumeProfileCePanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
@@ -213,7 +219,7 @@ export function VolumeProfileCePanel({ data }: { data: Row }) {
       </div>
       <div className="space-y-2">
         {results.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

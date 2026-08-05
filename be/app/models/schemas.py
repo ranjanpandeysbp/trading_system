@@ -843,6 +843,11 @@ class WatchlistItemCreate(BaseModel):
     notes: str | None = None
 
 
+class WatchlistItemUpdate(BaseModel):
+    display_name: str | None = None
+    notes: str | None = None
+
+
 class OptionsDoubleCalendarRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
@@ -927,6 +932,7 @@ class OptionsGokulChhabraRequest(BaseModel):
 
 class OptionsMarketPredictionRequest(BaseModel):
     symbol: str = "NIFTY"
+    is_index: bool = True
     exchange: str | None = None
     futures_price: float | None = None
     fii_index_position_cut: bool | None = None

@@ -48,10 +48,12 @@ function TickerResultCard({
   result,
   currency,
   assetClass,
+  showCharts,
 }: {
   result: Row
   currency: string
   assetClass: WatchlistMarket
+  showCharts: boolean
 }) {
   const [open, setOpen] = useState(true)
   const take = Boolean(result.take_trade)
@@ -162,7 +164,7 @@ function TickerResultCard({
             </div>
           )}
 
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart chartData={chartData} levels={chartLevels} waves={waveSegments} histogram={[]} />
             </div>
@@ -218,7 +220,7 @@ function TickerResultCard({
 
 type FilterMode = 'all' | 'actionable'
 
-export function ElliottWavePanel({ data }: { data: Row }) {
+export function ElliottWavePanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const allResults = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
@@ -283,7 +285,7 @@ export function ElliottWavePanel({ data }: { data: Row }) {
       <div className="space-y-2">
         {sorted.length === 0 && <p className="text-sm text-slate-500">No tickers match this filter.</p>}
         {sorted.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} currency={currency} assetClass={assetClass} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} currency={currency} assetClass={assetClass} showCharts={showCharts} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

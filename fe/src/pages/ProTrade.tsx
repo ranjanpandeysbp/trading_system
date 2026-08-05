@@ -17,6 +17,7 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
 import { PaVpSmcPanel } from '../components/pro-trade/PaVpSmcPanel'
@@ -140,6 +141,7 @@ function VolumeProfileCePage() {
   const [valTol, setValTol] = useState(0.15)
   const [lvnPct, setLvnPct] = useState(10)
   const [intradayTf, setIntradayTf] = useState('15m')
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -257,6 +259,9 @@ function VolumeProfileCePage() {
           </FormField>
         </div>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan Volume Profile (${picker.tickers.length})`}
@@ -274,7 +279,7 @@ function VolumeProfileCePage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <VolumeProfileCePanel data={data} />
+            <VolumeProfileCePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-profile-ce" />}
         </>
@@ -328,6 +333,7 @@ function VolumeProfilePocPage() {
   const [numBins, setNumBins] = useState(40)
   const [clusterPct, setClusterPct] = useState(70)
   const [breakoutBuf, setBreakoutBuf] = useState(1)
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -435,6 +441,9 @@ function VolumeProfilePocPage() {
           </FormField>
         </div>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan POC First Touch (${picker.tickers.length})`}
@@ -452,7 +461,7 @@ function VolumeProfilePocPage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <VolumeProfilePocPanel data={data} />
+            <VolumeProfilePocPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-profile-poc" />}
         </>
@@ -514,6 +523,7 @@ function PaVolumeProfilePage() {
   const [numBins, setNumBins] = useState(40)
   const [pocTol, setPocTol] = useState(0.35)
   const [breakoutBuf, setBreakoutBuf] = useState(0.15)
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -626,6 +636,9 @@ function PaVolumeProfilePage() {
           </FormField>
         </div>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan PA + VP (${picker.tickers.length})`}
@@ -643,7 +656,7 @@ function PaVolumeProfilePage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <PaVolumeProfilePanel data={data} />
+            <PaVolumeProfilePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/pa-volume-profile" />}
         </>
@@ -701,6 +714,7 @@ function PaVpSmcPage() {
   const [zoneTol, setZoneTol] = useState(0.5)
   const [minFactors, setMinFactors] = useState(3)
   const [rrMin, setRrMin] = useState(1.5)
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -810,6 +824,9 @@ function PaVpSmcPage() {
           </FormField>
         </div>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan PA-VP-SMC (${picker.tickers.length})`}
@@ -827,7 +844,7 @@ function PaVpSmcPage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <PaVpSmcPanel data={data} />
+            <PaVpSmcPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/pa-vp-smc" />}
         </>
@@ -879,6 +896,7 @@ function VolumeSpreadNextCandlePage() {
   const [ultraLookback, setUltraLookback] = useState(50)
   const [lowSpreadFactor, setLowSpreadFactor] = useState(0.75)
   const [rrRatio, setRrRatio] = useState(1.5)
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -995,6 +1013,9 @@ function VolumeSpreadNextCandlePage() {
           </FormField>
         </div>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan VSA Next Candle (${picker.tickers.length})`}
@@ -1012,7 +1033,7 @@ function VolumeSpreadNextCandlePage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <VolumeSpreadNextCandlePanel data={data} />
+            <VolumeSpreadNextCandlePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-spread-next-candle" />}
         </>
@@ -1074,6 +1095,7 @@ function ElliottWavePage() {
   const [zigzagPct, setZigzagPct] = useState(3.0)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [showCharts, setShowCharts] = useState(false)
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -1181,6 +1203,9 @@ function ElliottWavePage() {
           window you pick — if it needs more bars than fetched, raise Candle History above.
         </p>
 
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
             {runMut.isPending ? 'Scanning…' : `Scan Elliott Wave (${picker.tickers.length})`}
@@ -1198,7 +1223,7 @@ function ElliottWavePage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
-            <ElliottWavePanel data={data} />
+            <ElliottWavePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/elliott-wave" />}
         </>

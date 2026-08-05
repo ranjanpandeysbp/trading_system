@@ -189,6 +189,7 @@ class OptionsService:
         self,
         symbol: str,
         *,
+        is_index: bool = True,
         exchange: str | None = None,
         futures_price: float | None = None,
         fii_index_position_cut: bool | None = None,
@@ -205,7 +206,7 @@ class OptionsService:
 
         def _run():
             return analyze_market_prediction(
-                symbol, is_index=True, groww_token=token, exchange=resolved_exchange, cfg=cfg,
+                symbol, is_index=is_index, groww_token=token, exchange=resolved_exchange, cfg=cfg,
                 futures_price=futures_price, fii_index_position_cut=fii_index_position_cut,
             )
 

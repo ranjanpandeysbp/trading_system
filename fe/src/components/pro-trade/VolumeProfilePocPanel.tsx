@@ -56,7 +56,7 @@ function SetupCard({ setup }: { setup: Row }) {
   )
 }
 
-function levelsFromResult(levels: Row): VpLevel[] {
+function levelsFromResult(levels: Row, result: Row): VpLevel[] {
   const out: VpLevel[] = []
   if (levels.zone_lower != null) out.push({ label: 'Zone Lo', price: Number(levels.zone_lower), color: '#34d399' })
   if (levels.poc != null) out.push({ label: 'POC', price: Number(levels.poc), color: '#f43f5e' })
@@ -65,6 +65,10 @@ function levelsFromResult(levels: Row): VpLevel[] {
     out.push({ label: 'LVN SL↑', price: Number(levels.stop_loss_lvn_long), color: '#94a3b8' })
   }
   if (levels.target_long != null) out.push({ label: 'TP↑', price: Number(levels.target_long), color: '#38bdf8' })
+  const supportZone = result.support_zone as [number, number] | null | undefined
+  const resistanceZone = result.resistance_zone as [number, number] | null | undefined
+  if (supportZone) out.push({ label: 'Support', price: Number(supportZone[1]), color: '#22c55e' })
+  if (resistanceZone) out.push({ label: 'Resistance', price: Number(resistanceZone[0]), color: '#ef4444' })
   return out
 }
 
@@ -73,11 +77,13 @@ function TickerResultCard({
   index,
   currency,
   assetClass,
+  showCharts,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
+  showCharts: boolean
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
@@ -91,7 +97,7 @@ function TickerResultCard({
     () => ((result.vp_histogram as VpHistBin[]) ?? []).filter((b) => b && b.price != null),
     [result.vp_histogram],
   )
-  const chartLevels = useMemo(() => levelsFromResult(levels), [levels])
+  const chartLevels = useMemo(() => levelsFromResult(levels, result), [levels, result])
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -139,7 +145,7 @@ function TickerResultCard({
             </div>
           )}
 
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart chartData={chartData} levels={chartLevels} histogram={histogram} />
             </div>
@@ -164,7 +170,7 @@ function TickerResultCard({
   )
 }
 
-export function VolumeProfilePocPanel({ data }: { data: Row }) {
+export function VolumeProfilePocPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
@@ -191,7 +197,7 @@ export function VolumeProfilePocPanel({ data }: { data: Row }) {
       </div>
       <div className="space-y-2">
         {results.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

@@ -733,6 +733,11 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
   const vix = (data.vix as Row) ?? {}
   const lateJump = (data.late_session_jump as Row) ?? {}
   const manualBasis = data.manual_futures_basis as Row | null
+  const asOfDate = data.as_of_date != null ? String(data.as_of_date) : null
+  const generatedAt = data.generated_at != null ? String(data.generated_at) : null
+  const expiry = data.option_chain_expiry != null ? String(data.option_chain_expiry) : null
+  const plainEnglish = data.plain_english != null ? String(data.plain_english) : null
+  const chainSignal = (data.chain_signal as Row | null) ?? null
 
   return (
     <div className="space-y-4">
@@ -749,8 +754,27 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
             {data.price_chg_pct != null && <> ({fmtNum(data.price_chg_pct)}%)</>}
           </span>
         </div>
-        {data.trading_guidance != null && (
+        {(asOfDate || expiry) && (
+          <p className="mt-2 text-xs text-slate-500">
+            {asOfDate && <>Showing results for <strong className="text-slate-300">{asOfDate}</strong> (last completed trading session)</>}
+            {expiry && <> · Option chain expiry: <strong className="text-slate-300">{expiry}</strong></>}
+            {generatedAt && <> · Generated {generatedAt}</>}
+          </p>
+        )}
+        {plainEnglish != null ? (
+          <p className="mt-3 rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-2.5 text-sm leading-relaxed text-slate-200">
+            {plainEnglish}
+          </p>
+        ) : data.trading_guidance != null ? (
           <p className="mt-3 text-sm leading-relaxed text-slate-300">{String(data.trading_guidance)}</p>
+        ) : null}
+        {chainSignal && (
+          <p className="mt-2 text-xs text-slate-500">
+            Options-chain read: <strong className="text-slate-300">{String(chainSignal.bias ?? '—')}</strong>
+            {chainSignal.confidence_pct != null && <> ({fmtNum(chainSignal.confidence_pct, 0)}% confidence)</>}
+            {chainSignal.pcr_oi != null && <> · PCR(OI) {fmtNum(chainSignal.pcr_oi, 2)}</>}
+            {chainSignal.max_pain != null && <> · Max Pain {fmtNum(chainSignal.max_pain, 0)}</>}
+          </p>
         )}
       </div>
 

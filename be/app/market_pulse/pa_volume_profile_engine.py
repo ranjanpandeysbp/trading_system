@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
+from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
 from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, sl_tp_pct
 from app.trading_hubs.smart_money_shared import hold_for_tf
 
@@ -493,6 +494,15 @@ def analyze_ticker(
 
     out["ltp"] = round(float(df["close"].iloc[-1]), 4)
     out["chart_data"] = _build_chart_data(df, max_bars=160)
+    try:
+        sr_cfg = PaVpSmcConfig(swing_window=5, lookback_bars=min(len(df), 300))
+        sr_zones = find_swing_sr_zones(df, sr_cfg)
+    except Exception:
+        sr_zones = {}
+    support = sr_zones.get("support")
+    resistance = sr_zones.get("resistance")
+    out["support_zone"] = [round(support["bottom"], 6), round(support["top"], 6)] if support else None
+    out["resistance_zone"] = [round(resistance["bottom"], 6), round(resistance["top"], 6)] if resistance else None
 
     # Session/recent VP for histogram overlay
     tail_n = min(len(df), max(cfg.vp_lookback, 30))

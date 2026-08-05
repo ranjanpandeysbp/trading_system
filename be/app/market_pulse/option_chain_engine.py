@@ -28,8 +28,9 @@ from app.market_pulse.news_scanner import (
 
 logger = logging.getLogger(__name__)
 
-# Common index option chains (NSE) — curated, matches what NSE actually lists F&O for.
-INDEX_CHOICES: list[str] = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
+# Common index option chains (NSE) — verified live against NSE's own
+# underlying-information API, matches what NSE actually lists F&O for today.
+INDEX_CHOICES: list[str] = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"]
 
 
 def _fetch_nse_equity_option_chain_v3(symbol: str) -> dict[str, Any] | None:

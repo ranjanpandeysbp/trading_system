@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight, Copy, Eye, Plus, RefreshCw, Share2, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Eye, Pencil, Plus, RefreshCw, Share2, Trash2, X } from 'lucide-react'
 import {
   addWatchlistItem,
   apiErrorMessage,
@@ -10,6 +10,7 @@ import {
   fetchWatchlistItems,
   fetchWatchlists,
   removeWatchlistItem,
+  updateWatchlistItem,
   type WatchlistItemInfo,
 } from '../api/client'
 import { TradeSetupDrillDown } from '../components/command-center/CommandCenterPanels'
@@ -102,6 +103,8 @@ export default function WatchlistPage() {
   const [timeframeByItem, setTimeframeByItem] = useState<Record<number, string>>({})
   const [copied, setCopied] = useState(false)
   const [shareHint, setShareHint] = useState('')
+  const [editingNotesId, setEditingNotesId] = useState<number | null>(null)
+  const [notesDraft, setNotesDraft] = useState('')
 
   const listsQ = useQuery({ queryKey: ['watchlists'], queryFn: fetchWatchlists })
   const lists = listsQ.data?.watchlists ?? []
@@ -170,6 +173,23 @@ export default function WatchlistPage() {
     mutationFn: (itemId: number) => removeWatchlistItem(selectedId as number, itemId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['watchlist-items', selectedId] }),
   })
+
+  const updateNotesMut = useMutation({
+    mutationFn: ({ itemId, notes: n }: { itemId: number; notes: string }) =>
+      updateWatchlistItem(selectedId as number, itemId, { notes: n }),
+    onSuccess: () => {
+      setEditingNotesId(null)
+      qc.invalidateQueries({ queryKey: ['watchlist-items', selectedId] })
+    },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const startEditNotes = (it: WatchlistItemInfo) => {
+    setEditingNotesId(it.id)
+    setNotesDraft(it.notes ?? '')
+  }
+  const saveNotes = (itemId: number) => updateNotesMut.mutate({ itemId, notes: notesDraft })
+  const cancelEditNotes = () => setEditingNotesId(null)
 
   const items = itemsQ.data?.items ?? []
   const csvTickers = useMemo(() => tickersCsv(items), [items])
@@ -372,8 +392,49 @@ export default function WatchlistPage() {
                             <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>
                             <Td className={pctClass(it.change_pct)}>{fmtPct(it.change_pct)}</Td>
                             <Td className={pctClass(it.change_since_added_pct)}>{fmtPct(it.change_since_added_pct)}</Td>
-                            <Td className="max-w-[220px] truncate text-slate-400">
-                              <span title={it.notes ?? ''}>{it.notes || '—'}</span>
+                            <Td className="max-w-[260px] text-slate-400">
+                              {editingNotesId === it.id ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Input
+                                    autoFocus
+                                    value={notesDraft}
+                                    onChange={(e) => setNotesDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') { e.preventDefault(); saveNotes(it.id) }
+                                      if (e.key === 'Escape') { e.preventDefault(); cancelEditNotes() }
+                                    }}
+                                    placeholder="Add a note…"
+                                    className="!py-1 !text-xs"
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label="Save note"
+                                    onClick={() => saveNotes(it.id)}
+                                    disabled={updateNotesMut.isPending}
+                                    className="shrink-0 text-slate-500 hover:text-emerald-400"
+                                  >
+                                    <Check size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Cancel edit"
+                                    onClick={cancelEditNotes}
+                                    className="shrink-0 text-slate-500 hover:text-rose-400"
+                                  >
+                                    <X size={15} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditNotes(it)}
+                                  title="Click to edit note"
+                                  className="group flex w-full items-center gap-1.5 truncate text-left hover:text-slate-200"
+                                >
+                                  <span className="truncate" title={it.notes ?? ''}>{it.notes || '—'}</span>
+                                  <Pencil size={12} className="shrink-0 text-slate-600 opacity-0 group-hover:opacity-100" />
+                                </button>
+                              )}
                             </Td>
                             <Td>
                               <button

@@ -1157,6 +1157,12 @@ export const addWatchlistItem = (
   payload: { ticker: string; display_name?: string; added_price?: number | null; notes?: string },
 ) => api.post<WatchlistItemInfo>(`/watchlists/${watchlistId}/items`, payload).then((r) => r.data)
 
+export const updateWatchlistItem = (
+  watchlistId: number,
+  itemId: number,
+  payload: { display_name?: string; notes?: string },
+) => api.patch<WatchlistItemInfo>(`/watchlists/${watchlistId}/items/${itemId}`, payload).then((r) => r.data)
+
 export const removeWatchlistItem = (watchlistId: number, itemId: number) =>
   api.delete(`/watchlists/${watchlistId}/items/${itemId}`).then((r) => r.data)
 
@@ -1689,6 +1695,7 @@ export const runOptionsGokulChhabra = (payload?: {
 
 export const runOptionsMarketPrediction = (payload?: {
   symbol?: string
+  is_index?: boolean
   exchange?: string
   futures_price?: number
   fii_index_position_cut?: boolean

@@ -620,6 +620,17 @@ def analyze_ticker(
     chart_src = intra if len(intra) > len(session) else session
     out["chart_data"] = _build_chart_data(chart_src, max_bars=160)
     out["vp_histogram"] = _vp_histogram(vp)
+    try:
+        from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
+
+        sr_cfg = PaVpSmcConfig(swing_window=5, lookback_bars=min(len(chart_src), 300))
+        sr_zones = find_swing_sr_zones(chart_src, sr_cfg)
+    except Exception:
+        sr_zones = {}
+    support = sr_zones.get("support")
+    resistance = sr_zones.get("resistance")
+    out["support_zone"] = [round(support["bottom"], 6), round(support["top"], 6)] if support else None
+    out["resistance_zone"] = [round(resistance["bottom"], 6), round(resistance["top"], 6)] if resistance else None
 
     setups: list[dict[str, Any]] = []
 

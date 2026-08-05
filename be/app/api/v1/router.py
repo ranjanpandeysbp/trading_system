@@ -69,6 +69,7 @@ from app.models.schemas import (
     TodoUpdateRequest,
     WatchlistCreate,
     WatchlistItemCreate,
+    WatchlistItemUpdate,
     MarketPulseTickerInvestigationRequest,
     MessageResponse,
     BulkIdsRequest,
@@ -2842,6 +2843,23 @@ async def watchlists_add_item(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.patch("/watchlists/{watchlist_id}/items/{item_id}")
+async def watchlists_update_item(
+    watchlist_id: int,
+    item_id: int,
+    payload: WatchlistItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await WatchlistService(db, SettingsService(db)).update_item(
+            current_user.id, watchlist_id, item_id,
+            display_name=payload.display_name, notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.delete("/watchlists/{watchlist_id}/items/{item_id}")
 async def watchlists_remove_item(
     watchlist_id: int,
@@ -3553,6 +3571,7 @@ async def options_market_prediction(
 ):
     return await OptionsService(SettingsService(db)).market_prediction(
         payload.symbol,
+        is_index=payload.is_index,
         exchange=payload.exchange,
         futures_price=payload.futures_price,
         fii_index_position_cut=payload.fii_index_position_cut,

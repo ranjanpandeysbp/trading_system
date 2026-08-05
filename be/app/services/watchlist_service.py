@@ -100,6 +100,27 @@ class WatchlistService:
 
         return await asyncio.to_thread(_fetch)
 
+    async def update_item(
+        self, user_id: int, watchlist_id: int, item_id: int, *,
+        display_name: str | None = None, notes: str | None = None,
+    ) -> dict[str, Any]:
+        wl = await self._get_owned(user_id, watchlist_id)
+        if not wl:
+            raise ValueError("Watchlist not found.")
+        result = await self.db.execute(
+            select(WatchlistItem).where(WatchlistItem.id == item_id, WatchlistItem.watchlist_id == watchlist_id)
+        )
+        item = result.scalar_one_or_none()
+        if not item:
+            raise ValueError("Item not found.")
+        if display_name is not None:
+            item.display_name = display_name.strip() or item.ticker
+        if notes is not None:
+            item.notes = notes.strip() or None
+        await self.db.commit()
+        await self.db.refresh(item)
+        return self._item_dict(item)
+
     async def remove_item(self, user_id: int, watchlist_id: int, item_id: int) -> bool:
         wl = await self._get_owned(user_id, watchlist_id)
         if not wl:

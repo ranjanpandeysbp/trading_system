@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   apiErrorMessage,
+  fetchTickerSuggestions,
   runOptionsDeltaNeutral,
   runOptionsDoubleCalendar,
   runOptionsGokulChhabra,
@@ -29,9 +30,15 @@ const SECTIONS = [
   { id: 'market_prediction', label: '🔮 Market Prediction' },
 ] as const
 
-const MARKET_PREDICTION_EXPLANATION = `Checks whether today's index move is actually backed by conviction in the derivatives data, or is a
-"hollow" move — price rising while the options market quietly prices in doubt — the same read a derivatives
-desk makes before trusting a rally or a selloff.
+const MARKET_PREDICTION_EXPLANATION = `Checks whether the move on the "as of" trading day shown on the result is actually backed by conviction in
+the derivatives data, or is a "hollow" move — price rising while the options market quietly prices in doubt —
+the same read a derivatives desk makes before trusting a rally or a selloff. Data comes from NSE's live option
+chain (the same feed that powers nseindia.com/option-chain), refreshed daily.
+
+Works on an index OR a single stock — pick "Index" for one of the 5 NSE indices with listed F&O contracts
+(Nifty 50, Bank Nifty, Nifty Financial Services, Nifty Midcap Select, Nifty Next 50 — BSE's Sensex/Bankex have
+no working options-chain data source in this app, verified live rather than assumed), or "Stock" for any NSE
+stock that has a listed options chain.
 
 Signals combined:
 1. Synthetic futures premium/discount — a Put-Call-Parity synthetic futures price (Spot + ATM Call LTP - ATM
@@ -40,7 +47,10 @@ Signals combined:
 2. OI buildup — Long/Short Buildup (fresh conviction) vs Short Covering/Long Unwinding (existing positions
    being cut, not fresh ones opened), read off the options chain's aggregate OI change vs price.
 3. IV skew — elevated ATM Put IV vs Call IV (hedging demand) during a rally, or the reverse during a selloff.
-4. India VIX — rising fear alongside a rally (or falling fear alongside a selloff) is a mismatch.
+3b. PCR (OI) / Max Pain read — the same put-call-ratio-by-open-interest and max-pain-pull logic used
+   elsewhere in this app's option-chain tools, applied here as an extra independent check: does the broader
+   positioning picture (not just the ATM strikes) agree with today's move?
+4. India VIX — rising fear alongside a rally (or falling fear alongside a selloff) is a mismatch (index only).
 5. Late-session move check — today's last-5-minute move compared against the day's own typical 5-minute
    swing, flagging an outsized, low-context late move.
 6. FII/DII cash-market flow (NSE/StockEdge) — net institutional buying/selling that contradicts the move.
@@ -49,6 +59,9 @@ This app has no live NSE index-futures price feed or FII index-derivative (not c
 you have today's actual futures LTP or know FII index positions were cut, enter them below to fold in real
 numbers instead of the built-in stand-ins; otherwise the synthetic-futures and cash-market FII/DII reads are
 used, clearly labeled as such in every reason shown.
+
+The result also shows a plain-English paragraph up front summarizing how many independent checks agree vs
+disagree with the day's move, plus the exact "as of" date and option-chain expiry the read is based on.
 
 Research / education only — not financial advice.`
 
@@ -349,14 +362,32 @@ export default function Options() {
   const gkAskContext = gkData ? buildAskContext('Gokul Chhabra', gkData) : ''
 
   const [mpError, setMpError] = useState('')
-  const [mpSymbol, setMpSymbol] = useState<'NIFTY' | 'BANKNIFTY' | 'FINNIFTY'>('NIFTY')
+  const [mpMode, setMpMode] = useState<'index' | 'stock'>('index')
+  const [mpSymbol, setMpSymbol] = useState('NIFTY')
+  const [mpStockTicker, setMpStockTicker] = useState('')
+  const [mpStockDebounced, setMpStockDebounced] = useState('')
+  const [mpSuggestOpen, setMpSuggestOpen] = useState(false)
   const [mpFuturesPrice, setMpFuturesPrice] = useState('')
   const [mpFiiCut, setMpFiiCut] = useState<'unset' | 'yes' | 'no'>('unset')
+
+  useEffect(() => {
+    const t = setTimeout(() => setMpStockDebounced(mpStockTicker.trim()), 200)
+    return () => clearTimeout(t)
+  }, [mpStockTicker])
+
+  const mpSuggestQuery = useQuery({
+    queryKey: ['mp-stock-suggest', mpStockDebounced],
+    queryFn: () => fetchTickerSuggestions('india', mpStockDebounced, 10),
+    enabled: mpMode === 'stock' && mpStockDebounced.length >= 1,
+  })
+  const mpSuggestions = mpSuggestQuery.data?.tickers ?? []
+  const mpActiveSymbol = mpMode === 'stock' ? mpStockTicker.trim().toUpperCase() : mpSymbol
 
   const runMpMutation = useMutation({
     mutationFn: () =>
       runOptionsMarketPrediction({
-        symbol: mpSymbol,
+        symbol: mpActiveSymbol,
+        is_index: mpMode === 'index',
         futures_price: mpFuturesPrice.trim() ? Number(mpFuturesPrice) : undefined,
         fii_index_position_cut: mpFiiCut === 'unset' ? undefined : mpFiiCut === 'yes',
       }),
@@ -851,17 +882,67 @@ export default function Options() {
           </CollapsibleSection>
 
           <Card>
-            <FormField label="Index">
-              <select
-                className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
-                value={mpSymbol}
-                onChange={(e) => setMpSymbol(e.target.value as typeof mpSymbol)}
-              >
-                <option value="NIFTY">Nifty 50</option>
-                <option value="BANKNIFTY">Bank Nifty</option>
-                <option value="FINNIFTY">Nifty Financial Services</option>
-              </select>
-            </FormField>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <Chip selected={mpMode === 'index'} onClick={() => setMpMode('index')}>Index</Chip>
+              <Chip selected={mpMode === 'stock'} onClick={() => { setMpMode('stock'); setMpSuggestOpen(true) }}>Stock</Chip>
+            </div>
+
+            {mpMode === 'index' ? (
+              <FormField label="Index">
+                <select
+                  className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                  value={mpSymbol}
+                  onChange={(e) => setMpSymbol(e.target.value)}
+                >
+                  <option value="NIFTY">Nifty 50</option>
+                  <option value="BANKNIFTY">Bank Nifty</option>
+                  <option value="FINNIFTY">Nifty Financial Services</option>
+                  <option value="MIDCPNIFTY">Nifty Midcap Select</option>
+                  <option value="NIFTYNXT50">Nifty Next 50</option>
+                </select>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  These 5 are the indices NSE currently lists F&amp;O contracts for (verified live against NSE's own
+                  data — same source as nseindia.com/option-chain). BSE's Sensex/Bankex aren't available: this app
+                  has no working options-chain data source for them (BSE's own API and Groww's API both return
+                  nothing for BSE index derivatives — tested live, not assumed).
+                </p>
+              </FormField>
+            ) : (
+              <FormField label="Stock (India, NSE)">
+                <div className="relative">
+                  <Input
+                    value={mpStockTicker}
+                    onChange={(e) => { setMpStockTicker(e.target.value.toUpperCase()); setMpSuggestOpen(true) }}
+                    onFocus={() => setMpSuggestOpen(true)}
+                    onBlur={() => setTimeout(() => setMpSuggestOpen(false), 120)}
+                    placeholder="e.g. RELIANCE"
+                    autoComplete="off"
+                  />
+                  {mpSuggestOpen && mpStockDebounced.length >= 1 && (mpSuggestions.length > 0 || mpSuggestQuery.isFetching) && (
+                    <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700/80 bg-slate-900 shadow-lg">
+                      {mpSuggestQuery.isFetching && mpSuggestions.length === 0 && (
+                        <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>
+                      )}
+                      {mpSuggestions.map((s) => (
+                        <li key={s}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); setMpStockTicker(s); setMpSuggestOpen(false) }}
+                            className="block w-full px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800"
+                          >
+                            {s}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Only stocks with listed F&amp;O contracts have a usable options chain — most large/liquid NSE
+                  names do. If a ticker has no options chain, the run will report that clearly rather than guessing.
+                </p>
+              </FormField>
+            )}
 
             <div className="mt-4">
               <CollapsibleSection title="⚙️ Optional — your own futures / FII data (real numbers, if you have them)">
@@ -887,8 +968,8 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runMpMutation.mutate()} disabled={runMpMutation.isPending}>
-              {runMpMutation.isPending ? 'Analyzing…' : `🔮 Run Market Prediction (${mpSymbol})`}
+            <Button className="mt-4" onClick={() => runMpMutation.mutate()} disabled={runMpMutation.isPending || !mpActiveSymbol}>
+              {runMpMutation.isPending ? 'Analyzing…' : `🔮 Run Market Prediction (${mpActiveSymbol || '…'})`}
             </Button>
             {mpError && <div className="mt-3"><Alert type="error">{mpError}</Alert></div>}
           </Card>

@@ -9,7 +9,11 @@ import {
   runDayBias,
   runFundamentalAnalysis,
   runMomentumScan,
+  runMtfTrendStrength,
   runOptionChain,
+  runProTradeElliottWave,
+  runProTradePaVpSmc,
+  runProTradeVolumeSpreadNextCandle,
   runQuickAnalyzer,
   runTradeSetup,
   runTradeSetupCopyTrade,
@@ -1551,7 +1555,7 @@ function PatternsPanel({ data }: { data: Row }) {
   )
 }
 
-function EmaPositionPanel({ data }: { data: Row }) {
+function EmaPositionPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const results = (data.results as Row[]) ?? []
   const [idx, setIdx] = useState(0)
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
@@ -1616,7 +1620,7 @@ function EmaPositionPanel({ data }: { data: Row }) {
             <StatCard label="Next resistance" value={nr ? fmtNum(nr.price, 4) : '—'} />
           </div>
 
-          {Boolean((r.chart_data as SRChartBar[] | undefined)?.length) && (
+          {showCharts && Boolean((r.chart_data as SRChartBar[] | undefined)?.length) && (
             <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-500">Chart:</span>
@@ -1691,10 +1695,12 @@ function isoDaysAgo(days: number): string {
 type DrillCheck =
   | 'momentum' | 'volume' | 'quick_analyzer' | 'patterns' | 'smart_money'
   | 'scalping' | 'support_resistance' | 'time_series' | 'divergence' | 'stop_hunt' | 'take_profit' | 'real_bottom' | 'intra_hwp' | 'weak_strong' | 'sma_20_200' | 'copy_trade' | 'upgrade_downgrade' | 'fundamentals' | 'option_chain'
+  | 'pa_vp_smc' | 'volume_spread_next_candle' | 'elliott_wave' | 'mtf_trend_strength'
 
 const DRILL_CHECK_KEYS: DrillCheck[] = [
   'momentum', 'volume', 'quick_analyzer', 'patterns', 'smart_money',
   'scalping', 'support_resistance', 'time_series', 'divergence', 'stop_hunt', 'take_profit', 'real_bottom', 'intra_hwp', 'weak_strong', 'sma_20_200', 'copy_trade', 'upgrade_downgrade', 'fundamentals', 'option_chain',
+  'pa_vp_smc', 'volume_spread_next_candle', 'elliott_wave', 'mtf_trend_strength',
 ]
 
 export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker: string; timeframe: string; assetClass: string }) {
@@ -1702,6 +1708,7 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const [checked, setChecked] = useState<Record<DrillCheck, boolean>>({
     momentum: false, volume: false, quick_analyzer: false, patterns: false, smart_money: false,
     scalping: false, support_resistance: false, time_series: false, divergence: false, stop_hunt: false, take_profit: false, real_bottom: false, intra_hwp: false, weak_strong: false, sma_20_200: false, copy_trade: false, upgrade_downgrade: false, fundamentals: false, option_chain: false,
+    pa_vp_smc: false, volume_spread_next_candle: false, elliott_wave: false, mtf_trend_strength: false,
   })
   const [ran, setRan] = useState(false)
 
@@ -1723,6 +1730,10 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const udMut = useMutation({ mutationFn: () => runUpgradeDowngradeScan({ tickers: [ticker], asset_class: assetClass }) })
   const faMut = useMutation({ mutationFn: () => runFundamentalAnalysis({ tickers: [ticker], asset_class: assetClass }) })
   const ocMut = useMutation({ mutationFn: () => runOptionChain({ symbol: ticker, is_index: false }) })
+  const paVpSmcMut = useMutation({ mutationFn: () => runProTradePaVpSmc({ tickers: [ticker], asset_class: assetClass, ltf: timeframe }) })
+  const vsaMut = useMutation({ mutationFn: () => runProTradeVolumeSpreadNextCandle({ tickers: [ticker], asset_class: assetClass, timeframe }) })
+  const ewMut = useMutation({ mutationFn: () => runProTradeElliottWave({ tickers: [ticker], asset_class: assetClass, timeframe }) })
+  const mtfTrendMut = useMutation({ mutationFn: () => runMtfTrendStrength({ tickers: [ticker], asset_class: assetClass, timeframes: [timeframe] }) })
 
   const toggle = (key: DrillCheck) => setChecked((prev) => ({ ...prev, [key]: !prev[key] }))
   const allSelected = DRILL_CHECK_KEYS.every((k) => checked[k])
@@ -1751,6 +1762,10 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
     if (checked.upgrade_downgrade) udMut.mutate()
     if (checked.fundamentals && isIndia) faMut.mutate()
     if (checked.option_chain && isIndia) ocMut.mutate()
+    if (checked.pa_vp_smc) paVpSmcMut.mutate()
+    if (checked.volume_spread_next_candle) vsaMut.mutate()
+    if (checked.elliott_wave) ewMut.mutate()
+    if (checked.mtf_trend_strength) mtfTrendMut.mutate()
   }
 
   const anyChecked = Object.values(checked).some(Boolean)
@@ -1794,6 +1809,16 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   const weakStrongRes = weakStrongMut.data as Row | undefined
   const sma20200Res = sma20200Mut.data as Row | undefined
   const copyTradeRes = copyTradeMut.data as Row | undefined
+  const paVpSmcRow = (paVpSmcMut.data as Row | undefined)?.results as Row[] | undefined
+  const paVpSmcRes = paVpSmcRow?.[0]
+  const vsaRow = (vsaMut.data as Row | undefined)?.results as Row[] | undefined
+  const vsaRes = vsaRow?.[0]
+  const ewRow = (ewMut.data as Row | undefined)?.results as Row[] | undefined
+  const ewRes = ewRow?.[0]
+  const mtfTrendByTicker = (mtfTrendMut.data as Row | undefined)?.results as Record<string, Row> | undefined
+  const mtfTrendRes = mtfTrendByTicker?.[ticker]
+  const mtfTrendConfluence = (mtfTrendRes?.confluence as Row) ?? {}
+  const mtfTrendTf = ((mtfTrendRes?.timeframes as Row)?.[timeframe] as Row) ?? {}
 
   const drillAiData: Row = { ticker, timeframe, asset_class: assetClass }
   if (checked.momentum && m) drillAiData.momentum = m
@@ -1815,6 +1840,10 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
   if (checked.upgrade_downgrade && ud) drillAiData.upgrade_downgrade = ud
   if (checked.fundamentals && fa) drillAiData.fundamentals = fa
   if (checked.option_chain && ocSignal) drillAiData.option_chain = { signal: ocSignal, chain: ocChain }
+  if (checked.pa_vp_smc && paVpSmcRes) drillAiData.pa_vp_smc = paVpSmcRes
+  if (checked.volume_spread_next_candle && vsaRes) drillAiData.volume_spread_next_candle = vsaRes
+  if (checked.elliott_wave && ewRes) drillAiData.elliott_wave = ewRes
+  if (checked.mtf_trend_strength && mtfTrendRes) drillAiData.mtf_trend_strength = mtfTrendRes
   const drillAiContext = ran && Object.keys(drillAiData).length > 3 ? buildAskContext(`Trade Setup · ${ticker} · ${timeframe}`, drillAiData) : ''
 
   return (
@@ -1880,6 +1909,18 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
         </label>
         <label className={`flex items-center gap-1.5 text-xs ${isIndia ? 'text-slate-300' : 'text-slate-600'}`}>
           <input type="checkbox" checked={checked.option_chain} disabled={!isIndia} onChange={() => toggle('option_chain')} />⛓️ Option Chain
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.pa_vp_smc} onChange={() => toggle('pa_vp_smc')} />🌊 PA-VP-SMC
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.volume_spread_next_candle} onChange={() => toggle('volume_spread_next_candle')} />📶 Volume Spread - Next Candle
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.elliott_wave} onChange={() => toggle('elliott_wave')} />🌊 Elliott Wave
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+          <input type="checkbox" checked={checked.mtf_trend_strength} onChange={() => toggle('mtf_trend_strength')} />📶 MTF Trend and Strength
         </label>
       </div>
       {!isIndia && <p className="text-xs text-slate-500">Fundamentals and Option Chain are Groww India (NSE) only.</p>}
@@ -2302,6 +2343,56 @@ export function TradeSetupDrillDown({ ticker, timeframe, assetClass }: { ticker:
                 {((ocSignal.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
               </div>
             ) : ocMut.isSuccess ? <p className="text-xs text-slate-500">Could not fetch option chain — no listed F&amp;O contracts, or NSE is rate-limiting.</p> : null
+          )}
+
+          {checked.pa_vp_smc && (
+            paVpSmcMut.isPending ? <p className="text-xs text-slate-500">Loading PA-VP-SMC…</p> :
+            paVpSmcMut.isError ? <p className="text-xs text-rose-400">PA-VP-SMC failed: {apiErrorMessage(paVpSmcMut.error)}</p> :
+            paVpSmcRes && !paVpSmcRes.error ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>🌊 PA-VP-SMC:</strong> <span className={verdictClass(String(paVpSmcRes.verdict ?? ''))}>{String(paVpSmcRes.verdict ?? '—')}</span>
+                  {(paVpSmcRes.confluence as Row)?.confidence_pct != null ? ` · ${fmtNum((paVpSmcRes.confluence as Row).confidence_pct, 0)}% confidence` : ''}</p>
+                {((paVpSmcRes.reasons as string[]) ?? []).slice(0, 3).map((rr, i) => <p key={i} className="text-xs text-slate-500">• {rr}</p>)}
+              </div>
+            ) : paVpSmcRes?.error ? <p className="text-xs text-rose-400">{String(paVpSmcRes.error)}</p> : null
+          )}
+
+          {checked.volume_spread_next_candle && (
+            vsaMut.isPending ? <p className="text-xs text-slate-500">Loading Volume Spread - Next Candle…</p> :
+            vsaMut.isError ? <p className="text-xs text-rose-400">Volume Spread failed: {apiErrorMessage(vsaMut.error)}</p> :
+            vsaRes && !vsaRes.error ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>📶 Volume Spread - Next Candle:</strong> <span className={verdictClass(String(vsaRes.verdict ?? ''))}>{String(vsaRes.verdict ?? '—')}</span>
+                  {vsaRes.confidence_pct != null ? ` · ${fmtNum(vsaRes.confidence_pct, 0)}% confidence` : ''}</p>
+                {vsaRes.plain_english != null && <p className="text-xs text-slate-500">{String(vsaRes.plain_english)}</p>}
+              </div>
+            ) : vsaRes?.error ? <p className="text-xs text-rose-400">{String(vsaRes.error)}</p> : null
+          )}
+
+          {checked.elliott_wave && (
+            ewMut.isPending ? <p className="text-xs text-slate-500">Loading Elliott Wave…</p> :
+            ewMut.isError ? <p className="text-xs text-rose-400">Elliott Wave failed: {apiErrorMessage(ewMut.error)}</p> :
+            ewRes && !ewRes.error ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>🌊 Elliott Wave:</strong> <span className={verdictClass(String(ewRes.signal ?? ''))}>{String(ewRes.signal ?? 'NEUTRAL')}</span>
+                  {' '}({String(ewRes.pattern ?? '—')}){ewRes.confidence_pct != null ? ` · ${fmtNum(ewRes.confidence_pct, 0)}% confidence` : ''}
+                  {ewRes.sl_pct != null && ewRes.tp_pct != null ? ` · SL ${fmtNum(ewRes.sl_pct, 1)}% / TP ${fmtNum(ewRes.tp_pct, 1)}%` : ''}</p>
+                {ewRes.plain_english != null && <p className="text-xs text-slate-500">{String(ewRes.plain_english)}</p>}
+              </div>
+            ) : ewRes?.error ? <p className="text-xs text-rose-400">{String(ewRes.error)}</p> : null
+          )}
+
+          {checked.mtf_trend_strength && (
+            mtfTrendMut.isPending ? <p className="text-xs text-slate-500">Loading MTF Trend and Strength…</p> :
+            mtfTrendMut.isError ? <p className="text-xs text-rose-400">MTF Trend and Strength failed: {apiErrorMessage(mtfTrendMut.error)}</p> :
+            mtfTrendRes ? (
+              <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <p><strong>📶 MTF Trend and Strength:</strong> <span className={verdictClass(String(mtfTrendConfluence.verdict ?? ''))}>{String(mtfTrendConfluence.verdict ?? '—')}</span>
+                  {mtfTrendTf.strength_label != null ? ` · Strength: ${String(mtfTrendTf.strength_label)}` : ''}
+                  {mtfTrendTf.reversal_probability_pct != null ? ` · Reversal risk ${fmtNum(mtfTrendTf.reversal_probability_pct, 0)}%` : ''}</p>
+                {mtfTrendTf.plain_english != null && <p className="text-xs text-slate-500">{String(mtfTrendTf.plain_english)}</p>}
+              </div>
+            ) : null
           )}
 
           {drillAiContext && (
@@ -4860,7 +4951,14 @@ function MarketMoversPanel({ data }: { data: Row }) {
   )
 }
 
-export function CommandCenterResults({ tab, data, assetClass }: { tab: string; data: Row; assetClass?: string }) {
+export function CommandCenterResults({
+  tab, data, assetClass, showCharts = false,
+}: {
+  tab: string
+  data: Row
+  assetClass?: string
+  showCharts?: boolean
+}) {
   if (data.error && tab !== 'investigation' && tab !== 'investigation_strategies') {
     return <Alert type="error">{String(data.error)}</Alert>
   }
@@ -4911,7 +5009,7 @@ export function CommandCenterResults({ tab, data, assetClass }: { tab: string; d
     case 'take_trade':
       return <TakeTradePanel data={data} />
     case 'ema_position':
-      return <EmaPositionPanel data={data} />
+      return <EmaPositionPanel data={data} showCharts={showCharts} />
     case 'mtf_trend_strength':
       return <MtfTrendStrengthPanel data={data} />
     case 'market_movers':

@@ -56,11 +56,13 @@ function TickerResultCard({
   index,
   currency,
   assetClass,
+  showCharts,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
+  showCharts: boolean
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
@@ -132,7 +134,7 @@ function TickerResultCard({
             </ul>
           )}
 
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart chartData={chartData} levels={chartLevels} histogram={[]} />
             </div>
@@ -185,7 +187,7 @@ function AggregateStatsBar({ stats }: { stats: Row }) {
   )
 }
 
-export function VolumeSpreadNextCandlePanel({ data }: { data: Row }) {
+export function VolumeSpreadNextCandlePanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const allResults = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
@@ -258,7 +260,7 @@ export function VolumeSpreadNextCandlePanel({ data }: { data: Row }) {
       <div className="space-y-2">
         {sorted.length === 0 && <p className="text-sm text-slate-500">No tickers match this filter.</p>}
         {sorted.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
         ))}
       </div>
       {data.disclaimer != null && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

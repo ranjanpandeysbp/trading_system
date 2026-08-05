@@ -37,16 +37,29 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Pulled from NSE's own underlying-information API (the same data
+# nseindia.com/option-chain itself uses) and verified live — this is the
+# authoritative, current list of indices NSE actually lists F&O contracts
+# for, not a guess. Kept in sync with option_chain_engine.INDEX_CHOICES.
+# BSE's Sensex/Bankex are deliberately NOT included: this app has no working
+# options-chain data source for them (BSE's own derivatives API returned a
+# 503 when tested live, and Groww's option-chain endpoint returns nothing
+# for BSE index symbols even with a valid token — verified live, not
+# assumed), so listing them would silently produce a "could not fetch
+# option chain" error rather than a real read.
 INDEX_CHOICES: list[dict[str, str]] = [
     {"value": "NIFTY", "label": "Nifty 50"},
     {"value": "BANKNIFTY", "label": "Bank Nifty"},
     {"value": "FINNIFTY", "label": "Nifty Financial Services"},
+    {"value": "MIDCPNIFTY", "label": "Nifty Midcap Select"},
+    {"value": "NIFTYNXT50", "label": "Nifty Next 50"},
 ]
 
 
@@ -120,6 +133,7 @@ def _synthesize_view(
     *, symbol: str, spot: float, price_chg_pct: float | None,
     buildup: dict[str, Any], premium: dict[str, Any], skew: dict[str, Any],
     fii_dii: dict[str, Any], vix: dict[str, Any], late_jump: dict[str, Any],
+    chain_signal: dict[str, Any] | None,
     manual_basis: dict[str, Any] | None, fii_index_position_cut: bool | None,
     cfg: MarketPredictionConfig,
 ) -> dict[str, Any]:
@@ -191,6 +205,26 @@ def _synthesize_view(
             warnings.append(note)
         elif move_direction != "FLAT" and _aligned(skew.get("bias", "NEUTRAL")):
             score += 4
+            confirmations.append(note)
+        else:
+            confirmations.append(note)
+
+    # 3b. PCR (OI) + fresh OI tilt + Max Pain pull — this app's existing, already-tested
+    # option-chain signal classifier (option_chain_engine.classify_option_chain_signal),
+    # reused here as an independent cross-check rather than re-deriving the same logic.
+    if chain_signal:
+        cs_bias = chain_signal.get("bias", "NEUTRAL")
+        pcr_note = f"PCR(OI) {chain_signal['pcr_oi']:.2f}" if chain_signal.get("pcr_oi") is not None else ""
+        pain_note = f", Max Pain {chain_signal['max_pain']:,.0f}" if chain_signal.get("max_pain") else ""
+        note = (
+            f"[PCR / Max Pain] Options-chain read is {cs_bias} ({chain_signal.get('confidence_pct', 0):.0f}% "
+            f"confidence) — {pcr_note}{pain_note}."
+        )
+        if move_direction != "FLAT" and _opposed(cs_bias):
+            score -= 8
+            warnings.append(note + " This chain-level read is fighting today's price move.")
+        elif move_direction != "FLAT" and _aligned(cs_bias):
+            score += 6
             confirmations.append(note)
         else:
             confirmations.append(note)
@@ -278,6 +312,39 @@ def _synthesize_view(
             f"than fighting it. This looks like a genuine, participation-backed move rather than a hollow one."
         )
 
+    # A genuinely jargon-free version — no "PCR", "IV skew", "OI buildup" — for anyone who
+    # doesn't trade options. The detailed reason strings above stay available for those who do.
+    n_warn, n_confirm = len(warnings), len(confirmations)
+    move_word = {"UP": "went up", "DOWN": "went down", "FLAT": "stayed flat"}[move_direction]
+    chg_txt = f" by {abs(price_chg_pct):.1f}%" if price_chg_pct is not None else ""
+    if move_direction == "FLAT":
+        plain_english = (
+            f"{symbol} {move_word} today{chg_txt} — not enough of a move to say whether it's genuine or not. "
+            "Nothing actionable here; check back once price actually breaks one way or the other."
+        )
+    elif score <= cfg.divergence_score_threshold:
+        plain_english = (
+            f"{symbol} {move_word} today{chg_txt}, but the options market doesn't seem to believe it. Out of "
+            f"{n_warn + n_confirm} independent checks on how options traders are actually positioned, "
+            f"{n_warn} disagree with this move and only {n_confirm} support it. In plain terms: this looks like "
+            f"a move that could run out of steam and reverse, not one driven by real conviction. "
+            f"{'Be cautious chasing this rally' if move_direction == 'UP' else 'Be cautious chasing this decline'} — "
+            "it has the hallmarks of short-term positioning unwinding rather than a genuine trend."
+        )
+    elif score < cfg.caution_score_threshold:
+        plain_english = (
+            f"{symbol} {move_word} today{chg_txt}. The options market is split — {n_confirm} checks support "
+            f"the move, {n_warn} don't. It's not a clear red flag, but it's not a strong green light either. "
+            "Worth treating any new position here conservatively rather than betting big on the move continuing."
+        )
+    else:
+        plain_english = (
+            f"{symbol} {move_word} today{chg_txt}, and the options market broadly agrees — {n_confirm} out of "
+            f"{n_warn + n_confirm} independent checks support this move, with little pushing against it. In "
+            "plain terms: this looks like a real, participation-backed move rather than something likely to "
+            "snap back quickly."
+        )
+
     return {
         "symbol": symbol,
         "spot": round(spot, 2) if spot else None,
@@ -287,6 +354,7 @@ def _synthesize_view(
         "market_view": market_view,
         "risk_stance": risk_stance,
         "trading_guidance": guidance,
+        "plain_english": plain_english,
         "warnings": warnings,
         "confirmations": confirmations,
         "buildup": buildup,
@@ -295,6 +363,7 @@ def _synthesize_view(
         "fii_dii": fii_dii,
         "vix": vix,
         "late_session_jump": late_jump,
+        "chain_signal": chain_signal,
         "manual_futures_basis": manual_basis,
         "fii_index_position_cut": fii_index_position_cut,
     }
@@ -311,7 +380,7 @@ def analyze_market_prediction(
     fii_index_position_cut: bool | None = None,
 ) -> dict[str, Any]:
     """Full Market Prediction read for one India index/ticker."""
-    from app.market_pulse.option_chain_engine import fetch_option_chain
+    from app.market_pulse.option_chain_engine import classify_option_chain_signal, fetch_option_chain
     from app.market_pulse.option_short_long_engine import (
         _daily_price_change_pct,
         _fetch_ohlcv,
@@ -344,6 +413,13 @@ def analyze_market_prediction(
     fii_dii = fetch_fii_dii_sentiment()
     vix = _vix_read()
 
+    chain_signal_raw = classify_option_chain_signal(chain)
+    chain_signal = {
+        **chain_signal_raw,
+        "pcr_oi": chain.get("pcr_oi"),
+        "max_pain": chain.get("max_pain"),
+    }
+
     df_intraday = _fetch_ohlcv(symbol, "india", "1m", groww_token=groww_token, exchange=exchange, limit=375)
     late_jump = _late_session_jump_read(df_intraday, cfg)
 
@@ -354,9 +430,18 @@ def analyze_market_prediction(
             "basis_pct": round((float(futures_price) - spot) / spot * 100, 3),
         }
 
-    return _synthesize_view(
+    result = _synthesize_view(
         symbol=symbol, spot=spot, price_chg_pct=price_chg_pct,
         buildup=buildup, premium=premium, skew=skew, fii_dii=fii_dii, vix=vix,
-        late_jump=late_jump, manual_basis=manual_basis,
+        late_jump=late_jump, chain_signal=chain_signal, manual_basis=manual_basis,
         fii_index_position_cut=fii_index_position_cut, cfg=cfg,
     )
+
+    # Which trading session this move is FOR (the last completed daily bar),
+    # vs when this specific read was generated — the two can differ if run
+    # after-hours or the next morning before fresh data is available.
+    last_bar = df_daily.index[-1]
+    result["as_of_date"] = str(last_bar.date()) if hasattr(last_bar, "date") else str(last_bar)
+    result["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    result["option_chain_expiry"] = chain.get("current_expiry")
+    return result

@@ -57,6 +57,7 @@ import { IndiaFiiDiiHoldingsPanel } from '../components/command-center/IndiaFiiD
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
+import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -153,6 +154,7 @@ export default function CommandCenter() {
   const [error, setError] = useState('')
   const [timeframes, setTimeframes] = useState('15m,1h,1d')
   const [useAi, setUseAi] = useState(false)
+  const [showCharts, setShowCharts] = useState(false)
   const [strategyIds, setStrategyIds] = useState<string[]>([])
   const [heatmapIndex, setHeatmapIndex] = useState('Nifty 50')
   const [heatmapCustomTickers, setHeatmapCustomTickers] = useState('')
@@ -899,6 +901,12 @@ export default function CommandCenter() {
             </div>
           )}
 
+          {tab === 'ema_position' && (
+            <div className="mt-4">
+              <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+            </div>
+          )}
+
           <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
             {runMutation.isPending ? 'Running…' : 'Run analysis'}
           </Button>
@@ -910,7 +918,7 @@ export default function CommandCenter() {
 
       {displayData && !loading && !queryError && (
         <Card>
-          <CommandCenterResults tab={tab} data={displayData as Record<string, unknown>} assetClass={assetClass} />
+          <CommandCenterResults tab={tab} data={displayData as Record<string, unknown>} assetClass={assetClass} showCharts={showCharts} />
         </Card>
       )}
 

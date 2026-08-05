@@ -39,11 +39,13 @@ function TickerResultCard({
   index,
   currency,
   assetClass,
+  showCharts,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
+  showCharts: boolean
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const take = Boolean(result.take_trade)
@@ -125,7 +127,7 @@ function TickerResultCard({
             )}
           </div>
 
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart chartData={chartData} levels={levels} histogram={histogram} />
             </div>
@@ -226,7 +228,7 @@ function confidenceOf(result: Row): number {
   return v == null ? -1 : Number(v)
 }
 
-export function PaVpSmcPanel({ data }: { data: Row }) {
+export function PaVpSmcPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
@@ -266,7 +268,7 @@ export function PaVpSmcPanel({ data }: { data: Row }) {
           <p className="text-sm text-slate-500">No actionable setups right now.</p>
         ) : (
           sorted.map((res, i) => (
-            <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} />
+            <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
           ))
         )}
       </div>
