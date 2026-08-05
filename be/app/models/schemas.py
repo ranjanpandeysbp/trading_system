@@ -422,6 +422,16 @@ class CommandCenterSmartMoneyActivityRequest(BaseModel):
     etf_scheme_names: dict[int, str] = Field(default_factory=dict)
     etf_symbols: list[str] = Field(default_factory=list)
     etf_symbol_names: dict[str, str] = Field(default_factory=dict)
+    run_in_background: bool = False
+    report_name: str | None = None
+
+
+class SaveSmartMoneyActivityReportRequest(BaseModel):
+    name: str
+    tickers: list[str] = Field(default_factory=list)
+    from_date: str = ""
+    to_date: str = ""
+    payload: dict[str, Any]
 
 
 class CommandCenterInvestigateStrategiesRequest(BaseModel):
@@ -556,6 +566,7 @@ class EtfTaRecommendRequest(BaseModel):
     slots_divisor: int = Field(default=60, ge=30, le=90)
     shop_start_date: str | None = None
     prefer_sip: bool = True
+    averaging_trigger_pct: float = -10.0
 
 
 class EtfShopConfigUpdateRequest(BaseModel):
@@ -572,6 +583,7 @@ class EtfShopConfigUpdateRequest(BaseModel):
     min_profit_inr: float | None = None
     slots_divisor: int | None = Field(default=None, ge=30, le=90)
     prefer_sip: bool | None = None
+    averaging_trigger_pct: float | None = None
     notify_telegram: bool | None = None
     notify_email: bool | None = None
 
@@ -1085,3 +1097,23 @@ class YoutubeAnalysisAiViewRequest(BaseModel):
     scan: dict[str, Any] | None = None
     question: str | None = None
     max_tokens: int = Field(default=4000, ge=256, le=8000)
+
+
+class SaveYoutubeAiViewRequest(BaseModel):
+    """Persist a generated AI View for future reference."""
+    name: str
+    report: str
+    verdict: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    ai_context: str = ""
+    video_urls: list[str] = Field(default_factory=list)
+    from_date: str | None = None
+    to_date: str | None = None
+    snapshot_note: str | None = None
+
+
+class UpdateYoutubeAiViewRequest(BaseModel):
+    """Rename and/or edit the report text of a saved AI View."""
+    name: str | None = None
+    report: str | None = None

@@ -342,6 +342,53 @@ export const runYoutubeAnalysisAiView = (payload: {
     }>('/youtube-analysis/ai-view', payload, { timeout: 180_000 })
     .then((r) => r.data)
 
+export type SavedYoutubeAiViewSummary = {
+  id: number
+  name: string
+  created_at: string
+  updated_at: string | null
+  summary?: {
+    verdict?: string | null
+    provider?: string | null
+    model?: string | null
+    video_count?: number
+    snapshot_note?: string | null
+    report_preview?: string
+  }
+}
+
+export type SavedYoutubeAiViewPayload = {
+  report: string
+  verdict?: string | null
+  provider?: string | null
+  model?: string | null
+  ai_context?: string
+  video_urls?: string[]
+  from_date?: string | null
+  to_date?: string | null
+  snapshot_note?: string | null
+  edited?: boolean
+}
+
+export const saveYoutubeAiView = (payload: { name: string } & SavedYoutubeAiViewPayload) =>
+  api.post<{ id: number; name: string; created_at: string }>('/youtube-analysis/ai-views', payload).then((r) => r.data)
+
+export const fetchYoutubeAiViews = () =>
+  api.get<{ ai_views: SavedYoutubeAiViewSummary[] }>('/youtube-analysis/ai-views').then((r) => r.data)
+
+export const fetchYoutubeAiView = (viewId: number) =>
+  api
+    .get<{ id: number; name: string; created_at: string; updated_at: string | null; payload: SavedYoutubeAiViewPayload }>(
+      `/youtube-analysis/ai-views/${viewId}`,
+    )
+    .then((r) => r.data)
+
+export const updateYoutubeAiView = (viewId: number, payload: { name?: string; report?: string }) =>
+  api.put(`/youtube-analysis/ai-views/${viewId}`, payload).then((r) => r.data)
+
+export const deleteYoutubeAiView = (viewId: number) =>
+  api.delete(`/youtube-analysis/ai-views/${viewId}`).then((r) => r.data)
+
 export const getAccount = () => api.get<AccountSummary>('/paper/account').then((r) => r.data)
 export const fetchPaperPrice = (ticker: string, assetClass: string = 'india') =>
   api.get<{ ticker: string; price: number }>('/paper/price', { params: { ticker, asset_class: assetClass } }).then((r) => r.data)
@@ -1008,6 +1055,7 @@ export interface EtfShopConfig {
   min_profit_inr: number
   slots_divisor: number
   prefer_sip: boolean
+  averaging_trigger_pct: number
   sip_locked_symbols: string[]
   notify_telegram: boolean
   notify_email: boolean
@@ -1028,6 +1076,16 @@ export interface EtfShopLot {
   sale_amount: number | null
   gross_profit: number | null
   net_profit: number | null
+  // Live-enriched fields, present only on open lots (populated by GET /etf-ta/stf-shop/portfolio)
+  current_price?: number | null
+  profit_since_bought_pct?: number | null
+  profit_since_bought_inr?: number | null
+  eligible_for_profit_booking?: boolean
+  profit_booking_reason?: string | null
+  averaging_suggested?: boolean
+  averaging_fall_from_last_buy_pct?: number | null
+  averaging_amount?: number | null
+  averaging_reason?: string | null
 }
 
 export const fetchEtfShopPortfolio = () =>
@@ -1625,6 +1683,7 @@ export type SmartMoneyTickerResult = {
   sources?: string[]
   sector?: string
   stock?: string
+  ai_context?: string
 }
 
 export type SmartMoneyActivityResult = {
@@ -1638,9 +1697,12 @@ export type SmartMoneyActivityResult = {
   notes?: string[]
   summary?: { tickers: number; found: number; bullish: number; bearish: number; wait: number }
   results?: SmartMoneyTickerResult[]
+  ai_system_prompt?: string
+  saved_report_id?: number
+  saved_report_name?: string
 }
 
-export const runSmartMoneyActivity = (payload: {
+export type SmartMoneyActivityRunPayload = {
   tickers: string[]
   asset_class: 'india' | 'us' | 'crypto'
   source: 'mutual_fund' | 'etf' | 'both'
@@ -1653,10 +1715,39 @@ export const runSmartMoneyActivity = (payload: {
   etf_scheme_names?: Record<number, string>
   etf_symbols?: string[]
   etf_symbol_names?: Record<string, string>
-}) =>
+}
+
+export const runSmartMoneyActivity = (payload: SmartMoneyActivityRunPayload) =>
   api.post<SmartMoneyActivityResult>('/command-center/smart-money-activity', payload, {
     timeout: MP_TIMEOUT,
   }).then((r) => r.data)
+
+export const startSmartMoneyActivityJob = (
+  payload: SmartMoneyActivityRunPayload & { run_in_background?: boolean; report_name?: string },
+) => api.post('/command-center/smart-money-activity/start', payload).then((r) => r.data)
+
+export const fetchSmartMoneyActivityJobs = (status?: string) =>
+  api.get('/command-center/smart-money-activity/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchSmartMoneyActivityJob = (jobId: string) =>
+  api.get(`/command-center/smart-money-activity/jobs/${jobId}`).then((r) => r.data)
+
+export const saveSmartMoneyActivityReport = (payload: {
+  name: string
+  tickers?: string[]
+  from_date?: string
+  to_date?: string
+  payload: Record<string, unknown>
+}) => api.post('/command-center/smart-money-activity/reports', payload).then((r) => r.data)
+
+export const fetchSmartMoneyActivityReports = () =>
+  api.get('/command-center/smart-money-activity/reports').then((r) => r.data)
+
+export const fetchSmartMoneyActivityReport = (reportId: number) =>
+  api.get(`/command-center/smart-money-activity/reports/${reportId}`).then((r) => r.data)
+
+export const deleteSmartMoneyActivityReport = (reportId: number) =>
+  api.delete(`/command-center/smart-money-activity/reports/${reportId}`).then((r) => r.data)
 
 export const fetchDetectSectorRotationUniverse = (market: 'india' | 'us' | 'crypto' = 'india') =>
   api.get<{ market: string; sectors: string[] }>('/command-center/detect-sector-rotation/universe', {

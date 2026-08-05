@@ -65,8 +65,10 @@ from app.market_pulse.pro_trade_shared import (
     ConfidenceScore,
     atr as _atr_ind,
     atr_sane_stop_target,
+    build_pro_trade_ai_context,
     kaufman_efficiency_ratio,
     liquidity_ok,
+    pro_trade_ai_system,
     quality_grade,
     rr_ratio,
     rsi as _rsi_ind,
@@ -827,3 +829,27 @@ def scan_universe(
             "not financial advice."
         ),
     }
+
+
+BB_MEAN_REVERSION_AI_SYSTEM = pro_trade_ai_system(
+    "BB Mean Reversion",
+    "Price stretched beyond a Bollinger Band (%B extreme) is scored for a mean-reversion trade back "
+    "toward the band's middle line, using Kaufman Efficiency Ratio (is the market actually range-bound?), "
+    "band-squeeze detection, RSI, and up to 13 optional user-selected confluence checks (Fibonacci, EMA "
+    "position/crossover, Stochastic RSI, VWAP, Volume Profile, Smart Money order blocks, reversal-strategy "
+    "patterns, MACD, Support/Resistance, trend direction & strength, higher-timeframe MTF trend & "
+    "strength, and candlestick/chart patterns) — each opted-in check adds or withholds points, so the "
+    "score is a transparent confluence tally, not a black box.",
+)
+
+
+def build_bb_mean_reversion_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    applied = result.get("extra_checks_applied")
+    if isinstance(applied, list) and applied:
+        extra.append(f"Optional confluence checks applied: {', '.join(applied)}")
+    if result.get("is_squeeze"):
+        extra.append("Bollinger Bands are in a squeeze — breakout risk against the mean-reversion read.")
+    if result.get("efficiency_ratio") is not None:
+        extra.append(f"Kaufman Efficiency Ratio: {result.get('efficiency_ratio')} (near 1 = clean trend, near 0 = chop/range)")
+    return build_pro_trade_ai_context(result, engine_label="BB Mean Reversion", extra_lines=extra or None)

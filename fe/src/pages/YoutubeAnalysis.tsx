@@ -1,21 +1,36 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Clapperboard, Save, Sparkles } from 'lucide-react'
+import { Bot, Clapperboard, FolderOpen, Pencil, Save, Sparkles, Trash2, X } from 'lucide-react'
 import {
   apiErrorMessage,
+  deleteYoutubeAiView,
+  fetchYoutubeAiView,
+  fetchYoutubeAiViews,
   fetchYoutubeAnalysisPrefs,
   runYoutubeAnalysisAiView,
   runYoutubeAnalysisScan,
+  saveYoutubeAiView,
   saveYoutubeAnalysisPrefs,
+  updateYoutubeAiView,
+  type SavedYoutubeAiViewSummary,
 } from '../api/client'
 import { AskAIPanel } from '../components/ai/AskAIPanel'
 import { CollapsibleScrollSection } from '../components/command-center/CollapsibleScrollSection'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, Textarea } from '../components/ui/Form'
+import { FormField, Input, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { Badge } from '../components/ui/Badge'
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
 
 function parseVideoList(raw: string) {
   return raw
@@ -62,6 +77,14 @@ export default function YoutubeAnalysis() {
     provider: string
     model: string
   } | null>(null)
+
+  const [showSaveViewForm, setShowSaveViewForm] = useState(false)
+  const [saveViewName, setSaveViewName] = useState('')
+  const [saveViewMsg, setSaveViewMsg] = useState('')
+  const [viewedSavedId, setViewedSavedId] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editText, setEditText] = useState('')
 
   useEffect(() => {
     if (!prefs || hydrated) return
@@ -135,9 +158,87 @@ export default function YoutubeAnalysis() {
         scan: data,
       })
     },
-    onSuccess: (data) => setAiView(data),
+    onSuccess: (data) => {
+      setAiView(data)
+      setViewedSavedId(null)
+    },
     onError: (e) => setError(apiErrorMessage(e)),
   })
+
+  const savedViewsQuery = useQuery({
+    queryKey: ['youtube-ai-views'],
+    queryFn: fetchYoutubeAiViews,
+  })
+  const savedViews = savedViewsQuery.data?.ai_views ?? []
+
+  const viewedSavedQuery = useQuery({
+    queryKey: ['youtube-ai-view', viewedSavedId],
+    queryFn: () => fetchYoutubeAiView(viewedSavedId as number),
+    enabled: viewedSavedId != null,
+  })
+  const viewedSaved = viewedSavedQuery.data
+
+  const saveViewMut = useMutation({
+    mutationFn: () => {
+      const data = scanMut.data
+      if (!aiView) throw new Error('Generate an AI View first')
+      return saveYoutubeAiView({
+        name: saveViewName.trim() || `YouTube AI View ${new Date().toLocaleString()}`,
+        report: aiView.report,
+        verdict: aiView.verdict,
+        provider: aiView.provider,
+        model: aiView.model,
+        ai_context: aiContext,
+        video_urls: videoList,
+        from_date: String(data?.from_date || ''),
+        to_date: String(data?.to_date || ''),
+        snapshot_note: String(data?.snapshot_note || ''),
+      })
+    },
+    onSuccess: () => {
+      setSaveViewMsg('AI View saved.')
+      setShowSaveViewForm(false)
+      setSaveViewName('')
+      qc.invalidateQueries({ queryKey: ['youtube-ai-views'] })
+    },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const updateViewMut = useMutation({
+    mutationFn: (vars: { id: number; name?: string; report?: string }) =>
+      updateYoutubeAiView(vars.id, { name: vars.name, report: vars.report }),
+    onSuccess: (_data, vars) => {
+      setEditingId(null)
+      qc.invalidateQueries({ queryKey: ['youtube-ai-views'] })
+      if (viewedSavedId === vars.id) qc.invalidateQueries({ queryKey: ['youtube-ai-view', vars.id] })
+    },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const deleteViewMut = useMutation({
+    mutationFn: deleteYoutubeAiView,
+    onSuccess: (_data, id) => {
+      if (viewedSavedId === id) setViewedSavedId(null)
+      qc.invalidateQueries({ queryKey: ['youtube-ai-views'] })
+    },
+  })
+
+  const [editLoading, setEditLoading] = useState(false)
+
+  const startEdit = async (v: SavedYoutubeAiViewSummary) => {
+    setEditName(v.name)
+    setEditText('')
+    setEditLoading(true)
+    try {
+      const full = await fetchYoutubeAiView(v.id)
+      setEditText(full.payload?.report || '')
+      setEditingId(v.id)
+    } catch (e) {
+      setError(apiErrorMessage(e))
+    } finally {
+      setEditLoading(false)
+    }
+  }
 
   const data = scanMut.data
   const channels = (data?.channels as ChannelBucket[]) || []
@@ -263,19 +364,159 @@ export default function YoutubeAnalysis() {
             {aiViewMut.isPending && <Loading message="Calling AI for market view…" />}
             {aiView && !aiViewMut.isPending && (
               <div className="mt-4 space-y-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Bot className="text-violet-400" size={18} />
                   <h3 className="font-semibold text-white">AI View</h3>
                   <span className="text-xs text-slate-500">
                     {aiView.provider} · {aiView.model}
                   </span>
                   {aiView.verdict && <Badge action={aiView.verdict} />}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => setShowSaveViewForm(true)}
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Save size={14} />Save for future reference</span>
+                  </Button>
                 </div>
+                {showSaveViewForm && (
+                  <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+                    <FormField label="Name">
+                      <div className="flex gap-2">
+                        <Input
+                          value={saveViewName}
+                          onChange={(e) => setSaveViewName(e.target.value)}
+                          placeholder={`YouTube AI View — ${new Date().toLocaleDateString()}`}
+                        />
+                        <Button onClick={() => saveViewMut.mutate()} disabled={saveViewMut.isPending}>
+                          {saveViewMut.isPending ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setShowSaveViewForm(false)}>
+                          <X size={14} />
+                        </Button>
+                      </div>
+                    </FormField>
+                  </div>
+                )}
+                {saveViewMsg && !showSaveViewForm && (
+                  <p className="text-xs text-emerald-400">{saveViewMsg}</p>
+                )}
                 <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-700/60 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-300">
                   {aiView.report}
                 </pre>
               </div>
             )}
+          </Card>
+
+          <Card className="mb-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h4 className="inline-flex items-center gap-2 font-medium text-white">
+                <FolderOpen size={16} className="text-slate-400" />
+                Saved AI Views
+                <span className="text-sm font-normal text-slate-500">({savedViews.length})</span>
+              </h4>
+              <Button variant="ghost" size="sm" onClick={() => savedViewsQuery.refetch()} disabled={savedViewsQuery.isFetching}>
+                Refresh
+              </Button>
+            </div>
+            {savedViewsQuery.isLoading && <Loading message="Loading saved AI Views…" />}
+            {!savedViewsQuery.isLoading && !savedViews.length && (
+              <p className="text-sm text-slate-500">
+                No saved AI Views yet. Generate one above and save it for future reference.
+              </p>
+            )}
+            <div className="space-y-2">
+              {savedViews.map((v) => (
+                <div
+                  key={v.id}
+                  className={`rounded-lg border px-3 py-2.5 text-sm ${
+                    viewedSavedId === v.id ? 'border-violet-500/50 bg-violet-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <button
+                        className="font-medium text-slate-200 hover:text-violet-400"
+                        onClick={() => setViewedSavedId(viewedSavedId === v.id ? null : v.id)}
+                      >
+                        {v.name}
+                      </button>
+                      {v.summary?.verdict && <span className="ml-2"><Badge action={v.summary.verdict} /></span>}
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Saved {formatWhen(v.created_at)}
+                        {v.updated_at ? ` · edited ${formatWhen(v.updated_at)}` : ''}
+                        {v.summary?.video_count != null ? ` · ${v.summary.video_count} video(s)` : ''}
+                      </p>
+                      {v.summary?.report_preview && viewedSavedId !== v.id && (
+                        <p className="mt-1 text-xs text-slate-400 line-clamp-2">{v.summary.report_preview}…</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEdit(v)}
+                        disabled={editLoading}
+                        title="Edit"
+                      >
+                        <Pencil size={14} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (window.confirm(`Delete saved AI View "${v.name}"? This cannot be undone.`)) {
+                            deleteViewMut.mutate(v.id)
+                          }
+                        }}
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {editingId === v.id && (
+                    <div className="mt-3 space-y-2 border-t border-slate-800/60 pt-3">
+                      <FormField label="Name">
+                        <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                      </FormField>
+                      <FormField label="Report text">
+                        <Textarea rows={10} value={editText} onChange={(e) => setEditText(e.target.value)} />
+                      </FormField>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => updateViewMut.mutate({ id: v.id, name: editName, report: editText })}
+                          disabled={updateViewMut.isPending}
+                        >
+                          {updateViewMut.isPending ? 'Saving…' : 'Save changes'}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {viewedSavedId === v.id && editingId !== v.id && (
+                    <div className="mt-3 border-t border-slate-800/60 pt-3">
+                      {viewedSavedQuery.isLoading ? (
+                        <Loading message="Loading saved AI View…" />
+                      ) : viewedSaved?.payload ? (
+                        <>
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            {viewedSaved.payload.provider && <span>{viewedSaved.payload.provider} · {viewedSaved.payload.model}</span>}
+                            {viewedSaved.payload.snapshot_note && <span>{viewedSaved.payload.snapshot_note}</span>}
+                          </div>
+                          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-700/60 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-300">
+                            {viewedSaved.payload.report}
+                          </pre>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </Card>
 
           <div className="mb-2 text-sm font-medium text-slate-300">Transcripts by channel · date</div>

@@ -26,7 +26,14 @@ import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, rsi as _rsi_ind, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    rsi as _rsi_ind,
+    sl_tp_pct,
+)
 from app.trading_hubs.smart_money_shared import hold_for_tf
 
 logger = logging.getLogger(__name__)
@@ -489,3 +496,19 @@ def scan_universe(
         },
         "disclaimer": "Research / education only — not financial advice.",
     }
+
+
+VOLUME_PROFILE_POC_AI_SYSTEM = pro_trade_ai_system(
+    "Volume Profile POC",
+    "Historical volume profile (over a lookback window) identifies POC/HVN key levels; the forward "
+    "bars are then checked for the first touch of one of those levels — a bounce (mean-reversion back "
+    "toward POC) or a breakout through it, each direction-tagged and only actionable on that first touch.",
+)
+
+
+def build_volume_profile_poc_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    levels = result.get("levels")
+    if isinstance(levels, list) and levels:
+        extra.append(f"Key levels identified: {len(levels)} (POC/HVN clusters from the historical profile)")
+    return build_pro_trade_ai_context(result, engine_label="Volume Profile POC", extra_lines=extra or None)

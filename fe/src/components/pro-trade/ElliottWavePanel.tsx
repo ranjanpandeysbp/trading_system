@@ -5,6 +5,7 @@ import { Chip } from '../ui/Chip'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpLevel, type VpWaveSegment } from './VolumeProfileChart'
+import { AskAIPanel } from '../ai/AskAIPanel'
 
 type Row = Record<string, unknown>
 
@@ -49,11 +50,13 @@ function TickerResultCard({
   currency,
   assetClass,
   showCharts,
+  aiSystemPrompt,
 }: {
   result: Row
   currency: string
   assetClass: WatchlistMarket
   showCharts: boolean
+  aiSystemPrompt: string
 }) {
   const [open, setOpen] = useState(true)
   const take = Boolean(result.take_trade)
@@ -218,6 +221,13 @@ function TickerResultCard({
               </div>
             </div>
           )}
+
+          <AskAIPanel
+            context={String(result.ai_context ?? '')}
+            systemPrompt={aiSystemPrompt}
+            section={`pro-trade/elliott-wave/${String(result.ticker ?? '')}`}
+            className="mt-0"
+          />
         </div>
       )}
     </div>
@@ -230,6 +240,7 @@ export function ElliottWavePanel({ data, showCharts = false }: { data: Row; show
   const allResults = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
+  const aiSystemPrompt = String(data.ai_system_prompt ?? '')
   const [filter, setFilter] = useState<FilterMode>('all')
 
   const sorted = useMemo(() => {
@@ -291,7 +302,7 @@ export function ElliottWavePanel({ data, showCharts = false }: { data: Row; show
       <div className="space-y-2">
         {sorted.length === 0 && <p className="text-sm text-slate-500">No tickers match this filter.</p>}
         {sorted.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} currency={currency} assetClass={assetClass} showCharts={showCharts} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} currency={currency} assetClass={assetClass} showCharts={showCharts} aiSystemPrompt={aiSystemPrompt} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

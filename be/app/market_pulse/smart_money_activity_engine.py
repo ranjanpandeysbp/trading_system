@@ -641,3 +641,62 @@ def _merge_ticker_signals(tickers: list[str], rows: list[dict[str, Any]]) -> lis
             "stock": best.get("stock"),
         })
     return out
+
+
+SMART_MONEY_ACTIVITY_AI_SYSTEM = """You are analyzing one ticker's result from "Check Smart Money Activity" — a scan of \
+mutual-fund and/or ETF portfolio holdings (India: SBI/HDFC/ICICI/Nippon or user-picked fund houses; US/Crypto: major \
+ETF issuers) across a user-chosen date range, checking whether the number of funds holding this stock/ETF increased \
+or decreased and by how much.
+
+Given this data:
+1. **Read the flow** — state plainly how many funds increased vs decreased stake, the average change, and what \
+that combination implies (e.g. a small number of funds moving a large amount reads differently than many funds \
+moving a little).
+2. **Signal quality** — comment on whether this is a strong signal (large sample, high conviction) or a weak one \
+(few funds, small change, "not found" in the scanned universe).
+3. **Cross-channel check** — when both mutual-fund and ETF channels were scanned, note whether they agree or \
+conflict (conflicting signals should lower confidence).
+4. **Verdict** — ADD LONG / BULLISH / WAIT / BEARISH / SELL-AVOID, with the single strongest supporting and \
+opposing factor.
+
+Cite only figures present in the data — never invent a fund name, percentage, or date. This is research/education \
+only, not financial advice."""
+
+
+def build_smart_money_activity_ai_prompt(result: dict[str, Any]) -> str:
+    ticker = result.get("ticker")
+    if not result.get("found"):
+        return (
+            f"=== SMART MONEY ACTIVITY ===\nTicker: {ticker}\n"
+            f"Not found in the scanned fund/ETF holdings for this date range.\n"
+            f"Summary: {result.get('summary', '')}"
+        )
+
+    lines = [
+        "=== SMART MONEY ACTIVITY ===",
+        f"Ticker: {ticker}",
+        f"Signal: {result.get('signal')} (bias: {result.get('bias')})",
+        f"Overall trend: {result.get('overall_trend')}",
+        f"Avg stake change: {result.get('avg_change_pct')}%",
+        f"Funds increasing: {result.get('schemes_increasing')} · decreasing: {result.get('schemes_decreasing')} "
+        f"· total scanned: {result.get('n_schemes')}",
+        f"Sources scanned: {', '.join(result.get('sources') or []) or '—'}",
+    ]
+    if result.get("sector"):
+        lines.append(f"Sector: {result.get('sector')}")
+    lines += ["", "-- Summary --", str(result.get("summary") or "")]
+
+    channels = result.get("channels")
+    if isinstance(channels, list) and len(channels) > 1:
+        lines += ["", "-- Per-channel breakdown --"]
+        for c in channels:
+            lines.append(
+                f"- {c.get('source')}: {c.get('signal')} (avg Δ {c.get('avg_change_pct')}%, "
+                f"{c.get('schemes_increasing')}↑/{c.get('schemes_decreasing')}↓ of {c.get('n_schemes')})"
+            )
+
+    matched = result.get("matched_stocks")
+    if isinstance(matched, list) and matched:
+        lines += ["", f"Matched holding name(s): {', '.join(str(m) for m in matched[:5])}"]
+
+    return "\n".join(lines)

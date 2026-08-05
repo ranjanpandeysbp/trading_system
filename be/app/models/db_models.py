@@ -209,6 +209,7 @@ class SavedBacktestReport(Base):
     # (and renders blank Win Rate/Signals) in the other's saved-reports list.
     source: Mapped[str] = mapped_column(String(32), default="strategy_leaderboard", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
 
 class BackgroundJob(Base):
@@ -304,6 +305,10 @@ class EtfShopConfig(Base):
     min_profit_inr: Mapped[float] = mapped_column(Float, default=500.0)
     slots_divisor: Mapped[int] = mapped_column(Integer, default=60)
     prefer_sip: Mapped[bool] = mapped_column(default=True)
+    # % fall from initial buy price that triggers averaging-down / SIP mode for a
+    # symbol (negative number, e.g. -10.0). User-configurable; was a hardcoded engine
+    # constant (SIP_WEAKNESS_THRESHOLD_PCT) before this became a per-user setting.
+    averaging_trigger_pct: Mapped[float] = mapped_column(Float, default=-10.0)
     # Latched SIP-locked symbol set (JSON list) — a symbol never unlocks once
     # it crosses the weakness threshold, so this must persist across runs.
     sip_locked_json: Mapped[str] = mapped_column(Text, default="[]")

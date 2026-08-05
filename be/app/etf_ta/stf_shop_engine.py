@@ -558,6 +558,7 @@ def daily_stf_recommendation(
     sip_locked: set[str] | list[str] | None = None,
     shop_start_date: str | None = None,
     prefer_sip_when_available: bool = True,
+    weakness_threshold_pct: float = SIP_WEAKNESS_THRESHOLD_PCT,
 ) -> dict[str, Any]:
     """Combined daily tracker — standard or SIP buy + FIFO sell (max 1 each)."""
     pool = effective_capital(deposited_capital, growth_amount, dividend_withdrawn)
@@ -567,7 +568,9 @@ def daily_stf_recommendation(
     pct_deployed = (deployed / pool * 100.0) if pool > 0 else 0.0
 
     errors = data_error_symbols(analyses)
-    locked = update_sip_locked_symbols(portfolio, analyses, sip_locked)
+    locked = update_sip_locked_symbols(
+        portfolio, analyses, sip_locked, weakness_threshold_pct=weakness_threshold_pct,
+    )
     sip_candidates = rank_sip_candidates(portfolio, analyses, locked)
 
     sells = sell_candidates_fifo(
@@ -661,6 +664,7 @@ def daily_stf_recommendation(
         "profit_target_pct": profit_target_pct,
         "profit_target_inr": profit_target_inr,
         "min_profit_inr": min_profit_inr,
+        "averaging_trigger_pct": weakness_threshold_pct,
         "sip_locked_symbols": sorted(locked),
         "sip_candidates": sip_candidates,
         "buy_recommendation": buy_note,

@@ -237,6 +237,10 @@ async def resume_orphaned_jobs() -> int:
     from app.services.intra_hedging_jobs import INTRA_HEDGING_SOURCE, run_intra_hedging_job
     from app.services.fii_dii_holdings_jobs import FII_DII_HOLDINGS_SOURCE, run_fii_dii_holdings_job
     from app.services.etf_holdings_jobs import ETF_HOLDINGS_SOURCE, run_etf_holdings_job
+    from app.services.smart_money_activity_jobs import (
+        SMART_MONEY_ACTIVITY_SOURCE,
+        run_smart_money_activity_job,
+    )
 
     resumed = 0
     try:
@@ -298,6 +302,21 @@ async def resume_orphaned_jobs() -> int:
                         payload.get("scheme_ids", []), payload.get("scheme_names", {}),
                         payload.get("symbols", []), payload.get("symbol_names", {}),
                         payload.get("from_date", ""), payload.get("to_date", ""),
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif row.source == SMART_MONEY_ACTIVITY_SOURCE:
+                    run_smart_money_activity_job(
+                        row.id, payload.get("tickers", []),
+                        asset_class=payload.get("asset_class", "india"),
+                        source=payload.get("source", "both"),
+                        from_date=payload.get("from_date", ""), to_date=payload.get("to_date", ""),
+                        amc_ids=payload.get("amc_ids") or None,
+                        mf_scheme_ids=payload.get("mf_scheme_ids") or None,
+                        mf_scheme_names=payload.get("mf_scheme_names") or None,
+                        etf_scheme_ids=payload.get("etf_scheme_ids") or None,
+                        etf_scheme_names=payload.get("etf_scheme_names") or None,
+                        etf_symbols=payload.get("etf_symbols") or None,
+                        etf_symbol_names=payload.get("etf_symbol_names") or None,
                         report_name=payload.get("report_name"), user_id=row.user_id,
                     )
                 else:

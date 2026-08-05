@@ -23,7 +23,13 @@ import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    sl_tp_pct,
+)
 from app.trading_hubs.smart_money_shared import hold_for_tf
 
 logger = logging.getLogger(__name__)
@@ -600,3 +606,15 @@ def scan_universe(
         },
         "disclaimer": "Research / education only — not financial advice.",
     }
+
+
+PA_VOLUME_PROFILE_AI_SYSTEM = pro_trade_ai_system(
+    "PA - Volume Profile",
+    "Price action (candle structure / rejection) checked for confluence with volume-profile levels — "
+    "a setup only fires when the price-action signal and the volume-profile level agree on the same "
+    "level and direction, which is why the underlying setups list matters more than any single indicator.",
+)
+
+
+def build_pa_volume_profile_ai_prompt(result: dict[str, Any]) -> str:
+    return build_pro_trade_ai_context(result, engine_label="PA - Volume Profile")

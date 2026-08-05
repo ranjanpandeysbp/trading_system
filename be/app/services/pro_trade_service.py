@@ -85,7 +85,12 @@ class ProTradeService:
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_utils import market_currency
-        from app.market_pulse.volume_profile_ce_engine import VolumeProfileCeConfig, scan_universe
+        from app.market_pulse.volume_profile_ce_engine import (
+            VOLUME_PROFILE_CE_AI_SYSTEM,
+            VolumeProfileCeConfig,
+            build_volume_profile_ce_ai_prompt,
+            scan_universe,
+        )
 
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
@@ -109,6 +114,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_volume_profile_ce_ai_prompt(r)
+        payload["ai_system_prompt"] = VOLUME_PROFILE_CE_AI_SYSTEM
         return json_safe(payload)
 
     async def volume_profile_poc(
@@ -120,7 +128,12 @@ class ProTradeService:
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_utils import market_currency
-        from app.market_pulse.volume_profile_poc_engine import VolumeProfilePocConfig, scan_universe
+        from app.market_pulse.volume_profile_poc_engine import (
+            VOLUME_PROFILE_POC_AI_SYSTEM,
+            VolumeProfilePocConfig,
+            build_volume_profile_poc_ai_prompt,
+            scan_universe,
+        )
 
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
@@ -144,6 +157,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_volume_profile_poc_ai_prompt(r)
+        payload["ai_system_prompt"] = VOLUME_PROFILE_POC_AI_SYSTEM
         return json_safe(payload)
 
     async def pa_vp_smc(
@@ -154,7 +170,12 @@ class ProTradeService:
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, scan_universe
+        from app.market_pulse.pa_vp_smc_engine import (
+            PA_VP_SMC_AI_SYSTEM,
+            PaVpSmcConfig,
+            build_pa_vp_smc_ai_prompt,
+            scan_universe,
+        )
         from app.market_pulse.ticker_utils import market_currency
 
         if not tickers:
@@ -179,6 +200,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_pa_vp_smc_ai_prompt(r)
+        payload["ai_system_prompt"] = PA_VP_SMC_AI_SYSTEM
         return json_safe(payload)
 
     async def pa_volume_profile(
@@ -189,7 +213,12 @@ class ProTradeService:
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from app.market_pulse.pa_volume_profile_engine import PaVolumeProfileConfig, scan_universe
+        from app.market_pulse.pa_volume_profile_engine import (
+            PA_VOLUME_PROFILE_AI_SYSTEM,
+            PaVolumeProfileConfig,
+            build_pa_volume_profile_ai_prompt,
+            scan_universe,
+        )
         from app.market_pulse.ticker_utils import market_currency
 
         if not tickers:
@@ -214,6 +243,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_pa_volume_profile_ai_prompt(r)
+        payload["ai_system_prompt"] = PA_VOLUME_PROFILE_AI_SYSTEM
         return json_safe(payload)
 
     async def elliott_wave(
@@ -224,7 +256,12 @@ class ProTradeService:
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from app.market_pulse.elliott_wave_engine import ElliottWaveConfig, scan_universe
+        from app.market_pulse.elliott_wave_engine import (
+            ELLIOTT_WAVE_AI_SYSTEM,
+            ElliottWaveConfig,
+            build_elliott_wave_ai_prompt,
+            scan_universe,
+        )
         from app.market_pulse.ticker_utils import market_currency
 
         if not tickers:
@@ -249,6 +286,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_elliott_wave_ai_prompt(r)
+        payload["ai_system_prompt"] = ELLIOTT_WAVE_AI_SYSTEM
         return json_safe(payload)
 
     async def bb_mean_reversion(
@@ -260,7 +300,12 @@ class ProTradeService:
         timeframes: list[str] | None = None,
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from app.market_pulse.bb_mean_reversion_engine import BbMeanReversionConfig, scan_universe
+        from app.market_pulse.bb_mean_reversion_engine import (
+            BB_MEAN_REVERSION_AI_SYSTEM,
+            BbMeanReversionConfig,
+            build_bb_mean_reversion_ai_prompt,
+            scan_universe,
+        )
         from app.market_pulse.ticker_utils import market_currency
 
         if not tickers:
@@ -288,6 +333,9 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_bb_mean_reversion_ai_prompt(r)
+        payload["ai_system_prompt"] = BB_MEAN_REVERSION_AI_SYSTEM
         return json_safe(payload)
 
     async def volume_spread_next_candle(
@@ -299,7 +347,12 @@ class ProTradeService:
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_utils import market_currency
-        from app.market_pulse.volume_spread_next_candle_engine import VolumeSpreadConfig, scan_universe
+        from app.market_pulse.volume_spread_next_candle_engine import (
+            VOLUME_SPREAD_NEXT_CANDLE_AI_SYSTEM,
+            VolumeSpreadConfig,
+            build_volume_spread_next_candle_ai_prompt,
+            scan_universe,
+        )
 
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
@@ -323,4 +376,7 @@ class ProTradeService:
         payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_volume_spread_next_candle_ai_prompt(r)
+        payload["ai_system_prompt"] = VOLUME_SPREAD_NEXT_CANDLE_AI_SYSTEM
         return json_safe(payload)

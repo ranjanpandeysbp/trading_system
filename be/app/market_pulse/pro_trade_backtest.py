@@ -247,12 +247,149 @@ def build_pa_vp_smc_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFram
     return frame
 
 
+def build_bb_mean_reversion_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
+    """Vectorized replay of the core BB Mean Reversion read: %B stretch beyond
+    the band, confirmed by a genuinely range-bound market (Kaufman Efficiency
+    Ratio) and an echoing RSI extreme — the same three core signals
+    `analyze_ticker` scores first, before any of its 13 optional extras."""
+    from app.market_pulse.bb_mean_reversion_engine import BbMeanReversionConfig
+    from app.market_pulse.pro_trade_shared import kaufman_efficiency_ratio, rsi as _rsi_ind
+
+    cfg = cfg or BbMeanReversionConfig()
+    work = _empty_with_signal(df)
+    period = int(getattr(cfg, "bb_period", 20))
+    std_mult = float(getattr(cfg, "bb_std", 2.0))
+    if len(work) < period + 20:
+        return work
+
+    closes = work["close"]
+    mid = closes.rolling(period).mean()
+    std = closes.rolling(period).std()
+    upper = mid + std_mult * std
+    lower = mid - std_mult * std
+    band_range = (upper - lower).replace(0, np.nan)
+    percent_b = (closes - lower) / band_range
+
+    er = kaufman_efficiency_ratio(closes, period=14)
+    rsi_val = _rsi_ind(closes, period=14)
+
+    range_bound = er < 0.5
+    stretched_high = percent_b >= 1.0
+    stretched_low = percent_b <= 0.0
+    rsi_confirms_high = rsi_val >= 60
+    rsi_confirms_low = rsi_val <= 40
+
+    frame = work.copy()
+    frame["signal"] = 0
+    long_ok = stretched_low & range_bound & rsi_confirms_low
+    short_ok = stretched_high & range_bound & rsi_confirms_high
+    frame.loc[long_ok & ~short_ok, "signal"] = 1
+    frame.loc[short_ok & ~long_ok, "signal"] = -1
+    return frame
+
+
+def build_elliott_wave_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
+    """Replays the live engine's own `analyze_elliott_waves` ZigZag wave
+    count on an expanding (no-lookahead) window each bar, using the same
+    IMPULSE-wave-5 / CORRECTIVE-wave-C entry rule as `analyze_ticker`."""
+    from app.market_pulse.elliott_wave_engine import ElliottWaveConfig
+    from app.market_pulse.price_action import analyze_elliott_waves
+
+    cfg = cfg or ElliottWaveConfig()
+    work = _empty_with_signal(df)
+    n = len(work)
+    min_bars = max(int(getattr(cfg, "min_bars", 30)), 30)
+    if n < min_bars + 10:
+        return work
+
+    zigzag_pct = float(getattr(cfg, "zigzag_pct", 3.0))
+    signals = np.zeros(n, dtype=int)
+    for i in range(min_bars, n):
+        window = work.iloc[: i + 1]
+        ew = analyze_elliott_waves(window, zigzag_pct=zigzag_pct)
+        waves = ew.get("waves") or []
+        if not waves:
+            continue
+        last_wave = waves[-1]
+        direction = last_wave.get("direction")
+        current_wave = str(ew.get("current_wave"))
+        if ew.get("pattern") == "IMPULSE" and ew.get("valid_impulse"):
+            signals[i] = -1 if direction == "UP" else 1
+        elif ew.get("pattern") == "CORRECTIVE" and current_wave == "C":
+            signals[i] = 1 if direction == "DOWN" else -1
+
+    work["signal"] = signals
+    return work
+
+
+def _resample_ohlcv_positional(df: pd.DataFrame, group: int) -> pd.DataFrame:
+    """Groups every `group` bars into one synthetic higher-timeframe bar,
+    positionally (not calendar-based) so it works for any fetched interval."""
+    n = len(df)
+    if n < group:
+        return df.iloc[0:0]
+    usable = n - (n % group)
+    trimmed = df.iloc[:usable]
+    idx = trimmed.index[group - 1 :: group]
+    o = trimmed["open"].to_numpy().reshape(-1, group)[:, 0]
+    h = trimmed["high"].to_numpy().reshape(-1, group).max(axis=1)
+    lo = trimmed["low"].to_numpy().reshape(-1, group).min(axis=1)
+    c = trimmed["close"].to_numpy().reshape(-1, group)[:, -1]
+    if "volume" in trimmed:
+        v = trimmed["volume"].to_numpy().reshape(-1, group).sum(axis=1)
+    else:
+        v = np.zeros(len(idx))
+    return pd.DataFrame({"open": o, "high": h, "low": lo, "close": c, "volume": v}, index=idx)
+
+
+def build_support_resistance_signals(df: pd.DataFrame, *, cfg: Any = None, htf_group: int = 6) -> pd.DataFrame:
+    """Replays the live engine's own `run_sr_pipeline` + `evaluate_live_signal`
+    (HTF zone detection + LTF break-and-retest confirmation) bar-by-bar. The
+    backtester only fetches one timeframe, so the HTF the live engine needs
+    is derived by grouping every `htf_group` fetched bars into one synthetic
+    HTF bar — the live engine's own pure zone/tap/structure-break logic is
+    reused unchanged, only its HTF input is synthesized."""
+    from app.trading_hubs.support_resistance_engine import (
+        SupportResistanceConfig,
+        evaluate_live_signal,
+        run_sr_pipeline,
+    )
+
+    cfg = cfg or SupportResistanceConfig()
+    work = _empty_with_signal(df)
+    n = len(work)
+    min_bars = max(int(getattr(cfg, "min_bars", 80)), 80)
+    min_htf_bars = max(int(getattr(cfg, "swing_window", 5)) * 4, 20)
+    if n < min_bars + (min_htf_bars * htf_group) + 10:
+        return work
+
+    signals = np.zeros(n, dtype=int)
+    step = max(1, n // 250)
+    for i in range(min_bars + min_htf_bars * htf_group, n, step):
+        ltf_window = work.iloc[max(0, i - min_bars) : i + 1]
+        htf_bars = _resample_ohlcv_positional(work.iloc[: i + 1], htf_group)
+        if len(htf_bars) < min_htf_bars:
+            continue
+        pipeline = run_sr_pipeline(ltf_window, htf_bars, cfg)
+        if pipeline.get("error"):
+            continue
+        live = evaluate_live_signal(pipeline, cfg)
+        if live.get("take_trade"):
+            signals[i] = 1 if live.get("direction") == "LONG" else -1
+
+    work["signal"] = signals
+    return work
+
+
 PRO_TRADE_SIGNAL_BUILDERS: dict[str, Any] = {
     "volume_spread_next_candle": build_volume_spread_signals,
     "pa_volume_profile": build_pa_volume_profile_signals,
     "volume_profile_poc": build_volume_profile_poc_signals,
     "volume_profile_ce": build_volume_profile_ce_signals,
     "pa_vp_smc": build_pa_vp_smc_signals,
+    "bb_mean_reversion": build_bb_mean_reversion_signals,
+    "elliott_wave_pro": build_elliott_wave_signals,
+    "support_resistance": build_support_resistance_signals,
 }
 
 

@@ -1052,7 +1052,11 @@ class CommandCenterService:
     ) -> dict[str, Any]:
         from datetime import date as date_cls
 
-        from app.market_pulse.smart_money_activity_engine import check_smart_money_activity
+        from app.market_pulse.smart_money_activity_engine import (
+            SMART_MONEY_ACTIVITY_AI_SYSTEM,
+            build_smart_money_activity_ai_prompt,
+            check_smart_money_activity,
+        )
 
         market = (asset_class or "india").lower()
         if market not in ("india", "us", "crypto"):
@@ -1074,7 +1078,124 @@ class CommandCenterService:
                 etf_symbol_names=etf_symbol_names or None,
             )
 
-        return json_safe(await asyncio.to_thread(_run))
+        result = await asyncio.to_thread(_run)
+        if not result.get("error"):
+            for r in result.get("results") or []:
+                r["ai_context"] = build_smart_money_activity_ai_prompt(r)
+            result["ai_system_prompt"] = SMART_MONEY_ACTIVITY_AI_SYSTEM
+        return json_safe(result)
+
+    # ------------------------------------------------------------------
+    # Saved Smart Money Activity reports — shares the SavedBacktestReport
+    # table (source="smart_money_activity"), same shape as MF/ETF/FII-DII.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _smart_money_activity_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        summary = payload.get("summary") or {}
+        return {
+            "ticker_count": summary.get("tickers", 0),
+            "found_count": summary.get("found", 0),
+            "bullish_count": summary.get("bullish", 0),
+            "bearish_count": summary.get("bearish", 0),
+            "wait_count": summary.get("wait", 0),
+            "tickers": [
+                str(r.get("ticker")) for r in (payload.get("results") or [])
+                if isinstance(r, dict) and r.get("ticker")
+            ],
+        }
+
+    async def save_smart_money_activity_report(
+        self,
+        name: str,
+        tickers: list[str],
+        from_date: str,
+        to_date: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"Smart money activity {datetime_cls.utcnow().isoformat()}",
+            asset_class=str(payload.get("market") or "india"),
+            tickers=",".join(tickers),
+            timeframes=f"{from_date}..{to_date}",
+            payload_json=json.dumps(payload),
+            source="smart_money_activity",
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_smart_money_activity_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == "smart_money_activity"
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            from_to = (r.timeframes or "").split("..")
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "tickers": r.tickers.split(",") if r.tickers else [],
+                "from_date": from_to[0] if len(from_to) > 0 else None,
+                "to_date": from_to[1] if len(from_to) > 1 else None,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._smart_money_activity_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_smart_money_activity_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "smart_money_activity" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_smart_money_activity_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != "smart_money_activity" or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def fundamental_analysis(self, tickers: list[str]) -> dict[str, Any]:
         from app.market_pulse.fundamental_analysis_engine import (

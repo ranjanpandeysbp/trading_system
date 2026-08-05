@@ -164,6 +164,41 @@ PRO_TRADE_STRATEGIES: list[dict[str, Any]] = [
             "Primary edge is the next candle; stop beyond signal extreme; R:R target.",
         ],
     },
+    {
+        "id": "bb_mean_reversion",
+        "name": "BB Mean Reversion",
+        "description": "Bollinger %B stretch, confirmed by a range-bound market (Kaufman Efficiency Ratio) and RSI extreme — up to 13 optional confluence checks on the live scanner.",
+        "timeframes": ["15m", "30m", "1h", "4h", "1d"],
+        "min_bars": 60,
+        "youtube": None,
+        "indicators": ["Bollinger Bands (%B)", "Kaufman Efficiency Ratio", "RSI(14)"],
+        "entry_rules": [
+            "Price stretched to %B >= 1.0 (short) or <= 0.0 (long) beyond the 20-bar, 2σ Bollinger Band.",
+            "Market must be genuinely range-bound (Efficiency Ratio < 0.5) — good conditions to fade a stretch.",
+            "RSI must echo the same extreme (>=60 confirms the short, <=40 confirms the long).",
+        ],
+        "exit_rules": [
+            "Target: reversion back toward the 20-bar mean (band midline).",
+            "Stop: ATR-sane distance beyond the stretch extreme.",
+        ],
+    },
+    {
+        "id": "elliott_wave_pro",
+        "name": "Elliott Wave (Pro Trade)",
+        "description": "Algorithmic ZigZag 5-wave impulse / ABC corrective count — trades only on a completed Wave 5 or Wave C. (Distinct from the separate 'Elliott Wave Screener' under TA Screeners.)",
+        "timeframes": ["1h", "4h", "1d", "1wk"],
+        "min_bars": 60,
+        "youtube": None,
+        "indicators": ["ZigZag pivots", "Fibonacci wave targets"],
+        "entry_rules": [
+            "Valid 5-wave impulse just completed (Wave 5) → fade the move, expect an ABC correction.",
+            "Valid ABC correction just completed (Wave C) → trade resumption of the original trend.",
+        ],
+        "exit_rules": [
+            "Stop beyond the signal wave's extreme (ATR buffer).",
+            "Target: nearest Fibonacci wave projection.",
+        ],
+    },
 ]
 
 TA_STRATEGIES: list[dict[str, Any]] = [
@@ -252,6 +287,15 @@ for section in HUB_SECTIONS:
         runner = "signal_df"
     else:
         runner = "rolling_sentiment"
+
+    if sid == "support_resistance":
+        # analyze_ticker/scan_universe never populate result["backtest"] (the
+        # "analyze_bt" runner's requirement) — run_bt is a dead/unused param
+        # on scan_universe, not analyze_ticker. Reuse the pro_trade_signal_df
+        # runner instead: build_support_resistance_signals (pro_trade_backtest.py)
+        # replays the engine's own run_sr_pipeline/evaluate_live_signal against
+        # a synthesized HTF, so this is a real historical replay, not a proxy.
+        runner = "pro_trade_signal_df"
 
     ENGINE_RUNNER_KIND[sid] = runner
     ENGINE_STRATEGY_META[sid] = {

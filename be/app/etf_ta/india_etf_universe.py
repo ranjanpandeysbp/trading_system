@@ -10,6 +10,8 @@ Master list (~120+) is for manual substitution when a ticker has data issues.
 
 from __future__ import annotations
 
+from app.market_pulse.high_vol_etf_tickers import HIGH_VOL_ETF
+
 # Underlying asset tag → one chosen liquid NSE symbol (no duplicate exposure in Shop 3.0)
 ETF_SHOP_39_UNDERLYING: dict[str, str] = {
     "NIFTY_50": "NIFTYBEES",
@@ -102,6 +104,10 @@ ETF_PRESETS: dict[str, list[str]] = {
     "Smart Beta / Factor": [
         "MOM100", "MOM50", "MON100", "NV20BEES", "NETFMID150", "MASPTOP50", "NETFQ30",
     ],
+    # Same broad, actively-traded NSE ETF universe already used for the general ticker-picker
+    # "High Vol ETF" dropdown elsewhere in this app (app.market_pulse.high_vol_etf_tickers) —
+    # reused here rather than curating a second, separate list.
+    "High Vol ETF": HIGH_VOL_ETF,
 }
 
 GROWW_INDIA_MARKET = "Groww (India Stocks)"

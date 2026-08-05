@@ -4,6 +4,7 @@ import { Badge } from '../ui/Badge'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpHistBin, type VpLevel } from './VolumeProfileChart'
+import { AskAIPanel } from '../ai/AskAIPanel'
 
 type Row = Record<string, unknown>
 
@@ -78,12 +79,14 @@ function TickerResultCard({
   currency,
   assetClass,
   showCharts,
+  aiSystemPrompt,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
   showCharts: boolean
+  aiSystemPrompt: string
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const setups = (result.setups as Row[]) ?? []
@@ -169,6 +172,13 @@ function TickerResultCard({
               ))}
             </ul>
           )}
+
+          <AskAIPanel
+            context={String(result.ai_context ?? '')}
+            systemPrompt={aiSystemPrompt}
+            section={`pro-trade/volume-profile-poc/${String(result.ticker ?? '')}`}
+            className="mt-0"
+          />
         </div>
       )}
     </div>
@@ -179,6 +189,7 @@ export function VolumeProfilePocPanel({ data, showCharts = false }: { data: Row;
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
+  const aiSystemPrompt = String(data.ai_system_prompt ?? '')
   if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
 
   return (
@@ -202,7 +213,7 @@ export function VolumeProfilePocPanel({ data, showCharts = false }: { data: Row;
       </div>
       <div className="space-y-2">
         {results.map((res, i) => (
-          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
+          <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} aiSystemPrompt={aiSystemPrompt} />
         ))}
       </div>
       {Boolean(data.disclaimer) && <p className="text-xs text-slate-600">{String(data.disclaimer)}</p>}

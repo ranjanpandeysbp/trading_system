@@ -11,6 +11,8 @@ app's engines.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 
@@ -185,3 +187,122 @@ def quality_grade(confidence_pct: float, rr: float | None, liquidity_is_ok: bool
     if score >= 3:
         return "B"
     return "C"
+
+
+# ---------------------------------------------------------------------------
+# Per-ticker "Ask AI" prompt — shared context builder + system prompt used by
+# every Pro Trade submenu's per-result "Ask AI" panel. Two output shapes exist
+# across the engines: some report one flat verdict on `result` itself
+# (direction/confidence_pct/entry_price/...), others (Volume Profile CE/POC,
+# PA-Volume Profile) report a list of independent `setups`, each carrying its
+# own signal/direction/confidence — this builder handles both without
+# fabricating any field the engine didn't actually produce.
+# ---------------------------------------------------------------------------
+
+def pro_trade_ai_system(engine_label: str, methodology: str) -> str:
+    """Shared system-prompt template for a Pro Trade engine's per-ticker Ask AI."""
+    return (
+        f"You are analyzing one ticker's result from the '{engine_label}' Pro Trade scan.\n\n"
+        f"Methodology: {methodology}\n\n"
+        "Given this data:\n"
+        "1. **Read the setup** — state plainly what the data shows (direction, key levels, why they matter).\n"
+        "2. **Confidence & quality** — comment on the confidence%/grade and reward:risk if present, and what "
+        "would make this setup stronger or weaker.\n"
+        "3. **Risk framing** — explain the stop-loss/target in plain terms (what % is being risked to make what %).\n"
+        "4. **Verdict** — BUY / SELL / WAIT right now, with the single strongest supporting and opposing factor.\n\n"
+        "Cite only figures present in the data — never invent a price, level, or percentage. "
+        "This is research/education only, not financial advice."
+    )
+
+
+def _fmt(v: Any, digits: int = 2) -> str:
+    if v is None:
+        return "—"
+    if isinstance(v, (int, float)):
+        return f"{v:,.{digits}f}"
+    return str(v)
+
+
+def build_pro_trade_ai_context(
+    result: dict[str, Any],
+    *,
+    engine_label: str,
+    extra_lines: list[str] | None = None,
+) -> str:
+    """Curated (not raw-JSON) per-ticker prompt context, reused by every Pro
+    Trade engine's build_X_ai_prompt() wrapper."""
+    ticker = result.get("ticker")
+    if result.get("error"):
+        return f"=== {engine_label.upper()} ===\nTicker: {ticker}\nError: {result['error']}"
+
+    lines = [
+        f"=== {engine_label.upper()} ===",
+        f"Ticker: {ticker}",
+    ]
+    if result.get("timeframe"):
+        lines.append(f"Timeframe: {result.get('timeframe')}")
+    if result.get("ltp") is not None:
+        lines.append(f"LTP: {_fmt(result.get('ltp'), 4)}")
+
+    setups = result.get("setups")
+    actionable = result.get("actionable")
+    if isinstance(setups, list) and setups:
+        lines += ["", "-- Setups checked --"]
+        for s in setups:
+            name = s.get("setup", "setup")
+            sig = s.get("signal", "—")
+            direction = s.get("direction")
+            logic = s.get("logic") or s.get("reason") or ""
+            line = f"- {name}: {sig}" + (f" ({direction})" if direction else "") + (f" — {logic}" if logic else "")
+            lines.append(line)
+            if s.get("entry") is not None or s.get("confidence_pct") is not None:
+                lines.append(
+                    f"  entry={_fmt(s.get('entry'), 4)} stop={_fmt(s.get('stop_loss'), 4)} "
+                    f"target={_fmt(s.get('target'), 4)} confidence={_fmt(s.get('confidence_pct'), 0)}%"
+                )
+        if isinstance(actionable, list):
+            lines.append(f"Actionable setups: {len(actionable)} of {len(setups)}")
+    else:
+        signal = result.get("signal") or result.get("direction") or result.get("verdict") or "—"
+        lines.append(f"Signal / direction: {signal}")
+        if result.get("confidence_pct") is not None:
+            grade = f" (Grade {result['grade']})" if result.get("grade") else ""
+            lines.append(f"Confidence: {_fmt(result.get('confidence_pct'), 0)}%{grade}")
+        if result.get("take_trade"):
+            lines += [
+                f"Entry: {_fmt(result.get('entry_price'), 4)}",
+                f"Stop-loss: {_fmt(result.get('stop_price'), 4)} "
+                f"({_fmt(result.get('sl_pct'), 1)}% risk)",
+                f"Target: {_fmt(result.get('target_price'), 4)} "
+                f"({_fmt(result.get('tp_pct'), 1)}% reward)",
+            ]
+            if result.get("rr") is not None:
+                lines.append(f"Reward:Risk: 1:{_fmt(result.get('rr'), 2)}")
+
+    session_vp = result.get("session_vp")
+    if isinstance(session_vp, dict) and session_vp:
+        lines += [
+            "",
+            "-- Session volume profile --",
+            f"POC: {_fmt(session_vp.get('poc'), 4)} · VAH: {_fmt(session_vp.get('vah'), 4)} "
+            f"· VAL: {_fmt(session_vp.get('val'), 4)}",
+        ]
+
+    if result.get("support_zone") or result.get("resistance_zone"):
+        lines += [
+            "",
+            f"Support zone: {result.get('support_zone') or '—'}",
+            f"Resistance zone: {result.get('resistance_zone') or '—'}",
+        ]
+
+    if result.get("plain_english"):
+        lines += ["", "-- Narrative --", str(result["plain_english"])]
+
+    reasons = result.get("confidence_reasons") or []
+    if reasons:
+        lines += ["", "-- Confidence reasons --"] + [f"- {r}" for r in reasons]
+
+    if extra_lines:
+        lines += ["", "-- Setup detail --"] + extra_lines
+
+    return "\n".join(lines)

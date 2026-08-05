@@ -55,6 +55,7 @@ from app.models.schemas import (
     SaveEtfHoldingsReportRequest,
     CommandCenterIndiaFiiDiiHoldingsRequest,
     SaveFiiDiiHoldingsReportRequest,
+    SaveSmartMoneyActivityReportRequest,
     CommandCenterSmartMoneyActivityRequest,
     CommandCenterHeatmapRequest,
     CommandCenterOneClickRequest,
@@ -122,6 +123,8 @@ from app.models.schemas import (
     UserLogin,
     UserOut,
     UserRegister,
+    SaveYoutubeAiViewRequest,
+    UpdateYoutubeAiViewRequest,
     YoutubeAnalysisAiViewRequest,
     YoutubeAnalysisScanRequest,
 )
@@ -149,8 +152,13 @@ from app.services.settings_service import SettingsService
 from app.services.youtube_analysis_service import (
     YOUTUBE_MARKET_SYSTEM,
     build_market_ai_context,
+    delete_youtube_ai_view,
+    get_youtube_ai_view,
+    list_youtube_ai_views,
+    save_youtube_ai_view,
     scan_channels,
     scan_videos,
+    update_youtube_ai_view,
 )
 from app.strategies.registry import (
     all_strategy_meta_for_api,
@@ -606,6 +614,66 @@ async def youtube_analysis_ai_view(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return AskAIResponse(**result)
+
+
+@router.post("/youtube-analysis/ai-views")
+async def youtube_analysis_save_ai_view(
+    payload: SaveYoutubeAiViewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await save_youtube_ai_view(
+        db, current_user.id,
+        name=payload.name,
+        payload=payload.model_dump(exclude={"name"}),
+    )
+
+
+@router.get("/youtube-analysis/ai-views")
+async def youtube_analysis_list_ai_views(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await list_youtube_ai_views(db, user_id=current_user.id)
+
+
+@router.get("/youtube-analysis/ai-views/{view_id}")
+async def youtube_analysis_get_ai_view(
+    view_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await get_youtube_ai_view(db, view_id, user_id=current_user.id)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.put("/youtube-analysis/ai-views/{view_id}")
+async def youtube_analysis_update_ai_view(
+    view_id: int,
+    payload: UpdateYoutubeAiViewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await update_youtube_ai_view(
+        db, view_id, user_id=current_user.id, name=payload.name, report_text=payload.report,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.delete("/youtube-analysis/ai-views/{view_id}")
+async def youtube_analysis_delete_ai_view(
+    view_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await delete_youtube_ai_view(db, view_id, user_id=current_user.id)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 @router.get("/paper/account")
@@ -1967,6 +2035,135 @@ async def command_center_smart_money_activity(
         etf_symbols=payload.etf_symbols or None,
         etf_symbol_names=payload.etf_symbol_names or None,
     )
+
+
+@router.post("/command-center/smart-money-activity/start")
+async def command_center_smart_money_activity_start(
+    payload: CommandCenterSmartMoneyActivityRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off the Smart Money Activity scan as a background job. Poll GET
+    /command-center/smart-money-activity/jobs/{id} for progress and result."""
+    from app.services.smart_money_activity_jobs import (
+        SMART_MONEY_ACTIVITY_SOURCE,
+        create_job,
+        run_smart_money_activity_job,
+    )
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    request_payload = {
+        "tickers": payload.tickers,
+        "asset_class": payload.asset_class,
+        "source": payload.source,
+        "from_date": payload.from_date,
+        "to_date": payload.to_date,
+        "amc_ids": payload.amc_ids,
+        "mf_scheme_ids": payload.mf_scheme_ids,
+        "mf_scheme_names": payload.mf_scheme_names,
+        "etf_scheme_ids": payload.etf_scheme_ids,
+        "etf_scheme_names": payload.etf_scheme_names,
+        "etf_symbols": payload.etf_symbols,
+        "etf_symbol_names": payload.etf_symbol_names,
+    }
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=SMART_MONEY_ACTIVITY_SOURCE,
+        meta={"tickers": payload.tickers, "asset_class": payload.asset_class, "auto_save": auto_save},
+        request_payload={**request_payload, "report_name": report_name if auto_save else None},
+    )
+    run_smart_money_activity_job(
+        job.id, payload.tickers,
+        asset_class=payload.asset_class,
+        source=payload.source,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+        amc_ids=payload.amc_ids or None,
+        mf_scheme_ids=payload.mf_scheme_ids or None,
+        mf_scheme_names=payload.mf_scheme_names or None,
+        etf_scheme_ids=payload.etf_scheme_ids or None,
+        etf_scheme_names=payload.etf_scheme_names or None,
+        etf_symbols=payload.etf_symbols or None,
+        etf_symbol_names=payload.etf_symbol_names or None,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {"job_id": job.id, "status": job.status, "name": job.name, "auto_save": auto_save}
+
+
+@router.get("/command-center/smart-money-activity/jobs")
+async def command_center_smart_money_activity_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.smart_money_activity_jobs import SMART_MONEY_ACTIVITY_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=SMART_MONEY_ACTIVITY_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/command-center/smart-money-activity/jobs/{job_id}")
+async def command_center_smart_money_activity_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.smart_money_activity_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/command-center/smart-money-activity/reports")
+async def command_center_smart_money_activity_save_report(
+    payload: SaveSmartMoneyActivityReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    tickers = payload.tickers or [
+        str(r.get("ticker")) for r in (payload.payload.get("results") or [])
+        if isinstance(r, dict) and r.get("ticker")
+    ]
+    return await service.save_smart_money_activity_report(
+        payload.name, tickers, payload.from_date, payload.to_date, payload.payload, user_id=current_user.id,
+    )
+
+
+@router.get("/command-center/smart-money-activity/reports")
+async def command_center_smart_money_activity_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.list_smart_money_activity_reports(user_id=current_user.id)
+
+
+@router.get("/command-center/smart-money-activity/reports/{report_id}")
+async def command_center_smart_money_activity_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.get_smart_money_activity_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/command-center/smart-money-activity/reports/{report_id}")
+async def command_center_smart_money_activity_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = CommandCenterService(SettingsService(db), db)
+    return await service.delete_smart_money_activity_report(report_id, user_id=current_user.id)
 
 
 @router.post("/command-center/fundamental-analysis")

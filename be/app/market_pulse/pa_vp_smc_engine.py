@@ -43,7 +43,13 @@ import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    sl_tp_pct,
+)
 from app.market_pulse.run_summary import make_trade_plan
 from app.market_pulse.volume_profile_ce_engine import calculate_volume_profile, suggest_synthetic_future
 from app.trading_hubs.smart_money_shared import enrich_smc_live, hold_for_tf
@@ -539,3 +545,30 @@ def scan_universe(
         },
         "disclaimer": "Research / education only — not financial advice.",
     }
+
+
+PA_VP_SMC_AI_SYSTEM = pro_trade_ai_system(
+    "PA-VP-SMC",
+    "Combines Price Action (trend + candlestick trigger), Volume Profile levels, and Smart Money "
+    "Concepts (unmitigated order blocks, liquidity sweeps) into one confluence score — a trade only "
+    "fires once enough of those independent factors agree on the same direction (min_confluence_factors).",
+)
+
+
+def build_pa_vp_smc_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    if result.get("trend"):
+        extra.append(f"Trend classification: {result.get('trend')}")
+    order_blocks = result.get("order_blocks")
+    if isinstance(order_blocks, list) and order_blocks:
+        extra.append(f"Unmitigated order blocks nearby: {len(order_blocks)}")
+    confluence = result.get("confluence")
+    if isinstance(confluence, dict):
+        extra.append(
+            f"Confluence: {confluence.get('matches')} of min {confluence.get('min_required')} required "
+            f"factors, phase={confluence.get('phase')}"
+        )
+    reasons = result.get("reasons")
+    if isinstance(reasons, list) and reasons:
+        extra += ["Reasons:"] + [f"  - {r}" for r in reasons]
+    return build_pro_trade_ai_context(result, engine_label="PA-VP-SMC", extra_lines=extra or None)

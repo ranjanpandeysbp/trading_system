@@ -28,7 +28,14 @@ import pandas as pd
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.price_action import analyze_elliott_waves
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, rr_ratio, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    rr_ratio,
+    sl_tp_pct,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -355,3 +362,20 @@ def scan_universe(
             "Research / education only — not financial advice."
         ),
     }
+
+
+ELLIOTT_WAVE_AI_SYSTEM = pro_trade_ai_system(
+    "Elliott Wave",
+    "Algorithmic zigzag-based wave count (impulse waves 1-5 or corrective A-B-C) — a trade only fires "
+    "on specific, well-defined wave positions (e.g. wave C of a correction, expecting reversal). Wave "
+    "labels are automated estimates, not certified Elliott Wave analysis, so treat the count itself as "
+    "one input among several, not gospel.",
+)
+
+
+def build_elliott_wave_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    waves = result.get("waves")
+    if isinstance(waves, list) and waves:
+        extra.append(f"Wave count: {len(waves)} waves identified, current wave = {result.get('current_wave')}")
+    return build_pro_trade_ai_context(result, engine_label="Elliott Wave", extra_lines=extra or None)

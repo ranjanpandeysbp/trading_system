@@ -196,6 +196,7 @@ export function IndiaFiiDiiHoldingsPanel() {
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [viewedReportId, setViewedReportId] = useState<number | null>(null)
+  const [summarySearch, setSummarySearch] = useState('')
   const handledDoneRef = useRef<Set<string>>(new Set())
 
   const reportsQuery = useQuery({
@@ -372,6 +373,12 @@ export function IndiaFiiDiiHoldingsPanel() {
     if (Array.isArray(s)) return s as Row[]
     return []
   }, [effectiveData])
+
+  const filteredSummary = useMemo(() => {
+    const q = summarySearch.trim().toLowerCase()
+    if (!q) return summary
+    return summary.filter((r) => String(r.Ticker ?? '').toLowerCase().includes(q))
+  }, [summary, summarySearch])
 
   const ok = ((effectiveData?.ok as Row[]) ?? [])
   const chartAll = ((effectiveData?.chart_all as Row[]) ?? [])
@@ -675,6 +682,18 @@ export function IndiaFiiDiiHoldingsPanel() {
                 {!summary.length ? (
                   <p className="text-sm text-slate-500">No successful tickers.</p>
                 ) : (
+                  <>
+                    <div className="mb-2 max-w-xs">
+                      <Input
+                        type="search"
+                        placeholder="Search ticker…"
+                        value={summarySearch}
+                        onChange={(e) => setSummarySearch(e.target.value)}
+                      />
+                    </div>
+                    {filteredSummary.length === 0 ? (
+                      <p className="text-sm text-slate-500">No tickers match "{summarySearch}".</p>
+                    ) : (
                   <DataTable minWidth={980} title="FII-DII Holdings">
                     <thead>
                       <tr>
@@ -693,7 +712,7 @@ export function IndiaFiiDiiHoldingsPanel() {
                       </tr>
                     </thead>
                     <tbody>
-                      {summary.map((r) => {
+                      {filteredSummary.map((r) => {
                         const t = String(r.Ticker ?? '')
                         return (
                           <tr
@@ -730,6 +749,8 @@ export function IndiaFiiDiiHoldingsPanel() {
                       })}
                     </tbody>
                   </DataTable>
+                    )}
+                  </>
                 )}
               </div>
 

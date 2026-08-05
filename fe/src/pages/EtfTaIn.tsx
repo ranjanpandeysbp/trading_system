@@ -34,6 +34,7 @@ type ConfigDraft = {
   min_profit_inr: number
   profit_target_inr: number
   prefer_sip: boolean
+  averaging_trigger_pct: number
   preset: string
   custom_symbols: string
 }
@@ -49,6 +50,7 @@ function draftFromConfig(cfg: EtfShopConfig): ConfigDraft {
     min_profit_inr: cfg.min_profit_inr,
     profit_target_inr: cfg.profit_target_inr,
     prefer_sip: cfg.prefer_sip,
+    averaging_trigger_pct: cfg.averaging_trigger_pct,
     preset: cfg.preset,
     custom_symbols: cfg.custom_symbols ?? '',
   }
@@ -262,7 +264,18 @@ export default function EtfTaIn() {
               <option value="no">No — Rank 1 only</option>
             </Select>
           </FormField>
+          <FormField label="Averaging-down trigger (% fall from buy)">
+            <Input
+              type="number"
+              value={draft.averaging_trigger_pct}
+              onChange={(e) => setDraft((d) => d && ({ ...d, averaging_trigger_pct: Number(e.target.value) }))}
+            />
+          </FormField>
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          When a held ETF falls this % or more below your initial buy price, it latches into dynamic-SIP/averaging
+          mode — the "Bought" table below will flag it and suggest an amount (10% of what's already invested in it).
+        </p>
       </Card>
 
       <Card className="mb-4">
@@ -342,43 +355,80 @@ export default function EtfTaIn() {
               <SortableTh active={lotsSortKey === 'symbol'} direction={lotsSortDir} onSort={() => handleLotsSort('symbol')}>Symbol</SortableTh>
               <SortableTh active={lotsSortKey === 'purchase_date'} direction={lotsSortDir} onSort={() => handleLotsSort('purchase_date')}>Date</SortableTh>
               <SortableTh active={lotsSortKey === 'purchase_price'} direction={lotsSortDir} onSort={() => handleLotsSort('purchase_price')}>Price</SortableTh>
+              <Th>Current</Th>
               <SortableTh active={lotsSortKey === 'amount'} direction={lotsSortDir} onSort={() => handleLotsSort('amount')}>Amount</SortableTh>
+              <Th>% Profit since bought</Th>
               <SortableTh active={lotsSortKey === 'lot_type'} direction={lotsSortDir} onSort={() => handleLotsSort('lot_type')}>Type</SortableTh>
+              <Th>Status</Th>
               <Th>Sell</Th>
             </tr>
           </thead>
           <tbody>
             {sortedLots.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-3 text-sm text-slate-500">No open lots — record buys after execution.</td></tr>
-            ) : sortedLots.map((p) => (
-              <tr key={p.id}>
-                <Td className="font-medium">{p.symbol}</Td>
-                <Td>{p.purchase_date}</Td>
-                <Td>₹{p.purchase_price.toFixed(2)}</Td>
-                <Td>₹{p.amount.toLocaleString('en-IN')}</Td>
-                <Td>{p.lot_type ?? 'standard'}</Td>
-                <Td>
-                  {sellingId === p.id ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-24">
-                        <Input
-                          type="number"
-                          placeholder="Sale ₹"
-                          value={sellPriceBySlot[p.id] ?? ''}
-                          onChange={(e) => setSellPriceBySlot((s) => ({ ...s, [p.id]: e.target.value }))}
-                        />
-                      </div>
-                      <Button size="sm" onClick={() => confirmSell(p.id)} disabled={closeLotMutation.isPending}>
-                        Confirm
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setSellingId(null)}>Cancel</Button>
+              <tr><td colSpan={9} className="px-4 py-3 text-sm text-slate-500">No open lots — record buys after execution.</td></tr>
+            ) : sortedLots.map((p) => {
+              const pct = p.profit_since_bought_pct
+              const inr = p.profit_since_bought_inr
+              const pctColor = pct == null ? 'text-slate-500' : pct >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              return (
+                <tr key={p.id}>
+                  <Td className="font-medium">{p.symbol}</Td>
+                  <Td>{p.purchase_date}</Td>
+                  <Td>₹{p.purchase_price.toFixed(2)}</Td>
+                  <Td>{p.current_price != null ? `₹${p.current_price.toFixed(2)}` : '—'}</Td>
+                  <Td>₹{p.amount.toLocaleString('en-IN')}</Td>
+                  <Td className={pctColor}>
+                    {pct != null ? (
+                      <>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                        {inr != null && <span className="ml-1 text-xs text-slate-500">({inr >= 0 ? '+' : ''}₹{inr.toLocaleString('en-IN')})</span>}
+                      </>
+                    ) : '—'}
+                  </Td>
+                  <Td>{p.lot_type ?? 'standard'}</Td>
+                  <Td>
+                    <div className="flex flex-col gap-1">
+                      {p.eligible_for_profit_booking && (
+                        <span
+                          className="inline-flex w-fit items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400"
+                          title={p.profit_booking_reason ?? ''}
+                        >
+                          Eligible for profit booking
+                        </span>
+                      )}
+                      {p.averaging_suggested && (
+                        <span
+                          className="inline-flex w-fit items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"
+                          title={p.averaging_reason ?? ''}
+                        >
+                          Consider averaging{p.averaging_amount != null ? ` ~₹${Math.round(p.averaging_amount).toLocaleString('en-IN')}` : ''}
+                        </span>
+                      )}
                     </div>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => startSell(p.id, p.purchase_price)}>Mark sold</Button>
-                  )}
-                </Td>
-              </tr>
-            ))}
+                  </Td>
+                  <Td>
+                    {sellingId === p.id ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-24">
+                          <Input
+                            type="number"
+                            placeholder="Sale ₹"
+                            value={sellPriceBySlot[p.id] ?? ''}
+                            onChange={(e) => setSellPriceBySlot((s) => ({ ...s, [p.id]: e.target.value }))}
+                          />
+                        </div>
+                        <Button size="sm" onClick={() => confirmSell(p.id)} disabled={closeLotMutation.isPending}>
+                          Confirm
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setSellingId(null)}>Cancel</Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="sm" onClick={() => startSell(p.id, p.current_price ?? p.purchase_price)}>Mark sold</Button>
+                    )}
+                  </Td>
+                </tr>
+              )
+            })}
           </tbody>
         </DataTable>
 

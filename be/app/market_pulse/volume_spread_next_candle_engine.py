@@ -28,7 +28,13 @@ import pandas as pd
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    sl_tp_pct,
+)
 from app.market_pulse.run_summary import make_trade_plan
 from app.trading_hubs.smart_money_shared import hold_for_tf
 
@@ -559,3 +565,24 @@ def scan_universe(
         },
         "disclaimer": "Research / education only — not financial advice.",
     }
+
+
+VOLUME_SPREAD_NEXT_CANDLE_AI_SYSTEM = pro_trade_ai_system(
+    "Volume Spread - Next Candle",
+    "Volume Spread Analysis (VSA) — classifies the most recent candle's spread/volume/close-position "
+    "into a named signature (e.g. No Demand, No Supply, Stopping Volume, Sign of Weakness/Strength) and "
+    "projects what that signature typically implies for the *next* candle, not just the current one.",
+)
+
+
+def build_volume_spread_next_candle_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    if result.get("active_setup"):
+        extra.append(f"Active VSA setup: {result.get('active_setup')}")
+    reasons = result.get("reasons")
+    if isinstance(reasons, list) and reasons:
+        extra += ["Reasons:"] + [f"  - {r}" for r in reasons if r]
+    next_candle = result.get("next_candle_stats")
+    if isinstance(next_candle, dict) and next_candle:
+        extra.append(f"Historical next-candle stats for this setup: {next_candle}")
+    return build_pro_trade_ai_context(result, engine_label="Volume Spread - Next Candle", extra_lines=extra or None)

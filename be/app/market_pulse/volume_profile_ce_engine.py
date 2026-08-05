@@ -24,7 +24,14 @@ import numpy as np
 import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
-from app.market_pulse.pro_trade_shared import ConfidenceScore, atr as _atr_ind, rsi as _rsi_ind, sl_tp_pct
+from app.market_pulse.pro_trade_shared import (
+    ConfidenceScore,
+    atr as _atr_ind,
+    build_pro_trade_ai_context,
+    pro_trade_ai_system,
+    rsi as _rsi_ind,
+    sl_tp_pct,
+)
 from app.trading_hubs.smart_money_shared import hold_for_tf
 
 logger = logging.getLogger(__name__)
@@ -751,3 +758,21 @@ def scan_universe(
         },
         "disclaimer": "Research / education only — not financial advice.",
     }
+
+
+VOLUME_PROFILE_CE_AI_SYSTEM = pro_trade_ai_system(
+    "Volume Profile CE",
+    "Session volume profile (POC/VAH/VAL) checked against three independent setups — "
+    "Value Area reversal (rejection at VAL/VAH), POC compression (tight range vs recent POC series, "
+    "breakout play), and Liquidity Void / low-volume-node (price at the edge of a thin-volume gap, "
+    "prone to a fast move through it). A setup only becomes actionable when its own signal/direction "
+    "conditions are met — otherwise it stays WAIT.",
+)
+
+
+def build_volume_profile_ce_ai_prompt(result: dict[str, Any]) -> str:
+    extra: list[str] = []
+    execution = result.get("execution")
+    if isinstance(execution, dict) and execution.get("structure"):
+        extra.append(f"Suggested execution: {execution.get('structure')} — {execution.get('note', '')}".strip(" —"))
+    return build_pro_trade_ai_context(result, engine_label="Volume Profile CE", extra_lines=extra or None)

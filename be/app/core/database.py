@@ -78,6 +78,8 @@ def _migrate_schema(conn) -> None:
                     "ALTER TABLE saved_backtest_reports ADD COLUMN source TEXT DEFAULT 'strategy_leaderboard'"
                 )
             )
+        if "updated_at" not in cols:
+            conn.execute(sa.text("ALTER TABLE saved_backtest_reports ADD COLUMN updated_at DATETIME"))
 
     if "trade_suggestions" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("trade_suggestions")}
@@ -88,3 +90,10 @@ def _migrate_schema(conn) -> None:
         cols = {c["name"] for c in insp.get_columns("auto_trade_setups")}
         if "direction" not in cols:
             conn.execute(sa.text("ALTER TABLE auto_trade_setups ADD COLUMN direction TEXT DEFAULT 'both'"))
+
+    if "etf_shop_configs" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("etf_shop_configs")}
+        if "averaging_trigger_pct" not in cols:
+            conn.execute(
+                sa.text("ALTER TABLE etf_shop_configs ADD COLUMN averaging_trigger_pct FLOAT DEFAULT -10.0")
+            )

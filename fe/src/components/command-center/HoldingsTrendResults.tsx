@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import {
   CartesianGrid,
   Line,
@@ -10,7 +11,7 @@ import {
 } from 'recharts'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Chip } from '../ui/Chip'
-import { FormField } from '../ui/Form'
+import { FormField, Input } from '../ui/Form'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
@@ -92,6 +93,28 @@ const SERIES_COLORS = [
 ]
 
 const TOP_FUND_LINES = 5
+
+function TableSearchBox({
+  value,
+  onChange,
+  placeholder = 'Search…',
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  return (
+    <div className="relative mb-2 max-w-xs">
+      <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="pl-8"
+      />
+    </div>
+  )
+}
 
 function fmtPct(v: unknown, digits = 2): string {
   if (v == null || v === '') return '—'
@@ -344,6 +367,7 @@ function TradeSignalSummary({
   resolveName?: boolean
 }) {
   const [open, setOpen] = useState(true)
+  const [search, setSearch] = useState('')
   const signals = useMemo(
     () =>
       overall
@@ -362,7 +386,13 @@ function TradeSignalSummary({
   const shorts = signals.filter((s) => s.bias === 'SHORT').length
   const waits = signals.filter((s) => s.bias === 'WAIT').length
 
-  const { sorted, sortKey, sortDir, handleSort } = useSort(signals, {
+  const filteredSignals = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return signals
+    return signals.filter((s) => s.entity.toLowerCase().includes(q) || (s.sector ?? '').toLowerCase().includes(q))
+  }, [signals, search])
+
+  const { sorted, sortKey, sortDir, handleSort } = useSort(filteredSignals, {
     entity: (r) => r.entity,
     bias: (r) => r.bias,
     avg: (r) => r.avgChange,
@@ -384,6 +414,7 @@ function TradeSignalSummary({
       <div className="mb-2 text-xs text-slate-500">
         LONG = funds accumulating · SHORT = funds distributing · WAIT = mixed/flat.
       </div>
+      <TableSearchBox value={search} onChange={setSearch} placeholder={`Search ${mode === 'stock' ? 'stock' : 'sector'}…`} />
       <DataTable minWidth={920}>
         <thead>
           <tr>
@@ -492,6 +523,8 @@ function EntityPanel({
   const [showPerFund, setShowPerFund] = useState(false)
   const [topOpen, setTopOpen] = useState(true)
   const [chartOpen, setChartOpen] = useState(true)
+  const [fullSearch, setFullSearch] = useState('')
+  const [perSearch, setPerSearch] = useState('')
 
   const topUp = sorted.filter((r) => Number(r.avg_change_pct) > 0).slice(0, 10)
   const topDown = [...sorted]
@@ -512,6 +545,27 @@ function EntityPanel({
     change: (r) => r.change_pct,
     trend: (r) => r.trend,
   }, 'change', 'desc')
+
+  const filteredFullSorted = useMemo(() => {
+    const q = fullSearch.trim().toLowerCase()
+    if (!q) return sorted
+    return sorted.filter(
+      (r) => r._entity.toLowerCase().includes(q) || (r.sector ?? '').toLowerCase().includes(q),
+    )
+  }, [sorted, fullSearch])
+
+  const filteredPerSorted = useMemo(() => {
+    const q = perSearch.trim().toLowerCase()
+    if (!q) return perSort.sorted
+    return perSort.sorted.filter((r) => {
+      const entity = String(mode === 'stock' ? r.stock : r.sector ?? '')
+      return (
+        entity.toLowerCase().includes(q) ||
+        (r.scheme_name ?? '').toLowerCase().includes(q) ||
+        (r.sector ?? '').toLowerCase().includes(q)
+      )
+    })
+  }, [perSort.sorted, perSearch, mode])
 
   const renderTable = (tableRows: typeof sorted, title?: string) => {
     if (!tableRows.length) {
@@ -626,7 +680,8 @@ function EntityPanel({
         onToggle={() => setShowFull((v) => !v)}
         maxHeightClass="max-h-80"
       >
-        {renderTable(sorted)}
+        <TableSearchBox value={fullSearch} onChange={setFullSearch} placeholder={`Search ${entityLabel.toLowerCase()}…`} />
+        {renderTable(filteredFullSorted)}
       </CollapsibleScrollSection>
 
       <CollapsibleScrollSection
@@ -636,6 +691,11 @@ function EntityPanel({
         onToggle={() => setShowPerFund((v) => !v)}
         maxHeightClass="max-h-80"
       >
+        <TableSearchBox
+          value={perSearch}
+          onChange={setPerSearch}
+          placeholder={`Search ${entityLabel.toLowerCase()} or ${fundNoun.replace(/s$/i, '').toLowerCase()}…`}
+        />
         <DataTable minWidth={900}>
           <thead>
             <tr>
@@ -655,7 +715,7 @@ function EntityPanel({
             </tr>
           </thead>
           <tbody>
-            {perSort.sorted.map((r, i) => (
+            {filteredPerSorted.map((r, i) => (
               <tr key={`${r.scheme_name}-${mode === 'stock' ? r.stock : r.sector}-${i}`} className="border-t border-slate-800/80">
                 <Td>{r.scheme_name ?? '—'}</Td>
                 <Td className="font-medium text-slate-100">{(mode === 'stock' ? r.stock : r.sector) ?? '—'}</Td>

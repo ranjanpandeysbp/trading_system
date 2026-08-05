@@ -6,6 +6,7 @@ import { Chip } from '../ui/Chip'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { VolumeProfileChart, type VpChartBar, type VpHistBin, type VpLevel } from './VolumeProfileChart'
+import { AskAIPanel } from '../ai/AskAIPanel'
 
 type Row = Record<string, unknown>
 
@@ -40,12 +41,14 @@ function TickerResultCard({
   currency,
   assetClass,
   showCharts,
+  aiSystemPrompt,
 }: {
   result: Row
   index: number
   currency: string
   assetClass: WatchlistMarket
   showCharts: boolean
+  aiSystemPrompt: string
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const take = Boolean(result.take_trade)
@@ -221,6 +224,13 @@ function TickerResultCard({
               ))}
             </ul>
           )}
+
+          <AskAIPanel
+            context={String(result.ai_context ?? '')}
+            systemPrompt={aiSystemPrompt}
+            section={`pro-trade/pa-vp-smc/${String(result.ticker ?? '')}`}
+            className="mt-0"
+          />
         </div>
       )}
     </div>
@@ -237,6 +247,7 @@ export function PaVpSmcPanel({ data, showCharts = false }: { data: Row; showChar
   const results = (data.results as Row[]) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (String(data.asset_class ?? 'india') as WatchlistMarket)
+  const aiSystemPrompt = String(data.ai_system_prompt ?? '')
   const [actionableOnly, setActionableOnly] = useState(false)
 
   const sorted = useMemo(() => {
@@ -273,7 +284,7 @@ export function PaVpSmcPanel({ data, showCharts = false }: { data: Row; showChar
           <p className="text-sm text-slate-500">No actionable setups right now.</p>
         ) : (
           sorted.map((res, i) => (
-            <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} />
+            <TickerResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} assetClass={assetClass} showCharts={showCharts} aiSystemPrompt={aiSystemPrompt} />
           ))
         )}
       </div>

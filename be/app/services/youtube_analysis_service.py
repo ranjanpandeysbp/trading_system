@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -11,8 +12,12 @@ from typing import Any
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+YOUTUBE_AI_VIEW_SOURCE = "youtube_ai_view"
 
 _CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -680,3 +685,130 @@ def build_market_ai_context(scan: dict[str, Any], *, max_chars: int = 28000) -> 
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n…[context truncated]"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Saved AI Views — persists a generated market-view report (not the raw scan)
+# for future reference, reusing the generic SavedBacktestReport table
+# (source="youtube_ai_view") plus its own save/list/get/update/delete CRUD.
+# ---------------------------------------------------------------------------
+
+def _ai_view_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "verdict": payload.get("verdict"),
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "video_count": len(payload.get("video_urls") or []),
+        "snapshot_note": payload.get("snapshot_note"),
+        "report_preview": (payload.get("report") or "")[:240],
+    }
+
+
+async def save_youtube_ai_view(
+    db: AsyncSession,
+    user_id: int | None,
+    *,
+    name: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from app.models.db_models import SavedBacktestReport
+
+    report = SavedBacktestReport(
+        user_id=user_id,
+        name=name.strip()[:200] or f"YouTube AI View {datetime.utcnow().isoformat()}",
+        asset_class="global",
+        tickers=",".join(payload.get("video_urls") or []),
+        timeframes=f"{payload.get('from_date') or ''}..{payload.get('to_date') or ''}",
+        payload_json=json.dumps(payload),
+        source=YOUTUBE_AI_VIEW_SOURCE,
+    )
+    db.add(report)
+    await db.commit()
+    await db.refresh(report)
+    return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+
+async def list_youtube_ai_views(db: AsyncSession, *, user_id: int | None) -> dict[str, Any]:
+    from app.models.db_models import SavedBacktestReport
+
+    stmt = select(SavedBacktestReport).where(SavedBacktestReport.source == YOUTUBE_AI_VIEW_SOURCE)
+    if user_id is not None:
+        stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+    stmt = stmt.order_by(SavedBacktestReport.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+
+    views = []
+    for r in rows:
+        try:
+            payload = json.loads(r.payload_json) if r.payload_json else {}
+        except Exception:
+            payload = {}
+        views.append({
+            "id": r.id,
+            "name": r.name,
+            "created_at": r.created_at.isoformat(),
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            "summary": _ai_view_summary(payload if isinstance(payload, dict) else {}),
+        })
+    return {"ai_views": views}
+
+
+async def get_youtube_ai_view(db: AsyncSession, view_id: int, *, user_id: int | None) -> dict[str, Any]:
+    from app.models.db_models import SavedBacktestReport
+
+    report = await db.get(SavedBacktestReport, view_id)
+    if not report or report.source != YOUTUBE_AI_VIEW_SOURCE or (user_id is not None and report.user_id not in (None, user_id)):
+        return {"error": "Saved AI View not found."}
+    return {
+        "id": report.id,
+        "name": report.name,
+        "created_at": report.created_at.isoformat(),
+        "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+        "payload": json.loads(report.payload_json),
+    }
+
+
+async def update_youtube_ai_view(
+    db: AsyncSession,
+    view_id: int,
+    *,
+    user_id: int | None,
+    name: str | None = None,
+    report_text: str | None = None,
+) -> dict[str, Any]:
+    from app.models.db_models import SavedBacktestReport
+
+    report = await db.get(SavedBacktestReport, view_id)
+    if not report or report.source != YOUTUBE_AI_VIEW_SOURCE or (user_id is not None and report.user_id not in (None, user_id)):
+        return {"error": "Saved AI View not found."}
+
+    if name is not None and name.strip():
+        report.name = name.strip()[:200]
+    if report_text is not None:
+        try:
+            payload = json.loads(report.payload_json) if report.payload_json else {}
+        except Exception:
+            payload = {}
+        payload["report"] = report_text
+        payload["edited"] = True
+        report.payload_json = json.dumps(payload)
+
+    await db.commit()
+    await db.refresh(report)
+    return {
+        "id": report.id,
+        "name": report.name,
+        "created_at": report.created_at.isoformat(),
+        "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+    }
+
+
+async def delete_youtube_ai_view(db: AsyncSession, view_id: int, *, user_id: int | None) -> dict[str, Any]:
+    from app.models.db_models import SavedBacktestReport
+
+    report = await db.get(SavedBacktestReport, view_id)
+    if not report or report.source != YOUTUBE_AI_VIEW_SOURCE or (user_id is not None and report.user_id not in (None, user_id)):
+        return {"error": "Saved AI View not found."}
+    await db.delete(report)
+    await db.commit()
+    return {"deleted": True}

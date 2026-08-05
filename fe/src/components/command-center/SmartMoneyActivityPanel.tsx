@@ -1,20 +1,28 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ChevronRight, FolderOpen, Save, Trash2 } from 'lucide-react'
 import {
   apiErrorMessage,
+  deleteSmartMoneyActivityReport,
   fetchEtfHoldingsAmcs,
   fetchEtfHoldingsIssuers,
   fetchEtfHoldingsSchemes,
   fetchEtfIssuerSchemes,
   fetchMutualFundAmcs,
   fetchMutualFundSchemes,
+  fetchSmartMoneyActivityJob,
+  fetchSmartMoneyActivityJobs,
+  fetchSmartMoneyActivityReport,
+  fetchSmartMoneyActivityReports,
   runSmartMoneyActivity,
+  saveSmartMoneyActivityReport,
+  startSmartMoneyActivityJob,
   type EtfIssuer,
   type EtfIssuerScheme,
   type MutualFundAmc,
   type MutualFundScheme,
   type SmartMoneyActivityResult,
+  type SmartMoneyActivityRunPayload,
   type SmartMoneyTickerResult,
 } from '../../api/client'
 import {
@@ -24,12 +32,55 @@ import {
 } from './AssetClassTickerPicker'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
+import { AskAIPanel } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
-import { FormField } from '../ui/Form'
+import { FormField, Input } from '../ui/Form'
 import { DataTable, Td, Th } from '../ui/Table'
+
+interface SmaSavedReportSummary {
+  id: number
+  name: string
+  tickers: string[]
+  from_date: string | null
+  to_date: string | null
+  created_at: string
+  summary?: {
+    ticker_count?: number
+    found_count?: number
+    bullish_count?: number
+    bearish_count?: number
+    wait_count?: number
+    tickers?: string[]
+  }
+}
+
+interface SmaBgJobStatus {
+  job_id: string
+  status: string
+  progress?: number
+  progress_note?: string
+  name?: string | null
+  report_id?: number | null
+  error?: string | null
+  result?: SmartMoneyActivityResult
+  meta?: {
+    tickers?: string[]
+    asset_class?: string
+  }
+  created_at?: number
+}
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
 
 function isoDaysAgo(days: number): string {
   const d = new Date()
@@ -116,7 +167,16 @@ function signalBadge(signal: string, bias?: string) {
   )
 }
 
-function ResultRow({ r, market }: { r: SmartMoneyTickerResult; market: WatchlistMarket }) {
+function ResultRow({
+  r,
+  market,
+  aiSystemPrompt,
+}: {
+  r: SmartMoneyTickerResult
+  market: WatchlistMarket
+  aiSystemPrompt: string
+}) {
+  const [showAi, setShowAi] = useState(false)
   const trade = toTradeBias(r.signal, r.bias)
   const detail =
     r.summary
@@ -124,36 +184,55 @@ function ResultRow({ r, market }: { r: SmartMoneyTickerResult; market: Watchlist
       ? 'Ticker not found in selected fund/ETF holdings for this date range.'
       : 'No clear stake-flow edge.')
   return (
-    <tr className="align-top">
-      <Td className="font-medium text-white">{r.ticker}</Td>
-      <Td>
-        {signalBadge(r.signal, r.bias)}
-        {(r.signal === 'ADD_LONG' || r.signal === 'SELL_AVOID') && (
-          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
-            {r.signal.replace('_', ' ')}
+    <>
+      <tr className="align-top">
+        <Td className="font-medium text-white">{r.ticker}</Td>
+        <Td>
+          {signalBadge(r.signal, r.bias)}
+          {(r.signal === 'ADD_LONG' || r.signal === 'SELL_AVOID') && (
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">
+              {r.signal.replace('_', ' ')}
+            </div>
+          )}
+        </Td>
+        <Td className="text-xs text-slate-300">{trade}</Td>
+        <Td className="text-xs">{r.found ? (r.overall_trend ?? '—') : 'not found'}</Td>
+        <Td className="text-xs tabular-nums">
+          {r.avg_change_pct != null ? `${r.avg_change_pct > 0 ? '+' : ''}${r.avg_change_pct.toFixed(3)}%` : '—'}
+        </Td>
+        <Td className="text-xs">
+          {r.schemes_increasing ?? 0}↑ / {r.schemes_decreasing ?? 0}↓
+          {r.n_schemes != null ? ` · ${r.n_schemes} funds` : ''}
+        </Td>
+        <Td className="max-w-md text-xs leading-relaxed text-slate-400" title={detail}>{detail}</Td>
+        <Td>
+          <div className="flex items-center gap-1">
+            <AddToWatchlistButton
+              ticker={r.ticker}
+              displayName={r.ticker}
+              notes={`Smart money · ${trade} · ${r.overall_trend ?? ''} · ${detail}`.slice(0, 240)}
+              marketType={market}
+              compact
+            />
+            <Button variant="ghost" size="sm" onClick={() => setShowAi((v) => !v)}>
+              {showAi ? 'Hide AI' : 'Ask AI'}
+            </Button>
           </div>
-        )}
-      </Td>
-      <Td className="text-xs text-slate-300">{trade}</Td>
-      <Td className="text-xs">{r.found ? (r.overall_trend ?? '—') : 'not found'}</Td>
-      <Td className="text-xs tabular-nums">
-        {r.avg_change_pct != null ? `${r.avg_change_pct > 0 ? '+' : ''}${r.avg_change_pct.toFixed(3)}%` : '—'}
-      </Td>
-      <Td className="text-xs">
-        {r.schemes_increasing ?? 0}↑ / {r.schemes_decreasing ?? 0}↓
-        {r.n_schemes != null ? ` · ${r.n_schemes} funds` : ''}
-      </Td>
-      <Td className="max-w-md text-xs leading-relaxed text-slate-400" title={detail}>{detail}</Td>
-      <Td>
-        <AddToWatchlistButton
-          ticker={r.ticker}
-          displayName={r.ticker}
-          notes={`Smart money · ${trade} · ${r.overall_trend ?? ''} · ${detail}`.slice(0, 240)}
-          marketType={market}
-          compact
-        />
-      </Td>
-    </tr>
+        </Td>
+      </tr>
+      {showAi && (
+        <tr>
+          <td colSpan={8} className="bg-slate-950/40 px-4 py-3">
+            <AskAIPanel
+              context={String(r.ai_context ?? '')}
+              systemPrompt={aiSystemPrompt}
+              section={`command-center/smart-money-activity/${r.ticker}`}
+              className="mt-0"
+            />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -164,6 +243,7 @@ type SchemeKind = 'mf' | 'etf'
  * Pick fund house(s) → pick fund/ETF(s) → ticker(s) + date range → stake-flow signals.
  */
 export function SmartMoneyActivityPanel() {
+  const queryClient = useQueryClient()
   const [market, setMarket] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
   const [source, setSource] = useState<SourceMode>('both')
@@ -171,6 +251,17 @@ export function SmartMoneyActivityPanel() {
   const [toDate, setToDate] = useState(isoDaysAgo(0))
   const [error, setError] = useState('')
   const [result, setResult] = useState<SmartMoneyActivityResult | null>(null)
+
+  const [runInBackground, setRunInBackground] = useState(false)
+  const [bgReportName, setBgReportName] = useState('')
+  const [bgJobIds, setBgJobIds] = useState<string[]>([])
+  const [bgError, setBgError] = useState('')
+  const [bgMsg, setBgMsg] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [showSaveForm, setShowSaveForm] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+  const [viewedReportId, setViewedReportId] = useState<number | null>(null)
+  const handledDoneRef = useRef<Set<string>>(new Set())
 
   // India fund houses + schemes
   const [selectedAmcIds, setSelectedAmcIds] = useState<number[]>([])
@@ -187,6 +278,7 @@ export function SmartMoneyActivityPanel() {
   const [selectedByIssuer, setSelectedByIssuer] = useState<Record<string, string[]>>({})
   const [housesOpen, setHousesOpen] = useState(true)
   const [fundsOpen, setFundsOpen] = useState(true)
+  const [resultSearch, setResultSearch] = useState('')
 
   const indiaMarket = market === 'india'
   const usCryptoMarket = market === 'us' || market === 'crypto'
@@ -342,44 +434,47 @@ export function SmartMoneyActivityPanel() {
     ? selectedMf.length + selectedIndiaEtfs.length
     : selectedUsEtfs.length
 
+  const buildPayload = (): SmartMoneyActivityRunPayload => {
+    if (!picker.tickers.length) throw new Error('Select at least one ticker')
+    if (selectedFundCount === 0) {
+      throw new Error('Select one or more fund houses, then one or more funds/ETFs')
+    }
+    const asset_class = market === 'commodity' ? 'india' : market
+    const effectiveSource: SourceMode =
+      market === 'india' ? source : source === 'mutual_fund' ? 'etf' : source
+
+    const mf_scheme_names: Record<number, string> = {}
+    for (const s of selectedMf) mf_scheme_names[s.id] = s.label
+    const etf_scheme_names: Record<number, string> = {}
+    for (const s of selectedIndiaEtfs) etf_scheme_names[s.id] = s.label
+    const etf_symbol_names: Record<string, string> = {}
+    for (const s of selectedUsEtfs) etf_symbol_names[s.id] = s.label
+
+    return {
+      tickers: picker.tickers,
+      asset_class: asset_class as 'india' | 'us' | 'crypto',
+      source: effectiveSource,
+      from_date: fromDate,
+      to_date: toDate,
+      amc_ids: indiaMarket ? selectedAmcIds : undefined,
+      mf_scheme_ids: indiaMarket && (source === 'mutual_fund' || source === 'both')
+        ? selectedMf.map((s) => s.id)
+        : undefined,
+      mf_scheme_names: indiaMarket ? mf_scheme_names : undefined,
+      etf_scheme_ids: indiaMarket && (source === 'etf' || source === 'both')
+        ? selectedIndiaEtfs.map((s) => s.id)
+        : undefined,
+      etf_scheme_names: indiaMarket ? etf_scheme_names : undefined,
+      etf_symbols: usCryptoMarket ? selectedUsEtfs.map((s) => s.id) : undefined,
+      etf_symbol_names: usCryptoMarket ? etf_symbol_names : undefined,
+    }
+  }
+
   const scanMutation = useMutation({
-    mutationFn: () => {
-      if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      if (selectedFundCount === 0) {
-        throw new Error('Select one or more fund houses, then one or more funds/ETFs')
-      }
-      const asset_class = market === 'commodity' ? 'india' : market
-      const effectiveSource: SourceMode =
-        market === 'india' ? source : source === 'mutual_fund' ? 'etf' : source
-
-      const mf_scheme_names: Record<number, string> = {}
-      for (const s of selectedMf) mf_scheme_names[s.id] = s.label
-      const etf_scheme_names: Record<number, string> = {}
-      for (const s of selectedIndiaEtfs) etf_scheme_names[s.id] = s.label
-      const etf_symbol_names: Record<string, string> = {}
-      for (const s of selectedUsEtfs) etf_symbol_names[s.id] = s.label
-
-      return runSmartMoneyActivity({
-        tickers: picker.tickers,
-        asset_class,
-        source: effectiveSource,
-        from_date: fromDate,
-        to_date: toDate,
-        amc_ids: indiaMarket ? selectedAmcIds : undefined,
-        mf_scheme_ids: indiaMarket && (source === 'mutual_fund' || source === 'both')
-          ? selectedMf.map((s) => s.id)
-          : undefined,
-        mf_scheme_names: indiaMarket ? mf_scheme_names : undefined,
-        etf_scheme_ids: indiaMarket && (source === 'etf' || source === 'both')
-          ? selectedIndiaEtfs.map((s) => s.id)
-          : undefined,
-        etf_scheme_names: indiaMarket ? etf_scheme_names : undefined,
-        etf_symbols: usCryptoMarket ? selectedUsEtfs.map((s) => s.id) : undefined,
-        etf_symbol_names: usCryptoMarket ? etf_symbol_names : undefined,
-      })
-    },
+    mutationFn: () => runSmartMoneyActivity(buildPayload()),
     onSuccess: (data) => {
       setError('')
+      setViewedReportId(null)
       if (data.error) {
         setError(String(data.error))
         setResult(data)
@@ -392,6 +487,154 @@ export function SmartMoneyActivityPanel() {
       setResult(null)
     },
   })
+
+  const reportsQuery = useQuery({
+    queryKey: ['smart-money-activity-reports'],
+    queryFn: fetchSmartMoneyActivityReports,
+  })
+  const reports = ((reportsQuery.data as { reports?: SmaSavedReportSummary[] } | undefined)?.reports) ?? []
+
+  const runningJobsQuery = useQuery({
+    queryKey: ['smart-money-activity-jobs-running'],
+    queryFn: () => fetchSmartMoneyActivityJobs('running'),
+    refetchInterval: 2000,
+  })
+
+  const recentJobsQuery = useQuery({
+    queryKey: ['smart-money-activity-jobs-recent'],
+    queryFn: () => fetchSmartMoneyActivityJobs('all'),
+  })
+  const recentJobs = ((recentJobsQuery.data as { jobs?: SmaBgJobStatus[] } | undefined)?.jobs) ?? []
+  const recentFinished = recentJobs.filter((j) => j.status !== 'running').slice(0, 8)
+
+  useEffect(() => {
+    const serverJobs = ((runningJobsQuery.data as { jobs?: SmaBgJobStatus[] } | undefined)?.jobs) ?? []
+    const ids = serverJobs.map((j) => j.job_id)
+    if (!ids.length) return
+    setBgJobIds((prev) => Array.from(new Set([...ids, ...prev])))
+  }, [runningJobsQuery.data])
+
+  const jobQueries = useQueries({
+    queries: bgJobIds.map((id) => ({
+      queryKey: ['smart-money-activity-job', id],
+      queryFn: () => fetchSmartMoneyActivityJob(id) as Promise<SmaBgJobStatus>,
+      refetchInterval: (q: { state: { data?: SmaBgJobStatus } }) =>
+        q.state.data?.status === 'running' ? 1500 : false,
+      refetchIntervalInBackground: true,
+      retry: false,
+    })),
+  })
+
+  const jobById = useMemo(() => {
+    const map = new Map<string, SmaBgJobStatus>()
+    jobQueries.forEach((q, i) => {
+      const id = bgJobIds[i]
+      if (id && q.data) map.set(id, q.data as SmaBgJobStatus)
+    })
+    return map
+  }, [jobQueries, bgJobIds])
+
+  useEffect(() => {
+    let changed = false
+    const stillRunning: string[] = []
+    for (const id of bgJobIds) {
+      const job = jobById.get(id)
+      if (!job || job.status === 'running') {
+        stillRunning.push(id)
+        continue
+      }
+      if (!handledDoneRef.current.has(id)) {
+        handledDoneRef.current.add(id)
+        changed = true
+        if (job.status === 'done' && job.report_id) {
+          setViewedReportId(job.report_id)
+          setBgMsg(`Background report saved${job.name ? `: ${job.name}` : ''}.`)
+        } else if (job.status === 'done') {
+          setBgMsg(job.name ? `Background run "${job.name}" finished.` : 'Background run finished.')
+        } else if (job.status === 'error') {
+          setBgError(job.error || `Background job failed: ${job.name || id}`)
+        }
+      }
+    }
+    if (stillRunning.length !== bgJobIds.length) {
+      setBgJobIds(stillRunning)
+    }
+    if (changed) {
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-jobs-running'] })
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-jobs-recent'] })
+    }
+  }, [bgJobIds, jobById, queryClient])
+
+  const ongoingBg = bgJobIds
+    .map((id) => jobById.get(id))
+    .filter((j): j is SmaBgJobStatus => !!j && j.status === 'running')
+  const serverRunning = ((runningJobsQuery.data as { jobs?: SmaBgJobStatus[] } | undefined)?.jobs) ?? []
+  const ongoingMap = new Map<string, SmaBgJobStatus>()
+  for (const j of [...serverRunning, ...ongoingBg]) {
+    if (j.status === 'running') ongoingMap.set(j.job_id, j)
+  }
+  const ongoingList = Array.from(ongoingMap.values()).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+
+  const reportDetailQuery = useQuery({
+    queryKey: ['smart-money-activity-report', viewedReportId],
+    queryFn: () => fetchSmartMoneyActivityReport(viewedReportId as number),
+    enabled: viewedReportId != null,
+  })
+  const viewedReport = reportDetailQuery.data as
+    | { name?: string; payload?: SmartMoneyActivityResult; created_at?: string; error?: string }
+    | undefined
+  const effectiveData: SmartMoneyActivityResult | null =
+    viewedReportId != null ? (viewedReport?.payload ?? null) : result
+
+  const startBgMutation = useMutation({
+    mutationFn: startSmartMoneyActivityJob,
+    onSuccess: (res) => {
+      const id = res.job_id as string
+      setBgError('')
+      setBgMsg(`Background scan started${res.name ? `: ${res.name}` : ''}.`)
+      setBgReportName('')
+      setBgJobIds((prev) => Array.from(new Set([id, ...prev])))
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-jobs-running'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const saveReportMutation = useMutation({
+    mutationFn: saveSmartMoneyActivityReport,
+    onSuccess: () => {
+      setSaveMsg('Report saved.')
+      setShowSaveForm(false)
+      setSaveName('')
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-reports'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const deleteReportMutation = useMutation({
+    mutationFn: deleteSmartMoneyActivityReport,
+    onSuccess: (_data, reportId) => {
+      if (viewedReportId === reportId) setViewedReportId(null)
+      queryClient.invalidateQueries({ queryKey: ['smart-money-activity-reports'] })
+    },
+  })
+
+  const startBackgroundRun = () => {
+    let payload: SmartMoneyActivityRunPayload
+    try {
+      payload = buildPayload()
+    } catch (e) {
+      setBgError(e instanceof Error ? e.message : String(e))
+      return
+    }
+    if (!bgReportName.trim()) {
+      setBgError('Enter a report name for the background run')
+      return
+    }
+    setBgError('')
+    setBgMsg('')
+    startBgMutation.mutate({ ...payload, run_in_background: true, report_name: bgReportName.trim() })
+  }
 
   const resetHouseSelection = () => {
     setSelectedAmcIds([])
@@ -432,7 +675,15 @@ export function SmartMoneyActivityPanel() {
     setter((prev) => ({ ...prev, [amcId]: [] }))
   }
 
-  const summary = result?.summary
+  const filteredResults = useMemo(() => {
+    const rows = effectiveData?.results ?? []
+    const q = resultSearch.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => r.ticker.toLowerCase().includes(q))
+  }, [effectiveData, resultSearch])
+
+  const summary = effectiveData?.summary
+  const aiSystemPrompt = String(effectiveData?.ai_system_prompt ?? '')
   const housesLoaded = indiaMarket
     ? indiaAmcs.length > 0
     : issuers.length > 0
@@ -529,6 +780,7 @@ export function SmartMoneyActivityPanel() {
               className="w-full"
               disabled={
                 scanMutation.isPending
+                || runInBackground
                 || picker.tickers.length === 0
                 || selectedFundCount === 0
                 || !fromDate
@@ -579,6 +831,43 @@ export function SmartMoneyActivityPanel() {
         {scanMutation.isPending && (
           <div className="mt-4"><Loading message="Fetching holdings snapshots…" /></div>
         )}
+
+        <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-teal-500"
+              checked={runInBackground}
+              onChange={(e) => setRunInBackground(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-slate-100">Run in background</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Name the run — it keeps going if you leave this page, then auto-saves into Saved reports
+                below when done. You can start several background runs at once.
+              </span>
+            </span>
+          </label>
+          {runInBackground && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[16rem] flex-1">
+                <FormField label="Report name">
+                  <Input
+                    value={bgReportName}
+                    onChange={(e) => setBgReportName(e.target.value)}
+                    placeholder={`${picker.tickers.slice(0, 2).join(' + ') || 'Smart money activity'} · ${fromDate}→${toDate}`}
+                    maxLength={200}
+                  />
+                </FormField>
+              </div>
+              <Button onClick={startBackgroundRun} disabled={startBgMutation.isPending}>
+                {startBgMutation.isPending ? 'Starting…' : 'Start background run'}
+              </Button>
+            </div>
+          )}
+          {bgError && <Alert type="error">{bgError}</Alert>}
+          {bgMsg && <Alert type="success">{bgMsg}</Alert>}
+        </div>
       </Card>
 
       {housesLoaded && indiaMarket && (
@@ -786,7 +1075,139 @@ export function SmartMoneyActivityPanel() {
         </CollapsibleSection>
       )}
 
-      {result && !scanMutation.isPending && (
+      {ongoingList.length > 0 && (
+        <Card>
+          <h4 className="mb-3 font-medium text-white">Background runs in progress ({ongoingList.length})</h4>
+          <div className="space-y-3">
+            {ongoingList.map((job) => (
+              <div key={job.job_id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-amber-100">{job.name || 'Untitled background run'}</p>
+                  <p className="text-xs text-slate-500">{Math.round((job.progress ?? 0) * 100)}%</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {(job.meta?.tickers ?? []).slice(0, 4).join(', ')}
+                  {(job.meta?.tickers?.length ?? 0) > 4 ? '…' : ''}
+                </p>
+                <p className="mt-1 text-sm text-slate-300">{job.progress_note || 'Starting…'}</p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-amber-400 transition-all"
+                    style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {recentFinished.length > 0 && (
+        <Card>
+          <h4 className="mb-3 font-medium text-white">Recent background runs</h4>
+          <div className="space-y-2">
+            {recentFinished.map((job) => (
+              <div
+                key={job.job_id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  job.status === 'error' ? 'border-rose-500/30 bg-rose-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div>
+                  {job.status === 'done' && job.report_id ? (
+                    <button
+                      className="font-medium text-slate-200 hover:text-teal-400"
+                      onClick={() => setViewedReportId(job.report_id as number)}
+                    >
+                      {job.name || 'Untitled background run'}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-slate-200">{job.name || 'Untitled background run'}</span>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    {(job.meta?.tickers ?? []).slice(0, 4).join(', ')}
+                    {(job.meta?.tickers?.length ?? 0) > 4 ? '…' : ''}
+                  </p>
+                  {job.status === 'error' && (
+                    <p className="mt-1 text-xs text-rose-400">{job.error || 'Failed — no further detail available.'}</p>
+                  )}
+                </div>
+                <span className={`text-xs font-medium ${job.status === 'error' ? 'text-rose-400' : job.report_id ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {job.status === 'error' ? 'Failed' : job.report_id ? 'Saved' : 'Done (not saved)'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h4 className="inline-flex items-center gap-2 font-medium text-white">
+            <FolderOpen size={16} className="text-slate-400" />
+            Saved reports
+            <span className="text-sm font-normal text-slate-500">({reports.length})</span>
+          </h4>
+          <Button variant="ghost" size="sm" onClick={() => reportsQuery.refetch()} disabled={reportsQuery.isFetching}>
+            Refresh
+          </Button>
+        </div>
+        {reportsQuery.isLoading && <Loading message="Loading saved reports…" />}
+        {!reportsQuery.isLoading && !reports.length && (
+          <p className="text-sm text-slate-500">
+            No saved reports yet. Run a scan and save it, or start a named background run.
+          </p>
+        )}
+        <div className="space-y-2">
+          {reports.map((r) => {
+            const s = r.summary
+            return (
+              <div
+                key={r.id}
+                className={`flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+                  viewedReportId === r.id ? 'border-teal-500/50 bg-teal-500/5' : 'border-slate-800/60 bg-slate-900/40'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <button
+                    className="font-medium text-slate-200 hover:text-teal-400"
+                    onClick={() => setViewedReportId(r.id)}
+                  >
+                    {r.name}
+                  </button>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Saved {formatWhen(r.created_at)}
+                    {r.from_date && r.to_date ? ` · ${r.from_date} → ${r.to_date}` : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {(r.tickers ?? []).slice(0, 6).join(', ')}
+                    {(r.tickers?.length ?? 0) > 6 ? '…' : ''}
+                  </p>
+                  {s && (s.bullish_count != null || s.bearish_count != null) && (
+                    <p className="mt-1 text-xs text-teal-400/90">
+                      {s.ticker_count ?? 0} tickers · {s.found_count ?? 0} found ·{' '}
+                      {s.bullish_count ?? 0} long · {s.bearish_count ?? 0} short
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm(`Delete saved report "${r.name}"? This cannot be undone.`)) {
+                      deleteReportMutation.mutate(r.id)
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      {effectiveData && !scanMutation.isPending && (
         <Card>
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <div>
@@ -794,52 +1215,112 @@ export function SmartMoneyActivityPanel() {
               <p className="mt-0.5 text-xs text-slate-500">
                 LONG = funds accumulating · SHORT = funds distributing · WAIT = mixed/flat or not found.
               </p>
+              {viewedReportId != null && viewedReport?.name && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{viewedReport.name}</span>
+                  {viewedReport.created_at ? ` · saved ${formatWhen(viewedReport.created_at)}` : ''}
+                </p>
+              )}
             </div>
-            {summary && (
-              <p className="text-xs text-slate-500">
-                {summary.found}/{summary.tickers} found ·{' '}
-                <span className="text-emerald-400">{summary.bullish} long</span>
-                {' · '}
-                <span className="text-rose-400">{summary.bearish} short</span>
-                {' · '}
-                <span className="text-slate-400">{summary.wait} wait</span>
-              </p>
-            )}
+            <div className="flex items-center gap-2">
+              {summary && (
+                <p className="text-xs text-slate-500">
+                  {summary.found}/{summary.tickers} found ·{' '}
+                  <span className="text-emerald-400">{summary.bullish} long</span>
+                  {' · '}
+                  <span className="text-rose-400">{summary.bearish} short</span>
+                  {' · '}
+                  <span className="text-slate-400">{summary.wait} wait</span>
+                </p>
+              )}
+              {viewedReportId == null && !effectiveData.error && (
+                <Button variant="secondary" size="sm" onClick={() => setShowSaveForm(true)}>
+                  <span className="inline-flex items-center gap-1.5"><Save size={14} />Save</span>
+                </Button>
+              )}
+              {viewedReportId != null && (
+                <Button variant="ghost" size="sm" onClick={() => setViewedReportId(null)}>Back to live result</Button>
+              )}
+            </div>
           </div>
-          {(result.notes?.length ?? 0) > 0 && (
+
+          {showSaveForm && (
+            <div className="mb-4 rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+              <FormField label="Report name">
+                <div className="flex gap-2">
+                  <Input
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder={`${picker.tickers.slice(0, 2).join(' + ') || 'Smart money activity'} — ${new Date().toLocaleDateString()}`}
+                  />
+                  <Button
+                    onClick={() => saveReportMutation.mutate({
+                      name: saveName.trim() || `Smart money activity ${new Date().toLocaleString()}`,
+                      tickers: picker.tickers,
+                      from_date: fromDate,
+                      to_date: toDate,
+                      payload: effectiveData as unknown as Record<string, unknown>,
+                    })}
+                    disabled={saveReportMutation.isPending}
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Save size={14} />Save</span>
+                  </Button>
+                  <Button variant="ghost" onClick={() => setShowSaveForm(false)}>Cancel</Button>
+                </div>
+              </FormField>
+              {saveMsg && <p className="mt-2 text-xs text-emerald-400">{saveMsg}</p>}
+            </div>
+          )}
+
+          {(effectiveData.notes?.length ?? 0) > 0 && (
             <ul className="mb-3 list-inside list-disc text-xs text-slate-500">
-              {result.notes!.map((n) => (
+              {effectiveData.notes!.map((n) => (
                 <li key={n}>{n}</li>
               ))}
             </ul>
           )}
-          {(result.preferred_amcs?.length ?? 0) > 0 && (
+          {(effectiveData.preferred_amcs?.length ?? 0) > 0 && (
             <p className="mb-3 text-xs text-slate-500">
-              AMCs: {result.preferred_amcs!.map((a) => a.name).join(' · ')}
+              AMCs: {effectiveData.preferred_amcs!.map((a) => a.name).join(' · ')}
             </p>
           )}
-          {(result.results?.length ?? 0) === 0 ? (
+          {(effectiveData.results?.length ?? 0) === 0 ? (
             <p className="text-sm text-slate-500">No results.</p>
           ) : (
-            <DataTable minWidth={980}>
-              <thead>
-                <tr>
-                  <Th>Ticker</Th>
-                  <Th>Bias</Th>
-                  <Th>View</Th>
-                  <Th>Trend</Th>
-                  <Th>Avg Δ stake</Th>
-                  <Th>Funds</Th>
-                  <Th>Reasoning</Th>
-                  <Th>Watch</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {(result.results ?? []).map((r) => (
-                  <ResultRow key={r.ticker} r={r} market={watchMarket} />
-                ))}
-              </tbody>
-            </DataTable>
+            <>
+              <div className="relative mb-3 max-w-xs">
+                <input
+                  type="search"
+                  placeholder="Search ticker…"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  value={resultSearch}
+                  onChange={(e) => setResultSearch(e.target.value)}
+                />
+              </div>
+              {filteredResults.length === 0 ? (
+                <p className="text-sm text-slate-500">No tickers match "{resultSearch}".</p>
+              ) : (
+                <DataTable minWidth={980}>
+                  <thead>
+                    <tr>
+                      <Th>Ticker</Th>
+                      <Th>Bias</Th>
+                      <Th>View</Th>
+                      <Th>Trend</Th>
+                      <Th>Avg Δ stake</Th>
+                      <Th>Funds</Th>
+                      <Th>Reasoning</Th>
+                      <Th>Watch</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredResults.map((r) => (
+                      <ResultRow key={r.ticker} r={r} market={watchMarket} aiSystemPrompt={aiSystemPrompt} />
+                    ))}
+                  </tbody>
+                </DataTable>
+              )}
+            </>
           )}
         </Card>
       )}

@@ -45,6 +45,7 @@ _CONFIG_FIELDS = (
     "min_profit_inr",
     "slots_divisor",
     "prefer_sip",
+    "averaging_trigger_pct",
     "notify_telegram",
     "notify_email",
 )
@@ -120,6 +121,9 @@ class EtfTaService:
                 sip_locked=sip_locked,
                 shop_start_date=payload.get("shop_start_date"),
                 prefer_sip_when_available=bool(payload.get("prefer_sip", True)),
+                weakness_threshold_pct=float(
+                    payload.get("averaging_trigger_pct") or eng.SIP_WEAKNESS_THRESHOLD_PCT
+                ),
             )
             rec["analyses"] = analyses
             rec["symbols"] = symbols
@@ -144,6 +148,7 @@ class EtfTaService:
             "min_profit_inr": cfg.min_profit_inr,
             "slots_divisor": cfg.slots_divisor,
             "prefer_sip": cfg.prefer_sip,
+            "averaging_trigger_pct": cfg.averaging_trigger_pct,
             "sip_locked_symbols": sorted(json.loads(cfg.sip_locked_json or "[]")),
             "notify_telegram": cfg.notify_telegram,
             "notify_email": cfg.notify_email,
@@ -201,8 +206,95 @@ class EtfTaService:
         return [self._lot_to_dict(r) for r in rows]
 
     async def portfolio(self, user_id: int) -> dict[str, Any]:
+        """Open + closed lots, with open lots enriched with a live current price,
+        %/₹ profit since bought, an "eligible for profit booking" flag (reusing the
+        same FIFO sell-trigger check the daily recommendation uses), and — when a
+        lot's symbol has fallen past the configured averaging-down trigger — a
+        suggested averaging amount (reusing the existing dynamic-SIP ranking logic)."""
         cfg = await self.get_or_create_config(user_id)
         lots = await self.list_lots(user_id)
+        open_lots = [lot for lot in lots if lot["status"] == "open"]
+
+        if open_lots:
+            symbols = sorted({lot["symbol"] for lot in open_lots})
+            token = await self._groww_token()
+            ex = cfg.exchange or await self._exchange()
+            sip_locked = set(json.loads(cfg.sip_locked_json or "[]"))
+            portfolio_rows = [
+                {
+                    "slot_id": str(lot["id"]),
+                    "symbol": lot["symbol"],
+                    "purchase_price": lot["purchase_price"],
+                    "purchase_date": lot["purchase_date"],
+                    "amount": lot["amount"],
+                    "quantity": lot["quantity"],
+                    "status": lot["status"],
+                }
+                for lot in open_lots
+            ]
+
+            def _run():
+                set_groww_token(token)
+                analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex)
+                price_map = {a["symbol"]: a.get("price") for a in analyses if a.get("price")}
+
+                sells = eng.sell_candidates_fifo(
+                    portfolio_rows,
+                    analyses,
+                    sell_mode=cfg.sell_mode,
+                    profit_target_pct=cfg.profit_target_pct,
+                    profit_target_inr=cfg.profit_target_inr,
+                    min_profit_inr=cfg.min_profit_inr,
+                )
+                eligible_by_slot = {s["slot_id"]: s for s in sells}
+
+                locked = eng.update_sip_locked_symbols(
+                    portfolio_rows, analyses, sip_locked,
+                    weakness_threshold_pct=cfg.averaging_trigger_pct,
+                )
+                sip_candidates = eng.rank_sip_candidates(portfolio_rows, analyses, locked)
+                averaging_by_symbol = {c["symbol"]: c for c in sip_candidates}
+                return price_map, eligible_by_slot, averaging_by_symbol
+
+            price_map, eligible_by_slot, averaging_by_symbol = await asyncio.to_thread(_run)
+
+            for lot in open_lots:
+                price = price_map.get(lot["symbol"])
+                buy_px = float(lot["purchase_price"] or 0)
+                lot["current_price"] = price
+                if price is not None and buy_px > 0:
+                    profit_pct = (float(price) - buy_px) / buy_px * 100.0
+                    lot["profit_since_bought_pct"] = round(profit_pct, 2)
+                    lot["profit_since_bought_inr"] = round(
+                        (float(price) - buy_px) * float(lot["quantity"] or 0), 2
+                    )
+                else:
+                    lot["profit_since_bought_pct"] = None
+                    lot["profit_since_bought_inr"] = None
+
+                elig = eligible_by_slot.get(str(lot["id"]))
+                lot["eligible_for_profit_booking"] = bool(elig)
+                lot["profit_booking_reason"] = elig["reason"] if elig else None
+
+                avg = averaging_by_symbol.get(lot["symbol"])
+                if avg:
+                    lot["averaging_suggested"] = True
+                    lot["averaging_fall_from_last_buy_pct"] = avg.get("fall_from_last_buy_pct")
+                    lot["averaging_amount"] = avg.get("sip_amount")
+                    fall = avg.get("fall_from_last_buy_pct") or 0.0
+                    amt = avg.get("sip_amount") or 0.0
+                    invested = avg.get("total_invested") or 0.0
+                    lot["averaging_reason"] = (
+                        f"{lot['symbol']} has fallen {fall:.2f}% below your last buy price — past the "
+                        f"{cfg.averaging_trigger_pct:.1f}% averaging-down trigger. Strategy suggests averaging "
+                        f"with ~₹{amt:,.0f} (10% of ₹{invested:,.0f} already invested in this ETF)."
+                    )
+                else:
+                    lot["averaging_suggested"] = False
+                    lot["averaging_fall_from_last_buy_pct"] = None
+                    lot["averaging_amount"] = None
+                    lot["averaging_reason"] = None
+
         return {"config": self._config_to_dict(cfg), "lots": lots}
 
     async def add_lot(
@@ -340,6 +432,7 @@ class EtfTaService:
                 sip_locked=sip_locked,
                 shop_start_date=cfg.shop_start_date,
                 prefer_sip_when_available=cfg.prefer_sip,
+                weakness_threshold_pct=cfg.averaging_trigger_pct,
             )
             rec["analyses"] = analyses
             rec["symbols"] = symbols
