@@ -53,6 +53,8 @@ const BB_EXTRA_CHECK_OPTIONS: { value: string; label: string }[] = [
   { value: 'macd', label: 'MACD' },
   { value: 'support_resistance', label: 'Support & Resistance zone' },
   { value: 'trend_direction_strength', label: 'Trend direction & strength (ADX)' },
+  { value: 'mtf_trend_strength', label: 'MTF Trend & Strength' },
+  { value: 'candlestick_chart_patterns', label: 'Candlestick & Chart Patterns' },
 ]
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
@@ -1270,7 +1272,26 @@ const BB_RULES = `How the confidence score is built
 6. **Independent Support/Resistance confluence** — a genuine swing-fractal zone near the band touch, from pure
    price geometry rather than the bands themselves.
 7. **Risk plan** — stop just beyond the band edge (sanity-checked against ATR so it isn't unrealistically tight or
-   wide), target at the mean, reward:risk floor enforced, and a final A/B/C quality grade.`
+   wide), target at the mean, reward:risk floor enforced, and a final A/B/C quality grade.
+8. **Optional extra confluence (pick any, none required)** — each one adds its own independent vote:
+   - **Fibonacci** — is the price also sitting at a classic retracement level (38.2%/50%/61.8% etc.)?
+   - **EMA position (20/50 stack)** — is this a pullback *within* the larger trend, not a lone counter-trend bet?
+   - **EMA crossover (9/21)** — did short-term momentum just turn the same way (a fresh cross, not a stale one)?
+   - **Stochastic RSI** — a more sensitive overbought/oversold read than plain RSI, for a second opinion.
+   - **VWAP** — is price still on the "cheap"/"rich" side of the volume-weighted average price?
+   - **Volume Profile** — is price at the Value Area High/Low, where the profile itself says value ends?
+   - **Smart Money (Order Blocks)** — is there an unmitigated institutional footprint right at this level?
+   - **Reversal strategy** — a chart pattern (double top/bottom) or RSI divergence pointing the same way.
+   - **MACD** — is the histogram already turning, an early momentum-shift tell?
+   - **Support & Resistance zone** — a genuine swing-fractal S/R level, independent of the bands.
+   - **Trend direction & strength (ADX)** — on *this* timeframe, does +DI/-DI agree with the trade direction?
+   - **MTF Trend & Strength** — zooms out to a genuinely higher timeframe (e.g. 1h→1d, 1d→1w) and checks
+     whether the *bigger-picture* trend direction and strength back this trade — the single highest-value
+     check for telling a real with-trend pullback apart from a lone counter-trend bet the smaller timeframe
+     can't see on its own.
+   - **Candlestick & Chart Patterns** — a broader scan (wider lookback than the core check) for classic
+     candlestick patterns (Hammer, Engulfing, Shooting Star, Morning/Evening Star) *and* chart patterns
+     (Double Top/Bottom) — visible, well-known price-action signatures at this level.`
 
 const BB_LAYMAN = `In plain English — no jargon
 
@@ -1285,7 +1306,15 @@ up, did trading volume spike on the turn, and is there another independent price
 - **SIGNAL: WAIT (blocked)** — price is stretched, but the market is trending too cleanly to safely fade it.
 - **SIGNAL: NEUTRAL** — price isn't stretched enough yet; nothing to trade.
 
-The more of the confirming checks that line up, the higher the confidence % and the better the A/B/C grade.`
+The more of the confirming checks that line up, the higher the confidence % and the better the A/B/C grade.
+
+If you tick any of the 13 optional extra checks below, each one gets its own line in the result card's
+confidence reasons — a line starting with "+N:" means it agreed with the trade and added confidence; a plain
+line without "+N:" means it didn't confirm (or wasn't available), which is honestly reported rather than hidden.
+"MTF Trend & Strength" deserves special attention: it's the only check that looks at a genuinely *higher*
+timeframe than the one you're scanning — think of it as asking "does the bigger picture agree with this trade,
+or would I be fighting a larger trend I can't see on my current chart?" A trade that passes this check is
+higher-probability than one that only looks convincing on its own timeframe.`
 
 function BbMeanReversionPage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')

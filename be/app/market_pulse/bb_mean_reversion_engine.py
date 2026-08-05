@@ -31,15 +31,17 @@ blindly trading every band touch:
 Every point is folded into pro_trade_shared.ConfidenceScore, so the final
 confidence_pct is auditable, not a black box.
 
-On top of that base read, the user can opt into up to 11 additional
+On top of that base read, the user can opt into up to 13 additional
 institutional-grade confluence checks (EXTRA_CHECK_OPTIONS below) — each one
 independently reused from an existing engine/indicator elsewhere in this app
 (Fibonacci, EMA stack/crossover, Stochastic RSI, VWAP, Volume Profile, Smart
 Money order blocks, chart-pattern/RSI-divergence reversal, MACD, classic
-Support/Resistance, and ADX trend direction/strength). None is required;
-selecting more simply raises the ceiling on how much independent evidence
-can back a single trade idea, exactly like a real desk building conviction
-from several unrelated reads rather than one indicator alone.
+Support/Resistance, same-timeframe ADX trend direction/strength, a genuine
+higher-timeframe MTF Trend & Strength read (mtf_trend_strength_engine), and a
+broader candlestick + chart-pattern scan). None is required; selecting more
+simply raises the ceiling on how much independent evidence can back a single
+trade idea, exactly like a real desk building conviction from several
+unrelated reads rather than one indicator alone.
 
 Works across all 4 asset classes (india/us/crypto/commodity) via
 gap_trading.fetch_data_for_gap_scan, and scans one or more timeframes across
@@ -95,7 +97,19 @@ EXTRA_CHECK_OPTIONS: list[dict[str, str]] = [
     {"value": "macd", "label": "MACD"},
     {"value": "support_resistance", "label": "Support & Resistance zone"},
     {"value": "trend_direction_strength", "label": "Trend direction & strength (ADX)"},
+    {"value": "mtf_trend_strength", "label": "MTF Trend & Strength"},
+    {"value": "candlestick_chart_patterns", "label": "Candlestick & Chart Patterns"},
 ]
+
+# For the MTF Trend & Strength check — which HIGHER timeframe to read the
+# broader trend from, keyed by the scan's own timeframe. Deliberately one
+# rung up (not the same timeframe again, which trend_direction_strength
+# already covers) so it's a genuine multi-timeframe read: does the bigger
+# picture agree with fading this stretch, or is this reversal fighting a
+# larger trend the current timeframe alone can't see?
+_MTF_HIGHER_TF: dict[str, str] = {
+    "5m": "1h", "15m": "4h", "30m": "4h", "1h": "1d", "4h": "1d", "1d": "1w", "1wk": "1w",
+}
 _EXTRA_CHECK_POINTS = 6.0
 
 
@@ -221,13 +235,22 @@ def _apply_extra_checks(
     support: dict[str, Any] | None,
     resistance: dict[str, Any] | None,
     zone_tolerance_pct: float,
+    *,
+    ticker: str = "",
+    market: str = "",
+    timeframe: str = "",
+    groww_token: str = "",
+    exchange: str = "NSE",
 ) -> dict[str, Any]:
     """Applies each user-selected extra confluence factor to `score` in
     place and returns a detail dict (raw values) for display — every check
     here is optional, additive evidence on top of the core %B/regime/RSI/
     candlestick/volume read, and every one reuses an existing indicator or
     engine already proven elsewhere in this app rather than re-deriving the
-    math from scratch."""
+    math from scratch. `ticker`/`market`/`timeframe`/`groww_token`/`exchange`
+    are only needed by checks that fetch their own separate data (currently
+    just mtf_trend_strength, which reads a HIGHER timeframe than the one
+    being scanned)."""
     detail: dict[str, Any] = {}
     checks_set = set(checks or [])
     pts = _EXTRA_CHECK_POINTS
@@ -416,6 +439,88 @@ def _apply_extra_checks(
             "Larger trend direction doesn't support this as a with-trend pullback" if trend_dir else "Trend direction unavailable",
         )
 
+    if "candlestick_chart_patterns" in checks_set:
+        from app.trading_hubs.support_resistance_engine import SupportResistanceConfig, detect_chart_patterns
+
+        want_dir = "bullish" if is_long else "bearish"
+        try:
+            wider_candles = detect_candlestick_patterns(df, lookback=5)
+        except Exception:
+            wider_candles = []
+        matched_candle = next((p for p in wider_candles if p.get("direction") == want_dir and p.get("bars_ago", 99) <= 3), None)
+        try:
+            chart_patterns2 = detect_chart_patterns(df, SupportResistanceConfig())
+        except Exception:
+            chart_patterns2 = []
+        matched_chart2 = next((p for p in chart_patterns2 if p.get("direction") == want_dir), None)
+        confirms = matched_candle is not None or matched_chart2 is not None
+        detail["candlestick_chart_patterns"] = {
+            "candlestick": matched_candle["name"] if matched_candle else None,
+            "chart_pattern": matched_chart2["name"] if matched_chart2 else None,
+        }
+        note_bits = ", ".join(x for x in [
+            f"{matched_candle['name']} candle {matched_candle['bars_ago']} bar(s) ago" if matched_candle else None,
+            matched_chart2["name"] if matched_chart2 else None,
+        ] if x)
+        score.add(
+            confirms, pts,
+            f"Candlestick/chart pattern backs this up: {note_bits} — visible, well-known price-action signature at this level" if note_bits else "",
+            "No recognizable candlestick or chart pattern (Hammer, Engulfing, Double Top/Bottom, etc.) confirming this turn",
+        )
+
+    if "mtf_trend_strength" in checks_set:
+        higher_tf = _MTF_HIGHER_TF.get(timeframe, "")
+        mtf_result: dict[str, Any] | None = None
+        if higher_tf and ticker and market:
+            try:
+                from app.market_pulse.mtf_trend_strength_engine import analyze_ticker_timeframe
+
+                mtf_result = analyze_ticker_timeframe(
+                    ticker, higher_tf, market, groww_token=groww_token, exchange=exchange, limit=300,
+                )
+            except Exception as exc:
+                logger.debug("MTF Trend & Strength check failed for %s (%s): %s", ticker, higher_tf, exc)
+                mtf_result = None
+        mtf_dir = mtf_result.get("direction") if mtf_result and not mtf_result.get("error") else None
+        strength_label = mtf_result.get("strength_label") if mtf_result else None
+        strength_score = mtf_result.get("strength_score") if mtf_result else None
+        reversal_pct = mtf_result.get("reversal_probability_pct") if mtf_result else None
+        aligned = (is_long and mtf_dir == "LONG") or (not is_long and mtf_dir == "SHORT")
+        strong_enough = strength_label in ("Moderate", "Strong", "Very Strong")
+        confirms = bool(mtf_dir) and aligned and strong_enough
+        detail["mtf_trend_strength"] = {
+            "higher_timeframe": higher_tf or None,
+            "direction": mtf_dir,
+            "strength_label": strength_label,
+            "strength_score": strength_score,
+            "reversal_probability_pct": reversal_pct,
+        }
+        if mtf_dir:
+            explain_true = (
+                f"On the higher {higher_tf} timeframe, the broader trend is {mtf_dir} with {strength_label or 'unclear'} "
+                f"strength ({strength_score:.0f}/100 if available) — this reversal reads as a with-trend pullback in the "
+                "bigger picture, not an isolated counter-trend bet, which is the higher-probability version of a mean-"
+                "reversion trade"
+            )
+            if mtf_dir == "NEUTRAL":
+                explain_false = (
+                    f"On the higher {higher_tf} timeframe there's no clear trend either way — this reversal has "
+                    "no bigger-picture tailwind behind it, though it isn't fighting one either"
+                )
+            elif aligned and not strong_enough:
+                explain_false = (
+                    f"The higher {higher_tf} timeframe trend does point the same way, but only at {strength_label} "
+                    "strength — too weak to lean on as real bigger-picture support for this trade"
+                )
+            else:
+                explain_false = (
+                    f"On the higher {higher_tf} timeframe, the broader trend is {mtf_dir} — the opposite direction "
+                    "to this trade, so this reversal would be fighting the bigger picture rather than riding it"
+                )
+        else:
+            explain_true, explain_false = "", f"MTF Trend & Strength read unavailable on the {higher_tf or 'higher'} timeframe"
+        score.add(confirms, pts, explain_true, explain_false)
+
     return detail
 
 
@@ -455,8 +560,9 @@ def analyze_ticker(
             "climax on the reversal bar — each adds to confidence, none is required alone.",
             "Optional extra confluence (pick any): Fibonacci, EMA position/crossover, Stochastic RSI, "
             "VWAP, Volume Profile, Smart Money order blocks, chart-pattern/divergence reversal, MACD, "
-            "Support & Resistance, and ADX trend direction/strength — each selected factor adds "
-            "further independent evidence on top of the core read.",
+            "Support & Resistance, same-timeframe ADX trend direction/strength, a genuine higher-"
+            "timeframe MTF Trend & Strength read, and a broader candlestick/chart-pattern scan — each "
+            "selected factor adds further independent evidence on top of the core read.",
             "Target is the mean (middle band); stop sits just beyond the band edge, sanity-checked "
             "against ATR so it isn't tighter than the instrument's real noise or wider than a real stop.",
         ],
@@ -591,6 +697,7 @@ def analyze_ticker(
 
     extra_detail = _apply_extra_checks(
         score, df, entry, direction, is_long, cfg.extra_checks, support, resistance, cfg.zone_tolerance_pct,
+        ticker=ticker, market=market, timeframe=cfg.timeframe, groww_token=groww_token, exchange=exchange,
     )
 
     confidence_pct, reasons = score.finalize()

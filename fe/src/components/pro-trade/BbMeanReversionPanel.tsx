@@ -20,6 +20,8 @@ const EXTRA_CHECK_LABELS: Record<string, string> = {
   macd: 'MACD',
   support_resistance: 'Support & Resistance',
   trend_direction_strength: 'Trend direction & strength',
+  mtf_trend_strength: 'MTF Trend & Strength',
+  candlestick_chart_patterns: 'Candlestick & Chart Patterns',
 }
 
 function signalTone(signal: string): string {
