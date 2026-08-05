@@ -129,7 +129,12 @@ function TickerResultCard({
 
           {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
-              <VolumeProfileChart chartData={chartData} levels={levels} histogram={histogram} />
+              <VolumeProfileChart
+                chartData={chartData}
+                levels={levels}
+                histogram={histogram}
+                readingGuide="Candles show price/structure (Smart Money Concepts read swings and breaks of structure here); the VAL/POC/VAH lines mark the volume profile's value area, and the bars on the right show volume at each price. The green/red Support/Resistance band marks the nearest swing-based zone — a clean bounce off Support or rejection at Resistance, combined with price already inside the value area, is what this setup is looking for."
+              />
             </div>
           )}
 

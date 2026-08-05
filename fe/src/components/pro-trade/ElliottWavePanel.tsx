@@ -166,7 +166,13 @@ function TickerResultCard({
 
           {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
-              <VolumeProfileChart chartData={chartData} levels={chartLevels} waves={waveSegments} histogram={[]} />
+              <VolumeProfileChart
+                chartData={chartData}
+                levels={chartLevels}
+                waves={waveSegments}
+                histogram={[]}
+                readingGuide="The numbered/lettered dots trace the Elliott Wave count on price — a 5-wave move (1-2-3-4-5) in one direction is normally followed by a 3-wave correction (A-B-C) against it. Once a wave completes, Entry/SL/TP lines (if shown) mark the suggested trade built off that count — SL sits just beyond the wave's extreme, TP at the nearest Fibonacci target."
+              />
             </div>
           )}
 

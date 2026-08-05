@@ -89,7 +89,7 @@ function CandlestickShape(props: any) {
 
 export function SupportResistanceChart({
   chartData, supportZone, resistanceZone, trendlines, lastClose, emas = {}, rsi, chartType = 'candles', fibonacci = null,
-  supplyDemandZones = [], orderBlocks = [], levels = [],
+  supplyDemandZones = [], orderBlocks = [], levels = [], readingGuide,
 }: {
   chartData: Bar_[]
   supportZone: [number, number] | null
@@ -104,6 +104,8 @@ export function SupportResistanceChart({
   orderBlocks?: SRZone[]
   /** Extra labeled reference lines (e.g. entry/SL/TP) — generic, any strategy can pass these. */
   levels?: SRLevel[]
+  /** Short laymen "how to read this chart" caption, shown below it. */
+  readingGuide?: string
 }) {
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
@@ -491,6 +493,11 @@ export function SupportResistanceChart({
           </LegendToggle>
         ))}
       </div>
+      {readingGuide && (
+        <p className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs leading-relaxed text-slate-400">
+          💡 <strong className="font-medium text-slate-300">How to read this chart:</strong> {readingGuide}
+        </p>
+      )}
     </div>
   )
 }

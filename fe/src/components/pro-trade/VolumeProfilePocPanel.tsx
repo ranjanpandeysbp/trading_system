@@ -147,7 +147,12 @@ function TickerResultCard({
 
           {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
-              <VolumeProfileChart chartData={chartData} levels={chartLevels} histogram={histogram} />
+              <VolumeProfileChart
+                chartData={chartData}
+                levels={chartLevels}
+                histogram={histogram}
+                readingGuide="Candles show price; the yellow POC line marks where the most volume traded — a level price tends to gravitate back to. The bars on the right show volume traded at each price. Price accepting and holding above POC is bullish, rejecting back below it is bearish; the TP/SL levels (if shown) mark the suggested trade plan built off this POC read."
+              />
             </div>
           )}
 

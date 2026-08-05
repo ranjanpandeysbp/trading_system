@@ -136,7 +136,12 @@ function TickerResultCard({
 
           {showCharts && chartData.length > 0 && (
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
-              <VolumeProfileChart chartData={chartData} levels={chartLevels} histogram={[]} />
+              <VolumeProfileChart
+                chartData={chartData}
+                levels={chartLevels}
+                histogram={[]}
+                readingGuide="Candles show recent price and volume behavior. VSA compares each candle's range (wide vs narrow) against its volume (high vs low) — a wide-range candle on high volume shows real conviction, while a narrow-range candle on low volume shows indecision; that spread-vs-volume pattern is what's used to anticipate the next candle. The green/red Support/Resistance band marks the nearest level price is expected to react to."
+              />
             </div>
           )}
 

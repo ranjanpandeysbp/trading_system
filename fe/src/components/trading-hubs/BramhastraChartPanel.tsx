@@ -86,6 +86,7 @@ export function BramhastraChartPanel({
             trendlines={[]}
             lastClose={data.last_close}
             levels={data.levels}
+            readingGuide="Candles show the day's 5-minute price action; the green/red band is the first-hour range (Support = range low, Resistance = range high) this strategy trades breakouts of. A break-and-hold above Resistance favors LONG, a break-and-hold below Support favors SHORT — Entry/SL/TP lines (if shown) mark the suggested trade once that breakout triggers."
           />
         </>
       )}

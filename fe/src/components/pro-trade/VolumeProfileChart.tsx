@@ -153,11 +153,14 @@ export function VolumeProfileChart({
   levels = [],
   histogram = [],
   waves = [],
+  readingGuide,
 }: {
   chartData: VpChartBar[]
   levels?: VpLevel[]
   histogram?: VpHistBin[]
   waves?: VpWaveSegment[]
+  /** Short laymen "how to read this chart" caption, shown below it. */
+  readingGuide?: string
 }) {
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -448,6 +451,11 @@ export function VolumeProfileChart({
       <p className="text-[10px] text-slate-600">
         Drag across the chart to zoom into a section. Click a line's chip above to hide/show it.
       </p>
+      {readingGuide && (
+        <p className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs leading-relaxed text-slate-400">
+          💡 <strong className="font-medium text-slate-300">How to read this chart:</strong> {readingGuide}
+        </p>
+      )}
     </div>
   )
 }

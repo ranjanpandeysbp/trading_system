@@ -1635,6 +1635,7 @@ function EmaPositionPanel({ data, showCharts = false }: { data: Row; showCharts?
                 lastClose={r.last_price as number | undefined}
                 emas={r.emas as Record<string, Array<{ time: string; value: number }>> | undefined}
                 chartType={chartType}
+                readingGuide="Candles show price with EMA lines overlaid — price trading above a rising EMA is bullish, below a falling EMA is bearish, and where several EMAs bunch together often acts as dynamic support/resistance. The green/red Support/Resistance band marks the nearest swing-based zone: a bounce off Support favors longs, a rejection at Resistance favors shorts."
               />
             </div>
           )}
