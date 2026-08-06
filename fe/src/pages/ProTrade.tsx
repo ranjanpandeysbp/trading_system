@@ -5,6 +5,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
   runProTradeBbMeanReversion,
+  runProTradeBtst,
   runProTradeElliottWave,
   runProTradePaVolumeProfile,
   runProTradePaVpSmc,
@@ -19,6 +20,7 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { BbMeanReversionPanel } from '../components/pro-trade/BbMeanReversionPanel'
+import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
@@ -1487,6 +1489,217 @@ function BbMeanReversionPage() {
   )
 }
 
+const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
+  { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
+  { value: 'elliott_wave', label: 'Elliott Wave' },
+  { value: 'bb_mean_reversion', label: 'BB Mean Reversion' },
+  { value: 'support_resistance', label: 'Support & Resistance' },
+  { value: 'mtf_trend_strength', label: 'Trend & Strength (MTF)' },
+]
+
+const BTST_OVERVIEW = `Buy Today Sell Tomorrow / Sell Today Buy Tomorrow — the classic NSE overnight-momentum play, hardened
+with an experienced-trader and institutional-desk checklist before risking capital overnight
+
+BTST: buy strength into today's close, sell tomorrow — before delivery actually settles. STBT is the short-side
+mirror: sell weakness into today's close, cover tomorrow (requires stock futures/options — NSE cash-segment
+shorts can't be carried overnight).
+
+The core signal is Close Location Value (CLV) — where today's close sits within today's own high-low range. A
+close near the day's high (institutional buying absorbing all supply into the close) is the classic BTST tell; a
+close near the day's low is the STBT mirror. A close mid-range means no real conviction either way, not a weak
+signal — this strategy sits out rather than forcing a mediocre read.
+
+India cash/F&O only — the delivery/overnight-settlement mechanics this strategy is built around are NSE-specific.
+
+Research / education only — not financial advice.`
+
+const BTST_RULES = `How the confidence score is built
+
+1. **Closing-strength signature (core)** — Close Location Value (CLV) determines BTST vs STBT candidacy.
+2. **Trend alignment** — buying strength (or selling weakness) only counts for more when it's *with* the
+   higher-timeframe trend (EMA20/50 stack), not a lone counter-trend pop likely to fade overnight.
+3. **Volume confirmation, with a climax guard** — elevated volume backs genuine conviction, but abnormally
+   extreme volume reads as a blow-off spike (chase risk), not rewarded.
+4. **Relative strength vs Nifty 50** — the stock must out/under-perform the index today, so this isn't just a
+   broad market move dressed up as a single-name signal.
+5. **VWAP position** — closing on the "richer" side of today's volume-weighted average price, the same
+   institutional benchmark a dealing desk watches.
+6. **RSI chase-risk guard** — an already-extended move overnight carries real gap-against-you risk.
+7. **Options-market OI buildup** (reusing the same NSE option-chain OI-buildup read Options → Market Prediction
+   uses) — a fresh Long/Short Buildup is genuine institutional derivatives conviction building behind the move,
+   the single highest-value institutional check here. Gracefully skipped (not penalized) for cash-only names.
+8. **No late-session fade** — the final stretch of the session shouldn't be reversing hard against the signal.
+9. **A genuine historical self-check** — this exact ticker's own last ~90 sessions are scanned for the same
+   closing-strength signature, and the empirical next-day follow-through hit-rate is scored — a real, ticker-
+   specific edge check, not just theory applied blindly.
+10. **Risk plan** — ATR-sane stop/target (not a raw guess), a reward:risk floor, liquidity floor, and a final
+    A/B/C quality grade — the same trading-judgment layer every Pro Trade engine uses.
+11. **Optional further analysis (pick any, none required)** — reuses the same 6-check dispatcher built for
+    Trading Hub → Intra-Hedging: PA-VP-SMC, Volume Spread - Next Candle, Elliott Wave, BB Mean Reversion,
+    Support & Resistance, and a genuine higher-timeframe Trend & Strength read — each adds independent evidence.
+
+Overnight risk note: there is no live stop-loss order protecting an overnight position while the market is
+closed — the stop shown is the level to act on the moment the market reopens, not a guaranteed exit price, since
+a gap can open beyond it. For a deeper institutional-ownership cross-check before sizing, Command Center →
+Smart Money Activity shows this ticker's fund/ETF holdings trend — a complementary, slower-moving read.`
+
+const BTST_LAYMAN = `In plain English — no jargon
+
+Think about how a stock behaves in the last hour before the market closes. If big buyers are stepping in and
+absorbing everything sellers throw at them, the stock tends to close right near its high for the day — that's a
+sign of genuine conviction, not just a random up day. This tool looks for exactly that closing-strength
+signature, then checks several independent things before trusting it: is the stock in a genuine uptrend already
+(not catching a falling knife), did real volume back the move, did it beat the overall market today, did buyers
+pay up above the volume-weighted average price, and — critically — did the options market itself show fresh
+institutional conviction (a "Long Buildup" in derivatives-speak).
+
+- **BTST (Buy Today, Sell Tomorrow)** — the stock closed strong; buy it today, look to sell tomorrow.
+- **STBT (Sell Today, Buy Tomorrow)** — the mirror image: the stock closed weak; short it today (via futures/
+  options, since NSE doesn't allow carrying a cash-market short overnight), look to cover tomorrow.
+- **SIGNAL: NEUTRAL** — the stock closed roughly in the middle of its daily range; no real conviction either way.
+
+The historical follow-through % is the one truly unique check here: this tool actually looks back at how often
+THIS SPECIFIC STOCK has followed through the next day after showing this same closing-strength pattern before —
+not a generic rule, a real track record on the exact name you're looking at.
+
+Because this is an overnight trade, there's no stop-loss order sitting in the market protecting you while it's
+closed — if bad news hits overnight, the stock can gap down (or up, for STBT) past your stop before you can
+react. Size positions with that risk in mind.`
+
+function BtstPage() {
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
+  const [error, setError] = useState('')
+  const [minClv, setMinClv] = useState(0.65)
+  const [minRr, setMinRr] = useState(1.3)
+  const [checkOiBuildup, setCheckOiBuildup] = useState(true)
+  const [showCharts, setShowCharts] = useState(false)
+  const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+  const toggleFurtherAnalysis = (value: string) =>
+    setFurtherAnalysis((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeBtst({
+        tickers: picker.tickers,
+        min_clv: minClv,
+        min_rr: minRr,
+        check_oi_buildup: checkOiBuildup,
+        further_analysis: furtherAnalysis,
+      })
+    },
+    onSuccess: () => setError(''),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = runMut.data as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Buy Today Sell Tomorrow', data) : ''
+
+  return (
+    <div>
+      <PageHeader
+        title="Buy Today Sell Tomorrow"
+        description="BTST / STBT — closing-strength signature confirmed by trend, volume, relative strength, VWAP, options OI buildup & this ticker's own historical edge"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="In plain English — how to interpret your results" defaultOpen>
+          {BTST_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="Overview">{BTST_OVERVIEW}</CollapsibleSection>
+        <CollapsibleSection title="How the confidence score is built">{BTST_RULES}</CollapsibleSection>
+      </div>
+
+      <Card className="mb-4">
+        <p className="mb-3 text-xs text-slate-500">
+          India cash/F&amp;O only — the overnight-delivery mechanics this strategy is built around are NSE-specific.
+        </p>
+
+        <AssetClassTickerPicker
+          assetClass="india"
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-3">
+          <FormField label="Min CLV (closing-strength threshold)">
+            <Input
+              type="number"
+              step="0.05"
+              min={0.5}
+              max={0.95}
+              value={minClv}
+              onChange={(e) => setMinClv(Number(e.target.value) || 0.65)}
+            />
+          </FormField>
+          <FormField label="Min reward:risk">
+            <Input
+              type="number"
+              step="0.1"
+              min={0.5}
+              max={5}
+              value={minRr}
+              onChange={(e) => setMinRr(Number(e.target.value) || 1.3)}
+            />
+          </FormField>
+          <FormField label="Options OI-buildup check">
+            <Select value={checkOiBuildup ? 'on' : 'off'} onChange={(e) => setCheckOiBuildup(e.target.value === 'on')}>
+              <option value="on">On (F&amp;O names)</option>
+              <option value="off">Off</option>
+            </Select>
+          </FormField>
+        </div>
+
+        <div className="mt-4">
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-slate-500">
+            Further analysis (optional — pick any to add more confidence)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {BTST_FURTHER_ANALYSIS_OPTIONS.map((opt) => (
+              <Chip key={opt.value} selected={furtherAnalysis.includes(opt.value)} onClick={() => toggleFurtherAnalysis(opt.value)}>
+                {opt.label}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Each selected check runs its own live read on the ticker and adds independent confirmation on top of
+            the core BTST/STBT read — the same dispatcher built for Trading Hub → Intra-Hedging.
+          </p>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+            {runMut.isPending ? 'Scanning…' : `Scan BTST / STBT (${picker.tickers.length})`}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {runMut.isPending && <Loading message="Reading closing strength, trend, volume, options OI, and historical follow-through…" />}
+
+      {data && !runMut.isPending && (
+        <>
+          <Card className="mb-4">
+            <BtstPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/btst" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ProTrade() {
   const { tab } = useParams<{ tab?: string }>()
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
@@ -1497,5 +1710,6 @@ export default function ProTrade() {
   if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
   if (tab === 'elliott-wave') return <ElliottWavePage />
   if (tab === 'bb-mean-reversion') return <BbMeanReversionPage />
+  if (tab === 'btst') return <BtstPage />
   return <Navigate to="/pro-trade/volume-profile-ce" replace />
 }

@@ -94,6 +94,7 @@ from app.models.schemas import (
     ProTradeVolumeSpreadNextCandleRequest,
     ProTradeElliottWaveRequest,
     ProTradeBbMeanReversionRequest,
+    ProTradeBtstRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -4237,5 +4238,30 @@ async def pro_trade_bb_mean_reversion(
             "zone_tolerance_pct": payload.zone_tolerance_pct,
             "min_rr": payload.min_rr,
             "extra_checks": payload.extra_checks,
+        },
+    )
+
+
+@router.post("/pro-trade/btst")
+async def pro_trade_btst(
+    payload: ProTradeBtstRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).btst(
+        tickers=payload.tickers,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "min_clv": payload.min_clv,
+            "min_volume_zscore": payload.min_volume_zscore,
+            "climax_volume_zscore": payload.climax_volume_zscore,
+            "min_relative_strength_pct": payload.min_relative_strength_pct,
+            "sl_atr_mult": payload.sl_atr_mult,
+            "tp_atr_mult": payload.tp_atr_mult,
+            "min_rr": payload.min_rr,
+            "historical_lookback_days": payload.historical_lookback_days,
+            "check_oi_buildup": payload.check_oi_buildup,
+            "further_analysis": payload.further_analysis,
         },
     )

@@ -73,6 +73,12 @@ class ProTradeService:
                     "path": "/pro-trade/bb-mean-reversion",
                     "youtube": None,
                 },
+                {
+                    "id": "btst",
+                    "label": "Buy Today Sell Tomorrow",
+                    "path": "/pro-trade/btst",
+                    "youtube": None,
+                },
             ],
         }
 
@@ -336,6 +342,42 @@ class ProTradeService:
         for r in payload.get("results", []):
             r["ai_context"] = build_bb_mean_reversion_ai_prompt(r)
         payload["ai_system_prompt"] = BB_MEAN_REVERSION_AI_SYSTEM
+        return json_safe(payload)
+
+    async def btst(
+        self,
+        tickers: list[str],
+        *,
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.btst_engine import (
+            BTST_AI_SYSTEM,
+            BtstConfig,
+            build_btst_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx("india")
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve("india", tickers)
+        cfg = BtstConfig(**(cfg_overrides or {}))
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange)
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = "india"
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_btst_ai_prompt(r)
+        payload["ai_system_prompt"] = BTST_AI_SYSTEM
         return json_safe(payload)
 
     async def volume_spread_next_candle(

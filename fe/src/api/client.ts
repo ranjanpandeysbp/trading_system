@@ -1963,6 +1963,22 @@ export const runProTradeBbMeanReversion = (payload: {
   extra_checks?: string[]
 }) => api.post('/pro-trade/bb-mean-reversion', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeBtst = (payload: {
+  tickers: string[]
+  exchange?: string
+  lookback_bars?: number
+  min_clv?: number
+  min_volume_zscore?: number
+  climax_volume_zscore?: number
+  min_relative_strength_pct?: number
+  sl_atr_mult?: number
+  tp_atr_mult?: number
+  min_rr?: number
+  historical_lookback_days?: number
+  check_oi_buildup?: boolean
+  further_analysis?: string[]
+}) => api.post('/pro-trade/btst', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 
 export type InvestingAgentStreamEvent =

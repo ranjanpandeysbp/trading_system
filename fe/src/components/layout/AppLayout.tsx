@@ -48,6 +48,7 @@ const nav: NavEntry[] = [
       { to: '/pro-trade/elliott-wave', label: 'Elliott Wave' },
       { to: '/pro-trade/bb-mean-reversion', label: 'BB Mean Reversion' },
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
+      { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },
     ],
   },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },

@@ -1080,6 +1080,25 @@ class ProTradeBbMeanReversionRequest(BaseModel):
     extra_checks: list[str] = Field(default_factory=list)
 
 
+class ProTradeBtstRequest(BaseModel):
+    """Buy Today Sell Tomorrow / Sell Today Buy Tomorrow — closing-strength (CLV) signature confirmed by
+    trend, volume, relative strength vs Nifty, VWAP, RSI chase-risk guard, options OI buildup, late-session
+    fade check, and this ticker's own historical follow-through rate. India cash/F&O only."""
+    tickers: list[str] = Field(default_factory=list)
+    exchange: str | None = None
+    lookback_bars: int = Field(default=250, ge=60, le=650)
+    min_clv: float = Field(default=0.65, ge=0.5, le=0.95)
+    min_volume_zscore: float = Field(default=0.8, ge=-1.0, le=3.0)
+    climax_volume_zscore: float = Field(default=3.5, ge=1.5, le=6.0)
+    min_relative_strength_pct: float = Field(default=0.3, ge=0.0, le=3.0)
+    sl_atr_mult: float = Field(default=0.7, ge=0.2, le=2.0)
+    tp_atr_mult: float = Field(default=1.4, ge=0.5, le=4.0)
+    min_rr: float = Field(default=1.3, ge=0.5, le=5.0)
+    historical_lookback_days: int = Field(default=90, ge=20, le=250)
+    check_oi_buildup: bool = True
+    further_analysis: list[str] = Field(default_factory=list)
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user
