@@ -1855,6 +1855,7 @@ export const runOptionsMarketPrediction = (payload?: {
   exchange?: string
   futures_price?: number
   fii_index_position_cut?: boolean
+  further_analysis?: string[]
 }) => api.post('/options/market-prediction', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOptionsZeroToHero = (payload?: {

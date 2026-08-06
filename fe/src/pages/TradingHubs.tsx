@@ -125,6 +125,16 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   smc_lewiskelly: 'Configurable (Direction/POI TF selectable below) + fixed 1m confirmation entry',
 }
 
+// Mirrors intra_hedging_engine.FURTHER_ANALYSIS_OPTIONS on the backend.
+const FURTHER_ANALYSIS_OPTIONS: { id: string; label: string }[] = [
+  { id: 'pa_vp_smc', label: 'PA-VP-SMC' },
+  { id: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
+  { id: 'elliott_wave', label: 'Elliott Wave' },
+  { id: 'bb_mean_reversion', label: 'BB Mean Reversion' },
+  { id: 'support_resistance', label: 'Support & Resistance' },
+  { id: 'mtf_trend_strength', label: 'Trend & Strength (MTF)' },
+]
+
 const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: [] }
 
 function defaultConfig(section: TradingHubSection | undefined): Record<string, string> {
@@ -151,6 +161,7 @@ export default function TradingHubs() {
 
   const queryClient = useQueryClient()
   const isIntraHedging = sectionId === 'intra_hedging'
+  const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
   const [runInBackground, setRunInBackground] = useState(false)
   const [bgReportName, setBgReportName] = useState('')
   const [bgJobIds, setBgJobIds] = useState<string[]>([])
@@ -294,6 +305,7 @@ export default function TradingHubs() {
     setBgError('')
     setBgMsg('')
     setRunInBackground(false)
+    setFurtherAnalysis([])
   }, [sectionId])
 
   const hubsQ = useQuery({ queryKey: ['trading-hubs'], queryFn: fetchTradingHubs })
@@ -342,12 +354,14 @@ export default function TradingHubs() {
         ? (activeSection?.fixed_universe ?? [])
         : picker.tickers
       if (!tickers.length) throw new Error('Select at least one ticker')
+      const mergedConfig: Record<string, unknown> = { ...config }
+      if (isIntraHedging && furtherAnalysis.length) mergedConfig.further_analysis = furtherAnalysis
       return runTradingHubScan({
         section_id: sectionId,
         tickers,
         // Fixed-universe strategies (e.g. Scalp-2mins) are India indices only.
         asset_class: fixedUniverse ? 'india' : assetClass,
-        config: Object.keys(config).length ? config : undefined,
+        config: Object.keys(mergedConfig).length ? mergedConfig : undefined,
       })
     },
     onError: (e) => setError(apiErrorMessage(e)),
@@ -365,10 +379,12 @@ export default function TradingHubs() {
     }
     setBgError('')
     setBgMsg('')
+    const mergedConfig: Record<string, unknown> = { ...config }
+    if (furtherAnalysis.length) mergedConfig.further_analysis = furtherAnalysis
     ihStartBgMutation.mutate({
       tickers: scanTickers,
       asset_class: fixedUniverse ? 'india' : assetClass,
-      config: Object.keys(config).length ? config : undefined,
+      config: Object.keys(mergedConfig).length ? mergedConfig : undefined,
       run_in_background: true,
       report_name: bgReportName.trim(),
     })
@@ -509,6 +525,45 @@ export default function TradingHubs() {
                 </FormField>
               </div>
             ))}
+
+            {isIntraHedging && (
+              <div className="mt-4">
+                <FormField label="Optional further analysis (confidence boost/penalty on recommended legs)">
+                  <div className="flex flex-wrap gap-2">
+                    {FURTHER_ANALYSIS_OPTIONS.map((opt) => {
+                      const checked = furtherAnalysis.includes(opt.id)
+                      return (
+                        <label
+                          key={opt.id}
+                          className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+                            checked
+                              ? 'border-teal-500/60 bg-teal-500/10 text-teal-300'
+                              : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:border-slate-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-teal-500"
+                            checked={checked}
+                            onChange={(e) =>
+                              setFurtherAnalysis((prev) =>
+                                e.target.checked ? [...prev, opt.id] : prev.filter((id) => id !== opt.id),
+                              )
+                            }
+                          />
+                          {opt.label}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Each checked engine runs its own live read on the actual LONG/SHORT leg ticker(s) of the
+                    recommended pair(s) and adjusts that leg's confidence up or down — extra confirmation, not a
+                    new pair filter.
+                  </span>
+                </FormField>
+              </div>
+            )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length || (isIntraHedging && runInBackground)}>

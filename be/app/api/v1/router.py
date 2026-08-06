@@ -4052,6 +4052,7 @@ async def options_market_prediction(
         exchange=payload.exchange,
         futures_price=payload.futures_price,
         fii_index_position_cut=payload.fii_index_position_cut,
+        further_analysis=payload.further_analysis,
     )
 
 

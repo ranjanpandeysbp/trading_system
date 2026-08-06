@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Loader2, Play, Save, ShoppingCart, Trash2, FolderOpen, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2, Play, Save, Search, ShoppingCart, Trash2, FolderOpen, X } from 'lucide-react'
 import {
   apiErrorMessage,
   deleteBacktesterReport,
@@ -218,10 +218,40 @@ export function StrategyCatalogLeaderboard({
   const [saveMsg, setSaveMsg] = useState('')
   const [viewedReportId, setViewedReportId] = useState<number | null>(null)
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())
+  const [strategySearch, setStrategySearch] = useState('')
   const handledDoneRef = useRef<Set<string>>(new Set())
 
   const catalogQuery = useQuery({ queryKey: ['bt-catalog'], queryFn: fetchBacktesterLeaderboardCatalog })
   const categories = catalogQuery.data?.categories ?? []
+
+  const searchQuery = strategySearch.trim().toLowerCase()
+  const filteredCategories = useMemo(() => {
+    if (!searchQuery) return categories
+    return categories
+      .map((cat) => ({
+        ...cat,
+        strategies: cat.strategies.filter((s) => s.name.toLowerCase().includes(searchQuery)),
+      }))
+      .filter((cat) => cat.strategies.length > 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, searchQuery])
+
+  // Auto-open every category with a search match, so the result is visible
+  // immediately instead of requiring a manual click on each category.
+  useEffect(() => {
+    if (!searchQuery) return
+    setExpandedCats((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const cat of filteredCategories) {
+        if (!next.has(cat.id)) {
+          next.add(cat.id)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [searchQuery, filteredCategories])
 
   useEffect(() => {
     if (initialStrategyIds?.length) setSelectedStrategies(initialStrategyIds)
@@ -475,8 +505,25 @@ export function StrategyCatalogLeaderboard({
         )}
 
         <FormField label={`Strategies (${selectedStrategies.length} of ${categories.reduce((n, c) => n + c.strategy_count, 0)} selected)`}>
+          <div className="relative mb-2 max-w-sm">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Input
+              value={strategySearch}
+              onChange={(e) => setStrategySearch(e.target.value)}
+              placeholder="Search strategies…"
+              className="pl-8"
+            />
+          </div>
+          {searchQuery && (
+            <p className="mb-2 text-xs text-slate-500">
+              {filteredCategories.reduce((n, c) => n + c.strategies.length, 0)} match(es) for "{strategySearch.trim()}"
+            </p>
+          )}
           <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/20 p-3">
-            {categories.map((cat: StrategyCategoryInfo) => {
+            {searchQuery && !filteredCategories.length && (
+              <p className="text-sm text-slate-500">No strategies match "{strategySearch.trim()}".</p>
+            )}
+            {filteredCategories.map((cat: StrategyCategoryInfo) => {
               const open = expandedCats.has(cat.id)
               const selectedInCat = cat.strategies.filter((s) => selectedStrategies.includes(s.id)).length
               return (
@@ -486,7 +533,10 @@ export function StrategyCatalogLeaderboard({
                     onClick={() => toggleCat(cat.id)}
                     className="flex w-full items-center justify-between py-1.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-200"
                   >
-                    <span>{cat.label} ({cat.strategy_count}){selectedInCat ? ` · ${selectedInCat} selected` : ''}</span>
+                    <span>
+                      {cat.label} ({searchQuery ? `${cat.strategies.length} of ${cat.strategy_count}` : cat.strategy_count})
+                      {selectedInCat ? ` · ${selectedInCat} selected` : ''}
+                    </span>
                     <span>{open ? '▲' : '▼'}</span>
                   </button>
                   {open && (

@@ -964,6 +964,7 @@ class OptionsMarketPredictionRequest(BaseModel):
     exchange: str | None = None
     futures_price: float | None = None
     fii_index_position_cut: bool | None = None
+    further_analysis: list[str] | None = None
 
 
 class OptionsZeroToHeroRequest(BaseModel):

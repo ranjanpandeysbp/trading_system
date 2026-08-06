@@ -862,6 +862,14 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
           {trade.advice != null && (
             <p className="mt-3 text-sm leading-relaxed text-slate-300">{String(trade.advice)}</p>
           )}
+
+          {Array.isArray(trade.reasons) && (trade.reasons as string[]).length > 0 && (
+            <div className="mt-3 space-y-1 border-t border-slate-800/60 pt-3">
+              {(trade.reasons as string[]).map((r, i) => (
+                <p key={i} className="text-xs leading-relaxed text-slate-400">· {r}</p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

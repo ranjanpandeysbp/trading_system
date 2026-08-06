@@ -87,6 +87,55 @@ class MarketPredictionConfig:
     caution_score_threshold: float = 0.0
 
 
+# Optional extra confluence checks a user can opt into — stocks only (an
+# index symbol like NIFTY isn't a chartable single-name ticker for these
+# engines the way a stock is). Each runs its own live single-ticker read on
+# the symbol and adds/subtracts trade-suggestion confidence based on whether
+# it agrees with the BUY/SELL direction this read already settled on, the
+# same "extra confirmation, not a new filter" pattern used for Intra-Hedging.
+FURTHER_ANALYSIS_OPTIONS: list[dict[str, str]] = [
+    {"id": "pa_vp_smc", "label": "PA-VP-SMC"},
+    {"id": "volume_spread_next_candle", "label": "Volume Spread - Next Candle"},
+    {"id": "elliott_wave", "label": "Elliott Wave"},
+    {"id": "bb_mean_reversion", "label": "BB Mean Reversion"},
+    {"id": "support_resistance", "label": "Support & Resistance"},
+    {"id": "mtf_trend_strength", "label": "Trend & Strength (MTF)"},
+]
+_FURTHER_ANALYSIS_CONFIRM_POINTS = 6.0
+_FURTHER_ANALYSIS_DISAGREE_POINTS = 4.0
+
+
+def _apply_further_analysis(
+    symbol: str, direction_wanted: str, checks: list[str],
+    *, market: str = "India", groww_token: str = "", exchange: str = "NSE",
+) -> tuple[list[str], float]:
+    """Runs every user-selected optional check against this symbol. Reuses
+    Intra-Hedging's own per-check dispatcher rather than re-deriving the same
+    6 engine calls a second time. Never raises — an opt-in extra never breaks
+    the core Market Prediction read."""
+    valid_ids = {o["id"] for o in FURTHER_ANALYSIS_OPTIONS}
+    valid = [c for c in (checks or []) if c in valid_ids]
+    if not valid:
+        return [], 0.0
+
+    from app.trading_hubs.intra_hedging_engine import _run_one_further_check
+
+    reasons: list[str] = []
+    delta = 0.0
+    for check_id in valid:
+        confirmed, note = _run_one_further_check(
+            check_id, symbol, market, direction_wanted,
+            momentum_timeframe="1d", groww_token=groww_token, exchange=exchange,
+        )
+        if note:
+            reasons.append(note)
+        if confirmed is True:
+            delta += _FURTHER_ANALYSIS_CONFIRM_POINTS
+        elif confirmed is False:
+            delta -= _FURTHER_ANALYSIS_DISAGREE_POINTS
+    return reasons, delta
+
+
 def _vix_read() -> dict[str, Any]:
     """India VIX level + day-over-day change — no Groww/NSE VIX feed exists
     in this app, so this is the one place that goes to yfinance directly for
@@ -448,6 +497,8 @@ def _build_outlook(symbol: str, *, groww_token: str, exchange: str) -> dict[str,
 
 def _build_trade_suggestion(
     result: dict[str, Any], df_daily: pd.DataFrame, outlook: dict[str, Any], cfg: MarketPredictionConfig,
+    *, is_index: bool = True, further_analysis: list[str] | None = None,
+    groww_token: str = "", exchange: str = "NSE",
 ) -> dict[str, Any]:
     """Turns the divergence read + forward outlook above into an actual
     risk-managed trade idea — action, %confidence, %SL/%TP, entry/stop/
@@ -542,6 +593,15 @@ def _build_trade_suggestion(
 
     confidence_pct, reasons = conf.finalize()
 
+    fa_reasons: list[str] = []
+    if not is_index and further_analysis:
+        fa_reasons, fa_delta = _apply_further_analysis(
+            symbol, direction, further_analysis, groww_token=groww_token, exchange=exchange,
+        )
+        if fa_reasons:
+            confidence_pct = round(min(95.0, max(10.0, confidence_pct + fa_delta)), 1)
+            reasons = reasons + fa_reasons
+
     liquidity = True
     try:
         vz = volume_zscore(df_daily["volume"], 20).dropna()
@@ -577,6 +637,7 @@ def analyze_market_prediction(
     cfg: MarketPredictionConfig | None = None,
     futures_price: float | None = None,
     fii_index_position_cut: bool | None = None,
+    further_analysis: list[str] | None = None,
 ) -> dict[str, Any]:
     """Full Market Prediction read for one India index/ticker."""
     from app.market_pulse.option_chain_engine import classify_option_chain_signal, fetch_option_chain
@@ -651,5 +712,9 @@ def analyze_market_prediction(
 
     outlook = _build_outlook(symbol, groww_token=groww_token, exchange=exchange)
     result["outlook"] = outlook
-    result["trade_suggestion"] = _build_trade_suggestion(result, df_daily, outlook, cfg)
+    result["trade_suggestion"] = _build_trade_suggestion(
+        result, df_daily, outlook, cfg,
+        is_index=is_index, further_analysis=further_analysis,
+        groww_token=groww_token, exchange=exchange,
+    )
     return result

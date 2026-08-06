@@ -57,7 +57,7 @@ strength pairs concept. Research / education only, not financial advice.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -136,6 +136,22 @@ def _build_sector_etf_map() -> dict[str, list[str]]:
 SECTOR_ETFS: dict[str, list[str]] = _build_sector_etf_map()
 BENCHMARK = "NIFTY 50"
 
+# Optional further-analysis engines a user can opt into per scan — each runs
+# only on the actual LONG/SHORT leg tickers of the recommended pair(s) (not
+# the full 28-sector universe), reusing each engine's own live single-ticker
+# read exactly as its own Pro Trade / Trading Hub page does, to add or
+# subtract confidence based on whether it agrees with the pair's direction.
+FURTHER_ANALYSIS_OPTIONS: list[dict[str, str]] = [
+    {"id": "pa_vp_smc", "label": "PA-VP-SMC"},
+    {"id": "volume_spread_next_candle", "label": "Volume Spread - Next Candle"},
+    {"id": "elliott_wave", "label": "Elliott Wave"},
+    {"id": "bb_mean_reversion", "label": "BB Mean Reversion"},
+    {"id": "support_resistance", "label": "Support & Resistance"},
+    {"id": "mtf_trend_strength", "label": "Trend & Strength (MTF)"},
+]
+_FURTHER_ANALYSIS_CONFIRM_POINTS = 6.0
+_FURTHER_ANALYSIS_DISAGREE_POINTS = 4.0
+
 
 @dataclass
 class IntraHedgingConfig:
@@ -159,6 +175,9 @@ class IntraHedgingConfig:
     universe_mode: str = "sector"
     stock_index: str = "NIFTY BANK"
     stock_universe_cap: int = 25
+    # Optional extra confluence checks run only on the LONG/SHORT legs of the
+    # pair(s) actually recommended — see FURTHER_ANALYSIS_OPTIONS below.
+    further_analysis: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -323,11 +342,131 @@ def _pair_confidence(spread_pct: float) -> float:
     return round(min(95.0, max(30.0, 50 + spread_pct * 6)), 1)
 
 
+def _further_analysis_ticker(name: str, cfg: IntraHedgingConfig) -> str | None:
+    """Resolve a real, chartable NSE ticker for the further-analysis engines —
+    they each fetch OHLCV for a standard tradeable symbol, not a raw sector-
+    index name. Stock mode already scans real stock tickers directly; sector
+    mode uses that sector's first verified liquid ETF (None if it has none,
+    same "honest gap" convention as the ETF execution route above)."""
+    if cfg.universe_mode == "stock":
+        return name
+    etfs = SECTOR_ETFS.get(name) or []
+    return etfs[0] if etfs else None
+
+
+def _run_one_further_check(
+    check_id: str, ticker: str, market: str, direction_wanted: str,
+    *, momentum_timeframe: str, groww_token: str, exchange: str,
+) -> tuple[bool | None, str]:
+    """Runs one optional engine's own live single-ticker read on `ticker` and
+    reports whether it agrees with `direction_wanted` ("LONG"/"SHORT").
+    Returns (confirmed, reason) — confirmed=None means the check produced no
+    usable read (data error or no active setup), not active disagreement."""
+    label = next((o["label"] for o in FURTHER_ANALYSIS_OPTIONS if o["id"] == check_id), check_id)
+    try:
+        if check_id == "mtf_trend_strength":
+            from app.market_pulse.mtf_trend_strength_engine import analyze_ticker_timeframe
+
+            tf = "1h" if momentum_timeframe in INTRADAY_TIMEFRAMES else "1d"
+            r = analyze_ticker_timeframe(ticker, tf, market, groww_token=groww_token, exchange=exchange)
+            if r.get("error"):
+                return None, f"{label} ({tf}): {r['error']}"
+            direction = str(r.get("direction") or "NEUTRAL").upper()
+            strength = r.get("strength_label", "—")
+            if direction not in ("LONG", "SHORT"):
+                return None, f"{label} ({tf}) on {ticker}: no clear trend either way ({strength} strength) — neither confirms nor fights this leg."
+            agree = direction == direction_wanted
+            return agree, (
+                f"{label} ({tf}) on {ticker}: {'confirms' if agree else 'disagrees with'} {direction_wanted} "
+                f"(higher-timeframe trend is {'an uptrend' if direction == 'LONG' else 'a downtrend'}, {strength} strength)."
+            )
+
+        if check_id == "support_resistance":
+            from app.trading_hubs.support_resistance_engine import analyze_ticker as _fn
+
+            r = _fn(ticker, market, groww_token=groww_token, exchange=exchange)
+            if r.get("error"):
+                return None, f"{label}: {r['error']}"
+            live = r.get("live") or {}
+            direction = live.get("direction")
+            conf = live.get("confidence_pct")
+            if not live.get("take_trade") or direction not in ("LONG", "SHORT"):
+                return None, f"{label} on {ticker}: no confirmed zone-tap + structure-break setup right now."
+            agree = direction == direction_wanted
+            return agree, (
+                f"{label} on {ticker}: {'confirms' if agree else 'disagrees with'} {direction_wanted} "
+                f"({direction}, {conf}% confidence)."
+            )
+
+        engine_map = {
+            "pa_vp_smc": "app.market_pulse.pa_vp_smc_engine",
+            "volume_spread_next_candle": "app.market_pulse.volume_spread_next_candle_engine",
+            "elliott_wave": "app.market_pulse.elliott_wave_engine",
+            "bb_mean_reversion": "app.market_pulse.bb_mean_reversion_engine",
+        }
+        module_path = engine_map.get(check_id)
+        if module_path is None:
+            return None, f"Unknown further-analysis check: {check_id}."
+        import importlib
+
+        mod = importlib.import_module(module_path)
+        r = mod.analyze_ticker(ticker, market, groww_token=groww_token, exchange=exchange)
+        if r.get("error"):
+            return None, f"{label}: {r['error']}"
+        direction = r.get("direction")
+        conf = r.get("confidence_pct")
+        if not r.get("take_trade") or direction not in ("LONG", "SHORT"):
+            return None, f"{label} on {ticker}: no actionable setup right now."
+        agree = direction == direction_wanted
+        return agree, (
+            f"{label} on {ticker}: {'confirms' if agree else 'disagrees with'} {direction_wanted} "
+            f"({direction}, {conf}% confidence)."
+        )
+    except Exception as exc:
+        logger.debug("Further-analysis check %s failed for %s: %s", check_id, ticker, exc)
+        return None, f"{label} on {ticker}: analysis failed ({str(exc)[:120]})."
+
+
+def _apply_further_analysis(
+    name: str, direction_wanted: str, cfg: IntraHedgingConfig,
+    *, market: str, groww_token: str, exchange: str,
+) -> tuple[list[str], float]:
+    """Runs every user-selected optional check against this leg's ticker.
+    Returns (reason_lines, confidence_delta) — never raises, so an opt-in
+    extra never breaks the core pair recommendation."""
+    checks = [c for c in (cfg.further_analysis or []) if c in {o["id"] for o in FURTHER_ANALYSIS_OPTIONS}]
+    if not checks:
+        return [], 0.0
+
+    ticker = _further_analysis_ticker(name, cfg)
+    if ticker is None:
+        return [
+            "Further analysis skipped — no sufficiently liquid single-sector ETF to chart for this leg "
+            "(switch to Stock universe mode, or pick a different sector, to enable it).",
+        ], 0.0
+
+    reasons: list[str] = []
+    delta = 0.0
+    for check_id in checks:
+        confirmed, note = _run_one_further_check(
+            check_id, ticker, market, direction_wanted,
+            momentum_timeframe=cfg.momentum_timeframe, groww_token=groww_token, exchange=exchange,
+        )
+        if note:
+            reasons.append(note)
+        if confirmed is True:
+            delta += _FURTHER_ANALYSIS_CONFIRM_POINTS
+        elif confirmed is False:
+            delta -= _FURTHER_ANALYSIS_DISAGREE_POINTS
+    return reasons, delta
+
+
 def _sector_row(
     name: str, metrics: dict[str, Any], *, role: str, cfg: IntraHedgingConfig,
     long_capital: float | None = None, short_capital: float | None = None,
     pair_note: str = "", universe_size: int | None = None,
     pair_rank: int | None = None, num_pairs: int = 1, pair_confidence: float | None = None,
+    further_analysis_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     is_stock_mode = cfg.universe_mode == "stock"
     label = name if is_stock_mode else SECTOR_LABELS.get(name, name)
@@ -398,6 +537,8 @@ def _sector_row(
         reasons.append(f"Beta-neutral allocation for this leg: ₹{capital:,.0f} ({capital_scope}).")
     if pair_tag:
         reasons.insert(0, f"{pair_tag} — {confidence:.0f}% confidence (ranked by momentum spread vs the other {num_pairs - 1} pair(s) found today).")
+    if further_analysis_reasons:
+        reasons.extend(further_analysis_reasons)
 
     plan = make_trade_plan(
         direction=direction, timeframe=cfg.momentum_timeframe,
@@ -562,12 +703,29 @@ def scan_universe(
         net_beta_exposure = round(long_capital * strong["beta"] - short_capital * weak["beta"], 2)
         confidence = _pair_confidence(spread)
 
+        long_fa_reasons, long_fa_delta = _apply_further_analysis(
+            long_name, "LONG", cfg, market=market, groww_token=groww_token, exchange=exchange,
+        )
+        short_fa_reasons, short_fa_delta = _apply_further_analysis(
+            short_name, "SHORT", cfg, market=market, groww_token=groww_token, exchange=exchange,
+        )
+        long_confidence = min(95.0, max(10.0, confidence + long_fa_delta))
+        short_confidence = min(95.0, max(10.0, confidence + short_fa_delta))
+
         pair_note = (
             f"{pair_scope} pair {p['rank']} of {num_pairs}: LONG {labels.get(long_name, long_name)} ({strong['momentum_pct']:+.2f}%) vs "
             f"SHORT {labels.get(short_name, short_name)} ({weak['momentum_pct']:+.2f}%) — spread {spread:.2f}%, {confidence:.0f}% confidence."
         )
-        role_by_name[long_name] = {"role": "long", "pair_rank": p["rank"], "pair_note": pair_note, "long_capital": long_capital, "short_capital": short_capital, "confidence": confidence}
-        role_by_name[short_name] = {"role": "short", "pair_rank": p["rank"], "pair_note": pair_note, "long_capital": long_capital, "short_capital": short_capital, "confidence": confidence}
+        role_by_name[long_name] = {
+            "role": "long", "pair_rank": p["rank"], "pair_note": pair_note,
+            "long_capital": long_capital, "short_capital": short_capital,
+            "confidence": long_confidence, "further_analysis_reasons": long_fa_reasons,
+        }
+        role_by_name[short_name] = {
+            "role": "short", "pair_rank": p["rank"], "pair_note": pair_note,
+            "long_capital": long_capital, "short_capital": short_capital,
+            "confidence": short_confidence, "further_analysis_reasons": short_fa_reasons,
+        }
 
         pair_recommendations.append({
             "pair_rank": p["rank"], "confidence_pct": confidence,
@@ -607,6 +765,7 @@ def scan_universe(
                 long_capital=assignment["long_capital"], short_capital=assignment["short_capital"],
                 pair_note=assignment["pair_note"], universe_size=len(names),
                 pair_rank=assignment["pair_rank"], num_pairs=num_pairs, pair_confidence=assignment["confidence"],
+                further_analysis_reasons=assignment.get("further_analysis_reasons"),
             )
         results.append({
             "ticker": name, "label": labels.get(name, name),

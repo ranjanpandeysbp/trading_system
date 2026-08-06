@@ -30,6 +30,16 @@ const SECTIONS = [
   { id: 'market_prediction', label: '🔮 Market Prediction' },
 ] as const
 
+// Mirrors market_prediction_engine.FURTHER_ANALYSIS_OPTIONS on the backend — stock mode only.
+const MARKET_PREDICTION_FURTHER_ANALYSIS_OPTIONS: { id: string; label: string }[] = [
+  { id: 'pa_vp_smc', label: 'PA-VP-SMC' },
+  { id: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
+  { id: 'elliott_wave', label: 'Elliott Wave' },
+  { id: 'bb_mean_reversion', label: 'BB Mean Reversion' },
+  { id: 'support_resistance', label: 'Support & Resistance' },
+  { id: 'mtf_trend_strength', label: 'Trend & Strength (MTF)' },
+]
+
 const MARKET_PREDICTION_EXPLANATION = `Checks whether the move on the "as of" trading day shown on the result is actually backed by conviction in
 the derivatives data, or is a "hollow" move — price rising while the options market quietly prices in doubt —
 the same read a derivatives desk makes before trusting a rally or a selloff. Data comes from NSE's live option
@@ -369,6 +379,7 @@ export default function Options() {
   const [mpSuggestOpen, setMpSuggestOpen] = useState(false)
   const [mpFuturesPrice, setMpFuturesPrice] = useState('')
   const [mpFiiCut, setMpFiiCut] = useState<'unset' | 'yes' | 'no'>('unset')
+  const [mpFurtherAnalysis, setMpFurtherAnalysis] = useState<string[]>([])
 
   useEffect(() => {
     const t = setTimeout(() => setMpStockDebounced(mpStockTicker.trim()), 200)
@@ -390,6 +401,7 @@ export default function Options() {
         is_index: mpMode === 'index',
         futures_price: mpFuturesPrice.trim() ? Number(mpFuturesPrice) : undefined,
         fii_index_position_cut: mpFiiCut === 'unset' ? undefined : mpFiiCut === 'yes',
+        further_analysis: mpMode === 'stock' && mpFurtherAnalysis.length ? mpFurtherAnalysis : undefined,
       }),
     onSuccess: () => setMpError(''),
     onError: (e) => setMpError(apiErrorMessage(e)),
@@ -942,6 +954,44 @@ export default function Options() {
                   names do. If a ticker has no options chain, the run will report that clearly rather than guessing.
                 </p>
               </FormField>
+            )}
+
+            {mpMode === 'stock' && (
+              <div className="mt-4">
+                <FormField label="Optional further analysis (confidence boost/penalty on the BUY/SELL trade idea)">
+                  <div className="flex flex-wrap gap-2">
+                    {MARKET_PREDICTION_FURTHER_ANALYSIS_OPTIONS.map((opt) => {
+                      const checked = mpFurtherAnalysis.includes(opt.id)
+                      return (
+                        <label
+                          key={opt.id}
+                          className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+                            checked
+                              ? 'border-teal-500/60 bg-teal-500/10 text-teal-300'
+                              : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:border-slate-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-teal-500"
+                            checked={checked}
+                            onChange={(e) =>
+                              setMpFurtherAnalysis((prev) =>
+                                e.target.checked ? [...prev, opt.id] : prev.filter((id) => id !== opt.id),
+                              )
+                            }
+                          />
+                          {opt.label}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Each checked engine runs its own live read on this stock and nudges the trade idea's
+                    confidence up or down based on whether it agrees — extra confirmation, not a new filter.
+                  </span>
+                </FormField>
+              </div>
             )}
 
             <div className="mt-4">

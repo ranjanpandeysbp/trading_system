@@ -193,6 +193,7 @@ class OptionsService:
         exchange: str | None = None,
         futures_price: float | None = None,
         fii_index_position_cut: bool | None = None,
+        further_analysis: list[str] | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.market_prediction_engine import (
             MarketPredictionConfig,
@@ -208,6 +209,7 @@ class OptionsService:
             return analyze_market_prediction(
                 symbol, is_index=is_index, groww_token=token, exchange=resolved_exchange, cfg=cfg,
                 futures_price=futures_price, fii_index_position_cut=fii_index_position_cut,
+                further_analysis=further_analysis,
             )
 
         payload = await asyncio.to_thread(_run)
