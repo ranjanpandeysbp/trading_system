@@ -130,7 +130,16 @@ export default function EtfTaIn() {
   })
 
   const dailyMutation = useMutation({
-    mutationFn: () => runEtfShopDaily(assetClass),
+    mutationFn: async () => {
+      // Selecting a preset (or editing any capital/rule field) only updates
+      // local draft state — save it first so "Run daily recommendation"
+      // always reflects what's currently shown on screen, not whatever was
+      // last explicitly saved via the separate Save buttons.
+      if (draft) {
+        await updateEtfShopConfig({ ...draft, asset_class: assetClass })
+      }
+      return runEtfShopDaily(assetClass)
+    },
     onError: (e) => setError(apiErrorMessage(e)),
     onSuccess: () => {
       setError('')
