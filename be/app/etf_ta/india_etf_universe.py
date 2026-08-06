@@ -3,9 +3,21 @@ india_etf_universe.py
 ---------------------
 India NSE ETF universes for ETF Shop 4.0 (STF Shop tab).
 
-3.0 rule: primary shop uses **39 ETFs on 39 distinct underlying assets** — no overlap
+3.0 rule: primary shop uses ETFs on distinct underlying assets — no overlap
 (e.g. not two Nifty 50 or two Bank Nifty funds in the active shop list).
 Master list (~120+) is for manual substitution when a ticker has data issues.
+
+Ticker corrections (verified against actual NSE/BSE listings — some originally
+listed symbols do not exist or trade under a different symbol):
+  - NIFTY_500: ICICI500 -> BSE500IETF (ICICI Prudential BSE 500 ETF; BSE: 541313)
+  - BHARAT_22: BHARAT22 -> ICICIB22 (Bharat 22 ETF; BSE: 540787)
+  - BSE_SENSEX_22 removed: it duplicated ICICIB22 (same fund as BHARAT_22 above,
+    not a distinct "BSE Sensex 22" product)
+  - NETF_MID150: NETFMID150 -> MID150BEES (Nippon India ETF Nifty Midcap 150; BSE: 542932)
+  - QUALITY_30 removed: NETFQ30 has no direct NSE/BSE match
+  - METAL removed: METALBEES does not exist
+  - REALTY: REALTYBEES -> MOREALTY (Motilal Oswal Nifty Realty ETF; BSE: 544147)
+  - ENERGY: ENERGYBEES -> ENERGY (Mirae Asset Nifty Energy ETF; BSE: 544604)
 """
 
 from __future__ import annotations
@@ -21,7 +33,7 @@ ETF_SHOP_39_UNDERLYING: dict[str, str] = {
     "NIFTY_PSU_BANK": "PSUBNKBEES",
     "NIFTY_MIDCAP_150": "MIDCAPETF",
     "NIFTY_SMLCAP_250": "HDFCSML250",
-    "NIFTY_500": "ICICI500",
+    "NIFTY_500": "BSE500IETF",
     "NIFTY_100": "UTINIFTETF",
     "SENSEX": "UTISXN50",
     "GOLD": "GOLDBEES",
@@ -38,21 +50,18 @@ ETF_SHOP_39_UNDERLYING: dict[str, str] = {
     "DEFENCE": "MODEFENCE",
     "FMCG": "FMCGIETF",
     "NV20": "NV20BEES",
-    "BHARAT_22": "BHARAT22",
-    "BSE_SENSEX_22": "ICICIB22",
+    "BHARAT_22": "ICICIB22",
     "TOP_50_EQUAL": "MASPTOP50",
     "MIDCAP_150_HDFC": "HDFCMID150",
-    "NETF_MID150": "NETFMID150",
+    "NETF_MID150": "MID150BEES",
     "GROWW_POWER": "GROWWPOWER",
     "GROWW_DEFENCE": "GROWWDEFNC",
     "GROWW_EV": "GROWWEV",
     "GROWW_LOW_VOL": "GROWWLOVOL",
-    "QUALITY_30": "NETFQ30",
     "LIQUID": "LIQUIDBEES",
     "HEALTHCARE": "HEALTHY",
-    "METAL": "METALBEES",
-    "REALTY": "REALTYBEES",
-    "ENERGY": "ENERGYBEES",
+    "REALTY": "MOREALTY",
+    "ENERGY": "ENERGY",
 }
 
 ETF_SHOP_39_PRIMARY: list[str] = list(ETF_SHOP_39_UNDERLYING.values())
@@ -84,7 +93,7 @@ MASTER_INDIA_ETFS: list[str] = sorted(set(ETF_SHOP_39_PRIMARY + [
     "BANKETFADD", "ITETFADD", "AUTOBEES", "CONSUMBEES",
     "INFRABEES", "PHARMABEES", "FMCGIETF", "MODEFENCE",
     "GROWWPOWER", "GROWWDEFNC", "GROWWEV", "GROWWLOVOL",
-    "NETFMID150", "NETFCONSUM", "NETFIT", "NETFNIF100",
+    "NETFCONSUM", "NETFIT", "NETFNIF100",
     "MASPTOP50", "MAHKTECH", "MAFCTETF",
 ]))
 
@@ -98,11 +107,11 @@ ETF_PRESETS: dict[str, list[str]] = {
     "Thematic / Sector": [
         "DIVOPPBEES", "CONSUMBEES", "PHARMABEES", "AUTOBEES", "INFRABEES",
         "FMCGIETF", "MODEFENCE", "GROWWPOWER", "GROWWDEFNC", "GROWWEV",
-        "METALBEES", "REALTYBEES", "ENERGYBEES", "HEALTHY",
+        "MOREALTY", "ENERGY", "HEALTHY",
     ],
     "Commodity": ["GOLDBEES", "SILVERBEES", "HDFCGOLD", "GOLDSHARE"],
     "Smart Beta / Factor": [
-        "MOM100", "MOM50", "MON100", "NV20BEES", "NETFMID150", "MASPTOP50", "NETFQ30",
+        "MOM100", "MOM50", "MON100", "NV20BEES", "MID150BEES", "MASPTOP50",
     ],
     # Same broad, actively-traded NSE ETF universe already used for the general ticker-picker
     # "High Vol ETF" dropdown elsewhere in this app (app.market_pulse.high_vol_etf_tickers) —
