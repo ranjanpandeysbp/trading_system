@@ -1992,6 +1992,21 @@ export const runProTradeElliottWave = (payload: {
   end_date?: string
 }) => api.post('/pro-trade/elliott-wave', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeFibonacciPro = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  fib_lookback?: number
+  secondary_lookback?: number
+  zone_tol_atr?: number
+  min_rr?: number
+  strategies?: string[]
+  start_date?: string
+  end_date?: string
+}) => api.post('/pro-trade/fibonacci-pro', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeBbMeanReversion = (payload: {
   tickers: string[]
   asset_class?: string

@@ -97,6 +97,7 @@ from app.models.schemas import (
     ProTradePaVpSmcRequest,
     ProTradeVolumeSpreadNextCandleRequest,
     ProTradeElliottWaveRequest,
+    ProTradeFibonacciProRequest,
     ProTradeBbMeanReversionRequest,
     ProTradeBtstRequest,
     PlaceOrderRequest,
@@ -4507,6 +4508,30 @@ async def pro_trade_elliott_wave(
             "timeframe": payload.timeframe,
             "lookback_bars": payload.lookback_bars,
             "zigzag_pct": payload.zigzag_pct,
+            "start_date": payload.start_date or "",
+            "end_date": payload.end_date or "",
+        },
+    )
+
+
+@router.post("/pro-trade/fibonacci-pro")
+async def pro_trade_fibonacci_pro(
+    payload: ProTradeFibonacciProRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).fibonacci_pro(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "fib_lookback": payload.fib_lookback,
+            "secondary_lookback": payload.secondary_lookback,
+            "zone_tol_atr": payload.zone_tol_atr,
+            "min_rr": payload.min_rr,
+            "strategies": payload.strategies or [],
             "start_date": payload.start_date or "",
             "end_date": payload.end_date or "",
         },

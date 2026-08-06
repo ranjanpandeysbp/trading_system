@@ -12,6 +12,7 @@ import {
   runProTradeBbMeanReversion,
   runProTradeBtst,
   runProTradeElliottWave,
+  runProTradeFibonacciPro,
   runProTradePaVolumeProfile,
   runProTradePaVpSmc,
   runProTradeVolumeProfileCe,
@@ -35,6 +36,7 @@ import { BbMeanReversionPanel } from '../components/pro-trade/BbMeanReversionPan
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
+import { FibonacciProPanel } from '../components/pro-trade/FibonacciProPanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
 import { PaVpSmcPanel } from '../components/pro-trade/PaVpSmcPanel'
 import { VolumeProfileCePanel } from '../components/pro-trade/VolumeProfileCePanel'
@@ -1323,6 +1325,258 @@ function ElliottWavePage() {
   )
 }
 
+const FIB_STRATEGIES: { id: string; label: string }[] = [
+  { id: 'golden_pocket', label: 'Golden Pocket (50–61.8%)' },
+  { id: 'ote_smc', label: 'OTE / SMC (61.8–78.6%)' },
+  { id: 'deep_786', label: 'Deep 78.6%' },
+  { id: 'extension_ride', label: 'Extension Ride' },
+  { id: 'fib_cluster', label: 'Fib Cluster' },
+  { id: 'rejection_fade', label: 'Rejection Fade' },
+]
+
+const FIB_LAYMAN = `In plain English — how to read your results
+
+Fibonacci levels are just measuring tape on a chart. After a big move (a "swing"), price often pulls back
+part of the way before continuing. Traders mark those pullback distances as percentages of the original move —
+especially 50% and 61.8% (the "golden pocket"). This scanner checks whether price is sitting in one of those
+known zones right now, and whether the bigger trend still agrees.
+
+What you see on each ticker card:
+• **BULLISH / BEARISH / NEUTRAL** — the suggested direction (or "wait" if nothing is ready).
+• **BUY / SELL badge** — only appears when a setup is considered actionable right now.
+• **Confidence %** — how many checks lined up (trend, zone quality, reward:risk). Higher is better; it is not a
+  win-rate guarantee.
+• **SL % and TP %** — how far the suggested stop-loss and take-profit are from entry, as a % of price. Roughly:
+  "risk this much to aim for that much."
+• **Reward : Risk (1 : X)** — if X is 2, the target is about twice as far as the stop. Thin ratios are filtered out.
+• **Best strategy name** (e.g. Golden Pocket) — which Fib tactic fired for this ticker. Read its "When to use" note.
+• **Active Fib setups** — sometimes more than one tactic fires; they are listed with their own SL/TP/confidence.
+• **Chart (if Charts is on)** — purple Fib ladder on the swing, plus Entry / SL / TP lines for the best setup.
+
+What NEUTRAL / WAIT means:
+Price is not currently sitting in an enabled Fib entry zone with trend confirmation and enough reward:risk.
+That is normal most of the time — Fib setups are selective. Wait for price to tag a golden pocket, OTE zone,
+78.6%, or extension rather than forcing a trade.
+
+Quick decision guide:
+1. Prefer tickers with BUY/SELL + higher confidence %.
+2. Read "When to use" — if the market mood doesn't match that note, skip even a green badge.
+3. Check SL% vs how much you are willing to lose on one trade; size the position from the stop, not from hope.
+4. Use the chart to confirm price is actually near the Fib zone the card claims.
+
+Research / education only — not financial advice.`
+
+const FIB_OVERVIEW = `Fibonacci Pro — experienced-trader Fib playbook
+
+Pullbacks into classic Fib ratios (especially the golden pocket and OTE zone) are how many
+discretionary desks frame with-trend entries. Extensions (127.2% / 161.8%) define continuation
+targets and exhaustion fades. This module evaluates all of those on India / US / crypto / commodity
+tickers, attaches a risk plan, and draws the Fib ladder on the chart.`
+
+const FIB_WHEN = `When to use which strategy
+
+1. Golden Pocket — clean impulse, shallow-to-mid pullback, trend still alive (EMA stack). Everyday workhorse.
+2. OTE / SMC — want a deeper discount/premium (61.8–78.6) after a liquidity grab; fewer trades, better R:R.
+3. Deep 78.6 — volatile names that routinely deep-retrace; size smaller, stop beyond the swing.
+4. Extension Ride — already reclaimed the swing origin and thrusting; scale at 127.2, trail toward 161.8.
+5. Fib Cluster — secondary swing Fib stacks on the primary golden zone; highest conviction, rarest.
+6. Rejection Fade — price tagged an extension and rejected; counter-extension fade with tight risk.`
+
+function FibonacciProPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
+  const [error, setError] = useState('')
+  const [timeframe, setTimeframe] = useState('1d')
+  const [lookback, setLookback] = useState(250)
+  const [fibLookback, setFibLookback] = useState(100)
+  const [secondaryLookback, setSecondaryLookback] = useState(40)
+  const [zoneTolAtr, setZoneTolAtr] = useState(0.55)
+  const [minRr, setMinRr] = useState(1.4)
+  const [strategies, setStrategies] = useState<string[]>(FIB_STRATEGIES.map((s) => s.id))
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'fibonacci_pro')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const toggleStrategy = (id: string) => {
+    setStrategies((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe,
+    lookback_bars: lookback,
+    fib_lookback: fibLookback,
+    secondary_lookback: secondaryLookback,
+    zone_tol_atr: zoneTolAtr,
+    min_rr: minRr,
+    strategies: strategies.length ? strategies : FIB_STRATEGIES.map((s) => s.id),
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!strategies.length) throw new Error('Enable at least one Fib strategy')
+      return runProTradeFibonacciPro(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Fibonacci Pro', data) : ''
+
+  return (
+    <div>
+      <PageHeader
+        title="Fibonacci Pro"
+        description="Golden pocket · OTE · 78.6 · extensions · cluster · rejection fade — confidence % · SL% · TP% · charts · all asset classes"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="In plain English — how to interpret your results" defaultOpen>
+          {FIB_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="Overview">{FIB_OVERVIEW}</CollapsibleSection>
+        <CollapsibleSection title="When to use which Fib strategy">{FIB_WHEN}</CollapsibleSection>
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['1d'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium text-slate-400">Strategies to evaluate</p>
+          <div className="flex flex-wrap gap-2">
+            {FIB_STRATEGIES.map((s) => {
+              const on = strategies.includes(s.id)
+              return (
+                <label
+                  key={s.id}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+                    on
+                      ? 'border-violet-500/50 bg-violet-500/10 text-violet-200'
+                      : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:border-slate-600'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-violet-500"
+                    checked={on}
+                    onChange={() => toggleStrategy(s.id)}
+                  />
+                  {s.label}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-3">
+          <FormField label="Timeframe">
+            <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+              {EW_TFS.map((tf) => (
+                <option key={tf} value={tf}>{tf}</option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Candle history">
+            <Input type="number" min={60} max={650} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 250)} />
+          </FormField>
+          <FormField label="Primary Fib lookback">
+            <Input type="number" min={30} max={300} value={fibLookback} onChange={(e) => setFibLookback(Number(e.target.value) || 100)} />
+          </FormField>
+          <FormField label="Secondary lookback (cluster)">
+            <Input type="number" min={20} max={120} value={secondaryLookback} onChange={(e) => setSecondaryLookback(Number(e.target.value) || 40)} />
+          </FormField>
+          <FormField label="Zone tolerance (ATR)">
+            <Input type="number" step="0.05" min={0.2} max={2} value={zoneTolAtr} onChange={(e) => setZoneTolAtr(Number(e.target.value) || 0.55)} />
+          </FormField>
+          <FormField label="Min reward:risk">
+            <Input type="number" step="0.1" min={0.8} max={5} value={minRr} onChange={(e) => setMinRr(Number(e.target.value) || 1.4)} />
+          </FormField>
+        </div>
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">
+          <FormField label="From date (optional)">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </FormField>
+          <FormField label="To date (optional)">
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending ? 'Scanning…' : `Scan Fibonacci Pro (${picker.tickers.length})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Fibonacci Pro · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!strategies.length) return 'Enable at least one Fib strategy'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Mapping Fib swings and evaluating strategies…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+            <p className="mb-2 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
+          <Card className="mb-4">
+            <FibonacciProPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/fibonacci-pro" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BB_OVERVIEW = `BB Mean Reversion — Bollinger Band %B stretch, hardened with the checks a real mean-reversion desk applies
 
 When price closes outside its Bollinger Bands (20-bar mean ± 2 standard deviations), that stretch has historically
@@ -2164,6 +2418,7 @@ export default function ProTrade() {
   if (tab === 'pa-vp-smc') return <PaVpSmcPage />
   if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
   if (tab === 'elliott-wave') return <ElliottWavePage />
+  if (tab === 'fibonacci-pro') return <FibonacciProPage />
   if (tab === 'bb-mean-reversion') return <BbMeanReversionPage />
   if (tab === 'btst') return <BtstPage />
   return <Navigate to="/pro-trade/volume-profile-ce" replace />

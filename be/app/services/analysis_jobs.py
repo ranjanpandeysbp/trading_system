@@ -148,6 +148,8 @@ async def execute_analysis(
             return await svc.volume_spread_next_candle(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
         if section == "elliott_wave":
             return await svc.elliott_wave(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "fibonacci_pro":
+            return await svc.fibonacci_pro(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
         if section == "bb_mean_reversion":
             return await svc.bb_mean_reversion(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
         if section == "btst":

@@ -1092,6 +1092,22 @@ class ProTradeElliottWaveRequest(BaseModel):
     end_date: str | None = None
 
 
+class ProTradeFibonacciProRequest(BaseModel):
+    """Fibonacci Pro — multi-strategy Fib playbook (golden pocket, OTE, 78.6, extensions, cluster, fade)."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=250, ge=60, le=650)
+    fib_lookback: int = Field(default=100, ge=30, le=300)
+    secondary_lookback: int = Field(default=40, ge=20, le=120)
+    zone_tol_atr: float = Field(default=0.55, ge=0.2, le=2.0)
+    min_rr: float = Field(default=1.4, ge=0.8, le=5.0)
+    strategies: list[str] = Field(default_factory=list)
+    start_date: str | None = None
+    end_date: str | None = None
+
+
 class ProTradeBbMeanReversionRequest(BaseModel):
     """BB Mean Reversion — Bollinger %B stretch confirmed by regime filter, RSI,
     candlestick reversal, volume climax, and independent Support/Resistance confluence."""

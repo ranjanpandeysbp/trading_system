@@ -72,6 +72,12 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "fibonacci_pro",
+                    "label": "Fibonacci Pro",
+                    "path": "/pro-trade/fibonacci-pro",
+                    "youtube": None,
+                },
+                {
                     "id": "bb_mean_reversion",
                     "label": "BB Mean Reversion",
                     "path": "/pro-trade/bb-mean-reversion",
@@ -299,6 +305,52 @@ class ProTradeService:
         for r in payload.get("results", []):
             r["ai_context"] = build_elliott_wave_ai_prompt(r)
         payload["ai_system_prompt"] = ELLIOTT_WAVE_AI_SYSTEM
+        return json_safe(payload)
+
+    async def fibonacci_pro(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.fibonacci_pro_engine import (
+            FIBONACCI_PRO_AI_SYSTEM,
+            FibonacciProConfig,
+            build_fibonacci_pro_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        overrides = dict(cfg_overrides or {})
+        if not overrides.get("strategies"):
+            overrides.pop("strategies", None)
+        cfg = FibonacciProConfig(**overrides)
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved,
+                market,
+                cfg=cfg,
+                groww_token=token,
+                exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            r["ai_context"] = build_fibonacci_pro_ai_prompt(r)
+        payload["ai_system_prompt"] = FIBONACCI_PRO_AI_SYSTEM
         return json_safe(payload)
 
     async def bb_mean_reversion(
