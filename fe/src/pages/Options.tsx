@@ -13,6 +13,12 @@ import {
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
+import {
+  OptionsBackgroundControls,
+  OptionsBackgroundJobsAndReports,
+  useOptionsBackground,
+  type OptionsSectionId,
+} from '../components/options/OptionsBackground'
 import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -227,6 +233,7 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: s
 
 export default function Options() {
   const [section, setSection] = useState<SectionId>('double_calendar')
+  const bg = useOptionsBackground(section as OptionsSectionId)
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [error, setError] = useState('')
@@ -265,8 +272,9 @@ export default function Options() {
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMutation.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMutation.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('Double Calendar', data) : ''
+  const showDcResults = !!data && (!runMutation.isPending || bg.viewedReportId != null)
 
   const [dnAssetClass, setDnAssetClass] = useState<AssetClass>('india')
   const [dnPicker, setDnPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
@@ -304,8 +312,9 @@ export default function Options() {
     onError: (e) => setDnError(apiErrorMessage(e)),
   })
 
-  const dnData = runDnMutation.data as Record<string, unknown> | undefined
+  const dnData = (bg.viewedPayload ?? runDnMutation.data) as Record<string, unknown> | undefined
   const dnAskContext = dnData ? buildAskContext('Delta Neutral', dnData) : ''
+  const showDnResults = !!dnData && (!runDnMutation.isPending || bg.viewedReportId != null)
 
   const [hgAssetClass, setHgAssetClass] = useState<AssetClass>('india')
   const [hgPicker, setHgPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
@@ -343,8 +352,9 @@ export default function Options() {
     onError: (e) => setHgError(apiErrorMessage(e)),
   })
 
-  const hgData = runHgMutation.data as Record<string, unknown> | undefined
+  const hgData = (bg.viewedPayload ?? runHgMutation.data) as Record<string, unknown> | undefined
   const hgAskContext = hgData ? buildAskContext('Hedging', hgData) : ''
+  const showHgResults = !!hgData && (!runHgMutation.isPending || bg.viewedReportId != null)
 
   const [gkError, setGkError] = useState('')
   const [vwmaLen, setVwmaLen] = useState(20)
@@ -368,8 +378,9 @@ export default function Options() {
     onSuccess: () => setGkError(''),
     onError: (e) => setGkError(apiErrorMessage(e)),
   })
-  const gkData = runGkMutation.data as Record<string, unknown> | undefined
+  const gkData = (bg.viewedPayload ?? runGkMutation.data) as Record<string, unknown> | undefined
   const gkAskContext = gkData ? buildAskContext('Gokul Chhabra', gkData) : ''
+  const showGkResults = !!gkData && (!runGkMutation.isPending || bg.viewedReportId != null)
 
   const [mpError, setMpError] = useState('')
   const [mpMode, setMpMode] = useState<'index' | 'stock'>('index')
@@ -406,8 +417,9 @@ export default function Options() {
     onSuccess: () => setMpError(''),
     onError: (e) => setMpError(apiErrorMessage(e)),
   })
-  const mpData = runMpMutation.data as Record<string, unknown> | undefined
+  const mpData = (bg.viewedPayload ?? runMpMutation.data) as Record<string, unknown> | undefined
   const mpAskContext = mpData ? buildAskContext('Market Prediction', mpData) : ''
+  const showMpResults = !!mpData && (!runMpMutation.isPending || bg.viewedReportId != null)
 
   const [zthError, setZthError] = useState('')
   const [zthTf, setZthTf] = useState('15m')
@@ -431,8 +443,9 @@ export default function Options() {
     onSuccess: () => setZthError(''),
     onError: (e) => setZthError(apiErrorMessage(e)),
   })
-  const zthData = runZthMutation.data as Record<string, unknown> | undefined
+  const zthData = (bg.viewedPayload ?? runZthMutation.data) as Record<string, unknown> | undefined
   const zthAskContext = zthData ? buildAskContext('Zero to Hero', zthData) : ''
+  const showZthResults = !!zthData && (!runZthMutation.isPending || bg.viewedReportId != null)
 
   return (
     <div>
@@ -519,25 +532,53 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+            <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
               {runMutation.isPending
                 ? `Building ${picker.tickers.length || ''}…`
                 : `📅 Build Double Calendar${picker.tickers.length ? ` (${picker.tickers.length})` : ''}`}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Double Calendar · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(
+                {
+                  tickers: picker.tickers,
+                  asset_class: assetClass,
+                  timeframes: picker.durations.length ? picker.durations : ['1d'],
+                  short_dte: shortDte,
+                  long_dte: longDte,
+                  otm_offset_pct: otmOffsetPct,
+                  diagonal_widen_pct: isDiagonal ? diagonalWidenPct : 0,
+                  take_profit_start: tpStart / 100,
+                  take_profit_max: tpMax / 100,
+                  stop_loss: -stopLossPct / 100,
+                  vix_max_threshold: vixMax,
+                  vol_percentile_max: vixMax,
+                },
+                () => (!picker.tickers.length ? 'Select at least one ticker' : null),
+              )}
+            />
             {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runMutation.isPending && <Loading message="Building Double Calendar…" />}
 
-          {data && !runMutation.isPending && (
+          {showDcResults && (
             <Card>
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
               <DoubleCalendarPanel
-                data={data} stopLoss={-stopLossPct / 100} takeProfitStart={tpStart / 100} takeProfitMax={tpMax / 100}
+                data={data!} stopLoss={-stopLossPct / 100} takeProfitStart={tpStart / 100} takeProfitMax={tpMax / 100}
               />
             </Card>
           )}
 
-          {askContext && !runMutation.isPending && (
+          {askContext && showDcResults && (
             <AskAIPanel context={askContext} section="options/double_calendar" />
           )}
         </div>
@@ -613,23 +654,51 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runDnMutation.mutate()} disabled={runDnMutation.isPending}>
+            <Button className="mt-4" onClick={() => runDnMutation.mutate()} disabled={runDnMutation.isPending || bg.runInBackground}>
               {runDnMutation.isPending
                 ? `Building ${dnPicker.tickers.length || ''}…`
                 : `🎯 Build Delta-Neutral Spread${dnPicker.tickers.length ? ` (${dnPicker.tickers.length})` : ''}`}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Delta Neutral · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(
+                {
+                  tickers: dnPicker.tickers,
+                  asset_class: dnAssetClass,
+                  timeframes: dnPicker.durations.length ? dnPicker.durations : ['1d'],
+                  dte,
+                  short_delta_target: deltaTarget,
+                  wing_width_pct: wingWidthPct,
+                  iron_fly: ironFly,
+                  profit_target_pct: dnTpPct / 100,
+                  stop_loss_multiple: slMultiple,
+                  vix_max_threshold: dnVixMax,
+                  vol_percentile_max: dnVixMax,
+                  adx_trend_max: adxMax,
+                },
+                () => (!dnPicker.tickers.length ? 'Select at least one ticker' : null),
+              )}
+            />
             {dnError && <div className="mt-3"><Alert type="error">{dnError}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runDnMutation.isPending && <Loading message="Building Delta-Neutral spread…" />}
 
-          {dnData && !runDnMutation.isPending && (
+          {showDnResults && (
             <Card>
-              <DeltaNeutralPanel data={dnData} profitTargetPct={dnTpPct / 100} stopLossMultiple={slMultiple} />
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <DeltaNeutralPanel data={dnData!} profitTargetPct={dnTpPct / 100} stopLossMultiple={slMultiple} />
             </Card>
           )}
 
-          {dnAskContext && !runDnMutation.isPending && (
+          {dnAskContext && showDnResults && (
             <AskAIPanel context={dnAskContext} section="options/delta_neutral" />
           )}
         </div>
@@ -713,26 +782,51 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runHgMutation.mutate()} disabled={runHgMutation.isPending}>
+            <Button className="mt-4" onClick={() => runHgMutation.mutate()} disabled={runHgMutation.isPending || bg.runInBackground}>
               {runHgMutation.isPending
                 ? `Building ${hgPicker.tickers.length || ''}…`
                 : `🛡️ Build Hedge${hgPicker.tickers.length ? ` (${hgPicker.tickers.length})` : ''}`}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Hedging · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(
+                {
+                  tickers: hgPicker.tickers,
+                  asset_class: hgAssetClass,
+                  dte: hgDte,
+                  hedge_distance_pct: hedgeDistancePct,
+                  zone_timeframe: zoneTf,
+                  zone_fallback_timeframe: zoneFallbackTf,
+                  total_capital: totalCapital,
+                  profit_target_pct_of_capital: hgTpPct / 100,
+                  max_loss_pct_of_capital: hgSlPct / 100,
+                },
+                () => (!hgPicker.tickers.length ? 'Select at least one ticker' : null),
+              )}
+            />
             {hgError && <div className="mt-3"><Alert type="error">{hgError}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runHgMutation.isPending && <Loading message="Building Hedging setup…" />}
 
-          {hgData && !runHgMutation.isPending && (
+          {showHgResults && (
             <Card>
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
               <HedgingPanel
-                data={hgData} totalCapital={totalCapital}
+                data={hgData!} totalCapital={totalCapital}
                 profitTargetPctOfCapital={hgTpPct / 100} maxLossPctOfCapital={hgSlPct / 100}
               />
             </Card>
           )}
 
-          {hgAskContext && !runHgMutation.isPending && (
+          {hgAskContext && showHgResults && (
             <AskAIPanel context={hgAskContext} section="options/hedging" />
           )}
         </div>
@@ -785,21 +879,41 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runGkMutation.mutate()} disabled={runGkMutation.isPending}>
+            <Button className="mt-4" onClick={() => runGkMutation.mutate()} disabled={runGkMutation.isPending || bg.runInBackground}>
               {runGkMutation.isPending ? 'Scanning…' : '🔍 Scan Gokul Chhabra setups'}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Gokul Chhabra · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground({
+                tickers: ['Nifty 50', 'Bank Nifty'],
+                vwma_length: vwmaLen,
+                st_period: stPeriod,
+                st_multiplier: stMult,
+                min_rr: minRr,
+                target_delta_min: deltaLo,
+                target_delta_max: deltaHi,
+              })}
+            />
             {gkError && <div className="mt-3"><Alert type="error">{gkError}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runGkMutation.isPending && <Loading message="Scanning 3m VWAP / VWMA / SuperTrend setups…" />}
 
-          {gkData && !runGkMutation.isPending && (
+          {showGkResults && (
             <Card>
-              <GokulChhabraPanel data={gkData} />
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <GokulChhabraPanel data={gkData!} />
             </Card>
           )}
 
-          {gkAskContext && !runGkMutation.isPending && (
+          {gkAskContext && showGkResults && (
             <AskAIPanel context={gkAskContext} section="options/gokul_chhabra" />
           )}
         </div>
@@ -861,21 +975,41 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runZthMutation.mutate()} disabled={runZthMutation.isPending}>
+            <Button className="mt-4" onClick={() => runZthMutation.mutate()} disabled={runZthMutation.isPending || bg.runInBackground}>
               {runZthMutation.isPending ? 'Scanning…' : '🔍 Scan Zero to Hero setups'}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Zero to Hero · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground({
+                tickers: ['Nifty 50', 'Bank Nifty'],
+                execution_tf: zthTf,
+                sl_buffer_pct: zthSlBuffer,
+                max_pullback_candles: zthMaxPullback,
+                partial_book_rr: zthPartialRr,
+                partial_book_pct: zthPartialPct,
+                session_end: zthSessionEnd,
+              })}
+            />
             {zthError && <div className="mt-3"><Alert type="error">{zthError}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runZthMutation.isPending && <Loading message="Scanning previous-day-range pullback setups…" />}
 
-          {zthData && !runZthMutation.isPending && (
+          {showZthResults && (
             <Card>
-              <ZeroToHeroPanel data={zthData} />
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <ZeroToHeroPanel data={zthData!} />
             </Card>
           )}
 
-          {zthAskContext && !runZthMutation.isPending && (
+          {zthAskContext && showZthResults && (
             <AskAIPanel context={zthAskContext} section="options/zero_to_hero" />
           )}
         </div>
@@ -1018,21 +1152,42 @@ export default function Options() {
               </CollapsibleSection>
             </div>
 
-            <Button className="mt-4" onClick={() => runMpMutation.mutate()} disabled={runMpMutation.isPending || !mpActiveSymbol}>
+            <Button className="mt-4" onClick={() => runMpMutation.mutate()} disabled={runMpMutation.isPending || !mpActiveSymbol || bg.runInBackground}>
               {runMpMutation.isPending ? 'Analyzing…' : `🔮 Run Market Prediction (${mpActiveSymbol || '…'})`}
             </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Market Prediction · ${mpActiveSymbol || 'NIFTY'} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(
+                {
+                  symbol: mpActiveSymbol,
+                  is_index: mpMode === 'index',
+                  futures_price: mpFuturesPrice.trim() ? Number(mpFuturesPrice) : undefined,
+                  fii_index_position_cut: mpFiiCut === 'unset' ? undefined : mpFiiCut === 'yes',
+                  further_analysis: mpMode === 'stock' && mpFurtherAnalysis.length ? mpFurtherAnalysis : undefined,
+                },
+                () => (!mpActiveSymbol ? 'Select an index or stock symbol' : null),
+              )}
+            />
             {mpError && <div className="mt-3"><Alert type="error">{mpError}</Alert></div>}
           </Card>
 
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
           {runMpMutation.isPending && <Loading message="Fetching option chain, VIX, and intraday data…" />}
 
-          {mpData && !runMpMutation.isPending && (
+          {showMpResults && (
             <Card>
-              <MarketPredictionPanel data={mpData} />
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <MarketPredictionPanel data={mpData!} />
             </Card>
           )}
 
-          {mpAskContext && !runMpMutation.isPending && (
+          {mpAskContext && showMpResults && (
             <AskAIPanel context={mpAskContext} section="options/market_prediction" />
           )}
         </div>

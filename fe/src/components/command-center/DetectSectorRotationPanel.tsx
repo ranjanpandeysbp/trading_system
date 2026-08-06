@@ -6,6 +6,11 @@ import {
   fetchDetectSectorRotationUniverse,
   runDetectSectorRotation,
 } from '../../api/client'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../analysis/AnalysisBackground'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -124,6 +129,7 @@ function MarketPanel({ market, label }: { market: Market; label: string }) {
   const [pbMode, setPbMode] = useState<'months' | 'quarters'>('months')
   const [selected, setSelected] = useState<string[]>([])
   const [error, setError] = useState('')
+  const bg = useAnalysisBackground('command_center', 'detect_sector_rotation')
 
   const universeQ = useQuery({
     queryKey: ['dsr-universe', market],
@@ -146,11 +152,20 @@ function MarketPanel({ market, label }: { market: Market; label: string }) {
         pullback_months: pbMonths,
         pullback_mode: pbMode,
       }),
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = scanMut.data as Row | undefined
+  const buildPayload = () => ({
+    market,
+    sectors: selected.length ? selected : undefined,
+    crs_sma_period: crsSma,
+    hma_length: hmaLen,
+    pullback_months: pbMonths,
+    pullback_mode: pbMode,
+  })
+
+  const data = (bg.viewedPayload ?? scanMut.data) as Row | undefined
   const buy = (data?.buy as Row[]) ?? []
   const watch = (data?.watch as Row[]) ?? []
   const avoid = (data?.avoid as Row[]) ?? []
@@ -198,16 +213,28 @@ function MarketPanel({ market, label }: { market: Market; label: string }) {
           </div>
         </div>
 
-        <Button className="mt-4" onClick={() => scanMut.mutate()} disabled={scanMut.isPending || !selected.length}>
+        <Button className="mt-4" onClick={() => scanMut.mutate()} disabled={scanMut.isPending || !selected.length || bg.runInBackground}>
           {scanMut.isPending ? 'Scanning…' : `🔍 Detect rotation — ${label}`}
         </Button>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Sector Rotation · ${label} · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!selected.length ? 'Select at least one sector' : null))}
+        />
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>
 
-      {scanMut.isPending && <Loading message="Fetching weekly bars & computing CRS + Hull…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !scanMut.isPending && (
+      {scanMut.isPending && !bg.viewedPayload && <Loading message="Fetching weekly bars & computing CRS + Hull…" />}
+
+      {data && (!scanMut.isPending || bg.viewedPayload) && (
         <Card>
+          {bg.viewedReportMeta?.name && (
+            <p className="mb-3 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           {Boolean(data.error) && <Alert type="error">{String(data.error)}</Alert>}
           <p className="mb-3 text-sm text-slate-400">
             Benchmark: <strong className="text-white">{String(data.benchmark)}</strong> ·

@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { apiErrorMessage, runSwing5Scan } from '../../api/client'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../analysis/AnalysisBackground'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
@@ -93,6 +98,7 @@ export function Swing5Panel({
   )
   const [selectedTfs, setSelectedTfs] = useState<string[]>(['1d'])
   const [error, setError] = useState('')
+  const bg = useAnalysisBackground('trading_hub', 'swing_5_strategies')
 
   const toggleStrategy = (key: string) =>
     setSelectedStrategies((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
@@ -109,10 +115,17 @@ export function Swing5Panel({
       })
     },
     onError: (e) => setError(apiErrorMessage(e)),
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
   })
 
-  const result = mutation.data as Swing5Result | undefined
+  const buildPayload = () => ({
+    tickers,
+    asset_class: assetClass,
+    timeframes: selectedTfs,
+    strategies: selectedStrategies,
+  })
+
+  const result = (bg.viewedPayload ?? mutation.data) as Swing5Result | undefined
   const currency = CURRENCY_BY_ASSET[assetClass] ?? ''
 
   return (
@@ -143,11 +156,22 @@ export function Swing5Panel({
         </div>
       </div>
 
-      <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !tickers.length}>
+      <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !tickers.length || bg.runInBackground}>
         {mutation.isPending
           ? `Scanning ${selectedStrategies.length} strateg${selectedStrategies.length === 1 ? 'y' : 'ies'}…`
           : `🔍 Scan Swing Setups${tickers.length ? ` (${tickers.length} ticker${tickers.length === 1 ? '' : 's'})` : ''}`}
       </Button>
+      <AnalysisBackgroundControls
+        bg={bg}
+        placeholder={`Swing 5 · ${new Date().toLocaleDateString()}`}
+        onStart={() => bg.startBackground(buildPayload(), () => {
+          if (!tickers.length) return 'Enter at least one ticker'
+          if (!selectedTfs.length) return 'Select at least one timeframe'
+          if (!selectedStrategies.length) return 'Check at least one strategy'
+          return null
+        })}
+      />
+      <AnalysisBackgroundJobsAndReports bg={bg} />
       {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
 
       {mutation.isPending && <div className="mt-4"><Loading message="Scanning strategies across ticker(s)/timeframe(s)…" /></div>}

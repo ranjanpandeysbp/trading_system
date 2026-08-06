@@ -982,6 +982,34 @@ class OptionsZeroToHeroRequest(BaseModel):
     session_end: str = "15:15"
 
 
+class OptionsBackgroundStartRequest(BaseModel):
+    """Loose start payload for Options background jobs. Section-specific
+    fields (tickers, DTEs, etc.) are accepted via extra='allow' and forwarded
+    to the matching OptionsService method."""
+    model_config = {"extra": "allow"}
+    run_in_background: bool = True
+    report_name: str | None = None
+
+
+class SaveOptionsReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
+
+
+class AnalysisBackgroundStartRequest(BaseModel):
+    """Generic start payload for analysis background jobs across domains."""
+    model_config = {"extra": "allow"}
+    domain: str
+    section: str
+    run_in_background: bool = True
+    report_name: str | None = None
+
+
+class SaveAnalysisReportRequest(BaseModel):
+    name: str
+    payload: dict[str, Any]
+
+
 class ProTradeVolumeProfileCeRequest(BaseModel):
     """Volume Profile CE scan — VA reversal, POC compression, I-profile LVN."""
     tickers: list[str] = Field(default_factory=list)

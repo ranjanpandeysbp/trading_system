@@ -19,8 +19,9 @@ def _attach_ltp(results: list[dict[str, Any]], market: str, *, groww_token: str 
 
 
 class OptionsService:
-    def __init__(self, settings: SettingsService):
+    def __init__(self, settings: SettingsService, db: Any | None = None):
         self.settings = settings
+        self.db = db
         self.universe = TickerUniverseService()
 
     async def _ctx(self) -> tuple[str, str, str]:
@@ -45,8 +46,149 @@ class OptionsService:
                 {"id": "hedging", "label": "🛡️ Hedging — Non-Directional Delta-Neutral (Intraday)"},
                 {"id": "gokul_chhabra", "label": "🎯 Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"},
                 {"id": "zero_to_hero", "label": "🚀 Zero to Hero — Previous Day High/Low Option Buying"},
+                {"id": "market_prediction", "label": "🔮 Market Prediction — Option Chain Bias"},
             ],
         }
+
+    # ------------------------------------------------------------------
+    # Saved Options reports — SavedBacktestReport with source="options:{section}"
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def report_source(section_id: str) -> str:
+        return f"options:{section_id}"
+
+    @staticmethod
+    def _report_summary(section_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        results = payload.get("results")
+        if isinstance(results, list):
+            tickers = [
+                str(r.get("ticker") or r.get("symbol") or "")
+                for r in results[:8]
+                if isinstance(r, dict)
+            ]
+            return {
+                "section_id": section_id,
+                "result_count": len(results),
+                "tickers": [t for t in tickers if t],
+                "asset_class": payload.get("asset_class"),
+            }
+        setups = payload.get("setups") or payload.get("signals") or payload.get("indices")
+        if isinstance(setups, list):
+            return {
+                "section_id": section_id,
+                "result_count": len(setups),
+                "asset_class": payload.get("asset_class") or "india",
+            }
+        symbol = payload.get("symbol")
+        bias = payload.get("bias") or payload.get("verdict") or payload.get("direction")
+        return {
+            "section_id": section_id,
+            "symbol": symbol,
+            "bias": bias,
+            "result_count": 1 if symbol or bias else 0,
+        }
+
+    async def save_report(
+        self,
+        section_id: str,
+        name: str,
+        payload: dict[str, Any],
+        *,
+        user_id: int | None,
+    ) -> dict[str, Any]:
+        import json
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        tickers: list[str] = []
+        results = payload.get("results")
+        if isinstance(results, list):
+            tickers = [
+                str(r.get("ticker") or r.get("symbol") or "")
+                for r in results if isinstance(r, dict) and (r.get("ticker") or r.get("symbol"))
+            ]
+        elif payload.get("symbol"):
+            tickers = [str(payload["symbol"])]
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"Options {section_id} {datetime_cls.utcnow().isoformat()}",
+            asset_class=str(payload.get("asset_class") or "india"),
+            tickers=",".join(tickers[:50]),
+            timeframes=section_id,
+            payload_json=json.dumps(payload),
+            source=self.report_source(section_id),
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_reports(self, section_id: str, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        source = self.report_source(section_id)
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == source
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._report_summary(
+                    section_id, payload if isinstance(payload, dict) else {},
+                ),
+            })
+        return {"reports": reports}
+
+    async def get_report(self, section_id: str, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        import json
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        source = self.report_source(section_id)
+        if not report or report.source != source or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_report(self, section_id: str, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        source = self.report_source(section_id)
+        if not report or report.source != source or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def double_calendar(
         self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,

@@ -14,6 +14,11 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -82,6 +87,7 @@ export default function Scanner() {
   const [sortKey, setSortKey] = useState<SortKey>('confidence_pct')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [error, setError] = useState('')
+  const bg = useAnalysisBackground('scanner', 'scan')
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -92,12 +98,21 @@ export default function Scanner() {
     }
   }
 
+  const scanMutation = useMutation({
+    mutationFn: runScan,
+    onSuccess: (data) => { setSignals(data.signals); setError(''); bg.setViewedReportId(null) },
+    onError: (e: unknown) => setError(apiErrorMessage(e)),
+  })
+
+  const reportSignals = (bg.viewedPayload as { signals?: ScanSignal[] } | undefined)?.signals
+  const displaySignals = reportSignals ?? signals
+
   const sortedSignals = useMemo(() => {
-    return [...signals].sort((a, b) => {
+    return [...displaySignals].sort((a, b) => {
       const cmp = compareSignals(a, b, sortKey)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [signals, sortKey, sortDir])
+  }, [displaySignals, sortKey, sortDir])
 
   const {
     data: catalog,
@@ -125,12 +140,6 @@ export default function Scanner() {
     setSignals([])
     setError('')
   }
-
-  const scanMutation = useMutation({
-    mutationFn: runScan,
-    onSuccess: (data) => { setSignals(data.signals); setError('') },
-    onError: (e: unknown) => setError(apiErrorMessage(e)),
-  })
 
   const tradeMutation = useMutation({
     mutationFn: executeSignal,
@@ -160,7 +169,22 @@ export default function Scanner() {
     })
   }
 
-  const activeSignals = signals.filter((s) => s.action !== 'HOLD')
+  const buildScanPayload = () => ({
+    tickers: picker.tickers,
+    strategies: selectedStrategies,
+    timeframes: selectedTimeframes,
+    asset_class: assetClass,
+    bars,
+  })
+
+  const validateScan = () => {
+    if (!picker.tickers.length || !selectedStrategies.length || !selectedTimeframes.length) {
+      return 'Select at least one ticker, strategy, and timeframe'
+    }
+    return null
+  }
+
+  const activeSignals = displaySignals.filter((s) => s.action !== 'HOLD')
 
   return (
     <div>
@@ -254,20 +278,32 @@ export default function Scanner() {
             )}
           </FormField>
 
-          <Button onClick={handleScan} disabled={scanMutation.isPending} className="w-full sm:w-auto">
+          <Button onClick={handleScan} disabled={scanMutation.isPending || bg.runInBackground} className="w-full sm:w-auto">
             <Zap size={16} />
             {scanMutation.isPending
               ? `Scanning ${picker.tickers.length} ticker${picker.tickers.length === 1 ? '' : 's'}…`
               : `Run Scan${picker.tickers.length ? ` (${picker.tickers.length})` : ''}`}
           </Button>
+          <AnalysisBackgroundControls
+            bg={bg}
+            placeholder={`Scanner · ${new Date().toLocaleDateString()}`}
+            onStart={() => bg.startBackground(buildScanPayload(), validateScan)}
+          />
           {error && <Alert type="error">{error}</Alert>}
         </Card>
 
+        <AnalysisBackgroundJobsAndReports bg={bg} />
+
         <Card>
           <h3 className="mb-1 font-semibold text-white">Scan Summary</h3>
+          {bg.viewedReportMeta?.name && (
+            <p className="mb-2 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           <p className="mb-4 text-sm text-slate-500">
-            {signals.length
-              ? `${activeSignals.length} active signals of ${signals.length} combinations`
+            {displaySignals.length
+              ? `${activeSignals.length} active signals of ${displaySignals.length} combinations`
               : 'Run a scan to see results'}
           </p>
 

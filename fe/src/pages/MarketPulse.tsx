@@ -44,6 +44,11 @@ import {
   TomorrowOutlookPanel,
   Week52Panel,
 } from '../components/market-pulse/MarketPulsePanels'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -139,6 +144,8 @@ export default function MarketPulse() {
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
   const [universeId, setUniverseId] = useState('sp500')
   const [error, setError] = useState('')
+  const needsAction = ACTION_SECTIONS.has(section)
+  const bg = useAnalysisBackground('market_pulse', section, needsAction)
 
   const stockRotationMarket = STOCK_ROTATION_MARKETS[section]
   const universesQ = useQuery({
@@ -233,6 +240,37 @@ export default function MarketPulse() {
     enabled: section === 'big_whale_pump_dump',
   })
 
+  const buildActionPayload = () => {
+    const payload = { index_name: indexName, tf_key: tfKey, lookback_bars: lookback }
+    const tickerList = tickers.split(/[,\s]+/).filter(Boolean)
+    switch (section) {
+      case 'gainers_losers':
+        return payload
+      case 'stock_rotation':
+        return payload
+      case 'commodity_screener':
+        return { timeframes: ['1 day', '1 week'] }
+      case 'mtf_bias':
+        return { tickers: tickerList }
+      case 'mtf_bias_crypto':
+        return { tickers: tickerList }
+      case 'accurate_strategy':
+        return { tickers: tickerList, timeframe: tfKey === '1w' || tfKey === '1M' ? '1d' : tfKey }
+      case 'pump_dump_breakout':
+        return { tickers: tickerList, timeframe: tfKey === '1w' || tfKey === '1M' ? '15m' : tfKey }
+      case 'stock_rotation_us':
+      case 'stock_rotation_crypto':
+        return {
+          market: STOCK_ROTATION_MARKETS[section],
+          universe_id: universeId,
+          tf_key: tfKey,
+          lookback_bars: lookback,
+        }
+      default:
+        return payload
+    }
+  }
+
   const actionMutation = useMutation({
     mutationFn: async () => {
       const payload = { index_name: indexName, tf_key: tfKey, lookback_bars: lookback }
@@ -262,11 +300,12 @@ export default function MarketPulse() {
       }
     },
     onError: (e) => setError(apiErrorMessage(e)),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
   })
 
   // Auto-run scan sections when selected (no manual click required)
   useEffect(() => {
-    if (!ACTION_SECTIONS.has(section)) return
+    if (!needsAction || bg.runInBackground) return
     setError('')
     actionMutation.mutate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -312,16 +351,15 @@ export default function MarketPulse() {
       case 'week52': return week52Q.data
       case 'heatmap': return heatmapQ.data
       case 'big_whale_pump_dump': return whaleQ.data
-      default: return actionMutation.data
+      default: return bg.viewedPayload ?? actionMutation.data
     }
-  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, marketSectorQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, whaleQ.data, actionMutation.data])
+  }, [section, tomorrowQ.data, intelligenceQ.data, breadthQ.data, monthlyQ.data, moversQ.data, sectorQ.data, sectorIntraQ.data, marketSectorQ.data, hedgeQ.data, week52Q.data, heatmapQ.data, whaleQ.data, actionMutation.data, bg.viewedPayload])
 
   const isLoading = (
     (activeQuery?.isFetching && activeQuery.isEnabled) ||
-    (ACTION_SECTIONS.has(section) && actionMutation.isPending)
+    (needsAction && actionMutation.isPending && !bg.viewedPayload)
   )
 
-  const needsAction = ACTION_SECTIONS.has(section)
   const loadingMessage = SLOW_SECTIONS.has(section)
     ? 'Loading — sector scans can take 1–3 minutes…'
     : 'Loading market data…'
@@ -393,7 +431,7 @@ export default function MarketPulse() {
             </>
           )}
           {needsAction && (
-            <Button onClick={() => { setError(''); actionMutation.mutate() }} disabled={actionMutation.isPending}>
+            <Button onClick={() => { setError(''); actionMutation.mutate() }} disabled={actionMutation.isPending || bg.runInBackground}>
               <Activity size={16} />
               {actionMutation.isPending ? 'Running…' : 'Re-run scan'}
             </Button>
@@ -406,15 +444,29 @@ export default function MarketPulse() {
             Refresh
           </Button>
         </div>
+        {needsAction && (
+          <AnalysisBackgroundControls
+            bg={bg}
+            placeholder={`Market Pulse · ${section.replace(/_/g, ' ')} · ${new Date().toLocaleDateString()}`}
+            onStart={() => bg.startBackground(buildActionPayload())}
+          />
+        )}
         {(error || queryError) && (
           <div className="mt-3"><Alert type="error">{error || queryError}</Alert></div>
         )}
       </Card>
 
-      {isLoading && <Loading message={loadingMessage} />}
+      {needsAction && <AnalysisBackgroundJobsAndReports bg={bg} />}
 
-      {!isLoading && !queryError && activeData && (
+      {isLoading && !bg.viewedPayload && <Loading message={loadingMessage} />}
+
+      {(!isLoading || bg.viewedPayload) && !queryError && activeData && (
         <Card>
+          {bg.viewedReportMeta?.name && (
+            <p className="mb-3 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           <SectionContent section={section} data={activeData as SectionData} />
         </Card>
       )}

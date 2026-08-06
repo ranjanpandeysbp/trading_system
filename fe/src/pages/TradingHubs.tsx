@@ -21,6 +21,11 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { TradingHubResultsPanel } from '../components/trading-hubs/TradingHubPanels'
 import { Swing5Panel } from '../components/trading-hubs/Swing5Panel'
 import { WatchlistMarketProvider, type WatchlistMarket } from '../components/watchlist/WatchlistMarketContext'
@@ -161,6 +166,7 @@ export default function TradingHubs() {
 
   const queryClient = useQueryClient()
   const isIntraHedging = sectionId === 'intra_hedging'
+  const analysisBg = useAnalysisBackground('trading_hub', sectionId || '', !!sectionId && !isIntraHedging)
   const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
   const [runInBackground, setRunInBackground] = useState(false)
   const [bgReportName, setBgReportName] = useState('')
@@ -365,8 +371,18 @@ export default function TradingHubs() {
       })
     },
     onError: (e) => setError(apiErrorMessage(e)),
-    onSuccess: () => { setError(''); setViewedReportId(null) },
+    onSuccess: () => { setError(''); setViewedReportId(null); analysisBg.setViewedReportId(null) },
   })
+
+  const buildScanPayload = () => {
+    const mergedConfig: Record<string, unknown> = { ...config }
+    if (isIntraHedging && furtherAnalysis.length) mergedConfig.further_analysis = furtherAnalysis
+    return {
+      tickers: scanTickers,
+      asset_class: fixedUniverse ? 'india' : assetClass,
+      config: Object.keys(mergedConfig).length ? mergedConfig : undefined,
+    }
+  }
 
   const startIntraHedgingBackgroundRun = () => {
     if (!scanTickers.length) {
@@ -391,8 +407,9 @@ export default function TradingHubs() {
   }
 
   const ihViewedReport = ihReportDetailQuery.data as { name?: string; payload?: Record<string, unknown>; created_at?: string; error?: string } | undefined
-  const ihResult: Record<string, unknown> | undefined =
-    isIntraHedging && viewedReportId != null ? ihViewedReport?.payload : (scanMutation.data as Record<string, unknown> | undefined)
+  const ihResult: Record<string, unknown> | undefined = isIntraHedging
+    ? (viewedReportId != null ? ihViewedReport?.payload : (scanMutation.data as Record<string, unknown> | undefined))
+    : ((analysisBg.viewedPayload ?? scanMutation.data) as Record<string, unknown> | undefined)
 
   const watchlistMarket: WatchlistMarket =
     assetClass === 'us' || assetClass === 'commodity' ? 'us' : assetClass === 'crypto' ? 'crypto' : 'india'
@@ -566,7 +583,7 @@ export default function TradingHubs() {
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length || (isIntraHedging && runInBackground)}>
+              <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending || !sectionId || !scanTickers.length || (isIntraHedging && runInBackground) || (!isIntraHedging && analysisBg.runInBackground)}>
                 {scanMutation.isPending
                   ? `Scanning ${scanTickers.length} ticker${scanTickers.length === 1 ? '' : 's'}…`
                   : `Run live scan${scanTickers.length ? ` (${scanTickers.length})` : ''}`}
@@ -576,6 +593,20 @@ export default function TradingHubs() {
               )}
             </div>
             {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+
+            {!isIntraHedging && (
+              <>
+                <AnalysisBackgroundControls
+                  bg={analysisBg}
+                  placeholder={`${activeSection?.label ?? 'Trading Hub'} · ${new Date().toLocaleDateString()}`}
+                  onStart={() => analysisBg.startBackground(buildScanPayload(), () => {
+                    if (!scanTickers.length) return 'Select at least one ticker'
+                    return null
+                  })}
+                />
+                <AnalysisBackgroundJobsAndReports bg={analysisBg} />
+              </>
+            )}
 
             {isIntraHedging && (
               <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">

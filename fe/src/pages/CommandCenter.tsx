@@ -57,6 +57,11 @@ import { IndiaFiiDiiHoldingsPanel } from '../components/command-center/IndiaFiiD
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -117,6 +122,19 @@ const ONE_CLICK_STYLE: Record<string, 'intraday' | 'scalping' | 'swing'> = {
   one_click_scalping: 'scalping',
   one_click_swing: 'swing',
 }
+
+const CC_BG_SKIP = new Set<TabId>([
+  'playbook',
+  'tomorrow_outlook',
+  'global_market_mood',
+  'coindcx_24h_volatility',
+  'nse_world_indices',
+  'india_fii_dii_holdings',
+  'mutual_fund_holdings',
+  'etf_holdings',
+  'smart_money_activity',
+  'detect_sector_rotation',
+])
 
 type TabId = (typeof TABS)[number]['id']
 type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
@@ -297,6 +315,135 @@ export default function CommandCenter() {
     setStrategyIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
   }
 
+  const bgEnabled = !CC_BG_SKIP.has(tab)
+  const bg = useAnalysisBackground('command_center', tab, bgEnabled)
+
+  const buildPayload = (): Record<string, unknown> => {
+    const { tickers, durations } = picker
+
+    if (tab === 'mega_setup_advisor') {
+      const market = assetClass === 'india' ? 'Groww (India Stocks)'
+        : assetClass === 'us' ? 'US Stocks (Yahoo)'
+        : assetClass === 'crypto' ? 'CoinDCX Futures' : 'Commodity Futures'
+      return {
+        market,
+        timeframes: timeframes.split(',').map((t) => t.trim()).filter(Boolean),
+        ticker_count: tickers.length,
+        use_ai: useAi,
+      }
+    }
+
+    if (tab === 'india_market_heatmap') {
+      if (heatmapIndex === 'Custom') {
+        const customTickers = heatmapCustomTickers.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean)
+        return { index_name: heatmapIndex, asset_class: heatmapAssetClass, tickers: customTickers }
+      }
+      return { index_name: heatmapIndex, asset_class: heatmapAssetClass }
+    }
+
+    if (tab === 'market_movers') {
+      return { asset_class: moversAssetClass, index: moversIndex, timeframe: moversTimeframe }
+    }
+
+    if (tab === 'option_chain') {
+      return { symbol: optionSymbol.trim().toUpperCase(), is_index: optionInstrumentType === 'Index' }
+    }
+
+    if (tab === 'option_short_long') {
+      const symbols = oslInstrumentType === 'Index' ? oslIndices : oslStockSymbols
+      return { symbols, is_index: oslInstrumentType === 'Index', expiries: oslSelectedExpiries }
+    }
+
+    if (tab === 'quick_analyzer') {
+      const qaTfs = qaTimeframes.split(',').map((t) => t.trim()).filter(Boolean)
+      return {
+        tickers,
+        timeframes: qaTfs,
+        asset_class: assetClass,
+        from_date: qaFromDate,
+        to_date: qaToDate,
+        include_fundamentals: assetClass === 'india' && qaIncludeFundamentals,
+        include_option_chain: assetClass === 'india' && qaIncludeOptionChain,
+      }
+    }
+
+    const base = { tickers, asset_class: assetClass, timeframes: durations, durations }
+    switch (tab) {
+      case 'mega_analyser':
+        return base
+      case 'buy_sell':
+        return base
+      case 'investigation':
+        return { tickers, asset_class: assetClass }
+      case 'momentum':
+      case 'divergences':
+      case 'candlestick_chart_patterns':
+      case 'stop_hunt':
+      case 'take_profit':
+      case 'real_bottom':
+      case 'weak_strong':
+      case 'sma_20_200':
+      case 'take_trade':
+      case 'ema_position':
+      case 'mtf_trend_strength':
+      case 'trade_setup':
+        return base
+      case 'copy_trade':
+        return { tickers, asset_class: assetClass }
+      case 'fundamental_analysis':
+        return { tickers, asset_class: assetClass }
+      case 'stock_upgrade_downgrade':
+        return { tickers, asset_class: assetClass }
+      case 'one_click_intraday':
+      case 'one_click_scalping':
+      case 'one_click_swing':
+        return { style: ONE_CLICK_STYLE[tab], tickers, asset_class: assetClass }
+      case 'investigation_strategies':
+        return { tickers, asset_class: assetClass, strategy_ids: strategyIds }
+      default:
+        return base
+    }
+  }
+
+  const validatePayload = (): string | null => {
+    const { tickers } = picker
+    if (tab === 'india_market_heatmap') {
+      if (!heatmapIndex) return 'Choose an index/sector'
+      if (heatmapIndex === 'Custom') {
+        const customTickers = heatmapCustomTickers.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean)
+        if (!customTickers.length) return 'Enter at least one custom ticker'
+      }
+      return null
+    }
+    if (tab === 'market_movers') {
+      if (!moversIndex) return 'Choose an index/group'
+      return null
+    }
+    if (tab === 'option_chain') {
+      if (!optionSymbol.trim()) return 'Enter or select a symbol'
+      return null
+    }
+    if (tab === 'option_short_long') {
+      const symbols = oslInstrumentType === 'Index' ? oslIndices : oslStockSymbols
+      if (!symbols.length) return 'Pick at least one index, or add a stock symbol'
+      if (oslExpiriesQuery.isFetching) return 'Still loading expiries for this symbol — try again in a moment.'
+      if (!oslSelectedExpiries.length) return 'Select at least one expiry'
+      return null
+    }
+    if (tab === 'quick_analyzer') {
+      if (!tickers.length) return 'Select at least one ticker'
+      if (assetClass === 'commodity') return 'Quick Analyzer supports India, US, and Crypto only'
+      const qaTfs = qaTimeframes.split(',').map((t) => t.trim()).filter(Boolean)
+      if (!qaTfs.length) return 'Select at least one timeframe'
+      if (qaFromDate > qaToDate) return 'From date must be on or before To date'
+      return null
+    }
+    if (!['mega_setup_advisor', 'market_movers', 'option_chain', 'option_short_long', 'india_market_heatmap', 'quick_analyzer'].includes(tab) && !tickers.length) {
+      return 'Select at least one ticker'
+    }
+    return null
+  }
+
   const runMutation = useMutation({
     mutationFn: async () => {
       const { tickers, durations } = picker
@@ -404,7 +551,7 @@ export default function CommandCenter() {
           return runInvestigationWithStrategies({ tickers, asset_class: assetClass, strategy_ids: strategyIds })
       }
     },
-    onSuccess: (data) => { setResult(data); setError('') },
+    onSuccess: (data) => { setResult(data); setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
@@ -415,11 +562,12 @@ export default function CommandCenter() {
       }
     : null
 
+  const mutationResult = bg.viewedPayload ?? result
   const displayData = tab === 'tomorrow_outlook' ? tomorrowQuery.data
     : tab === 'global_market_mood' ? moodQuery.data
     : tab === 'coindcx_24h_volatility' ? coinDcxQuery.data
     : tab === 'nse_world_indices' ? nseWorldIndicesData
-    : result
+    : mutationResult
   const loading = tab === 'tomorrow_outlook' ? tomorrowQuery.isLoading
     : tab === 'global_market_mood' ? moodQuery.isLoading
     : tab === 'coindcx_24h_volatility' ? coinDcxQuery.isLoading
@@ -565,7 +713,7 @@ export default function CommandCenter() {
               </Select>
             </FormField>
             <div className="flex items-end">
-              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
                 {runMutation.isPending ? 'Loading…' : 'Submit'}
               </Button>
             </div>
@@ -584,6 +732,13 @@ export default function CommandCenter() {
             </div>
           )}
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       ) : tab === 'market_movers' ? (
         <Card className="mb-6">
@@ -614,12 +769,19 @@ export default function CommandCenter() {
               </Select>
             </FormField>
             <div className="flex items-end">
-              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || moversOptionsQuery.isLoading}>
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || moversOptionsQuery.isLoading || bg.runInBackground}>
                 {runMutation.isPending ? 'Scanning…' : 'Find movers'}
               </Button>
             </div>
           </div>
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       ) : tab === 'option_chain' ? (
         <Card className="mb-6">
@@ -657,12 +819,19 @@ export default function CommandCenter() {
               </FormField>
             )}
             <div className="flex items-end">
-              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
                 {runMutation.isPending ? 'Fetching…' : '🔍 Analyze Option Chain'}
               </Button>
             </div>
           </div>
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       ) : tab === 'option_short_long' ? (
         <Card className="mb-6">
@@ -752,7 +921,7 @@ export default function CommandCenter() {
               </FormField>
             )}
             <div className="flex items-end">
-              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              <Button className="w-full" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
                 {runMutation.isPending ? 'Analyzing…' : '🎯 Analyze'}
               </Button>
             </div>
@@ -779,6 +948,13 @@ export default function CommandCenter() {
             </div>
           )}
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       ) : tab === 'mega_setup_advisor' ? (
         <Card className="mb-6">
@@ -803,10 +979,17 @@ export default function CommandCenter() {
             <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
             Use AI to personalize (falls back to rule-based if no API key configured)
           </label>
-          <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+          <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
             {runMutation.isPending ? 'Thinking…' : 'Get recommendation'}
           </Button>
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       ) : (
         <Card className="mb-6">
@@ -907,17 +1090,31 @@ export default function CommandCenter() {
             </div>
           )}
 
-          <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+          <Button className="mt-4" onClick={() => runMutation.mutate()} disabled={runMutation.isPending || bg.runInBackground}>
             {runMutation.isPending ? 'Running…' : 'Run analysis'}
           </Button>
           {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
+          {bgEnabled && (
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`${TABS.find((t) => t.id === tab)?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(buildPayload(), validatePayload)}
+            />
+          )}
         </Card>
       )}
 
-      {loading && <Loading message="Running analysis…" />}
+      {bgEnabled && <AnalysisBackgroundJobsAndReports bg={bg} />}
 
-      {displayData && !loading && !queryError && (
+      {loading && !bg.viewedPayload && <Loading message="Running analysis…" />}
+
+      {displayData && (!loading || bg.viewedPayload) && !queryError && (
         <Card>
+          {bg.viewedReportMeta?.name && (
+            <p className="mb-3 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           <CommandCenterResults tab={tab} data={displayData as Record<string, unknown>} assetClass={assetClass} showCharts={showCharts} />
         </Card>
       )}

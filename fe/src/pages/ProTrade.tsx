@@ -22,6 +22,11 @@ import {
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
+import {
   AssetClassTickerPicker,
   type AssetClass,
   type TickerPickerValue,
@@ -168,30 +173,33 @@ function VolumeProfileCePage() {
   const [lvnPct, setLvnPct] = useState(10)
   const [intradayTf, setIntradayTf] = useState('15m')
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'volume_profile_ce')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    intraday_tf: intradayTf,
+    daily_tf: '1d',
+    num_bins: numBins,
+    value_area_pct: valueAreaPct / 100,
+    compression_days: compressionDays,
+    compression_threshold_pct: compressionPct,
+    val_touch_tol_pct: valTol,
+    lvn_threshold_pct: lvnPct / 100,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradeVolumeProfileCe({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        intraday_tf: intradayTf,
-        daily_tf: '1d',
-        num_bins: numBins,
-        value_area_pct: valueAreaPct / 100,
-        compression_days: compressionDays,
-        compression_threshold_pct: compressionPct,
-        val_touch_tol_pct: valTol,
-        lvn_threshold_pct: lvnPct / 100,
-      })
+      return runProTradeVolumeProfileCe(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('Volume Profile CE', data) : ''
 
   return (
@@ -289,10 +297,15 @@ function VolumeProfileCePage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan Volume Profile (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Volume Profile CE · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -300,9 +313,11 @@ function VolumeProfileCePage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Building session Volume Profiles and scoring setups…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Building session Volume Profiles and scoring setups…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <VolumeProfileCePanel data={data} showCharts={showCharts} />
@@ -360,28 +375,31 @@ function VolumeProfilePocPage() {
   const [clusterPct, setClusterPct] = useState(70)
   const [breakoutBuf, setBreakoutBuf] = useState(1)
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'volume_profile_poc')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe,
+    lookback_bars: lookback,
+    profile_bars: profileBars,
+    num_bins: numBins,
+    cluster_vol_pct: clusterPct / 100,
+    breakout_buffer_pct: breakoutBuf,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradeVolumeProfilePoc({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        timeframe,
-        lookback_bars: lookback,
-        profile_bars: profileBars,
-        num_bins: numBins,
-        cluster_vol_pct: clusterPct / 100,
-        breakout_buffer_pct: breakoutBuf,
-      })
+      return runProTradeVolumeProfilePoc(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('Volume Profile POC', data) : ''
 
   return (
@@ -471,10 +489,15 @@ function VolumeProfilePocPage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan POC First Touch (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Volume Profile POC · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -482,9 +505,11 @@ function VolumeProfilePocPage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Building Volume Profile POC levels and scanning first-touch…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Building Volume Profile POC levels and scanning first-touch…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <VolumeProfilePocPanel data={data} showCharts={showCharts} />
@@ -550,28 +575,31 @@ function PaVolumeProfilePage() {
   const [pocTol, setPocTol] = useState(0.35)
   const [breakoutBuf, setBreakoutBuf] = useState(0.15)
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'pa_volume_profile')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe,
+    lookback_bars: lookback,
+    vp_lookback: vpLookback,
+    num_bins: numBins,
+    poc_tolerance_pct: pocTol,
+    breakout_buffer_pct: breakoutBuf,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradePaVolumeProfile({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        timeframe,
-        lookback_bars: lookback,
-        vp_lookback: vpLookback,
-        num_bins: numBins,
-        poc_tolerance_pct: pocTol,
-        breakout_buffer_pct: breakoutBuf,
-      })
+      return runProTradePaVolumeProfile(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('PA - Volume Profile', data) : ''
 
   return (
@@ -666,10 +694,15 @@ function PaVolumeProfilePage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan PA + VP (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`PA Volume Profile · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -677,9 +710,11 @@ function PaVolumeProfilePage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Detecting FVGs, S/R flips, and Volume Profile confluence…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Detecting FVGs, S/R flips, and Volume Profile confluence…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <PaVolumeProfilePanel data={data} showCharts={showCharts} />
@@ -741,31 +776,34 @@ function PaVpSmcPage() {
   const [minFactors, setMinFactors] = useState(3)
   const [rrMin, setRrMin] = useState(1.5)
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'pa_vp_smc')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    htf,
+    ltf,
+    lookback_bars: lookback,
+    swing_window: swingWindow,
+    vp_num_bins: numBins,
+    vp_value_area_pct: valueAreaPct / 100,
+    zone_tolerance_pct: zoneTol,
+    min_confluence_factors: minFactors,
+    rr_min: rrMin,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradePaVpSmc({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        htf,
-        ltf,
-        lookback_bars: lookback,
-        swing_window: swingWindow,
-        vp_num_bins: numBins,
-        vp_value_area_pct: valueAreaPct / 100,
-        zone_tolerance_pct: zoneTol,
-        min_confluence_factors: minFactors,
-        rr_min: rrMin,
-      })
+      return runProTradePaVpSmc(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('PA-VP-SMC', data) : ''
 
   return (
@@ -854,10 +892,15 @@ function PaVpSmcPage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan PA-VP-SMC (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`PA-VP-SMC · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -865,9 +908,11 @@ function PaVpSmcPage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Building confluence across Price Action, Volume Profile, and Smart Money Concepts…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Building confluence across Price Action, Volume Profile, and Smart Money Concepts…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <PaVpSmcPanel data={data} showCharts={showCharts} />
@@ -923,28 +968,31 @@ function VolumeSpreadNextCandlePage() {
   const [lowSpreadFactor, setLowSpreadFactor] = useState(0.75)
   const [rrRatio, setRrRatio] = useState(1.5)
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'volume_spread_next_candle')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe,
+    lookback_bars: lookback,
+    vol_ma_period: volMa,
+    ultra_vol_lookback: ultraLookback,
+    low_spread_factor: lowSpreadFactor,
+    rr_ratio: rrRatio,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradeVolumeSpreadNextCandle({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        timeframe,
-        lookback_bars: lookback,
-        vol_ma_period: volMa,
-        ultra_vol_lookback: ultraLookback,
-        low_spread_factor: lowSpreadFactor,
-        rr_ratio: rrRatio,
-      })
+      return runProTradeVolumeSpreadNextCandle(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('Volume Spread - Next Candle', data) : ''
 
   return (
@@ -1043,10 +1091,15 @@ function VolumeSpreadNextCandlePage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan VSA Next Candle (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Volume Spread Next Candle · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -1054,9 +1107,11 @@ function VolumeSpreadNextCandlePage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Detecting Volume Spread signals and next-candle setups…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Detecting Volume Spread signals and next-candle setups…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <VolumeSpreadNextCandlePanel data={data} showCharts={showCharts} />
@@ -1122,27 +1177,30 @@ function ElliottWavePage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [showCharts, setShowCharts] = useState(false)
+  const bg = useAnalysisBackground('pro_trade', 'elliott_wave')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe,
+    lookback_bars: lookback,
+    zigzag_pct: zigzagPct,
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+  })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      return runProTradeElliottWave({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        timeframe,
-        lookback_bars: lookback,
-        zigzag_pct: zigzagPct,
-        start_date: startDate || undefined,
-        end_date: endDate || undefined,
-      })
+      return runProTradeElliottWave(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('Elliott Wave', data) : ''
 
   return (
@@ -1233,10 +1291,15 @@ function ElliottWavePage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan Elliott Wave (${picker.tickers.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Elliott Wave · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => (!picker.tickers.length ? 'Select at least one ticker' : null))}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -1244,9 +1307,11 @@ function ElliottWavePage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Running ZigZag pivots and validating wave structure…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Running ZigZag pivots and validating wave structure…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <ElliottWavePanel data={data} showCharts={showCharts} />
@@ -1334,30 +1399,33 @@ function BbMeanReversionPage() {
   const [bbStd, setBbStd] = useState(2.0)
   const [showCharts, setShowCharts] = useState(false)
   const [extraChecks, setExtraChecks] = useState<string[]>([])
+  const bg = useAnalysisBackground('pro_trade', 'bb_mean_reversion')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
   const toggleExtraCheck = (value: string) =>
     setExtraChecks((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
 
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations,
+    lookback_bars: lookback,
+    bb_period: bbPeriod,
+    bb_std: bbStd,
+    extra_checks: extraChecks,
+  })
+
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
       if (!picker.durations.length) throw new Error('Select at least one timeframe')
-      return runProTradeBbMeanReversion({
-        tickers: picker.tickers,
-        asset_class: assetClass,
-        timeframes: picker.durations,
-        lookback_bars: lookback,
-        bb_period: bbPeriod,
-        bb_std: bbStd,
-        extra_checks: extraChecks,
-      })
+      return runProTradeBbMeanReversion(buildPayload())
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
   const askContext = data ? buildAskContext('BB Mean Reversion', data) : ''
 
   return (
@@ -1471,10 +1539,19 @@ function BbMeanReversionPage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan BB Mean Reversion (${picker.tickers.length} × ${picker.durations.length})`}
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`BB Mean Reversion · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            return null
+          })}
+        />
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
@@ -1482,9 +1559,11 @@ function BbMeanReversionPage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Computing Bollinger Bands, regime filter and confirmation checks…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Computing Bollinger Bands, regime filter and confirmation checks…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
             <BbMeanReversionPanel data={data} showCharts={showCharts} />

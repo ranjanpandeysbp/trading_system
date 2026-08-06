@@ -87,6 +87,10 @@ from app.models.schemas import (
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
+    OptionsBackgroundStartRequest,
+    SaveOptionsReportRequest,
+    AnalysisBackgroundStartRequest,
+    SaveAnalysisReportRequest,
     ProTradeVolumeProfileCeRequest,
     ProTradeVolumeProfilePocRequest,
     ProTradePaVolumeProfileRequest,
@@ -4079,6 +4083,296 @@ async def options_zero_to_hero(
             "session_end": payload.session_end,
         },
     )
+
+
+def _options_section_or_404(section_id: str) -> str:
+    from app.services.options_jobs import OPTIONS_SECTIONS
+
+    if section_id not in OPTIONS_SECTIONS:
+        raise HTTPException(status_code=404, detail=f"Unknown Options section: {section_id}")
+    return section_id
+
+
+@router.post("/options/{section_id}/start")
+async def options_section_start(
+    section_id: str,
+    payload: OptionsBackgroundStartRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off an Options subsection scan as a background job."""
+    from app.services.options_jobs import create_job, options_source, run_options_job
+
+    section_id = _options_section_or_404(section_id)
+    body = payload.model_dump(exclude_none=False)
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    # Strip meta fields before dispatching to the engine.
+    request_payload = {
+        k: v for k, v in body.items()
+        if k not in ("run_in_background", "report_name")
+    }
+    request_payload["report_name"] = report_name if auto_save else None
+    request_payload["section_id"] = section_id
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=options_source(section_id),
+        meta={"section_id": section_id, "auto_save": auto_save},
+        request_payload=request_payload,
+    )
+    run_options_job(
+        job.id, section_id, request_payload,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+        "section_id": section_id,
+    }
+
+
+@router.get("/options/{section_id}/jobs")
+async def options_section_list_jobs(
+    section_id: str,
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.options_jobs import job_to_dict, list_jobs, options_source
+
+    section_id = _options_section_or_404(section_id)
+    jobs = list_jobs(
+        user_id=current_user.id, source=options_source(section_id), status=status or None,
+    )
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/options/{section_id}/jobs/{job_id}")
+async def options_section_job_status(
+    section_id: str,
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.options_jobs import get_job, job_to_dict, options_source
+
+    section_id = _options_section_or_404(section_id)
+    job = get_job(job_id)
+    if not job or job.source != options_source(section_id):
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/options/{section_id}/reports")
+async def options_section_save_report(
+    section_id: str,
+    payload: SaveOptionsReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    section_id = _options_section_or_404(section_id)
+    service = OptionsService(SettingsService(db), db)
+    return await service.save_report(
+        section_id, payload.name, payload.payload, user_id=current_user.id,
+    )
+
+
+@router.get("/options/{section_id}/reports")
+async def options_section_list_reports(
+    section_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    section_id = _options_section_or_404(section_id)
+    service = OptionsService(SettingsService(db), db)
+    return await service.list_reports(section_id, user_id=current_user.id)
+
+
+@router.get("/options/{section_id}/reports/{report_id}")
+async def options_section_get_report(
+    section_id: str,
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    section_id = _options_section_or_404(section_id)
+    service = OptionsService(SettingsService(db), db)
+    return await service.get_report(section_id, report_id, user_id=current_user.id)
+
+
+@router.delete("/options/{section_id}/reports/{report_id}")
+async def options_section_delete_report(
+    section_id: str,
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    section_id = _options_section_or_404(section_id)
+    service = OptionsService(SettingsService(db), db)
+    return await service.delete_report(section_id, report_id, user_id=current_user.id)
+
+
+@router.post("/analysis/start")
+async def analysis_start(
+    payload: AnalysisBackgroundStartRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off a generic analysis background job for any domain/section."""
+    from app.services.analysis_jobs import (
+        ANALYSIS_DOMAINS,
+        analysis_source,
+        create_job,
+        run_analysis_job,
+    )
+
+    domain = (payload.domain or "").strip()
+    section = (payload.section or "").strip()
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    if not section:
+        raise HTTPException(status_code=400, detail="section is required")
+
+    body = payload.model_dump(exclude_none=False)
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    request_payload = {
+        k: v for k, v in body.items()
+        if k not in ("run_in_background", "report_name", "domain", "section")
+    }
+    request_payload["domain"] = domain
+    request_payload["section"] = section
+    request_payload["report_name"] = report_name if auto_save else None
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=analysis_source(domain, section),
+        meta={"domain": domain, "section": section, "auto_save": auto_save},
+        request_payload=request_payload,
+    )
+    run_analysis_job(
+        job.id, domain, section, request_payload,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+        "domain": domain,
+        "section": section,
+    }
+
+
+@router.get("/analysis/jobs")
+async def analysis_list_jobs(
+    domain: str,
+    section: str,
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import ANALYSIS_DOMAINS, analysis_source, job_to_dict, list_jobs
+
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    jobs = list_jobs(
+        user_id=current_user.id,
+        source=analysis_source(domain, section),
+        status=status or None,
+    )
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/analysis/jobs/{job_id}")
+async def analysis_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import get_job, is_analysis_source, job_to_dict
+
+    job = get_job(job_id)
+    if not job or not is_analysis_source(job.source):
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/analysis/reports")
+async def analysis_save_report(
+    domain: str,
+    section: str,
+    payload: SaveAnalysisReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import ANALYSIS_DOMAINS
+    from app.services.analysis_report_service import AnalysisReportService
+
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    return await AnalysisReportService(db).save(
+        domain, section, payload.name, payload.payload, user_id=current_user.id,
+        asset_class=str(payload.payload.get("asset_class") or "india"),
+    )
+
+
+@router.get("/analysis/reports")
+async def analysis_list_reports(
+    domain: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import ANALYSIS_DOMAINS
+    from app.services.analysis_report_service import AnalysisReportService
+
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    return await AnalysisReportService(db).list_reports(domain, section, user_id=current_user.id)
+
+
+@router.get("/analysis/reports/{report_id}")
+async def analysis_get_report(
+    report_id: int,
+    domain: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import ANALYSIS_DOMAINS
+    from app.services.analysis_report_service import AnalysisReportService
+
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    return await AnalysisReportService(db).get_report(domain, section, report_id, user_id=current_user.id)
+
+
+@router.delete("/analysis/reports/{report_id}")
+async def analysis_delete_report(
+    report_id: int,
+    domain: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.analysis_jobs import ANALYSIS_DOMAINS
+    from app.services.analysis_report_service import AnalysisReportService
+
+    if domain not in ANALYSIS_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown analysis domain: {domain}")
+    return await AnalysisReportService(db).delete_report(domain, section, report_id, user_id=current_user.id)
 
 
 @router.get("/pro-trade/sections")

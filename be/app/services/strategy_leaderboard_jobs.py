@@ -235,6 +235,8 @@ async def resume_orphaned_jobs() -> int:
     from app.services.mf_holdings_jobs import MF_HOLDINGS_SOURCE, run_mf_holdings_job
     from app.services.best_mf_jobs import BEST_MF_SOURCE, run_best_mf_job
     from app.services.intra_hedging_jobs import INTRA_HEDGING_SOURCE, run_intra_hedging_job
+    from app.services.options_jobs import is_options_source, run_options_job
+    from app.services.analysis_jobs import is_analysis_source, parse_analysis_source, run_analysis_job
     from app.services.btst_jobs import BTST_SOURCE, run_btst_job
     from app.services.fii_dii_holdings_jobs import FII_DII_HOLDINGS_SOURCE, run_fii_dii_holdings_job
     from app.services.etf_holdings_jobs import ETF_HOLDINGS_SOURCE, run_etf_holdings_job
@@ -289,6 +291,23 @@ async def resume_orphaned_jobs() -> int:
                     run_intra_hedging_job(
                         row.id, payload.get("tickers", []), payload.get("asset_class", "india"),
                         payload.get("config"),
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif is_options_source(row.source):
+                    section_id = (payload.get("section_id")
+                                  or (row.source.split(":", 1)[1] if ":" in row.source else ""))
+                    run_options_job(
+                        row.id, section_id, payload,
+                        report_name=payload.get("report_name"), user_id=row.user_id,
+                    )
+                elif is_analysis_source(row.source):
+                    try:
+                        domain, section = parse_analysis_source(row.source)
+                    except ValueError:
+                        domain = payload.get("domain") or ""
+                        section = payload.get("section") or payload.get("section_id") or ""
+                    run_analysis_job(
+                        row.id, domain, section, payload,
                         report_name=payload.get("report_name"), user_id=row.user_id,
                     )
                 elif row.source == BTST_SOURCE:

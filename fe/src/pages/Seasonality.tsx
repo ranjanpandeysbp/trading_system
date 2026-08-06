@@ -2,6 +2,11 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { CalendarRange } from 'lucide-react'
 import { apiErrorMessage, runSeasonalityAnalyze } from '../api/client'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -21,6 +26,7 @@ export default function Seasonality() {
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
   const [years, setYears] = useState(10)
   const [error, setError] = useState('')
+  const bg = useAnalysisBackground('seasonality', 'analyze')
 
   const tickerList = parseTickers(tickers)
 
@@ -30,10 +36,10 @@ export default function Seasonality() {
       return runSeasonalityAnalyze({ tickers: tickerList, years, asset_class: assetClass })
     },
     onError: (e) => setError(apiErrorMessage(e)),
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
   })
 
-  const data = mutation.data as Record<string, unknown> | undefined
+  const data = (bg.viewedPayload ?? mutation.data) as Record<string, unknown> | undefined
   const results = (data?.results as Record<string, unknown>[]) ?? []
 
   return (
@@ -77,7 +83,7 @@ export default function Seasonality() {
           </FormField>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !tickerList.length}>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !tickerList.length || bg.runInBackground}>
             <span className="inline-flex items-center gap-2">
               <CalendarRange size={16} />
               {mutation.isPending
@@ -86,10 +92,20 @@ export default function Seasonality() {
             </span>
           </Button>
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Seasonality · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(
+            { tickers: tickerList, years, asset_class: assetClass },
+            () => (!tickerList.length ? 'Enter at least one ticker' : null),
+          )}
+        />
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>
 
-      {mutation.isPending && <Loading message="Downloading history and computing monthly stats…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {mutation.isPending && !bg.viewedPayload && <Loading message="Downloading history and computing monthly stats…" />}
 
       {!mutation.isPending && results.map((item) => (
         <Card key={String(item.symbol)} className="mb-4">

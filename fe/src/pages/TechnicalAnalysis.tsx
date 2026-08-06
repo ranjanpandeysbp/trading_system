@@ -20,6 +20,11 @@ import {
   SentimentScreenerPanel,
   TickerInvestigationPanel,
 } from '../components/technical-analysis/TechnicalAnalysisPanels'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { TaScreenerResultsPanel } from '../components/technical-analysis/TaScreenerResultsPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -66,6 +71,7 @@ export default function TechnicalAnalysis() {
   const [wssrTfs, setWssrTfs] = useState<string[]>(['15m', '1h', '1d'])
   const [engineTf, setEngineTf] = useState('')
   const [error, setError] = useState('')
+  const bg = useAnalysisBackground('technical_analysis', tab)
 
   const { data: catalog } = useQuery({ queryKey: ['ta-screeners'], queryFn: fetchTaScreeners })
 
@@ -109,8 +115,42 @@ export default function TechnicalAnalysis() {
       }
     },
     onError: (e) => setError(apiErrorMessage(e)),
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
   })
+
+  const buildPayload = () => {
+    const list = tab === 'ticker_investigation' ? picker.tickers : parseTickers(tickers)
+    const base: Record<string, unknown> = {
+      tickers: tab === 'big_whale' ? ['BTC'] : list,
+      asset_class: assetClass,
+    }
+    switch (tab) {
+      case 'sentiment_screener':
+        return { ...base, timeframes: sentimentTfs }
+      case 'mtf_scanner':
+        return { ...base, timeframes: mtfTfs }
+      case 'weak_strong_sr':
+        return {
+          ...base,
+          timeframe: wssrTfs[0] || active?.default_tf || undefined,
+          options: { timeframes: wssrTfs.length ? wssrTfs : ['15m'] },
+        }
+      default:
+        return {
+          ...base,
+          screener_id: tab,
+          timeframe: engineTf || active?.default_tf || undefined,
+        }
+    }
+  }
+
+  const validateRun = () => {
+    const list = tab === 'ticker_investigation' ? picker.tickers : parseTickers(tickers)
+    if (!list.length && tab !== 'big_whale') return 'Enter at least one ticker'
+    return null
+  }
+
+  const displayData = bg.viewedPayload ?? mutation.data
 
   const toggleTf = (tf: string, selected: string[], setter: (v: string[]) => void) => {
     setter(selected.includes(tf) ? selected.filter((t) => t !== tf) : [...selected, tf])
@@ -265,7 +305,7 @@ export default function TechnicalAnalysis() {
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || bg.runInBackground}>
             {mutation.isPending
               ? `Scanning…`
               : tab === 'ticker_investigation'
@@ -278,29 +318,41 @@ export default function TechnicalAnalysis() {
             <span className="text-xs text-slate-500">Full selected universe is scanned — no ticker cap.</span>
           )}
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`${active?.label ?? tab} · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), validateRun)}
+        />
         {error && <div className="mt-3"><Alert type="error">{error}</Alert></div>}
       </Card>
 
-      {mutation.isPending && (
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {mutation.isPending && !bg.viewedPayload && (
         <Loading message="Analysis can take 1–3 minutes per ticker — fetching Groww/yfinance data…" />
       )}
 
-      {!mutation.isPending && mutation.data && (
+      {(!mutation.isPending || bg.viewedPayload) && displayData && (
         <Card>
+          {bg.viewedReportMeta?.name && (
+            <p className="mb-3 text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           {tab === 'ticker_investigation' && (
-            <TickerInvestigationPanel data={mutation.data as Record<string, unknown>} />
+            <TickerInvestigationPanel data={displayData as Record<string, unknown>} />
           )}
           {tab === 'sentiment_screener' && (
-            <SentimentScreenerPanel data={mutation.data as Record<string, unknown>} />
+            <SentimentScreenerPanel data={displayData as Record<string, unknown>} />
           )}
-          {tab === 'mtf_scanner' && <MtfScannerPanel data={mutation.data as Record<string, unknown>} />}
-          {isEngine && <TaScreenerResultsPanel data={mutation.data as Record<string, unknown>} />}
+          {tab === 'mtf_scanner' && <MtfScannerPanel data={displayData as Record<string, unknown>} />}
+          {isEngine && <TaScreenerResultsPanel data={displayData as Record<string, unknown>} />}
         </Card>
       )}
 
-      {mutation.data && (
+      {displayData && (
         <AskAIPanel
-          context={buildAskContext(active?.label ?? tab, mutation.data)}
+          context={buildAskContext(active?.label ?? tab, displayData)}
           section={`technical-analysis/${tab}`}
         />
       )}

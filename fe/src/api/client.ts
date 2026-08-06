@@ -1874,6 +1874,48 @@ export const runOptionsZeroToHero = (payload?: {
   session_end?: string
 }) => api.post('/options/zero-to-hero', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const startOptionsJob = (sectionId: string, payload: Record<string, unknown>) =>
+  api.post(`/options/${sectionId}/start`, payload).then((r) => r.data)
+
+export const fetchOptionsJobs = (sectionId: string, status?: string) =>
+  api.get(`/options/${sectionId}/jobs`, { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchOptionsJob = (sectionId: string, jobId: string) =>
+  api.get(`/options/${sectionId}/jobs/${jobId}`).then((r) => r.data)
+
+export const saveOptionsReport = (sectionId: string, payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post(`/options/${sectionId}/reports`, payload).then((r) => r.data)
+
+export const fetchOptionsReports = (sectionId: string) =>
+  api.get(`/options/${sectionId}/reports`).then((r) => r.data)
+
+export const fetchOptionsReport = (sectionId: string, reportId: number) =>
+  api.get(`/options/${sectionId}/reports/${reportId}`).then((r) => r.data)
+
+export const deleteOptionsReport = (sectionId: string, reportId: number) =>
+  api.delete(`/options/${sectionId}/reports/${reportId}`).then((r) => r.data)
+
+export const startAnalysisJob = (payload: Record<string, unknown> & { domain: string; section: string }) =>
+  api.post('/analysis/start', payload).then((r) => r.data)
+
+export const fetchAnalysisJobs = (domain: string, section: string, status?: string) =>
+  api.get('/analysis/jobs', { params: { domain, section, ...(status ? { status } : {}) } }).then((r) => r.data)
+
+export const fetchAnalysisJob = (jobId: string) =>
+  api.get(`/analysis/jobs/${jobId}`).then((r) => r.data)
+
+export const saveAnalysisReport = (domain: string, section: string, payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/analysis/reports', payload, { params: { domain, section } }).then((r) => r.data)
+
+export const fetchAnalysisReports = (domain: string, section: string) =>
+  api.get('/analysis/reports', { params: { domain, section } }).then((r) => r.data)
+
+export const fetchAnalysisReport = (domain: string, section: string, reportId: number) =>
+  api.get(`/analysis/reports/${reportId}`, { params: { domain, section } }).then((r) => r.data)
+
+export const deleteAnalysisReport = (domain: string, section: string, reportId: number) =>
+  api.delete(`/analysis/reports/${reportId}`, { params: { domain, section } }).then((r) => r.data)
+
 export const runProTradeVolumeProfileCe = (payload: {
   tickers: string[]
   asset_class?: string
