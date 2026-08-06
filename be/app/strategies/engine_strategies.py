@@ -13,6 +13,7 @@ ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
     "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
     "pro_trade": "Pro Trade engines — Volume Profile, PA+VP, VSA next-candle, and PA-VP-SMC confluence.",
+    "etf_ta": "ETF TA IN — ETF Shop 4.0 systematic 20 DMA swing / SIP proxy (India · US · Crypto · Commodity ETFs).",
     "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
     "ta_screeners": "TA screener engines — S-R, fakeout, SMC, crypto wave, and confluence scanners.",
 }
@@ -441,6 +442,50 @@ for pt in PRO_TRADE_STRATEGIES:
         "pro_trade": True,
     }
 
+ETF_TA_STRATEGIES: list[dict[str, Any]] = [
+    {
+        "id": "stf_shop",
+        "name": "ETF Shop 4.0 — 20 DMA · dynamic SIP · FIFO",
+        "description": (
+            "Single-ticker proxy of ETF Shop 4.0: buy when price is cheap vs 20 DMA, "
+            "exit at ~6% profit target or when price reclaims the 20 DMA. "
+            "Live shop is a multi-ETF rotator with SIP latch + FIFO lots — this backtest "
+            "is the per-name swing/SIP spirit for research."
+        ),
+        "timeframes": ["1d"],
+        "min_bars": 80,
+        "youtube": "https://www.youtube.com/watch?v=xrKfKpNhkTE",
+        "indicators": ["20 DMA", "Pct from DMA", "Profit target %"],
+        "entry_rules": [
+            "Buy when close is below the 20-day moving average (cheap vs average).",
+        ],
+        "exit_rules": [
+            "Take profit at the configured target (default 6% from entry), or",
+            "Exit when price reclaims the 20 DMA after being long.",
+        ],
+    },
+]
+
+for etf in ETF_TA_STRATEGIES:
+    ENGINE_RUNNER_KIND[etf["id"]] = "etf_ta_signal_df"
+    ENGINE_STRATEGY_META[etf["id"]] = {
+        "id": etf["id"],
+        "name": etf["name"],
+        "category": "etf_ta",
+        "category_label": "ETF TA IN",
+        "timeframes": etf["timeframes"],
+        "summary": etf["description"],
+        "description": etf["description"],
+        "indicators": etf.get("indicators") or [],
+        "entry_rules": etf.get("entry_rules") or [],
+        "exit_rules": etf.get("exit_rules") or [],
+        "needs_benchmark": False,
+        "min_bars": etf["min_bars"],
+        "engine": True,
+        "youtube": etf.get("youtube"),
+        "etf_ta": True,
+    }
+
 _TA_SCREENER_RUNNERS: dict[str, str] = {
     "zireman_confluence": "ta_native_bt",
     "pump_dump_breakout": "ta_native_bt",
@@ -531,6 +576,12 @@ ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
         "description": ENGINE_CATEGORY_DESCRIPTIONS["pro_trade"],
         "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d"],
         "strategy_ids": [p["id"] for p in PRO_TRADE_STRATEGIES],
+    },
+    "etf_ta": {
+        "label": "ETF TA IN",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["etf_ta"],
+        "timeframes": ["1d"],
+        "strategy_ids": [e["id"] for e in ETF_TA_STRATEGIES],
     },
     "technical_analysis": {
         "label": "Technical Analysis",

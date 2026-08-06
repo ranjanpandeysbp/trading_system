@@ -359,6 +359,10 @@ class EngineBacktestService:
             return await self._run_pro_trade_backtest(
                 request, market, groww_token, exchange, costs_pct, period, limit,
             )
+        if kind == "etf_ta_signal_df":
+            return await self._run_etf_ta_backtest(
+                request, market, groww_token, exchange, costs_pct, period, limit,
+            )
         return await self._run_rolling_backtest(
             request, market, groww_token, exchange, costs_pct, period, limit, kind,
         )
@@ -794,6 +798,105 @@ class EngineBacktestService:
             "recent_signals": recent_signals,
         }
 
+    async def _run_etf_ta_backtest(
+        self,
+        request: BacktestRequest,
+        market: str,
+        groww_token: str,
+        exchange: str,
+        costs_pct: float,
+        period: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        from app.etf_ta.stf_shop_backtest import build_stf_shop_signals
+        from app.strategies.advanced_backtest_report import enrich_stats_dict
+
+        if request.strategy != "stf_shop":
+            raise ValueError(f"Unknown ETF TA strategy: {request.strategy}")
+
+        # ETF Shop is a daily swing system — force 1d regardless of UI timeframe.
+        tf = "1d"
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(
+                request.ticker, tf, market, groww_token, exchange, limit=max(limit, 120),
+            )
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < 40:
+                raise ValueError(f"Insufficient daily data for {request.ticker} (need ≥40 bars).")
+            return build_stf_shop_signals(df, costs_pct=costs_pct)
+
+        work, trades = await asyncio.to_thread(_run)
+        work = _normalize_signal_column(work)
+        signal_count = int((work["signal"] != 0).sum())
+        recent_signals = _recent_signals_from_df(work)
+
+        closed = [t for t in trades if t.get("exit_reason") != "open"]
+        if not closed:
+            stats = enrich_stats_dict(
+                {
+                    "num_trades": 0,
+                    "win_rate_pct": None,
+                    "total_return_pct": 0.0,
+                    "avg_return_per_trade_pct": None,
+                    "max_drawdown_pct": 0.0,
+                    "trades": [],
+                },
+                period=period,
+                costs_pct=costs_pct,
+            )
+        else:
+            # Reuse generic compounding stats from the native long-only trade list
+            pnls = [float(t["pnl_pct"]) for t in closed]
+            wins = sum(1 for p in pnls if p > 0)
+            equity = 1.0
+            peak = 1.0
+            max_dd = 0.0
+            for p in pnls:
+                equity *= 1.0 + p / 100.0
+                peak = max(peak, equity)
+                max_dd = max(max_dd, (peak - equity) / peak * 100.0)
+            stats = enrich_stats_dict(
+                {
+                    "num_trades": len(closed),
+                    "win_rate_pct": round(100.0 * wins / len(closed), 2),
+                    "total_return_pct": round((equity - 1.0) * 100.0, 2),
+                    "avg_return_per_trade_pct": round(sum(pnls) / len(closed), 3),
+                    "max_drawdown_pct": round(max_dd, 2),
+                    "trades": closed,
+                },
+                period=period,
+                costs_pct=costs_pct,
+            )
+
+        summary = None
+        if signal_count == 0:
+            summary = (
+                f"No ETF Shop signals in period ({period}, {len(work)} daily bars). "
+                "Single-ticker proxy: buy below 20 DMA, exit at ~6% or DMA reclaim."
+            )
+        elif stats["num_trades"] == 0:
+            summary = "Signals found but no completed round-trip trades in this period."
+        else:
+            summary = (
+                "ETF Shop 4.0 single-ticker proxy (not the full multi-ETF rotator): "
+                "long when cheap vs 20 DMA · exit at ~6% target or DMA reclaim."
+            )
+
+        return {
+            "ticker": request.ticker,
+            "strategy": request.strategy,
+            "timeframe": tf,
+            "period": period,
+            "bars_evaluated": len(work),
+            "signal_count": signal_count,
+            "benchmark_ticker": None,
+            "summary": summary,
+            "stats": stats,
+            "recent_signals": recent_signals,
+        }
+
     async def _build_signal_frame(
         self,
         strategy_id: str,
@@ -997,6 +1100,8 @@ class EngineBacktestService:
             return await self._latest_signal_df_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
         if kind == "pro_trade_signal_df":
             return await self._latest_pro_trade_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
+        if kind == "etf_ta_signal_df":
+            return await self._latest_etf_ta_signal(strategy_id, ticker, timeframe, market, groww_token, exchange, bars, costs_pct)
         if kind == "analyze_bt":
             return await self._latest_hub_section_signal(strategy_id, ticker, market, groww_token, exchange)
         if kind in ("ta_native_bt", "rolling_ta_screener"):
@@ -1122,6 +1227,44 @@ class EngineBacktestService:
                 "timestamp": str(work.index[-1]),
             }
         enriched = enrich_signal(work, last_signal, label, "intraday", costs_pct)
+        return {
+            "action": "BUY" if last_signal == 1 else "SELL", "price": float(work["close"].iloc[-1]),
+            "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],
+            "confidence_pct": enriched["confidence_pct"], "rationale": enriched["rationale"],
+            "timestamp": str(work.index[-1]),
+        }
+
+    async def _latest_etf_ta_signal(
+        self, strategy_id: str, ticker: str, timeframe: str,
+        market: str, groww_token: str, exchange: str, bars: int, costs_pct: float,
+    ) -> dict[str, Any]:
+        from app.etf_ta.stf_shop_backtest import build_stf_shop_signals
+        from app.services.signal_enricher import enrich_signal
+
+        if strategy_id != "stf_shop":
+            raise ValueError(f"Unknown ETF TA strategy: {strategy_id}")
+
+        def _run():
+            set_groww_token(groww_token)
+            df = fetch_data_for_gap_scan(ticker, "1d", market, groww_token, exchange, limit=max(bars, 120))
+            df = normalize_ohlcv(df)
+            if df.empty:
+                raise ValueError(f"No data for {ticker} (1d).")
+            frame, _trades = build_stf_shop_signals(df, costs_pct=costs_pct)
+            return frame
+
+        work = await asyncio.to_thread(_run)
+        work = _normalize_signal_column(work)
+        last_signal = int(work["signal"].iloc[-1])
+        label = ENGINE_STRATEGY_META.get(strategy_id, {}).get("name", strategy_id)
+        if last_signal == 0:
+            return {
+                "action": "HOLD", "price": float(work["close"].iloc[-1]),
+                "sl_pct": 0.0, "tp_pct": 0.0, "confidence_pct": 0.0,
+                "rationale": "No active ETF Shop signal on latest daily bar.",
+                "timestamp": str(work.index[-1]),
+            }
+        enriched = enrich_signal(work, last_signal, label, "swing", costs_pct)
         return {
             "action": "BUY" if last_signal == 1 else "SELL", "price": float(work["close"].iloc[-1]),
             "sl_pct": enriched["sl_pct"], "tp_pct": enriched["tp_pct"],
