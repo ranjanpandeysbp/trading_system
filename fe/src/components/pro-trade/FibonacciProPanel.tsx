@@ -160,7 +160,7 @@ function TickerResultCard({
           )}
           {result.error ? <span className="text-xs text-amber-400">{String(result.error)}</span> : null}
         </button>
-        <AddToWatchlistButton ticker={String(result.ticker)} market={assetClass} />
+        <AddToWatchlistButton ticker={String(result.ticker ?? '')} marketType={assetClass} compact />
       </div>
 
       {open && (
@@ -194,9 +194,13 @@ function TickerResultCard({
             <div className="overflow-hidden rounded-lg border border-slate-800/60">
               <SupportResistanceChart
                 chartData={chartData}
+                supportZone={null}
+                resistanceZone={null}
+                trendlines={[]}
                 lastClose={result.ltp != null ? Number(result.ltp) : undefined}
                 fibonacci={fib ?? null}
                 levels={levels}
+                readingGuide="Candles with Fibonacci retracement/extension levels. Violet Fib lines mark the swing grid; Entry/SL/TP (if shown) are the best active setup. Golden pocket / OTE zones often sit near 61.8–78.6%."
               />
             </div>
           )}

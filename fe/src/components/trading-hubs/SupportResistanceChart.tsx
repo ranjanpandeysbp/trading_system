@@ -88,13 +88,13 @@ function CandlestickShape(props: any) {
 }
 
 export function SupportResistanceChart({
-  chartData, supportZone, resistanceZone, trendlines, lastClose, emas = {}, rsi, chartType = 'candles', fibonacci = null,
+  chartData, supportZone = null, resistanceZone = null, trendlines = [], lastClose, emas = {}, rsi, chartType = 'candles', fibonacci = null,
   supplyDemandZones = [], orderBlocks = [], levels = [], readingGuide,
 }: {
   chartData: Bar_[]
-  supportZone: [number, number] | null
-  resistanceZone: [number, number] | null
-  trendlines: Trendline[]
+  supportZone?: [number, number] | null
+  resistanceZone?: [number, number] | null
+  trendlines?: Trendline[]
   lastClose?: number | null
   emas?: Record<string, Array<{ time: string; value: number }>>
   rsi?: Array<{ time: string; value: number }> | null
@@ -188,15 +188,15 @@ export function SupportResistanceChart({
   const highs = view.map((b) => b.high)
   const visibleEmaPeriods = emaPeriods.filter((p) => !isHidden(`ema:${p}`))
   const emaValues = visibleEmaPeriods.flatMap((p) => (emas[p] || []).filter((pt) => pt.time >= (viewStart ?? '') && pt.time <= (viewEnd ?? '')).map((pt) => pt.value))
-  const fibValues = fibonacci && !isHidden('fibonacci') ? fibonacci.levels.map((lv) => lv.price) : []
-  const visibleSupplyDemand = isHidden('supplyDemand') ? [] : supplyDemandZones
-  const visibleOrderBlocks = isHidden('orderBlocks') ? [] : orderBlocks
+  const fibValues = fibonacci && !isHidden('fibonacci') ? (fibonacci.levels ?? []).map((lv) => lv.price) : []
+  const visibleSupplyDemand = isHidden('supplyDemand') ? [] : (supplyDemandZones ?? [])
+  const visibleOrderBlocks = isHidden('orderBlocks') ? [] : (orderBlocks ?? [])
   const zoneValues = [...visibleSupplyDemand, ...visibleOrderBlocks].flatMap((z) => [z.top, z.bottom])
-  const visibleLevels = levels.filter((lv) => !isHidden(`level:${lv.label}`))
+  const visibleLevels = (levels ?? []).filter((lv) => !isHidden(`level:${lv.label}`))
   const levelValues = visibleLevels.map((lv) => lv.price)
   const visibleSupportZone = supportZone && !isHidden('supportZone') ? supportZone : null
   const visibleResistanceZone = resistanceZone && !isHidden('resistanceZone') ? resistanceZone : null
-  const visibleTrendlines = isHidden('trendlines') ? [] : trendlines
+  const visibleTrendlines = isHidden('trendlines') ? [] : (trendlines ?? [])
   const padding = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
   const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
   const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
@@ -303,7 +303,7 @@ export function SupportResistanceChart({
               )
             })}
 
-            {!isHidden('fibonacci') && fibonacci?.levels.map((lv) => (
+            {!isHidden('fibonacci') && (fibonacci?.levels ?? []).map((lv) => (
               <ReferenceLine
                 key={`fib-${lv.ratio}`}
                 y={lv.price}
