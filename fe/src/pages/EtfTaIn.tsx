@@ -35,10 +35,10 @@ const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
 ]
 
 const ASSET_CLASS_DESCRIPTION: Record<AssetClass, string> = {
-  india: 'India NSE ETFs — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding',
-  us: 'US-listed ETFs (broad market, sector SPDRs, factor/style) — same Rank-vs-20-DMA rotation, dynamic SIP, FIFO compounding, in $',
-  crypto: 'Top liquid CoinDCX coins, run through the same buy-and-hold-and-rotate shop — treated as this venue’s closest equivalent to an ETF basket',
-  commodity: 'US-listed commodity ETFs (gold, silver, oil, agriculture baskets) — distinct from the futures contracts used elsewhere in this app, since a share (not a futures contract) fits this buy-and-hold rotation model',
+  india: 'India NSE ETFs or Nifty 50/Next 50 stocks — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding',
+  us: 'US-listed ETFs (broad market, sector SPDRs, factor/style) or mega-cap stocks — same Rank-vs-20-DMA rotation, dynamic SIP, FIFO compounding, converted to ₹ at a live USD/INR rate',
+  crypto: 'Top liquid CoinDCX coins, run through the same buy-and-hold-and-rotate shop — treated as this venue’s closest equivalent to an ETF basket, converted to ₹ at a live USD/INR rate',
+  commodity: 'US-listed commodity ETFs (gold, silver, oil, agriculture baskets) or commodity-linked stocks (energy, mining, agriculture majors) — converted to ₹ at a live USD/INR rate',
 }
 
 type ConfigDraft = {

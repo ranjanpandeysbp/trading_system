@@ -23,6 +23,7 @@ listed symbols do not exist or trade under a different symbol):
 from __future__ import annotations
 
 from app.market_pulse.high_vol_etf_tickers import HIGH_VOL_ETF
+from app.market_pulse.ticker_utils import NIFTY_50, NIFTY_NEXT_50
 
 # Underlying asset tag → one chosen liquid NSE symbol (no duplicate exposure in Shop 3.0)
 ETF_SHOP_39_UNDERLYING: dict[str, str] = {
@@ -117,6 +118,11 @@ ETF_PRESETS: dict[str, list[str]] = {
     # "High Vol ETF" dropdown elsewhere in this app (app.market_pulse.high_vol_etf_tickers) —
     # reused here rather than curating a second, separate list.
     "High Vol ETF": HIGH_VOL_ETF,
+    # Individual stocks instead of a diversified ETF basket — reuses this app's
+    # own verified NIFTY_50/NIFTY_NEXT_50 constituent lists (ticker_utils.py)
+    # rather than curating a third copy of the same data.
+    "India Stocks — Nifty 50 (recommended)": NIFTY_50,
+    "India Stocks — Nifty Next 50": NIFTY_NEXT_50,
 }
 
 GROWW_INDIA_MARKET = "Groww (India Stocks)"

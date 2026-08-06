@@ -32,6 +32,7 @@ from app.etf_ta.india_etf_universe import (
 from app.etf_ta.multi_asset_etf_universe import (
     MULTI_ASSET_ETF_UNIVERSE,
     default_universe_for,
+    get_usd_inr_rate,
     underlying_label_for,
 )
 from app.etf_ta import stf_shop_engine as eng
@@ -102,6 +103,23 @@ class EtfTaService:
             return underlying_for_symbol(symbol)
         return underlying_label_for(asset_class, symbol)
 
+    def _convert_analyses_to_inr(self, analyses: list[dict[str, Any]], asset_class: str) -> None:
+        """US/Crypto/Commodity genuinely trade in USD — this mutates `price`/
+        `sma20` in place to a live-rate INR value so the shop's capital pool,
+        slot sizing, and quantity math all run in ₹ throughout, exactly like
+        a multi-currency brokerage statement converted to a home-currency
+        view. `pct_from_dma` (the ranking basis) is a ratio of the two, so
+        multiplying both by the same rate never changes which instrument
+        ranks #1 — only the numbers shown. No-op for India (already ₹)."""
+        if asset_class == "india":
+            return
+        rate = get_usd_inr_rate()
+        for row in analyses:
+            if row.get("price") is not None:
+                row["price"] = round(float(row["price"]) * rate, 4)
+            if row.get("sma20") is not None:
+                row["sma20"] = round(float(row["sma20"]) * rate, 4)
+
     def universe(self, asset_class: str = "india") -> dict:
         if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
             return {
@@ -133,6 +151,7 @@ class EtfTaService:
         def _run():
             set_groww_token(token)
             analyses = eng.scan_etf_universe(syms, groww_token=token, exchange=ex, market=market)
+            self._convert_analyses_to_inr(analyses, asset_class)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
@@ -160,6 +179,7 @@ class EtfTaService:
         def _run():
             set_groww_token(token)
             analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
+            self._convert_analyses_to_inr(analyses, asset_class)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
@@ -320,6 +340,7 @@ class EtfTaService:
             def _run():
                 set_groww_token(token)
                 analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
+                self._convert_analyses_to_inr(analyses, asset_class)
                 price_map = {a["symbol"]: a.get("price") for a in analyses if a.get("price")}
 
                 sells = eng.sell_candidates_fifo(
@@ -501,6 +522,7 @@ class EtfTaService:
         def _run():
             set_groww_token(token)
             analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
+            self._convert_analyses_to_inr(analyses, asset_class)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
