@@ -20,9 +20,26 @@ import {
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Th, Td, useSort } from '../components/ui/Table'
+
+type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
+
+const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
+  { id: 'india', label: 'India' },
+  { id: 'us', label: 'US' },
+  { id: 'crypto', label: 'Crypto' },
+  { id: 'commodity', label: 'Commodities' },
+]
+
+const ASSET_CLASS_DESCRIPTION: Record<AssetClass, string> = {
+  india: 'India NSE ETFs — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding',
+  us: 'US-listed ETFs (broad market, sector SPDRs, factor/style) — same Rank-vs-20-DMA rotation, dynamic SIP, FIFO compounding, in $',
+  crypto: 'Top liquid CoinDCX coins, run through the same buy-and-hold-and-rotate shop — treated as this venue’s closest equivalent to an ETF basket',
+  commodity: 'US-listed commodity ETFs (gold, silver, oil, agriculture baskets) — distinct from the futures contracts used elsewhere in this app, since a share (not a futures contract) fits this buy-and-hold rotation model',
+}
 
 type ConfigDraft = {
   deposited_capital: number
@@ -58,6 +75,7 @@ function draftFromConfig(cfg: EtfShopConfig): ConfigDraft {
 
 export default function EtfTaIn() {
   const queryClient = useQueryClient()
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<ConfigDraft | null>(null)
   const [sellPriceBySlot, setSellPriceBySlot] = useState<Record<number, string>>({})
@@ -66,8 +84,21 @@ export default function EtfTaIn() {
   const [addPrice, setAddPrice] = useState('')
   const [addAmount, setAddAmount] = useState('')
 
-  const { data: universe } = useQuery({ queryKey: ['etf-ta-universe'], queryFn: fetchEtfTaUniverse })
-  const portfolioQuery = useQuery({ queryKey: ['etf-shop-portfolio'], queryFn: fetchEtfShopPortfolio })
+  const { data: universe } = useQuery({
+    queryKey: ['etf-ta-universe', assetClass],
+    queryFn: () => fetchEtfTaUniverse(assetClass),
+  })
+  const portfolioQuery = useQuery({
+    queryKey: ['etf-shop-portfolio', assetClass],
+    queryFn: () => fetchEtfShopPortfolio(assetClass),
+  })
+
+  const currency = portfolioQuery.data?.config.currency ?? universe?.currency ?? (assetClass === 'india' ? '₹' : '$')
+
+  useEffect(() => {
+    setDraft(null)
+    setError('')
+  }, [assetClass])
 
   useEffect(() => {
     if (portfolioQuery.data && !draft) {
@@ -88,34 +119,35 @@ export default function EtfTaIn() {
   }, [draft, universe])
 
   const saveConfigMutation = useMutation({
-    mutationFn: (payload: Partial<EtfShopConfig>) => updateEtfShopConfig(payload),
+    mutationFn: (payload: Partial<EtfShopConfig>) => updateEtfShopConfig({ ...payload, asset_class: assetClass }),
     onError: (e) => setError(apiErrorMessage(e)),
     onSuccess: (cfg) => {
       setError('')
-      queryClient.setQueryData(['etf-shop-portfolio'], (old: typeof portfolioQuery.data) =>
+      queryClient.setQueryData(['etf-shop-portfolio', assetClass], (old: typeof portfolioQuery.data) =>
         old ? { ...old, config: cfg } : old,
       )
     },
   })
 
   const dailyMutation = useMutation({
-    mutationFn: runEtfShopDaily,
+    mutationFn: () => runEtfShopDaily(assetClass),
     onError: (e) => setError(apiErrorMessage(e)),
     onSuccess: () => {
       setError('')
-      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio'] })
+      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio', assetClass] })
     },
   })
 
   const addLotMutation = useMutation({
-    mutationFn: addEtfShopLot,
+    mutationFn: (payload: { symbol: string; price: number; amount: number; lot_type?: string }) =>
+      addEtfShopLot({ ...payload, asset_class: assetClass }),
     onError: (e) => setError(apiErrorMessage(e)),
     onSuccess: () => {
       setError('')
       setAddSymbol('')
       setAddPrice('')
       setAddAmount('')
-      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio'] })
+      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio', assetClass] })
     },
   })
 
@@ -131,7 +163,7 @@ export default function EtfTaIn() {
         delete next[vars.lotId]
         return next
       })
-      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio'] })
+      queryClient.invalidateQueries({ queryKey: ['etf-shop-portfolio', assetClass] })
     },
   })
 
@@ -196,13 +228,21 @@ export default function EtfTaIn() {
     closeLotMutation.mutate({ lotId, salePrice: price })
   }
 
+  const assetClassPicker = (
+    <div className="mb-4 flex flex-wrap gap-2">
+      {ASSET_CLASSES.map((ac) => (
+        <Chip key={ac.id} selected={assetClass === ac.id} onClick={() => setAssetClass(ac.id)}>
+          {ac.label}
+        </Chip>
+      ))}
+    </div>
+  )
+
   if (portfolioQuery.isLoading || !draft) {
     return (
       <div>
-        <PageHeader
-          title="ETF TA IN"
-          description="India NSE ETF strategies — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding"
-        />
+        <PageHeader title="ETF TA IN" description={ASSET_CLASS_DESCRIPTION[assetClass]} />
+        {assetClassPicker}
         <Loading message="Loading your ETF Shop portfolio…" />
       </div>
     )
@@ -210,17 +250,16 @@ export default function EtfTaIn() {
 
   return (
     <div>
-      <PageHeader
-        title="ETF TA IN"
-        description="India NSE ETF strategies — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding"
-      />
+      <PageHeader title="ETF TA IN" description={ASSET_CLASS_DESCRIPTION[assetClass]} />
+      {assetClassPicker}
 
       <Card className="mb-4">
         <p className="text-sm text-slate-400">
-          <strong className="text-slate-200">ETF Shop 4.0</strong> — 39 distinct underlying ETFs, Rank 1 vs 20 DMA buys,
-          −10% weakness → dynamic SIP, FIFO sells with % + min ₹ targets. Your capital settings and lot ledger are saved
-          to your account — same shop on every device. Schedule it under Alerts (pick <em>ETF Shop 4.0</em>) for a daily
-          notification without opening this page.
+          <strong className="text-slate-200">ETF Shop 4.0</strong> — Rank 1 vs 20 DMA buys, −10% weakness → dynamic
+          SIP, FIFO sells with % + min {currency} targets. Each asset class ({ASSET_CLASSES.map((a) => a.label).join(' / ')}) is
+          its own independent shop with its own capital pool, universe, and lot ledger — your capital settings and
+          lot ledger are saved to your account, same shop on every device. India's shop can be scheduled under
+          Alerts (pick <em>ETF Shop 4.0</em>) for a daily notification without opening this page.
         </p>
       </Card>
 
@@ -232,14 +271,69 @@ export default function EtfTaIn() {
             {saveConfigMutation.isPending ? 'Saving…' : 'Save settings'}
           </Button>
         </div>
+
+        <div className="mb-4 rounded-lg border border-slate-800/60 bg-slate-950/40 p-3 text-xs leading-relaxed text-slate-400">
+          <p className="mb-2 font-medium text-slate-300">What these settings mean</p>
+          <ul className="list-disc space-y-1.5 pl-4">
+            <li>
+              <strong className="text-slate-300">Deposited capital</strong> — the total money you've put into this
+              ETF Shop so far. This (plus Growth reinvested, minus Dividends withdrawn) is what the daily
+              recommendation divides by your Slot divisor to size each buy.
+            </li>
+            <li>
+              <strong className="text-slate-300">Growth reinvested</strong> — profit you've booked from past sells
+              and chosen to plough back in rather than withdraw, adding to your investable pool without a fresh
+              deposit.
+            </li>
+            <li>
+              <strong className="text-slate-300">Dividends withdrawn</strong> — dividend payouts you've taken out
+              in cash rather than reinvested; subtracted from your investable pool so the shop doesn't assume
+              money is still working that you've already pocketed.
+            </li>
+            <li>
+              <strong className="text-slate-300">Slot divisor</strong> — total capital ÷ this number = the size of
+              one "slot" (one buy tranche). A higher divisor means smaller, more numerous buys spread across more
+              ETFs/days; a lower divisor means fewer, bigger buys.
+            </li>
+            <li>
+              <strong className="text-slate-300">Sell mode</strong> — the rule for when a held lot is "eligible for
+              profit booking": <em>% + min {currency}</em> requires both a minimum % gain and a minimum {currency}
+              {' '}gain (the ETF Shop 4.0 default, avoiding both "technically up but trivial" and "big % on a tiny
+              position" false positives); <em>% gain only</em> or <em>{currency} gain only</em> use just one of
+              those two checks.
+            </li>
+            <li>
+              <strong className="text-slate-300">% profit target</strong> — the minimum % gain a lot needs (from
+              your buy price to the current price) to count as eligible for profit booking, when Sell mode includes
+              a % check.
+            </li>
+            <li>
+              <strong className="text-slate-300">Min {currency} profit</strong> — the minimum absolute gain a lot
+              needs (not %) to count as eligible for profit booking, when Sell mode includes a {currency} check.
+            </li>
+            <li>
+              <strong className="text-slate-300">Prefer SIP when eligible</strong> — when on, the daily
+              recommendation can suggest a dynamic-SIP/averaging buy on a weak holding (see Averaging-down trigger
+              below) even when it isn't today's #1-ranked ETF; when off, it only ever recommends buying whichever
+              ETF currently ranks #1 vs its 20-day moving average.
+            </li>
+            <li>
+              <strong className="text-slate-300">Averaging-down trigger</strong> — when a held ETF falls this % or
+              more below your original buy price, it latches into dynamic-SIP/averaging mode: the "Bought" table
+              below flags it and suggests topping it up (by default, 10% of what's already invested in it) to lower
+              your average cost.
+            </li>
+          </ul>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <FormField label="Deposited capital (₹)">
+          <FormField label={`Deposited capital (${currency})`}>
             <Input type="number" value={draft.deposited_capital} onChange={(e) => setDraft((d) => d && ({ ...d, deposited_capital: Number(e.target.value) }))} />
           </FormField>
-          <FormField label="Growth reinvested (₹)">
+          <FormField label={`Growth reinvested (${currency})`}>
             <Input type="number" value={draft.growth_amount} onChange={(e) => setDraft((d) => d && ({ ...d, growth_amount: Number(e.target.value) }))} />
           </FormField>
-          <FormField label="Dividends withdrawn (₹)">
+          <FormField label={`Dividends withdrawn (${currency})`}>
             <Input type="number" value={draft.dividend_withdrawn} onChange={(e) => setDraft((d) => d && ({ ...d, dividend_withdrawn: Number(e.target.value) }))} />
           </FormField>
           <FormField label="Slot divisor">
@@ -247,15 +341,15 @@ export default function EtfTaIn() {
           </FormField>
           <FormField label="Sell mode">
             <Select value={draft.sell_mode} onChange={(e) => setDraft((d) => d && ({ ...d, sell_mode: e.target.value as ConfigDraft['sell_mode'] }))}>
-              <option value="combined">% + min ₹ (4.0 default)</option>
+              <option value="combined">% + min {currency} (4.0 default)</option>
               <option value="percentage">% gain only</option>
-              <option value="absolute">₹ gain only</option>
+              <option value="absolute">{currency} gain only</option>
             </Select>
           </FormField>
           <FormField label="% profit target">
             <Input type="number" value={draft.profit_target_pct} onChange={(e) => setDraft((d) => d && ({ ...d, profit_target_pct: Number(e.target.value) }))} />
           </FormField>
-          <FormField label="Min ₹ profit">
+          <FormField label={`Min ${currency} profit`}>
             <Input type="number" value={draft.min_profit_inr} onChange={(e) => setDraft((d) => d && ({ ...d, min_profit_inr: Number(e.target.value) }))} />
           </FormField>
           <FormField label="Prefer SIP when eligible">
@@ -280,7 +374,9 @@ export default function EtfTaIn() {
 
       <Card className="mb-4">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">ETF universe</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+            {assetClass === 'india' ? 'ETF universe' : assetClass === 'crypto' ? 'Coin universe' : 'ETF universe'}
+          </h3>
           <Button size="sm" variant="secondary" onClick={handleSaveConfig} disabled={saveConfigMutation.isPending}>
             <Save size={14} />
             {saveConfigMutation.isPending ? 'Saving…' : 'Save universe'}
@@ -323,7 +419,7 @@ export default function EtfTaIn() {
       {rec && !dailyMutation.isPending && (
         <>
           <Card className="mb-4">
-            <StfShopCapitalMetrics rec={rec} />
+            <StfShopCapitalMetrics rec={rec} currency={currency} />
             <div className="mt-4">
               <StfShopRecommendationPanel
                 rec={rec}
@@ -331,6 +427,7 @@ export default function EtfTaIn() {
                 onExecuteSell={handleExecuteSell}
                 buyPending={addLotMutation.isPending}
                 sellPending={closeLotMutation.isPending}
+                currency={currency}
               />
             </div>
             {(rec.data_errors as string[] | undefined)?.length ? (
@@ -342,7 +439,7 @@ export default function EtfTaIn() {
 
           <Card className="mb-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-300">Rank vs 20 DMA</h3>
-            <StfShopRankTable analyses={analyses} />
+            <StfShopRankTable analyses={analyses} currency={currency} />
           </Card>
         </>
       )}
@@ -368,20 +465,20 @@ export default function EtfTaIn() {
               <tr><td colSpan={9} className="px-4 py-3 text-sm text-slate-500">No open lots — record buys after execution.</td></tr>
             ) : sortedLots.map((p) => {
               const pct = p.profit_since_bought_pct
-              const inr = p.profit_since_bought_inr
+              const profitAbs = p.profit_since_bought_inr
               const pctColor = pct == null ? 'text-slate-500' : pct >= 0 ? 'text-emerald-400' : 'text-rose-400'
               return (
                 <tr key={p.id}>
                   <Td className="font-medium">{p.symbol}</Td>
                   <Td>{p.purchase_date}</Td>
-                  <Td>₹{p.purchase_price.toFixed(2)}</Td>
-                  <Td>{p.current_price != null ? `₹${p.current_price.toFixed(2)}` : '—'}</Td>
-                  <Td>₹{p.amount.toLocaleString('en-IN')}</Td>
+                  <Td>{currency}{p.purchase_price.toFixed(2)}</Td>
+                  <Td>{p.current_price != null ? `${currency}${p.current_price.toFixed(2)}` : '—'}</Td>
+                  <Td>{currency}{p.amount.toLocaleString('en-IN')}</Td>
                   <Td className={pctColor}>
                     {pct != null ? (
                       <>
                         {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                        {inr != null && <span className="ml-1 text-xs text-slate-500">({inr >= 0 ? '+' : ''}₹{inr.toLocaleString('en-IN')})</span>}
+                        {profitAbs != null && <span className="ml-1 text-xs text-slate-500">({profitAbs >= 0 ? '+' : ''}{currency}{profitAbs.toLocaleString('en-IN')})</span>}
                       </>
                     ) : '—'}
                   </Td>
@@ -401,7 +498,7 @@ export default function EtfTaIn() {
                           className="inline-flex w-fit items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"
                           title={p.averaging_reason ?? ''}
                         >
-                          Consider averaging{p.averaging_amount != null ? ` ~₹${Math.round(p.averaging_amount).toLocaleString('en-IN')}` : ''}
+                          Consider averaging{p.averaging_amount != null ? ` ~${currency}${Math.round(p.averaging_amount).toLocaleString('en-IN')}` : ''}
                         </span>
                       )}
                     </div>
@@ -412,7 +509,7 @@ export default function EtfTaIn() {
                         <div className="w-24">
                           <Input
                             type="number"
-                            placeholder="Sale ₹"
+                            placeholder={`Sale ${currency}`}
                             value={sellPriceBySlot[p.id] ?? ''}
                             onChange={(e) => setSellPriceBySlot((s) => ({ ...s, [p.id]: e.target.value }))}
                           />
@@ -434,12 +531,12 @@ export default function EtfTaIn() {
 
         <div className="mt-4 grid gap-3 border-t border-slate-800/60 pt-4 md:grid-cols-4">
           <FormField label="Symbol">
-            <Input value={addSymbol} onChange={(e) => setAddSymbol(e.target.value)} placeholder="NIFTYBEES" />
+            <Input value={addSymbol} onChange={(e) => setAddSymbol(e.target.value)} placeholder={assetClass === 'india' ? 'NIFTYBEES' : assetClass === 'crypto' ? 'B-BTCUSDT' : 'SPY'} />
           </FormField>
           <FormField label="Buy price">
             <Input type="number" value={addPrice} onChange={(e) => setAddPrice(e.target.value)} />
           </FormField>
-          <FormField label="Amount (₹)">
+          <FormField label={`Amount (${currency})`}>
             <Input type="number" value={addAmount} onChange={(e) => setAddAmount(e.target.value)} />
           </FormField>
           <div className="flex items-end">
@@ -469,14 +566,14 @@ export default function EtfTaIn() {
             ) : closedLots.map((p) => (
               <tr key={p.id}>
                 <Td className="font-medium">{p.symbol}</Td>
-                <Td>{p.purchase_date} · ₹{p.purchase_price.toFixed(2)}</Td>
+                <Td>{p.purchase_date} · {currency}{p.purchase_price.toFixed(2)}</Td>
                 <Td>{p.closed_date}</Td>
-                <Td>₹{(p.sale_price ?? 0).toFixed(2)}</Td>
+                <Td>{currency}{(p.sale_price ?? 0).toFixed(2)}</Td>
                 <Td className={(p.gross_profit ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                  {p.gross_profit != null ? `₹${p.gross_profit.toLocaleString('en-IN')}` : '—'}
+                  {p.gross_profit != null ? `${currency}${p.gross_profit.toLocaleString('en-IN')}` : '—'}
                 </Td>
                 <Td className={(p.net_profit ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                  {p.net_profit != null ? `₹${p.net_profit.toLocaleString('en-IN')}` : '—'}
+                  {p.net_profit != null ? `${currency}${p.net_profit.toLocaleString('en-IN')}` : '—'}
                 </Td>
               </tr>
             ))}

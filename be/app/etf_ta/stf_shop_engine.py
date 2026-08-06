@@ -44,12 +44,15 @@ def fetch_stf_etf_data(
     groww_token: str = "",
     exchange: str = "NSE",
     limit: int = 120,
+    market: str = GROWW_INDIA_MARKET,
 ) -> pd.DataFrame:
-    """Daily OHLCV for one NSE ETF."""
+    """Daily OHLCV for one ETF — `market` selects the fetch route (India/US/
+    Crypto via fetch_data_for_gap_scan's own market-label routing), defaults
+    to India for backward compatibility with existing callers."""
     return fetch_data_for_gap_scan(
         symbol,
         "1d",
-        GROWW_INDIA_MARKET,
+        market,
         groww_token,
         exchange,
         limit=limit,
@@ -131,12 +134,13 @@ def scan_etf_universe(
     *,
     groww_token: str = "",
     exchange: str = "NSE",
+    market: str = GROWW_INDIA_MARKET,
 ) -> list[dict[str, Any]]:
     """Fetch and rank all ETFs; failed pulls stay out of ranking."""
     rows: list[dict[str, Any]] = []
     for sym in symbols:
         try:
-            df = fetch_stf_etf_data(sym, groww_token, exchange)
+            df = fetch_stf_etf_data(sym, groww_token, exchange, market=market)
             rows.append(analyze_etf_dma(df, sym))
         except Exception as exc:
             rows.append({
@@ -326,6 +330,8 @@ def rank_1_buy(
 
 def sip_buy_recommendation(
     sip_candidates: list[dict[str, Any]],
+    *,
+    currency: str = "₹",
 ) -> dict[str, Any] | None:
     """Top dynamic SIP candidate — largest fall from last buy (plus-zone excluded)."""
     if not sip_candidates:
@@ -349,7 +355,7 @@ def sip_buy_recommendation(
         "reason": (
             f"SIP #{row.get('sip_rank')} — largest fall from last buy "
             f"({row.get('fall_from_last_buy_pct'):.2f}%) · budget "
-            f"₹{row.get('sip_amount'):,.0f} (10% of ₹{row.get('total_invested'):,.0f} invested)."
+            f"{currency}{row.get('sip_amount'):,.0f} (10% of {currency}{row.get('total_invested'):,.0f} invested)."
         ),
     }
 
@@ -389,6 +395,7 @@ def sell_candidates_fifo(
     profit_target_pct: float = DEFAULT_PROFIT_TARGET_PCT,
     profit_target_inr: float = DEFAULT_PROFIT_TARGET_INR,
     min_profit_inr: float = DEFAULT_MIN_PROFIT_INR,
+    currency: str = "₹",
 ) -> list[dict[str, Any]]:
     """FIFO lots eligible to sell — oldest purchase checked first per symbol."""
     price_map = {a["symbol"]: a.get("price") for a in analyses if a.get("price")}
@@ -422,12 +429,12 @@ def sell_candidates_fifo(
             if sell_mode == "combined":
                 trigger = (
                     f"+{profit_pct:.2f}% (≥{profit_target_pct:.1f}%) "
-                    f"and +₹{profit_inr:,.0f} (≥₹{min_profit_inr:,.0f})"
+                    f"and +{currency}{profit_inr:,.0f} (≥{currency}{min_profit_inr:,.0f})"
                 )
             elif sell_mode == "percentage":
                 trigger = f"+{profit_pct:.2f}% (target {profit_target_pct:.1f}%)"
             else:
-                trigger = f"+₹{profit_inr:,.0f} (target ₹{profit_target_inr:,.0f})"
+                trigger = f"+{currency}{profit_inr:,.0f} (target {currency}{profit_target_inr:,.0f})"
             out.append({
                 "action": "SELL",
                 "symbol": sym,
@@ -441,7 +448,7 @@ def sell_candidates_fifo(
                 "quantity": slot.get("quantity"),
                 "sell_mode": sell_mode,
                 "eligible": True,
-                "reason": f"FIFO lot {trigger} · buy ₹{buy_px:.2f}.",
+                "reason": f"FIFO lot {trigger} · buy {currency}{buy_px:.2f}.",
             })
 
     if sell_mode == "percentage":
@@ -559,6 +566,7 @@ def daily_stf_recommendation(
     shop_start_date: str | None = None,
     prefer_sip_when_available: bool = True,
     weakness_threshold_pct: float = SIP_WEAKNESS_THRESHOLD_PCT,
+    currency: str = "₹",
 ) -> dict[str, Any]:
     """Combined daily tracker — standard or SIP buy + FIFO sell (max 1 each)."""
     pool = effective_capital(deposited_capital, growth_amount, dividend_withdrawn)
@@ -580,9 +588,10 @@ def daily_stf_recommendation(
         profit_target_pct=profit_target_pct,
         profit_target_inr=profit_target_inr,
         min_profit_inr=min_profit_inr,
+        currency=currency,
     )
 
-    sip_buy = sip_buy_recommendation(sip_candidates) if prefer_sip_when_available else None
+    sip_buy = sip_buy_recommendation(sip_candidates, currency=currency) if prefer_sip_when_available else None
     standard_buy = rank_1_buy(analyses, slot_amount=slot_amt)
 
     buy: dict[str, Any] | None = None
@@ -598,8 +607,9 @@ def daily_stf_recommendation(
                 **buy,
                 "blocked": True,
                 "block_reason": (
-                    f"ETF price ₹{float(buy.get('price') or 0):,.2f} exceeds the slot size ₹{need:,.0f} — "
-                    "not even 1 unit affordable. Increase capital or reduce the slots divisor."
+                    f"ETF price {currency}{float(buy.get('price') or 0):,.2f} exceeds the slot size "
+                    f"{currency}{need:,.0f} — not even 1 unit affordable. Increase capital or reduce the "
+                    "slots divisor."
                 ),
             }
         elif free < need * 0.95:
@@ -607,7 +617,7 @@ def daily_stf_recommendation(
                 **buy,
                 "blocked": True,
                 "block_reason": (
-                    f"Insufficient free capital (need ₹{need:,.0f}, free ₹{free:,.0f}). "
+                    f"Insufficient free capital (need {currency}{need:,.0f}, free {currency}{free:,.0f}). "
                     "If market capital is exhausted, stop buying and wait for recovery."
                 ),
             }

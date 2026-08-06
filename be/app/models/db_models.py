@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, select
+from sqlalchemy import DateTime, Float, Integer, String, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -283,15 +283,21 @@ class CustomStrategy(Base):
 
 
 class EtfShopConfig(Base):
-    """One row per user — ETF Shop 4.0 capital pool, rotation/SIP/FIFO rules.
+    """One row per (user, asset_class) — ETF Shop 4.0 capital pool,
+    rotation/SIP/FIFO rules. Each asset class (india/us/crypto/commodity) is
+    its own independent shop with its own capital pool, universe, and
+    currency, since ₹ and $ capital can't be meaningfully combined into one
+    number — mirrors how every other multi-asset feature in this app works.
 
     Replaces the old browser-localStorage-only state so the shop survives
     device/browser changes and can be run unattended by the schedule worker.
     """
     __tablename__ = "etf_shop_configs"
+    __table_args__ = (UniqueConstraint("user_id", "asset_class", name="uq_etf_shop_configs_user_asset"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True, unique=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    asset_class: Mapped[str] = mapped_column(String(16), default="india")
     deposited_capital: Mapped[float] = mapped_column(Float, default=500_000.0)
     growth_amount: Mapped[float] = mapped_column(Float, default=0.0)
     dividend_withdrawn: Mapped[float] = mapped_column(Float, default=0.0)
@@ -324,6 +330,7 @@ class EtfShopLot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, index=True)
+    asset_class: Mapped[str] = mapped_column(String(16), default="india", index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     purchase_price: Mapped[float] = mapped_column(Float)
     purchase_date: Mapped[str] = mapped_column(String(10))

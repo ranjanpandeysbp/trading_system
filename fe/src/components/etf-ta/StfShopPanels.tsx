@@ -7,9 +7,9 @@ import { Button } from '../ui/Button'
 type Row = Record<string, unknown>
 type SortKey = 'rank' | 'symbol' | 'underlying' | 'price' | 'sma20' | 'pct_from_dma'
 
-function fmtInr(n?: number | null) {
+function fmtCcy(n?: number | null, currency = '₹') {
   if (n == null || Number.isNaN(Number(n))) return '—'
-  return `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+  return `${currency}${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 }
 
 function pctClass(v?: number | null) {
@@ -34,7 +34,7 @@ function compareAnalysis(a: Row, b: Row, key: SortKey): number {
   }
 }
 
-export function StfShopRankTable({ analyses }: { analyses: Row[] }) {
+export function StfShopRankTable({ analyses, currency = '₹' }: { analyses: Row[]; currency?: string }) {
   const [sortKey, setSortKey] = useState<SortKey>('rank')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -75,8 +75,8 @@ export function StfShopRankTable({ analyses }: { analyses: Row[] }) {
             <Td>{r.rank != null ? String(r.rank) : '—'}</Td>
             <Td className="font-medium">{String(r.symbol)}</Td>
             <Td className="text-xs text-slate-500">{String(r.underlying ?? '—')}</Td>
-            <Td>{fmtInr(Number(r.price))}</Td>
-            <Td>{fmtInr(Number(r.sma20))}</Td>
+            <Td>{fmtCcy(Number(r.price), currency)}</Td>
+            <Td>{fmtCcy(Number(r.sma20), currency)}</Td>
             <Td className={pctClass(Number(r.pct_from_dma))}>
               {r.pct_from_dma != null ? `${Number(r.pct_from_dma).toFixed(2)}%` : String(r.error ?? '—')}
             </Td>
@@ -93,12 +93,14 @@ export function StfShopRecommendationPanel({
   onExecuteSell,
   buyPending,
   sellPending,
+  currency = '₹',
 }: {
   rec: Row
   onExecuteBuy?: () => void
   onExecuteSell?: () => void
   buyPending?: boolean
   sellPending?: boolean
+  currency?: string
 }) {
   const buy = rec.buy_recommendation as Row | undefined
   const sell = rec.primary_sell as Row | undefined
@@ -113,14 +115,14 @@ export function StfShopRecommendationPanel({
             <p className="text-lg font-bold text-white">{String(buy.action ?? '—')}</p>
             {buy.symbol != null && <p>Symbol: <strong>{String(buy.symbol)}</strong></p>}
             {buy.buy_type != null && <p>Type: {String(buy.buy_type)}</p>}
-            {buy.price != null && <p>CMP: {fmtInr(Number(buy.price))}</p>}
-            {buy.slot_amount != null && <p>Amount: {fmtInr(Number(buy.slot_amount))}</p>}
-            {buy.sip_amount != null && <p>SIP amount: {fmtInr(Number(buy.sip_amount))}</p>}
+            {buy.price != null && <p>CMP: {fmtCcy(Number(buy.price), currency)}</p>}
+            {buy.slot_amount != null && <p>Amount: {fmtCcy(Number(buy.slot_amount), currency)}</p>}
+            {buy.sip_amount != null && <p>SIP amount: {fmtCcy(Number(buy.sip_amount), currency)}</p>}
             {buy.quantity != null && (
               <p>
                 Quantity: <strong>{Number(buy.quantity).toLocaleString('en-IN')} unit{Number(buy.quantity) === 1 ? '' : 's'}</strong>
                 {buy.actual_amount != null && Number(buy.quantity) > 0 && (
-                  <span className="text-slate-400"> · actual outlay {fmtInr(Number(buy.actual_amount))}</span>
+                  <span className="text-slate-400"> · actual outlay {fmtCcy(Number(buy.actual_amount), currency)}</span>
                 )}
               </p>
             )}
@@ -132,7 +134,7 @@ export function StfShopRecommendationPanel({
               <Button size="sm" className="mt-2" onClick={onExecuteBuy} disabled={buyPending}>
                 {buyPending
                   ? 'Recording…'
-                  : `Execute buy — ${Number(buy.quantity ?? 0)} unit${Number(buy.quantity) === 1 ? '' : 's'} (${fmtInr(Number(buy.actual_amount ?? buy.slot_amount ?? buy.sip_amount))})`}
+                  : `Execute buy — ${Number(buy.quantity ?? 0)} unit${Number(buy.quantity) === 1 ? '' : 's'} (${fmtCcy(Number(buy.actual_amount ?? buy.slot_amount ?? buy.sip_amount), currency)})`}
               </Button>
             )}
           </div>
@@ -145,8 +147,8 @@ export function StfShopRecommendationPanel({
         {sell ? (
           <div className="space-y-1 text-sm text-slate-300">
             <p className="text-lg font-bold text-white">{String(sell.symbol)}</p>
-            <p>Profit: {Number(sell.profit_pct).toFixed(2)}% · {fmtInr(Number(sell.profit_inr))}</p>
-            <p className="text-slate-400">Sell at CMP {fmtInr(Number(sell.current_price))}</p>
+            <p>Profit: {Number(sell.profit_pct).toFixed(2)}% · {fmtCcy(Number(sell.profit_inr), currency)}</p>
+            <p className="text-slate-400">Sell at CMP {fmtCcy(Number(sell.current_price), currency)}</p>
             {sell.note != null && <p className="text-slate-400">{String(sell.note)}</p>}
             {onExecuteSell && (
               <Button size="sm" variant="danger" className="mt-2" onClick={onExecuteSell} disabled={sellPending}>
@@ -162,12 +164,12 @@ export function StfShopRecommendationPanel({
   )
 }
 
-export function StfShopCapitalMetrics({ rec }: { rec: Row }) {
+export function StfShopCapitalMetrics({ rec, currency = '₹' }: { rec: Row; currency?: string }) {
   const items = [
-    ['Effective capital', fmtInr(Number(rec.effective_capital))],
-    ['Slot size', fmtInr(Number(rec.slot_size))],
-    ['Deployed', fmtInr(Number(rec.deployed_capital))],
-    ['Free', fmtInr(Number(rec.free_capital))],
+    ['Effective capital', fmtCcy(Number(rec.effective_capital), currency)],
+    ['Slot size', fmtCcy(Number(rec.slot_size), currency)],
+    ['Deployed', fmtCcy(Number(rec.deployed_capital), currency)],
+    ['Free', fmtCcy(Number(rec.free_capital), currency)],
     ['% deployed', rec.pct_deployed != null ? `${rec.pct_deployed}%` : '—'],
     ['Annualized', rec.annualized_return_pct != null ? `${rec.annualized_return_pct}%` : '—'],
   ]

@@ -64,8 +64,19 @@ holdings trend — that read is batch/holdings-data driven (not a live
 intraday signal) so it isn't folded into this scan directly, but it's a
 natural complementary check.
 
-India cash/F&O market only — the delivery/overnight-settlement mechanics
-this strategy is built around are NSE-specific.
+Works across all 4 asset classes (india/us/crypto/commodity) via
+gap_trading.fetch_data_for_gap_scan for price data, with relative strength
+measured against a per-market benchmark (Nifty 50 / SPY / Bitcoin — US and
+Commodity share SPY since this app has no separate commodity benchmark and
+both already share one fetch route elsewhere). Two checks are genuinely
+India/NSE-specific and are skipped (not faked) outside India: the
+options-market OI-buildup read (no F&O option-chain feed exists for other
+markets in this app) and the "STBT needs stock futures/options" execution
+note (US allows overnight short margin positions; this app's crypto market
+is already CoinDCX *futures*, so shorting isn't cash-segment-restricted
+there either) — the classic "exploit delivery settlement" framing behind
+BTST is genuinely an NSE mechanic, so outside India this is a generalized
+closing-strength overnight-momentum read rather than a delivery-timing play.
 
 Research / education only — not financial advice.
 """
@@ -82,6 +93,7 @@ from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.index_ohlcv import fetch_index_ohlcv_for_interval
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.pa_vp_smc_engine import classify_trend
+from app.market_pulse.ticker_utils import is_crypto_market, is_us_market
 from app.market_pulse.pro_trade_shared import (
     ConfidenceScore,
     atr as _atr_ind,
@@ -100,7 +112,15 @@ from app.market_pulse.pro_trade_shared import (
 logger = logging.getLogger(__name__)
 
 STRATEGY_NAME = "Buy Today Sell Tomorrow / Sell Today Buy Tomorrow"
-BENCHMARK = "NIFTY 50"
+
+# Per-market relative-strength benchmark — India uses the NSE index path
+# (fetch_index_ohlcv_for_interval), US/Crypto reuse the same
+# fetch_data_for_gap_scan route as the scanned ticker itself. Commodity has
+# no dedicated benchmark anywhere in this app and shares US's market string
+# at the fetch layer already, so it naturally falls through to SPY too.
+BENCHMARK_INDIA = "NIFTY 50"
+BENCHMARK_US = "SPY"
+BENCHMARK_CRYPTO = "B-BTCUSDT"
 
 # Same 6 optional confluence checks built for Trading Hub → Intra-Hedging —
 # reused here via the same dispatcher rather than re-derived.
@@ -149,21 +169,35 @@ def _build_chart_data(df: pd.DataFrame, max_bars: int = 260) -> list[dict[str, A
     ]
 
 
-def _relative_strength(stock_chg_pct: float | None, *, groww_token: str, exchange: str) -> dict[str, Any]:
+def _relative_strength(
+    stock_chg_pct: float | None, market: str, is_india: bool, *, groww_token: str, exchange: str,
+) -> dict[str, Any]:
+    if stock_chg_pct is None:
+        return {"available": False}
     try:
-        bench = fetch_index_ohlcv_for_interval(BENCHMARK, "1d", limit=10, groww_token=groww_token, exchange=exchange)
+        if is_india:
+            bench = fetch_index_ohlcv_for_interval(
+                BENCHMARK_INDIA, "1d", limit=10, groww_token=groww_token, exchange=exchange,
+            )
+            label = BENCHMARK_INDIA
+        else:
+            ticker = BENCHMARK_CRYPTO if is_crypto_market(market) else BENCHMARK_US
+            bench = fetch_data_for_gap_scan(
+                ticker, "1d", market, groww_token=groww_token, exchange=exchange, limit=10,
+            )
+            label = ticker
         bench = normalize_ohlcv(bench) if bench is not None else None
     except Exception as exc:
         logger.debug("BTST benchmark fetch failed: %s", exc)
         bench = None
-    if bench is None or bench.empty or len(bench) < 2 or stock_chg_pct is None:
+    if bench is None or bench.empty or len(bench) < 2:
         return {"available": False}
     prev, last = float(bench["close"].iloc[-2]), float(bench["close"].iloc[-1])
     if prev <= 0:
         return {"available": False}
     index_chg_pct = (last - prev) / prev * 100.0
     return {
-        "available": True, "index_chg_pct": round(index_chg_pct, 3),
+        "available": True, "benchmark": label, "index_chg_pct": round(index_chg_pct, 3),
         "relative_pct": round(stock_chg_pct - index_chg_pct, 3),
     }
 
@@ -309,15 +343,17 @@ def analyze_ticker(
             "A close in the top of the range = BTST candidate (bought strength into the close); a close in the "
             "bottom of the range = STBT candidate (sold weakness into the close). Mid-range close = no signal.",
             "Confirmation layer: higher-timeframe trend alignment (EMA20/50 stack), elevated-but-not-climactic "
-            "volume, out/under-performance vs Nifty 50, VWAP position, an RSI chase-risk guard, options-market "
-            "OI buildup (fresh institutional derivatives conviction), no hard late-session fade, and this "
-            "ticker's own empirical historical follow-through rate for this exact signature.",
+            "volume, out/under-performance vs a per-market benchmark (Nifty 50 / SPY / Bitcoin), VWAP position, "
+            "an RSI chase-risk guard, no hard late-session fade, and this ticker's own empirical historical "
+            "follow-through rate for this exact signature. Options-market OI buildup (fresh institutional "
+            "derivatives conviction) is checked for India names only — no F&O option-chain feed exists for "
+            "other markets in this app.",
             "Optional further analysis (pick any): PA-VP-SMC, Volume Spread - Next Candle, Elliott Wave, BB Mean "
             "Reversion, Support & Resistance, and a genuine higher-timeframe Trend & Strength read — each adds "
             "independent confirmation on top of the core BTST/STBT read.",
             "Stop sits just beyond today's low (BTST) / high (STBT), sanity-checked against ATR; target is an "
-            "ATR-scaled overnight move, reward:risk floor enforced. STBT requires stock futures/options — NSE "
-            "cash-segment shorts cannot be carried overnight.",
+            "ATR-scaled overnight move, reward:risk floor enforced. For India, STBT requires stock futures/"
+            "options since NSE cash-segment shorts cannot be carried overnight.",
         ],
     }
 
@@ -366,6 +402,7 @@ def analyze_ticker(
         return out
 
     is_long = direction == "LONG"
+    is_india = not is_crypto_market(market) and not is_us_market(market)
     stock_chg_pct = (
         (today_close - prev_close) / prev_close * 100.0 if prev_close and prev_close > 0 else None
     )
@@ -378,7 +415,7 @@ def analyze_ticker(
     vol_confirms = vz_val is not None and cfg.min_volume_zscore <= vz_val < cfg.climax_volume_zscore
     vol_climax = vz_val is not None and vz_val >= cfg.climax_volume_zscore
 
-    rel = _relative_strength(stock_chg_pct, groww_token=groww_token, exchange=exchange)
+    rel = _relative_strength(stock_chg_pct, market, is_india, groww_token=groww_token, exchange=exchange)
     rel_confirms = False
     if rel.get("available"):
         rel_pct = rel["relative_pct"]
@@ -401,7 +438,10 @@ def analyze_ticker(
 
     hist_edge = _historical_edge(df, is_long, cfg)
 
-    oi = _oi_buildup_check(ticker, stock_chg_pct, groww_token=groww_token) if cfg.check_oi_buildup else {"available": False}
+    oi = (
+        _oi_buildup_check(ticker, stock_chg_pct, groww_token=groww_token)
+        if (cfg.check_oi_buildup and is_india) else {"available": False}
+    )
 
     atr_series = _atr_ind(df, 14)
     atr_val = float(atr_series.iloc[-1]) if pd.notna(atr_series.iloc[-1]) else entry * 0.01
@@ -427,11 +467,12 @@ def analyze_ticker(
         (f"Volume ({vz_val:.1f}σ) is a blow-off climax, not healthy accumulation — chase risk into the close." if vol_climax else
          (f"Volume ({vz_val:.1f}σ) isn't elevated enough to confirm real participation." if vz_val is not None else "Volume data unavailable")),
     )
+    bench_label = rel.get("benchmark", "the benchmark")
     score.add(
         rel_confirms, 12,
-        f"Out-performing Nifty 50 by {rel.get('relative_pct'):+.2f} points today — this is stock-specific conviction, not just a market-wide move." if is_long and rel.get("available") else
-        (f"Under-performing Nifty 50 by {abs(rel.get('relative_pct', 0)):.2f} points today — genuine relative weakness, not just a market-wide pullback." if rel.get("available") else ""),
-        "Relative strength vs Nifty 50 doesn't confirm this as a stock-specific move." if rel.get("available") else "Nifty 50 benchmark data unavailable for a relative-strength read.",
+        f"Out-performing {bench_label} by {rel.get('relative_pct'):+.2f} points today — this is stock-specific conviction, not just a market-wide move." if is_long and rel.get("available") else
+        (f"Under-performing {bench_label} by {abs(rel.get('relative_pct', 0)):.2f} points today — genuine relative weakness, not just a market-wide pullback." if rel.get("available") else ""),
+        f"Relative strength vs {bench_label} doesn't confirm this as a stock-specific move." if rel.get("available") else "Benchmark data unavailable for a relative-strength read.",
     )
     score.add(
         vwap_confirms, 8,
@@ -453,10 +494,15 @@ def analyze_ticker(
             score.reasons.append(f"+6: [Options OI] {oi.get('reason', '')}")
         else:
             score.reasons.append(f"[Options OI] {oi.get('reason', 'Derivatives OI read does not confirm this direction.')}")
-    else:
+    elif is_india:
         score.reasons.append(
             "No F&O option chain for this ticker — cash-only name, options-market OI-buildup institutional-"
             "conviction read unavailable (neither confirmed nor denied)."
+        )
+    else:
+        score.reasons.append(
+            "Options-market OI-buildup read is India/NSE-specific — no F&O option-chain feed exists for this "
+            "market in this app (neither confirmed nor denied)."
         )
     if late_session.get("available"):
         score.add(
@@ -531,6 +577,7 @@ def analyze_ticker(
         "historical_edge": hist_edge if hist_edge.get("available") else None,
         "stop_adjusted_for_atr": stop_adjusted,
         "further_analysis_applied": list(cfg.further_analysis or []),
+        "is_india": is_india,
     })
     out["plain_english"] = _explain(out, cfg)
     return out
@@ -592,10 +639,14 @@ def _explain(out: dict[str, Any], cfg: BtstConfig) -> str:
         "is closed — the stop above is the level to act on the moment the market reopens, not a guaranteed exit "
         "price, since a gap can open beyond it. Size accordingly."
     )
-    if not is_long:
+    if not is_long and out.get("is_india"):
         parts.append(
             "STBT requires execution via stock futures/options — NSE cash-segment short positions cannot be "
             "carried overnight; plan the F&O route before entering, not after."
+        )
+    elif not is_long:
+        parts.append(
+            "Confirm your broker/exchange allows carrying this short position overnight before entering."
         )
     extras = out.get("further_analysis_applied") or []
     if extras:

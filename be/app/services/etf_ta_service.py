@@ -1,11 +1,14 @@
-"""ETF TA IN service — India NSE ETF Shop 4.0.
+"""ETF TA IN service — ETF Shop 4.0, one independent shop per asset class
+(india/us/crypto/commodity) — each with its own capital pool, universe,
+currency, and lot ledger, since ₹ and $ capital can't be meaningfully
+combined into one number.
 
 Two layers:
   - Stateless `scan`/`recommend` — quick "what-if" checks, portfolio passed in by caller.
   - Persisted portfolio (`EtfShopConfig` + `EtfShopLot`) — the real, durable per-user
-    shop ledger used by the UI's one-click buy/sell and by the daily schedule worker,
-    so capital settings, open lots and the latched SIP-locked symbol set survive
-    across devices/browsers instead of living only in localStorage.
+    per-asset-class shop ledger used by the UI's one-click buy/sell and by the daily
+    schedule worker, so capital settings, open lots and the latched SIP-locked symbol
+    set survive across devices/browsers instead of living only in localStorage.
 """
 
 from __future__ import annotations
@@ -21,9 +24,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.etf_ta.india_etf_universe import (
     ETF_PRESETS,
     ETF_SHOP_39_PRIMARY,
+    GROWW_INDIA_MARKET,
     MASTER_INDIA_ETFS,
     default_etf_universe,
     underlying_for_symbol,
+)
+from app.etf_ta.multi_asset_etf_universe import (
+    MULTI_ASSET_ETF_UNIVERSE,
+    default_universe_for,
+    underlying_label_for,
 )
 from app.etf_ta import stf_shop_engine as eng
 from app.market_pulse.groww_auth import set_groww_token
@@ -50,6 +59,13 @@ _CONFIG_FIELDS = (
     "notify_email",
 )
 
+_DEFAULT_PRESET_BY_ASSET_CLASS: dict[str, str] = {
+    "india": "ETF Shop 4.0 — 39 distinct (recommended)",
+    "us": "US ETF Shop — broad + sector (recommended)",
+    "crypto": "Crypto Shop — top 15 liquid coins (recommended)",
+    "commodity": "Commodity ETF Shop — metals + energy + agri (recommended)",
+}
+
 
 class EtfTaService:
     def __init__(self, settings: SettingsService, db: AsyncSession | None = None):
@@ -62,29 +78,69 @@ class EtfTaService:
     async def _exchange(self) -> str:
         return await self.settings.get_groww_exchange()
 
-    def universe(self) -> dict:
+    async def _asset_ctx(self, asset_class: str) -> tuple[str, str, str]:
+        """Returns (market, default_exchange, currency) for the fetch/format
+        layer — mirrors ProTradeService._asset_ctx, plus the currency symbol
+        since ETF Shop displays money amounts in its reason strings."""
+        if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
+            return GROWW_INDIA_MARKET, await self.settings.get_groww_exchange(), "₹"
+        entry = MULTI_ASSET_ETF_UNIVERSE[asset_class]
+        return str(entry["market"]), str(entry["exchange"]), str(entry["currency"])
+
+    def _presets_for(self, asset_class: str) -> dict[str, list[str]]:
+        if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
+            return dict(ETF_PRESETS)
+        return dict(MULTI_ASSET_ETF_UNIVERSE[asset_class]["presets"])  # type: ignore[arg-type]
+
+    def _default_universe_for(self, asset_class: str) -> list[str]:
+        if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
+            return default_etf_universe()
+        return default_universe_for(asset_class)
+
+    def _underlying_label(self, asset_class: str, symbol: str) -> str:
+        if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
+            return underlying_for_symbol(symbol)
+        return underlying_label_for(asset_class, symbol)
+
+    def universe(self, asset_class: str = "india") -> dict:
+        if asset_class == "india" or asset_class not in MULTI_ASSET_ETF_UNIVERSE:
+            return {
+                "asset_class": "india",
+                "currency": "₹",
+                "presets": {k: v for k, v in ETF_PRESETS.items()},
+                "default_symbols": default_etf_universe(),
+                "shop_39": ETF_SHOP_39_PRIMARY,
+                "master_backup": MASTER_INDIA_ETFS,
+            }
+        entry = MULTI_ASSET_ETF_UNIVERSE[asset_class]
         return {
-            "presets": {k: v for k, v in ETF_PRESETS.items()},
-            "default_symbols": default_etf_universe(),
-            "shop_39": ETF_SHOP_39_PRIMARY,
-            "master_backup": MASTER_INDIA_ETFS,
+            "asset_class": asset_class,
+            "currency": entry["currency"],
+            "presets": dict(entry["presets"]),  # type: ignore[arg-type]
+            "default_symbols": list(entry["primary"]),  # type: ignore[arg-type]
+            "shop_39": list(entry["primary"]),  # type: ignore[arg-type]
+            "master_backup": list(entry["master"]),  # type: ignore[arg-type]
         }
 
-    async def scan(self, symbols: list[str] | None = None, exchange: str = "NSE") -> dict:
-        syms = symbols or default_etf_universe()
+    async def scan(
+        self, symbols: list[str] | None = None, exchange: str = "NSE", asset_class: str = "india",
+    ) -> dict:
+        syms = symbols or self._default_universe_for(asset_class)
         token = await self._groww_token()
-        ex = exchange or await self._exchange()
+        market, default_exchange, _currency = await self._asset_ctx(asset_class)
+        ex = exchange or default_exchange
 
         def _run():
             set_groww_token(token)
-            analyses = eng.scan_etf_universe(syms, groww_token=token, exchange=ex)
+            analyses = eng.scan_etf_universe(syms, groww_token=token, exchange=ex, market=market)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
-                    row["underlying"] = underlying_for_symbol(str(sym))
+                    row["underlying"] = self._underlying_label(asset_class, str(sym))
             return {
                 "symbols": syms,
                 "exchange": ex,
+                "asset_class": asset_class,
                 "analyses": analyses,
                 "data_errors": eng.data_error_symbols(analyses),
             }
@@ -93,19 +149,21 @@ class EtfTaService:
 
     async def recommend(self, payload: dict[str, Any]) -> dict:
         """Stateless what-if recommendation — portfolio supplied by the caller."""
+        asset_class = str(payload.get("asset_class") or "india")
         token = await self._groww_token()
-        ex = payload.get("exchange") or await self._exchange()
-        symbols = payload.get("symbols") or default_etf_universe()
+        market, default_exchange, currency = await self._asset_ctx(asset_class)
+        ex = payload.get("exchange") or default_exchange
+        symbols = payload.get("symbols") or self._default_universe_for(asset_class)
         portfolio = payload.get("portfolio") or []
         sip_locked = set(payload.get("sip_locked") or [])
 
         def _run():
             set_groww_token(token)
-            analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex)
+            analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
-                    row["underlying"] = underlying_for_symbol(str(sym))
+                    row["underlying"] = self._underlying_label(asset_class, str(sym))
 
             rec = eng.daily_stf_recommendation(
                 deposited_capital=float(payload.get("deposited_capital") or 500_000),
@@ -124,9 +182,12 @@ class EtfTaService:
                 weakness_threshold_pct=float(
                     payload.get("averaging_trigger_pct") or eng.SIP_WEAKNESS_THRESHOLD_PCT
                 ),
+                currency=currency,
             )
             rec["analyses"] = analyses
             rec["symbols"] = symbols
+            rec["asset_class"] = asset_class
+            rec["currency"] = currency
             return rec
 
         return json_safe(await asyncio.to_thread(_run))
@@ -134,7 +195,17 @@ class EtfTaService:
     # ── Persisted portfolio ────────────────────────────────────────────────
 
     def _config_to_dict(self, cfg: EtfShopConfig) -> dict[str, Any]:
+        _, _, currency = (
+            (GROWW_INDIA_MARKET, "NSE", "₹") if cfg.asset_class == "india"
+            else (
+                str(MULTI_ASSET_ETF_UNIVERSE.get(cfg.asset_class, {}).get("market", "")),
+                str(MULTI_ASSET_ETF_UNIVERSE.get(cfg.asset_class, {}).get("exchange", "")),
+                str(MULTI_ASSET_ETF_UNIVERSE.get(cfg.asset_class, {}).get("currency", "$")),
+            )
+        )
         return {
+            "asset_class": cfg.asset_class,
+            "currency": currency,
             "deposited_capital": cfg.deposited_capital,
             "growth_amount": cfg.growth_amount,
             "dividend_withdrawn": cfg.dividend_withdrawn,
@@ -158,6 +229,7 @@ class EtfTaService:
         return {
             "id": lot.id,
             "slot_id": str(lot.id),
+            "asset_class": lot.asset_class,
             "symbol": lot.symbol,
             "purchase_price": lot.purchase_price,
             "purchase_date": lot.purchase_date,
@@ -175,21 +247,32 @@ class EtfTaService:
     def _resolve_symbols(self, cfg: EtfShopConfig) -> list[str]:
         if cfg.custom_symbols and cfg.custom_symbols.strip():
             return [s.strip().upper() for s in cfg.custom_symbols.replace("\n", ",").split(",") if s.strip()]
-        return ETF_PRESETS.get(cfg.preset) or default_etf_universe()
+        presets = self._presets_for(cfg.asset_class)
+        return presets.get(cfg.preset) or self._default_universe_for(cfg.asset_class)
 
-    async def get_or_create_config(self, user_id: int) -> EtfShopConfig:
+    async def get_or_create_config(self, user_id: int, asset_class: str = "india") -> EtfShopConfig:
         assert self.db is not None, "EtfTaService requires a db session for persisted-portfolio methods"
-        row = await self.db.execute(select(EtfShopConfig).where(EtfShopConfig.user_id == user_id))
+        row = await self.db.execute(
+            select(EtfShopConfig).where(
+                EtfShopConfig.user_id == user_id, EtfShopConfig.asset_class == asset_class,
+            )
+        )
         cfg = row.scalar_one_or_none()
         if cfg is None:
-            cfg = EtfShopConfig(user_id=user_id)
+            _market, default_exchange, _currency = await self._asset_ctx(asset_class)
+            cfg = EtfShopConfig(
+                user_id=user_id,
+                asset_class=asset_class,
+                preset=_DEFAULT_PRESET_BY_ASSET_CLASS.get(asset_class, _DEFAULT_PRESET_BY_ASSET_CLASS["india"]),
+                exchange=default_exchange,
+            )
             self.db.add(cfg)
             await self.db.commit()
             await self.db.refresh(cfg)
         return cfg
 
-    async def update_config(self, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-        cfg = await self.get_or_create_config(user_id)
+    async def update_config(self, user_id: int, payload: dict[str, Any], asset_class: str = "india") -> dict[str, Any]:
+        cfg = await self.get_or_create_config(user_id, asset_class)
         for field in _CONFIG_FIELDS:
             if field in payload and payload[field] is not None:
                 setattr(cfg, field, payload[field])
@@ -197,28 +280,29 @@ class EtfTaService:
         await self.db.refresh(cfg)
         return self._config_to_dict(cfg)
 
-    async def list_lots(self, user_id: int, status: str | None = None) -> list[dict[str, Any]]:
-        stmt = select(EtfShopLot).where(EtfShopLot.user_id == user_id)
+    async def list_lots(self, user_id: int, asset_class: str = "india", status: str | None = None) -> list[dict[str, Any]]:
+        stmt = select(EtfShopLot).where(EtfShopLot.user_id == user_id, EtfShopLot.asset_class == asset_class)
         if status:
             stmt = stmt.where(EtfShopLot.status == status)
         stmt = stmt.order_by(EtfShopLot.purchase_date, EtfShopLot.id)
         rows = (await self.db.execute(stmt)).scalars().all()
         return [self._lot_to_dict(r) for r in rows]
 
-    async def portfolio(self, user_id: int) -> dict[str, Any]:
+    async def portfolio(self, user_id: int, asset_class: str = "india") -> dict[str, Any]:
         """Open + closed lots, with open lots enriched with a live current price,
-        %/₹ profit since bought, an "eligible for profit booking" flag (reusing the
+        %/currency profit since bought, an "eligible for profit booking" flag (reusing the
         same FIFO sell-trigger check the daily recommendation uses), and — when a
         lot's symbol has fallen past the configured averaging-down trigger — a
         suggested averaging amount (reusing the existing dynamic-SIP ranking logic)."""
-        cfg = await self.get_or_create_config(user_id)
-        lots = await self.list_lots(user_id)
+        cfg = await self.get_or_create_config(user_id, asset_class)
+        lots = await self.list_lots(user_id, asset_class)
         open_lots = [lot for lot in lots if lot["status"] == "open"]
+        market, default_exchange, currency = await self._asset_ctx(asset_class)
 
         if open_lots:
             symbols = sorted({lot["symbol"] for lot in open_lots})
             token = await self._groww_token()
-            ex = cfg.exchange or await self._exchange()
+            ex = cfg.exchange or default_exchange
             sip_locked = set(json.loads(cfg.sip_locked_json or "[]"))
             portfolio_rows = [
                 {
@@ -235,7 +319,7 @@ class EtfTaService:
 
             def _run():
                 set_groww_token(token)
-                analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex)
+                analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
                 price_map = {a["symbol"]: a.get("price") for a in analyses if a.get("price")}
 
                 sells = eng.sell_candidates_fifo(
@@ -245,6 +329,7 @@ class EtfTaService:
                     profit_target_pct=cfg.profit_target_pct,
                     profit_target_inr=cfg.profit_target_inr,
                     min_profit_inr=cfg.min_profit_inr,
+                    currency=currency,
                 )
                 eligible_by_slot = {s["slot_id"]: s for s in sells}
 
@@ -287,7 +372,7 @@ class EtfTaService:
                     lot["averaging_reason"] = (
                         f"{lot['symbol']} has fallen {fall:.2f}% below your last buy price — past the "
                         f"{cfg.averaging_trigger_pct:.1f}% averaging-down trigger. Strategy suggests averaging "
-                        f"with ~₹{amt:,.0f} (10% of ₹{invested:,.0f} already invested in this ETF)."
+                        f"with ~{currency}{amt:,.0f} (10% of {currency}{invested:,.0f} already invested in this ETF)."
                     )
                 else:
                     lot["averaging_suggested"] = False
@@ -306,6 +391,7 @@ class EtfTaService:
         amount: float,
         lot_type: str = "standard",
         purchase_date: str | None = None,
+        asset_class: str = "india",
     ) -> dict[str, Any]:
         if not symbol.strip():
             raise ValueError("Symbol is required")
@@ -318,6 +404,7 @@ class EtfTaService:
         pdate = purchase_date or datetime.now().strftime("%Y-%m-%d")
         lot = EtfShopLot(
             user_id=user_id,
+            asset_class=asset_class,
             symbol=symbol.upper().strip(),
             purchase_price=round(float(price), 4),
             purchase_date=pdate,
@@ -328,7 +415,7 @@ class EtfTaService:
         )
         self.db.add(lot)
 
-        cfg = await self.get_or_create_config(user_id)
+        cfg = await self.get_or_create_config(user_id, asset_class)
         if not cfg.shop_start_date:
             cfg.shop_start_date = pdate
 
@@ -369,7 +456,7 @@ class EtfTaService:
         lot.net_profit = net["net_profit"]
 
         split = eng.split_profit_reinvestment(net["net_profit"], dividend_pct)
-        cfg = await self.get_or_create_config(user_id)
+        cfg = await self.get_or_create_config(user_id, lot.asset_class)
         cfg.growth_amount = round(cfg.growth_amount + split["growth_add"], 2)
         if split["dividend"]:
             cfg.dividend_withdrawn = round(cfg.dividend_withdrawn + split["dividend"], 2)
@@ -381,14 +468,14 @@ class EtfTaService:
         out["reinvest_split"] = split
         return out
 
-    async def daily(self, user_id: int) -> dict[str, Any]:
+    async def daily(self, user_id: int, asset_class: str = "india") -> dict[str, Any]:
         """Run today's buy/sell recommendation from the persisted config + lot
         ledger (no client-shuttled portfolio needed) and latch any newly-triggered
         SIP-locked symbols back into the config. Closed lots are included too —
         the engine's own open/closed filters need both for FIFO sell candidates
         (open) and the realized-profit summary (closed) to work correctly."""
-        cfg = await self.get_or_create_config(user_id)
-        lots = await self.list_lots(user_id)
+        cfg = await self.get_or_create_config(user_id, asset_class)
+        lots = await self.list_lots(user_id, asset_class)
         portfolio = [
             {
                 "slot_id": str(lot["id"]),
@@ -407,16 +494,17 @@ class EtfTaService:
         ]
         symbols = self._resolve_symbols(cfg)
         token = await self._groww_token()
-        ex = cfg.exchange or await self._exchange()
+        market, default_exchange, currency = await self._asset_ctx(asset_class)
+        ex = cfg.exchange or default_exchange
         sip_locked = set(json.loads(cfg.sip_locked_json or "[]"))
 
         def _run():
             set_groww_token(token)
-            analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex)
+            analyses = eng.scan_etf_universe(symbols, groww_token=token, exchange=ex, market=market)
             for row in analyses:
                 sym = row.get("symbol")
                 if sym:
-                    row["underlying"] = underlying_for_symbol(str(sym))
+                    row["underlying"] = self._underlying_label(asset_class, str(sym))
 
             rec = eng.daily_stf_recommendation(
                 deposited_capital=cfg.deposited_capital,
@@ -433,9 +521,12 @@ class EtfTaService:
                 shop_start_date=cfg.shop_start_date,
                 prefer_sip_when_available=cfg.prefer_sip,
                 weakness_threshold_pct=cfg.averaging_trigger_pct,
+                currency=currency,
             )
             rec["analyses"] = analyses
             rec["symbols"] = symbols
+            rec["asset_class"] = asset_class
+            rec["currency"] = currency
             return rec
 
         rec = json_safe(await asyncio.to_thread(_run))

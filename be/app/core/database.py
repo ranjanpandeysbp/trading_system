@@ -97,3 +97,22 @@ def _migrate_schema(conn) -> None:
             conn.execute(
                 sa.text("ALTER TABLE etf_shop_configs ADD COLUMN averaging_trigger_pct FLOAT DEFAULT -10.0")
             )
+        if "asset_class" not in cols:
+            conn.execute(sa.text("ALTER TABLE etf_shop_configs ADD COLUMN asset_class TEXT DEFAULT 'india'"))
+            # The old schema had a UNIQUE index on user_id alone (one shop per
+            # user, no asset_class) — must be dropped before a second shop
+            # (different asset_class) for the same user can be inserted.
+            idx_names = {ix["name"] for ix in insp.get_indexes("etf_shop_configs")}
+            if "ix_etf_shop_configs_user_id" in idx_names:
+                conn.execute(sa.text("DROP INDEX ix_etf_shop_configs_user_id"))
+            conn.execute(
+                sa.text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_etf_shop_configs_user_asset "
+                    "ON etf_shop_configs (user_id, asset_class)"
+                )
+            )
+
+    if "etf_shop_lots" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("etf_shop_lots")}
+        if "asset_class" not in cols:
+            conn.execute(sa.text("ALTER TABLE etf_shop_lots ADD COLUMN asset_class TEXT DEFAULT 'india'"))

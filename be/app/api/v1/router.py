@@ -3599,11 +3599,12 @@ async def trading_hubs_swing5_scan(
 
 @router.get("/etf-ta/universe")
 async def etf_ta_universe(
+    asset_class: str = "india",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     service = EtfTaService(SettingsService(db), db)
-    return service.universe()
+    return service.universe(asset_class)
 
 
 @router.post("/etf-ta/stf-shop/scan")
@@ -3613,7 +3614,7 @@ async def etf_ta_stf_scan(
     current_user: User = Depends(get_current_user),
 ):
     service = EtfTaService(SettingsService(db), db)
-    return await service.scan(payload.symbols, payload.exchange)
+    return await service.scan(payload.symbols, payload.exchange, asset_class=payload.asset_class)
 
 
 @router.post("/etf-ta/stf-shop/recommend")
@@ -3628,12 +3629,13 @@ async def etf_ta_stf_recommend(
 
 @router.get("/etf-ta/stf-shop/portfolio")
 async def etf_ta_stf_portfolio(
+    asset_class: str = "india",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Persisted shop state — capital/rules config + FIFO lot ledger for this user."""
+    """Persisted shop state — capital/rules config + FIFO lot ledger for this user's shop in this asset class."""
     service = EtfTaService(SettingsService(db), db)
-    return await service.portfolio(current_user.id)
+    return await service.portfolio(current_user.id, asset_class)
 
 
 @router.put("/etf-ta/stf-shop/config")
@@ -3643,8 +3645,8 @@ async def etf_ta_stf_update_config(
     current_user: User = Depends(get_current_user),
 ):
     service = EtfTaService(SettingsService(db), db)
-    fields = payload.model_dump(exclude_unset=True)
-    return await service.update_config(current_user.id, fields)
+    fields = payload.model_dump(exclude_unset=True, exclude={"asset_class"})
+    return await service.update_config(current_user.id, fields, asset_class=payload.asset_class)
 
 
 @router.post("/etf-ta/stf-shop/lots")
@@ -3663,6 +3665,7 @@ async def etf_ta_stf_add_lot(
             amount=payload.amount,
             lot_type=payload.lot_type,
             purchase_date=payload.purchase_date,
+            asset_class=payload.asset_class,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -3691,13 +3694,14 @@ async def etf_ta_stf_close_lot(
 
 @router.post("/etf-ta/stf-shop/daily")
 async def etf_ta_stf_daily(
+    asset_class: str = "india",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Today's buy/sell recommendation from the persisted config + open lots —
     no portfolio payload needed, and SIP-locked symbols are latched server-side."""
     service = EtfTaService(SettingsService(db), db)
-    return await service.daily(current_user.id)
+    return await service.daily(current_user.id, asset_class)
 
 
 @router.get("/suggestions/setups")
@@ -4250,6 +4254,7 @@ async def pro_trade_btst(
 ):
     return await ProTradeService(SettingsService(db)).btst(
         tickers=payload.tickers,
+        asset_class=payload.asset_class,
         exchange=payload.exchange,
         cfg_overrides={
             "lookback_bars": payload.lookback_bars,
@@ -4265,3 +4270,116 @@ async def pro_trade_btst(
             "further_analysis": payload.further_analysis,
         },
     )
+
+
+@router.post("/pro-trade/btst/start")
+async def pro_trade_btst_start(
+    payload: TradingHubBackgroundScanRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Kick off a BTST/STBT scan as a background job and return immediately
+    with a job id. Poll GET /pro-trade/btst/jobs/{id} for progress and result.
+
+    When ``run_in_background`` is true (or ``report_name`` is set), the
+    finished result is auto-saved under that name for later viewing.
+    """
+    from app.services.btst_jobs import BTST_SOURCE, create_job, run_btst_job
+
+    report_name = (payload.report_name or "").strip() or None
+    auto_save = bool(payload.run_in_background or report_name)
+    if payload.run_in_background and not report_name:
+        raise HTTPException(status_code=400, detail="Report name is required for background runs.")
+
+    job = await create_job(
+        name=report_name,
+        user_id=current_user.id,
+        source=BTST_SOURCE,
+        meta={"asset_class": payload.asset_class, "auto_save": auto_save},
+        request_payload={
+            "tickers": payload.tickers,
+            "asset_class": payload.asset_class,
+            "config": payload.config,
+            "report_name": report_name if auto_save else None,
+        },
+    )
+    run_btst_job(
+        job.id, payload.tickers, payload.asset_class, payload.config,
+        report_name=report_name if auto_save else None,
+        user_id=current_user.id if auto_save else None,
+    )
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "name": job.name,
+        "auto_save": auto_save,
+    }
+
+
+@router.get("/pro-trade/btst/jobs")
+async def pro_trade_btst_list_jobs(
+    status: str | None = "running",
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.btst_jobs import BTST_SOURCE, job_to_dict, list_jobs
+
+    jobs = list_jobs(user_id=current_user.id, source=BTST_SOURCE, status=status or None)
+    return {"jobs": [job_to_dict(j) for j in jobs]}
+
+
+@router.get("/pro-trade/btst/jobs/{job_id}")
+async def pro_trade_btst_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.btst_jobs import get_job, job_to_dict
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    if job.user_id is not None and job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Job not found (it may have expired).")
+    return job_to_dict(job)
+
+
+@router.post("/pro-trade/btst/reports")
+async def pro_trade_btst_save_report(
+    payload: SaveTradingHubReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = ProTradeService(SettingsService(db), db)
+    result = payload.payload
+    tickers = [r.get("ticker") for r in (result.get("results") or []) if isinstance(r, dict) and r.get("ticker")]
+    return await service.save_btst_report(
+        payload.name, tickers, str(result.get("asset_class") or "india"),
+        result, user_id=current_user.id,
+    )
+
+
+@router.get("/pro-trade/btst/reports")
+async def pro_trade_btst_list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = ProTradeService(SettingsService(db), db)
+    return await service.list_btst_reports(user_id=current_user.id)
+
+
+@router.get("/pro-trade/btst/reports/{report_id}")
+async def pro_trade_btst_get_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = ProTradeService(SettingsService(db), db)
+    return await service.get_btst_report(report_id, user_id=current_user.id)
+
+
+@router.delete("/pro-trade/btst/reports/{report_id}")
+async def pro_trade_btst_delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = ProTradeService(SettingsService(db), db)
+    return await service.delete_btst_report(report_id, user_id=current_user.id)

@@ -1,9 +1,14 @@
-import { useCallback, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
+  deleteBtstReport,
+  fetchBtstJob,
+  fetchBtstJobs,
+  fetchBtstReport,
+  fetchBtstReports,
   runProTradeBbMeanReversion,
   runProTradeBtst,
   runProTradeElliottWave,
@@ -12,6 +17,8 @@ import {
   runProTradeVolumeProfileCe,
   runProTradeVolumeProfilePoc,
   runProTradeVolumeSpreadNextCandle,
+  saveBtstReport,
+  startBtstJob,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import {
@@ -1567,7 +1574,34 @@ Because this is an overnight trade, there's no stop-loss order sitting in the ma
 closed — if bad news hits overnight, the stock can gap down (or up, for STBT) past your stop before you can
 react. Size positions with that risk in mind.`
 
+interface BtstSavedReportSummary {
+  id: number
+  name: string
+  asset_class: string
+  created_at: string
+  summary?: {
+    entry_count?: number
+    btst_count?: number
+    stbt_count?: number
+    scanned?: number
+  }
+}
+
+interface BtstBgJobStatus {
+  job_id: string
+  status: string
+  progress?: number
+  progress_note?: string
+  name?: string | null
+  report_id?: number | null
+  error?: string | null
+  result?: Record<string, unknown>
+  meta?: { asset_class?: string }
+  created_at?: number
+}
+
 function BtstPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
   const [error, setError] = useState('')
   const [minClv, setMinClv] = useState(0.65)
@@ -1576,26 +1610,190 @@ function BtstPage() {
   const [showCharts, setShowCharts] = useState(false)
   const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
 
+  const [runInBackground, setRunInBackground] = useState(false)
+  const [bgReportName, setBgReportName] = useState('')
+  const [bgJobIds, setBgJobIds] = useState<string[]>([])
+  const [bgError, setBgError] = useState('')
+  const [bgMsg, setBgMsg] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [showSaveForm, setShowSaveForm] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+  const [viewedReportId, setViewedReportId] = useState<number | null>(null)
+  const handledDoneRef = useRef<Set<string>>(new Set())
+  const queryClient = useQueryClient()
+
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
   const toggleFurtherAnalysis = (value: string) =>
     setFurtherAnalysis((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
+
+  const cfgOverrides = () => ({
+    min_clv: minClv,
+    min_rr: minRr,
+    check_oi_buildup: checkOiBuildup,
+    further_analysis: furtherAnalysis,
+  })
+
+  const btstReportsQuery = useQuery({ queryKey: ['btst-reports'], queryFn: fetchBtstReports })
+  const btstReports = ((btstReportsQuery.data as { reports?: BtstSavedReportSummary[] } | undefined)?.reports) ?? []
+
+  const btstRunningJobsQuery = useQuery({
+    queryKey: ['btst-jobs-running'],
+    queryFn: () => fetchBtstJobs('running'),
+    refetchInterval: 2000,
+  })
+  const btstRecentJobsQuery = useQuery({ queryKey: ['btst-jobs-recent'], queryFn: () => fetchBtstJobs('all') })
+  const btstRecentJobs = ((btstRecentJobsQuery.data as { jobs?: BtstBgJobStatus[] } | undefined)?.jobs) ?? []
+  const btstRecentFinished = btstRecentJobs.filter((j) => j.status !== 'running').slice(0, 8)
+
+  useEffect(() => {
+    const serverJobs = ((btstRunningJobsQuery.data as { jobs?: BtstBgJobStatus[] } | undefined)?.jobs) ?? []
+    const ids = serverJobs.map((j) => j.job_id)
+    if (!ids.length) return
+    setBgJobIds((prev) => Array.from(new Set([...ids, ...prev])))
+  }, [btstRunningJobsQuery.data])
+
+  const btstJobQueries = useQueries({
+    queries: bgJobIds.map((id) => ({
+      queryKey: ['btst-job', id],
+      queryFn: () => fetchBtstJob(id) as Promise<BtstBgJobStatus>,
+      refetchInterval: (q: { state: { data?: BtstBgJobStatus } }) =>
+        q.state.data?.status === 'running' ? 1500 : false,
+      refetchIntervalInBackground: true,
+      retry: false,
+    })),
+  })
+  const btstJobById = (() => {
+    const map = new Map<string, BtstBgJobStatus>()
+    btstJobQueries.forEach((q, i) => {
+      const id = bgJobIds[i]
+      if (id && q.data) map.set(id, q.data as BtstBgJobStatus)
+    })
+    return map
+  })()
+
+  useEffect(() => {
+    let changed = false
+    const stillRunning: string[] = []
+    for (const id of bgJobIds) {
+      const job = btstJobById.get(id)
+      if (!job || job.status === 'running') {
+        stillRunning.push(id)
+        continue
+      }
+      if (!handledDoneRef.current.has(id)) {
+        handledDoneRef.current.add(id)
+        changed = true
+        if (job.status === 'done' && job.report_id) {
+          setViewedReportId(job.report_id)
+          setBgMsg(`Background report saved${job.name ? `: ${job.name}` : ''}.`)
+        } else if (job.status === 'done') {
+          setBgMsg(job.name ? `Background run "${job.name}" finished.` : 'Background run finished.')
+        } else if (job.status === 'error') {
+          setBgError(job.error || `Background job failed: ${job.name || id}`)
+        }
+      }
+    }
+    if (stillRunning.length !== bgJobIds.length) setBgJobIds(stillRunning)
+    if (changed) {
+      queryClient.invalidateQueries({ queryKey: ['btst-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['btst-jobs-running'] })
+      queryClient.invalidateQueries({ queryKey: ['btst-jobs-recent'] })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgJobIds, btstJobById, queryClient])
+
+  const btstOngoingBg = bgJobIds
+    .map((id) => btstJobById.get(id))
+    .filter((j): j is BtstBgJobStatus => !!j && j.status === 'running')
+  const btstServerRunning = ((btstRunningJobsQuery.data as { jobs?: BtstBgJobStatus[] } | undefined)?.jobs) ?? []
+  const btstOngoingMap = new Map<string, BtstBgJobStatus>()
+  for (const j of [...btstServerRunning, ...btstOngoingBg]) {
+    if (j.status === 'running') btstOngoingMap.set(j.job_id, j)
+  }
+  const btstOngoingList = Array.from(btstOngoingMap.values()).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+
+  const btstReportDetailQuery = useQuery({
+    queryKey: ['btst-report', viewedReportId],
+    queryFn: () => fetchBtstReport(viewedReportId as number),
+    enabled: viewedReportId != null,
+  })
+
+  const btstStartBgMutation = useMutation({
+    mutationFn: startBtstJob,
+    onSuccess: (data) => {
+      const id = data.job_id as string
+      setBgError('')
+      setBgMsg(`Background run started${data.name ? `: ${data.name}` : ''}.`)
+      setBgReportName('')
+      setBgJobIds((prev) => Array.from(new Set([id, ...prev])))
+      queryClient.invalidateQueries({ queryKey: ['btst-jobs-running'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const btstSaveReportMutation = useMutation({
+    mutationFn: saveBtstReport,
+    onSuccess: () => {
+      setSaveMsg('Report saved.')
+      setShowSaveForm(false)
+      setSaveName('')
+      queryClient.invalidateQueries({ queryKey: ['btst-reports'] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
+  const btstDeleteReportMutation = useMutation({
+    mutationFn: deleteBtstReport,
+    onSuccess: (_data, reportId) => {
+      if (viewedReportId === reportId) setViewedReportId(null)
+      queryClient.invalidateQueries({ queryKey: ['btst-reports'] })
+    },
+  })
+
+  useEffect(() => {
+    setViewedReportId(null)
+    setBgError('')
+    setBgMsg('')
+    setRunInBackground(false)
+  }, [assetClass])
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
       return runProTradeBtst({
         tickers: picker.tickers,
-        min_clv: minClv,
-        min_rr: minRr,
-        check_oi_buildup: checkOiBuildup,
-        further_analysis: furtherAnalysis,
+        asset_class: assetClass,
+        ...cfgOverrides(),
       })
     },
-    onSuccess: () => setError(''),
+    onSuccess: () => { setError(''); setViewedReportId(null) },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Record<string, unknown> | undefined
+  const startBtstBackgroundRun = () => {
+    if (!picker.tickers.length) {
+      setBgError('Select at least one ticker')
+      return
+    }
+    if (!bgReportName.trim()) {
+      setBgError('Enter a report name for the background run')
+      return
+    }
+    setBgError('')
+    setBgMsg('')
+    btstStartBgMutation.mutate({
+      tickers: picker.tickers,
+      asset_class: assetClass,
+      config: cfgOverrides(),
+      run_in_background: true,
+      report_name: bgReportName.trim(),
+    })
+  }
+
+  const btstViewedReport = btstReportDetailQuery.data as { name?: string; payload?: Record<string, unknown>; created_at?: string; error?: string } | undefined
+  const data: Record<string, unknown> | undefined =
+    viewedReportId != null ? btstViewedReport?.payload : (runMut.data as Record<string, unknown> | undefined)
+
   const askContext = data ? buildAskContext('Buy Today Sell Tomorrow', data) : ''
 
   return (
@@ -1614,12 +1812,30 @@ function BtstPage() {
       </div>
 
       <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: [] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
         <p className="mb-3 text-xs text-slate-500">
-          India cash/F&amp;O only — the overnight-delivery mechanics this strategy is built around are NSE-specific.
+          Options OI-buildup and the "STBT needs F&amp;O" execution note only apply to India — the core closing-
+          strength read (CLV, trend, volume, relative strength, VWAP, historical edge) works across all 4 asset
+          classes, benchmarked against Nifty 50 / SPY / Bitcoin.
         </p>
 
         <AssetClassTickerPicker
-          assetClass="india"
+          key={assetClass}
+          assetClass={assetClass}
           showDurations={false}
           defaultSelectCount={15}
           onChange={handlePickerChange}
@@ -1648,7 +1864,7 @@ function BtstPage() {
           </FormField>
           <FormField label="Options OI-buildup check">
             <Select value={checkOiBuildup ? 'on' : 'off'} onChange={(e) => setCheckOiBuildup(e.target.value === 'on')}>
-              <option value="on">On (F&amp;O names)</option>
+              <option value="on">On (India F&amp;O names)</option>
               <option value="off">Off</option>
             </Select>
           </FormField>
@@ -1675,13 +1891,139 @@ function BtstPage() {
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length}>
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || runInBackground}>
             {runMut.isPending ? 'Scanning…' : `Scan BTST / STBT (${picker.tickers.length})`}
           </Button>
         </div>
         {error && (
           <div className="mt-3">
             <Alert type="error">{error}</Alert>
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-teal-500"
+              checked={runInBackground}
+              onChange={(e) => setRunInBackground(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-slate-100">Run in background</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Name the run — it keeps going if you leave this page, then auto-saves into Saved reports below
+                when done. You can start several background runs at once.
+              </span>
+            </span>
+          </label>
+          {runInBackground && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[16rem] flex-1">
+                <FormField label="Report name">
+                  <Input
+                    value={bgReportName}
+                    onChange={(e) => setBgReportName(e.target.value)}
+                    placeholder={`BTST · ${new Date().toLocaleDateString()}`}
+                    maxLength={200}
+                  />
+                </FormField>
+              </div>
+              <Button onClick={startBtstBackgroundRun} disabled={btstStartBgMutation.isPending}>
+                {btstStartBgMutation.isPending ? 'Starting…' : 'Start background run'}
+              </Button>
+            </div>
+          )}
+          {bgError && <Alert type="error">{bgError}</Alert>}
+          {bgMsg && <Alert type="success">{bgMsg}</Alert>}
+        </div>
+      </Card>
+
+      {btstOngoingList.length > 0 && (
+        <Card className="mb-4">
+          <p className="mb-2 text-sm font-medium text-slate-200">Background runs in progress ({btstOngoingList.length})</p>
+          <div className="space-y-2">
+            {btstOngoingList.map((j) => (
+              <div key={j.job_id} className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>{j.name || j.job_id}</span>
+                  <span>{Math.round((j.progress ?? 0) * 100)}%</span>
+                </div>
+                {j.progress_note && <p className="mt-1 text-[11px] text-slate-500">{j.progress_note}</p>}
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full bg-amber-500 transition-all" style={{ width: `${Math.round((j.progress ?? 0) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {btstRecentFinished.length > 0 && (
+        <Card className="mb-4">
+          <p className="mb-2 text-sm font-medium text-slate-200">Recent background runs</p>
+          <div className="space-y-1.5">
+            {btstRecentFinished.map((j) => (
+              <button
+                key={j.job_id}
+                type="button"
+                disabled={!(j.status === 'done' && j.report_id)}
+                onClick={() => j.report_id && setViewedReportId(j.report_id)}
+                className="flex w-full items-center justify-between rounded-lg border border-slate-800/60 bg-slate-900/30 px-2.5 py-2 text-left text-xs text-slate-300 hover:bg-slate-800/40 disabled:cursor-default disabled:hover:bg-slate-900/30"
+              >
+                <span>{j.name || j.job_id}</span>
+                {j.status === 'error' ? (
+                  <span className="text-rose-400">Failed{j.error ? `: ${j.error.slice(0, 60)}` : ''}</span>
+                ) : j.report_id ? (
+                  <span className="text-emerald-400">Saved</span>
+                ) : (
+                  <span className="text-slate-500">Done (not saved)</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card className="mb-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-200">Saved reports ({btstReports.length})</p>
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 hover:text-slate-300"
+            onClick={() => btstReportsQuery.refetch()}
+          >
+            Refresh
+          </button>
+        </div>
+        {btstReports.length === 0 ? (
+          <p className="text-xs text-slate-500">No saved reports yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {btstReports.map((r) => (
+              <div
+                key={r.id}
+                className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-xs ${
+                  viewedReportId === r.id ? 'border-teal-500/50 bg-teal-500/5' : 'border-slate-800/60 bg-slate-900/30'
+                }`}
+              >
+                <button type="button" className="flex-1 text-left text-slate-300 hover:text-white" onClick={() => setViewedReportId(r.id)}>
+                  <span className="font-medium">{r.name}</span>
+                  <span className="ml-2 text-slate-500">
+                    {r.summary?.entry_count ?? 0} actionable ({r.summary?.btst_count ?? 0} BTST / {r.summary?.stbt_count ?? 0} STBT) of {r.summary?.scanned ?? 0} scanned
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Delete saved report "${r.name}"?`)) btstDeleteReportMutation.mutate(r.id)
+                  }}
+                  className="ml-2 text-slate-500 hover:text-rose-400"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </Card>
@@ -1691,8 +2033,42 @@ function BtstPage() {
       {data && !runMut.isPending && (
         <>
           <Card className="mb-4">
+            {viewedReportId != null && (
+              <p className="mb-2 text-xs text-slate-500">
+                Viewing saved report: <strong className="text-slate-300">{btstViewedReport?.name}</strong>
+                {' · '}
+                <button type="button" className="text-teal-400 hover:underline" onClick={() => setViewedReportId(null)}>
+                  Back to live scan
+                </button>
+              </p>
+            )}
             <BtstPanel data={data} showCharts={showCharts} />
           </Card>
+
+          {viewedReportId == null && (
+            <Card className="mb-4">
+              {!showSaveForm ? (
+                <Button onClick={() => setShowSaveForm(true)}>Save for future reference</Button>
+              ) : (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[16rem] flex-1">
+                    <FormField label="Report name">
+                      <Input value={saveName} onChange={(e) => setSaveName(e.target.value)} maxLength={200} />
+                    </FormField>
+                  </div>
+                  <Button
+                    onClick={() => saveName.trim() && btstSaveReportMutation.mutate({ name: saveName.trim(), payload: data })}
+                    disabled={btstSaveReportMutation.isPending || !saveName.trim()}
+                  >
+                    {btstSaveReportMutation.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button onClick={() => setShowSaveForm(false)}>Cancel</Button>
+                </div>
+              )}
+              {saveMsg && <Alert type="success">{saveMsg}</Alert>}
+            </Card>
+          )}
+
           {askContext && <AskAIPanel context={askContext} section="pro-trade/btst" />}
         </>
       )}

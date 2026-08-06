@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from app.market_pulse.serialize import json_safe
 from app.services.settings_service import SettingsService
 from app.services.ticker_universe_service import TickerUniverseService
 
+BTST_SOURCE = "btst"
+
 
 class ProTradeService:
-    def __init__(self, settings: SettingsService):
+    def __init__(self, settings: SettingsService, db: Any = None):
         self.settings = settings
         self.universe = TickerUniverseService()
+        self.db = db
 
     async def _ctx(self) -> tuple[str, str]:
         token = await self.settings.get_groww_token() or ""
@@ -348,6 +352,7 @@ class ProTradeService:
         self,
         tickers: list[str],
         *,
+        asset_class: str = "india",
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -362,9 +367,9 @@ class ProTradeService:
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
 
-        market, default_exchange = await self._asset_ctx("india")
+        market, default_exchange = await self._asset_ctx(asset_class)
         token, _ = await self._ctx()
-        resolved = self.universe.resolve("india", tickers)
+        resolved = self.universe.resolve(asset_class, tickers)
         cfg = BtstConfig(**(cfg_overrides or {}))
         resolved_exchange = exchange or default_exchange
 
@@ -372,13 +377,104 @@ class ProTradeService:
             return scan_universe(resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange)
 
         payload = await asyncio.to_thread(_run)
-        payload["asset_class"] = "india"
+        payload["asset_class"] = asset_class
         payload["market"] = market
         payload["currency"] = market_currency(market)
         for r in payload.get("results", []):
             r["ai_context"] = build_btst_ai_prompt(r)
         payload["ai_system_prompt"] = BTST_AI_SYSTEM
         return json_safe(payload)
+
+    # ------------------------------------------------------------------
+    # Saved BTST/STBT reports — shares the SavedBacktestReport table
+    # (source="btst") with the other background-job features.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _btst_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "entry_count": payload.get("entry_count"),
+            "btst_count": payload.get("btst_count"),
+            "stbt_count": payload.get("stbt_count"),
+            "scanned": payload.get("scanned"),
+        }
+
+    async def save_btst_report(
+        self, name: str, tickers: list[str], asset_class: str, payload: dict[str, Any], *, user_id: int | None,
+    ) -> dict[str, Any]:
+        from datetime import datetime as datetime_cls
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = SavedBacktestReport(
+            user_id=user_id,
+            name=name.strip()[:200] or f"BTST {datetime_cls.utcnow().isoformat()}",
+            asset_class=asset_class,
+            tickers=",".join(tickers or []),
+            timeframes="",
+            payload_json=json.dumps(json_safe(payload)),
+            source=BTST_SOURCE,
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return {"id": report.id, "name": report.name, "created_at": report.created_at.isoformat()}
+
+    async def list_btst_reports(self, *, user_id: int | None) -> dict[str, Any]:
+        from sqlalchemy import select
+
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"reports": []}
+        stmt = select(SavedBacktestReport).where(
+            SavedBacktestReport.source == BTST_SOURCE
+        ).order_by(SavedBacktestReport.created_at.desc())
+        if user_id is not None:
+            stmt = stmt.where(SavedBacktestReport.user_id == user_id)
+        result = await self.db.execute(stmt)
+        rows = result.scalars().all()
+        reports = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload_json) if r.payload_json else {}
+            except Exception:
+                payload = {}
+            reports.append({
+                "id": r.id,
+                "name": r.name,
+                "asset_class": r.asset_class,
+                "created_at": r.created_at.isoformat(),
+                "summary": self._btst_summary(payload if isinstance(payload, dict) else {}),
+            })
+        return {"reports": reports}
+
+    async def get_btst_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != BTST_SOURCE or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        return {
+            "id": report.id, "name": report.name, "created_at": report.created_at.isoformat(),
+            "payload": json.loads(report.payload_json),
+        }
+
+    async def delete_btst_report(self, report_id: int, *, user_id: int | None) -> dict[str, Any]:
+        from app.models.db_models import SavedBacktestReport
+
+        if self.db is None:
+            return {"error": "No database session available."}
+        report = await self.db.get(SavedBacktestReport, report_id)
+        if not report or report.source != BTST_SOURCE or (user_id is not None and report.user_id not in (None, user_id)):
+            return {"error": "Report not found."}
+        await self.db.delete(report)
+        await self.db.commit()
+        return {"deleted": True}
 
     async def volume_spread_next_candle(
         self,

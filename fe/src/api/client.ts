@@ -1029,19 +1029,21 @@ export const runSwing5Scan = (payload: {
   config?: Record<string, unknown>
 }) => api.post('/trading-hubs/swing-5/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const fetchEtfTaUniverse = () =>
-  api.get<{ presets: Record<string, string[]>; default_symbols: string[]; shop_39: string[]; master_backup: string[] }>(
+export const fetchEtfTaUniverse = (assetClass = 'india') =>
+  api.get<{ asset_class: string; currency: string; presets: Record<string, string[]>; default_symbols: string[]; shop_39: string[]; master_backup: string[] }>(
     '/etf-ta/universe',
-    { timeout: MP_TIMEOUT },
+    { params: { asset_class: assetClass }, timeout: MP_TIMEOUT },
   ).then((r) => r.data)
 
-export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string }) =>
+export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string; asset_class?: string }) =>
   api.post('/etf-ta/stf-shop/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const recommendEtfTaStf = (payload: Record<string, unknown>) =>
   api.post('/etf-ta/stf-shop/recommend', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export interface EtfShopConfig {
+  asset_class: string
+  currency: string
   deposited_capital: number
   growth_amount: number
   dividend_withdrawn: number
@@ -1064,6 +1066,7 @@ export interface EtfShopConfig {
 export interface EtfShopLot {
   id: number
   slot_id: string
+  asset_class: string
   symbol: string
   purchase_price: number
   purchase_date: string
@@ -1088,20 +1091,22 @@ export interface EtfShopLot {
   averaging_reason?: string | null
 }
 
-export const fetchEtfShopPortfolio = () =>
-  api.get<{ config: EtfShopConfig; lots: EtfShopLot[] }>('/etf-ta/stf-shop/portfolio', { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const fetchEtfShopPortfolio = (assetClass = 'india') =>
+  api.get<{ config: EtfShopConfig; lots: EtfShopLot[] }>('/etf-ta/stf-shop/portfolio', {
+    params: { asset_class: assetClass }, timeout: MP_TIMEOUT,
+  }).then((r) => r.data)
 
-export const updateEtfShopConfig = (payload: Partial<EtfShopConfig>) =>
+export const updateEtfShopConfig = (payload: Partial<EtfShopConfig> & { asset_class: string }) =>
   api.put<EtfShopConfig>('/etf-ta/stf-shop/config', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const addEtfShopLot = (payload: { symbol: string; price: number; amount: number; lot_type?: string; purchase_date?: string }) =>
+export const addEtfShopLot = (payload: { symbol: string; price: number; amount: number; lot_type?: string; purchase_date?: string; asset_class?: string }) =>
   api.post<EtfShopLot>('/etf-ta/stf-shop/lots', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const closeEtfShopLot = (lotId: number, payload: { sale_price: number; sale_date?: string; dividend_pct?: number }) =>
   api.post(`/etf-ta/stf-shop/lots/${lotId}/close`, payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runEtfShopDaily = () =>
-  api.post('/etf-ta/stf-shop/daily', {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+export const runEtfShopDaily = (assetClass = 'india') =>
+  api.post('/etf-ta/stf-shop/daily', {}, { params: { asset_class: assetClass }, timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export type AutoTradeAssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 export type AutoTradeStyle = 'scalping' | 'intraday' | 'swing' | 'investing'
@@ -1965,6 +1970,7 @@ export const runProTradeBbMeanReversion = (payload: {
 
 export const runProTradeBtst = (payload: {
   tickers: string[]
+  asset_class?: string
   exchange?: string
   lookback_bars?: number
   min_clv?: number
@@ -1978,6 +1984,28 @@ export const runProTradeBtst = (payload: {
   check_oi_buildup?: boolean
   further_analysis?: string[]
 }) => api.post('/pro-trade/btst', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const startBtstJob = (payload: {
+  tickers: string[]
+  asset_class?: string
+  config?: Record<string, unknown>
+  run_in_background?: boolean
+  report_name?: string
+}) => api.post('/pro-trade/btst/start', payload).then((r) => r.data)
+
+export const fetchBtstJobs = (status?: string) =>
+  api.get('/pro-trade/btst/jobs', { params: status ? { status } : {} }).then((r) => r.data)
+
+export const fetchBtstJob = (jobId: string) => api.get(`/pro-trade/btst/jobs/${jobId}`).then((r) => r.data)
+
+export const saveBtstReport = (payload: { name: string; payload: Record<string, unknown> }) =>
+  api.post('/pro-trade/btst/reports', payload).then((r) => r.data)
+
+export const fetchBtstReports = () => api.get('/pro-trade/btst/reports').then((r) => r.data)
+
+export const fetchBtstReport = (reportId: number) => api.get(`/pro-trade/btst/reports/${reportId}`).then((r) => r.data)
+
+export const deleteBtstReport = (reportId: number) => api.delete(`/pro-trade/btst/reports/${reportId}`).then((r) => r.data)
 
 /* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
 

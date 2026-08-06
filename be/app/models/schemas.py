@@ -549,11 +549,13 @@ class Swing5ScanRequest(BaseModel):
 class EtfTaScanRequest(BaseModel):
     symbols: list[str] | None = None
     exchange: str = "NSE"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class EtfTaRecommendRequest(BaseModel):
     symbols: list[str] | None = None
     exchange: str = "NSE"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     deposited_capital: float = 500_000.0
     growth_amount: float = 0.0
     dividend_withdrawn: float = 0.0
@@ -570,6 +572,7 @@ class EtfTaRecommendRequest(BaseModel):
 
 
 class EtfShopConfigUpdateRequest(BaseModel):
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     deposited_capital: float | None = None
     growth_amount: float | None = None
     dividend_withdrawn: float | None = None
@@ -594,6 +597,7 @@ class EtfShopAddLotRequest(BaseModel):
     amount: float = Field(..., gt=0)
     lot_type: Literal["standard", "sip"] = "standard"
     purchase_date: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
 
 
 class EtfShopCloseLotRequest(BaseModel):
@@ -1085,6 +1089,7 @@ class ProTradeBtstRequest(BaseModel):
     trend, volume, relative strength vs Nifty, VWAP, RSI chase-risk guard, options OI buildup, late-session
     fade check, and this ticker's own historical follow-through rate. India cash/F&O only."""
     tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
     exchange: str | None = None
     lookback_bars: int = Field(default=250, ge=60, le=650)
     min_clv: float = Field(default=0.65, ge=0.5, le=0.95)
