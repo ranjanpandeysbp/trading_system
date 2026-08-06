@@ -69,23 +69,43 @@ const nav: NavEntry[] = [
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation()
+
+  const childMatches = (childTo: string) => {
+    const pathOnly = childTo.split('?')[0]
+    if (location.pathname === pathOnly) {
+      if (!childTo.includes('?')) return true
+      // Query-string children (e.g. Trading Hubs deep-links): match pathname + required params.
+      const want = new URLSearchParams(childTo.split('?')[1] || '')
+      const have = new URLSearchParams(location.search)
+      for (const [k, v] of want.entries()) {
+        if (have.get(k) !== v) return false
+      }
+      return true
+    }
+    return location.pathname.startsWith(`${pathOnly}/`)
+  }
+
+  const groupMatches = (entry: NavEntry) => {
+    if (entry.children?.some((c) => childMatches(c.to))) return true
+    // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
+    if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
+    return false
+  }
+
   const [openGroup, setOpenGroup] = useState<string | null>(
-    () => nav.find((n) => n.children?.some((c) => location.pathname.startsWith(c.to)))?.to ?? null,
+    () => nav.find((n) => n.children && groupMatches(n))?.to ?? null,
   )
 
-  // Auto-open the group containing the active route (e.g. landing here via a
-  // link elsewhere), but this must not fight the toggle button below — once
-  // opened this way, clicking the header still has to be able to close it
-  // even while a child route is active.
   useEffect(() => {
-    const match = nav.find((n) => n.children?.some((c) => location.pathname.startsWith(c.to)))
+    const match = nav.find((n) => n.children && groupMatches(n))
     if (match) setOpenGroup(match.to)
-  }, [location.pathname])
+  }, [location.pathname, location.search])
 
   return (
     <>
       {nav.map(({ to, label, icon: Icon, children }) => {
-        const groupActive = Boolean(children?.some((c) => location.pathname.startsWith(c.to)))
+        const entry = { to, label, shortLabel: '', icon: Icon, children }
+        const groupActive = Boolean(children && groupMatches(entry))
         const expanded = openGroup === to
 
         if (children) {
@@ -111,9 +131,9 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
                       key={c.to}
                       to={c.to}
                       onClick={onNavigate}
-                      className={({ isActive }) =>
+                      className={() =>
                         `rounded-lg px-3 py-2 text-sm transition-all ${
-                          isActive
+                          childMatches(c.to)
                             ? 'bg-blue-500/15 text-blue-400'
                             : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                         }`

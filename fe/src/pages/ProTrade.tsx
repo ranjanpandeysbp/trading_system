@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
-import { Navigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
   deleteBtstReport,
@@ -2411,15 +2411,48 @@ function BtstPage() {
 
 export default function ProTrade() {
   const { tab } = useParams<{ tab?: string }>()
+  const navigate = useNavigate()
+
+  const PRO_TRADE_TABS: { id: string; label: string }[] = [
+    { id: 'volume-profile-ce', label: 'Volume Profile CE' },
+    { id: 'volume-profile-poc', label: 'Volume Profile POC' },
+    { id: 'pa-volume-profile', label: 'PA - Volume Profile' },
+    { id: 'pa-vp-smc', label: 'PA-VP-SMC' },
+    { id: 'volume-spread-next-candle', label: 'Volume Spread - Next Candle' },
+    { id: 'elliott-wave', label: 'Elliott Wave' },
+    { id: 'fibonacci-pro', label: 'Fibonacci Pro' },
+    { id: 'bb-mean-reversion', label: 'BB Mean Reversion' },
+    { id: 'btst', label: 'Buy Today Sell Tomorrow' },
+  ]
+
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
-  if (tab === 'volume-profile-ce') return <VolumeProfileCePage />
-  if (tab === 'volume-profile-poc') return <VolumeProfilePocPage />
-  if (tab === 'pa-volume-profile') return <PaVolumeProfilePage />
-  if (tab === 'pa-vp-smc') return <PaVpSmcPage />
-  if (tab === 'volume-spread-next-candle') return <VolumeSpreadNextCandlePage />
-  if (tab === 'elliott-wave') return <ElliottWavePage />
-  if (tab === 'fibonacci-pro') return <FibonacciProPage />
-  if (tab === 'bb-mean-reversion') return <BbMeanReversionPage />
-  if (tab === 'btst') return <BtstPage />
-  return <Navigate to="/pro-trade/volume-profile-ce" replace />
+
+  let page: ReactNode = null
+  if (tab === 'volume-profile-ce') page = <VolumeProfileCePage />
+  else if (tab === 'volume-profile-poc') page = <VolumeProfilePocPage />
+  else if (tab === 'pa-volume-profile') page = <PaVolumeProfilePage />
+  else if (tab === 'pa-vp-smc') page = <PaVpSmcPage />
+  else if (tab === 'volume-spread-next-candle') page = <VolumeSpreadNextCandlePage />
+  else if (tab === 'elliott-wave') page = <ElliottWavePage />
+  else if (tab === 'fibonacci-pro') page = <FibonacciProPage />
+  else if (tab === 'bb-mean-reversion') page = <BbMeanReversionPage />
+  else if (tab === 'btst') page = <BtstPage />
+  else return <Navigate to="/pro-trade/volume-profile-ce" replace />
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {PRO_TRADE_TABS.map((t) => (
+          <Chip
+            key={t.id}
+            selected={tab === t.id}
+            onClick={() => navigate(`/pro-trade/${t.id}`)}
+          >
+            {t.label}
+          </Chip>
+        ))}
+      </div>
+      {page}
+    </div>
+  )
 }
