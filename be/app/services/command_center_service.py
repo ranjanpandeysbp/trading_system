@@ -1520,6 +1520,37 @@ class CommandCenterService:
         await _attach_day_range(rows, market, groww_token=token, exchange=exchange)
         return json_safe({"index_name": index_name, "symbol": symbol, "exchange": exchange, "rows": rows})
 
+    async def advance_decline_graph_indices(self) -> dict[str, Any]:
+        from app.market_pulse.advance_decline_graph_engine import list_index_names
+
+        return json_safe({"index_names": list_index_names()})
+
+    async def advance_decline_graph(
+        self,
+        index_name: str,
+        *,
+        from_date: str,
+        to_date: str,
+        timeframe: str = "1d",
+        session_date: str | None = None,
+        as_of_time: str | None = None,
+    ) -> dict[str, Any]:
+        _, token, exchange = await self._ctx()
+        from app.market_pulse.advance_decline_graph_engine import compute_advance_decline_graph
+
+        result = await asyncio.to_thread(
+            compute_advance_decline_graph,
+            index_name,
+            from_date=from_date,
+            to_date=to_date,
+            timeframe=timeframe,
+            session_date=session_date,
+            as_of_time=as_of_time,
+            groww_token=token,
+            exchange=exchange or "NSE",
+        )
+        return json_safe(result)
+
     async def day_bias(
         self, ticker: str, *, asset_class: str = "india", timeframe: str = "1d", exchange: str | None = None,
     ) -> dict[str, Any]:
@@ -1746,6 +1777,7 @@ class CommandCenterService:
                 {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
                 {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Buy/Sell Call/Put"},
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
+                {"id": "advance_decline_graph", "label": "Advance Decline Graph"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
                 {"id": "quick_analyzer", "label": "Quick Analyzer (India · US · Crypto)"},

@@ -454,6 +454,15 @@ class CommandCenterHeatmapRequest(BaseModel):
     tickers: list[str] | None = None
 
 
+class CommandCenterAdvanceDeclineGraphRequest(BaseModel):
+    index_name: str = "NIFTY 50"
+    from_date: str
+    to_date: str
+    timeframe: str = Field(default="1d", description="1d (daily) or intraday: 5m, 10m, 15m, 30m, 1h")
+    session_date: str | None = Field(default=None, description="Session day for intraday (defaults to to_date)")
+    as_of_time: str | None = Field(default=None, description="Optional HH:MM — include bars up to this time")
+
+
 class CommandCenterSma20200Request(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"

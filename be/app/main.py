@@ -24,8 +24,24 @@ from app.services.alert_schedule_worker import alert_schedule_worker
 logger = logging.getLogger(__name__)
 
 
+def _redact_db_url(url: str) -> str:
+    """Hide password in logs: user:pass@host → user:***@host"""
+    if "@" not in url or "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    if "@" not in rest:
+        return url
+    creds, hostpart = rest.rsplit("@", 1)
+    if ":" in creds:
+        user = creds.split(":", 1)[0]
+        return f"{scheme}://{user}:***@{hostpart}"
+    return f"{scheme}://***@{hostpart}"
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    mode = "mysql" if settings.is_mysql else "sqlite" if settings.is_sqlite else "other"
+    logger.info("Database mode=%s url=%s", mode, _redact_db_url(settings.sqlalchemy_url))
     await init_db()
     try:
         from app.services.strategy_leaderboard_jobs import resume_orphaned_jobs
