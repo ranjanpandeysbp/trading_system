@@ -46,7 +46,7 @@ _COMMAND_CENTER_SECTIONS: list[tuple[str, str]] = [
     ("india_market_heatmap", "IN-US-Crypto Market Heatmap"),
     ("advance_decline_graph", "Advance Decline (Multi Asset) — Breadth + Options PCR"),
     ("comparative_strength", "Comparative Strength — Relative Long/Short vs Base"),
-    ("oil_dollar_bond", "Oil-Dollar-Bond — DXY · Brent · US 2Y/10Y · Gold · Silver"),
+    ("oil_dollar_bond", "Oil-Dollar-Bond — DXY · Brent · bonds · metals · Nifty/Dow/Nasdaq · BTC/ETH"),
     ("nse_world_indices", "NSE and World Indices"),
     ("coindcx_24h_volatility", "24Hrs Volatile Crypto"),
     ("quick_analyzer", "Quick Analyzer (India · US · Crypto)"),

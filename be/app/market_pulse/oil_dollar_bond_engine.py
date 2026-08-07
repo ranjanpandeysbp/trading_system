@@ -1,7 +1,7 @@
 """
 oil_dollar_bond_engine.py
 -------------------------
-Command Center — Oil · Dollar · Bond · Gold · Silver
+Command Center — Oil · Dollar · Bond · Gold · Silver · Indices · Crypto
 
 Modes:
   - daily: history over from_date → to_date (1d bars)
@@ -16,6 +16,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,46 @@ INSTRUMENTS: list[dict[str, Any]] = [
         "candidates": ["SI=F", "XAGUSD=X"],
         "color": "#a8a29e",
     },
+    {
+        "id": "nifty50",
+        "label": "Nifty 50",
+        "short": "Nifty 50",
+        "unit": "index",
+        "candidates": ["^NSEI", "NIFTYBEES.NS"],
+        "color": "#818cf8",
+    },
+    {
+        "id": "dow30",
+        "label": "Dow Jones 30",
+        "short": "Dow 30",
+        "unit": "index",
+        "candidates": ["^DJI", "DIA"],
+        "color": "#22d3ee",
+    },
+    {
+        "id": "nasdaq",
+        "label": "Nasdaq Composite",
+        "short": "Nasdaq",
+        "unit": "index",
+        "candidates": ["^IXIC", "^NDX", "QQQ"],
+        "color": "#c084fc",
+    },
+    {
+        "id": "bitcoin",
+        "label": "Bitcoin",
+        "short": "Bitcoin",
+        "unit": "USD",
+        "candidates": ["BTC-USD", "BTCUSD=X"],
+        "color": "#fb923c",
+    },
+    {
+        "id": "ethereum",
+        "label": "Ethereum",
+        "short": "Ethereum",
+        "unit": "USD",
+        "candidates": ["ETH-USD", "ETHUSD=X"],
+        "color": "#60a5fa",
+    },
 ]
 
 INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "1h"}
@@ -89,19 +130,31 @@ def _normalize_interval(interval: str, *, intraday: bool) -> str:
     return "1d"
 
 
-def _download_close(
+def _strip_tz(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    try:
+        if getattr(idx, "tz", None) is not None:
+            return idx.tz_localize(None)
+    except Exception:
+        try:
+            return idx.tz_convert(None)
+        except Exception:
+            pass
+    return idx
+
+
+def _download_ohlc(
     symbol: str,
     start: datetime,
     end: datetime,
     *,
     interval: str = "1d",
-) -> pd.Series:
-    """Adjusted close for one Yahoo symbol over [start, end] (inclusive)."""
+) -> pd.DataFrame:
+    """OHLC for one Yahoo symbol over [start, end] (inclusive)."""
     try:
         import yfinance as yf
     except Exception as exc:
         logger.warning("yfinance unavailable: %s", exc)
-        return pd.Series(dtype=float)
+        return pd.DataFrame()
 
     end_excl = end + timedelta(days=1)
     try:
@@ -116,49 +169,54 @@ def _download_close(
         )
     except Exception as exc:
         logger.debug("download failed for %s [%s]: %s", symbol, interval, exc)
-        return pd.Series(dtype=float)
+        return pd.DataFrame()
 
     if raw is None or raw.empty:
-        return pd.Series(dtype=float)
+        return pd.DataFrame()
 
-    if isinstance(raw.columns, pd.MultiIndex):
-        if "Close" in raw.columns.get_level_values(0):
-            close = raw["Close"]
-            series = close.iloc[:, 0] if getattr(close, "ndim", 1) > 1 else close
+    def _col(name: str) -> pd.Series | None:
+        if isinstance(raw.columns, pd.MultiIndex):
+            level0 = raw.columns.get_level_values(0)
+            if name not in level0:
+                return None
+            block = raw[name]
+            s = block.iloc[:, 0] if getattr(block, "ndim", 1) > 1 else block
         else:
-            series = raw.iloc[:, 0]
-    else:
-        series = raw["Close"] if "Close" in raw.columns else raw.iloc[:, 0]
+            if name not in raw.columns:
+                return None
+            s = raw[name]
+        return pd.to_numeric(s, errors="coerce")
 
-    out = pd.to_numeric(series, errors="coerce").dropna()
+    close = _col("Close")
+    if close is None:
+        return pd.DataFrame()
+    high = _col("High")
+    low = _col("Low")
+    if high is None:
+        high = close
+    if low is None:
+        low = close
+
+    out = pd.DataFrame({"high": high, "low": low, "close": close}).dropna(subset=["close"])
     if out.empty:
-        return pd.Series(dtype=float)
-    idx = pd.to_datetime(out.index)
-    try:
-        if getattr(idx, "tz", None) is not None:
-            idx = idx.tz_localize(None)
-    except Exception:
-        try:
-            idx = idx.tz_convert(None)
-        except Exception:
-            pass
-    out.index = idx
+        return pd.DataFrame()
+    out.index = _strip_tz(pd.to_datetime(out.index))
     return out
 
 
-def _pick_series(
+def _pick_ohlc(
     candidates: list[str],
     start: datetime,
     end: datetime,
     *,
     interval: str,
-) -> tuple[str | None, pd.Series]:
+) -> tuple[str | None, pd.DataFrame]:
     min_bars = 2 if interval == "1d" else 3
     for sym in candidates:
-        series = _download_close(sym, start, end, interval=interval)
-        if len(series) >= min_bars:
-            return sym, series
-    return None, pd.Series(dtype=float)
+        df = _download_ohlc(sym, start, end, interval=interval)
+        if len(df) >= min_bars:
+            return sym, df
+    return None, pd.DataFrame()
 
 
 def _series_to_points(series: pd.Series, *, intraday: bool) -> list[dict[str, Any]]:
@@ -179,6 +237,98 @@ def _series_to_points(series: pd.Series, *, intraday: bool) -> list[dict[str, An
             iso = label
         points.append({"t": iso, "label": label, "value": round(v, 4)})
     return points
+
+
+def _support_resistance(df: pd.DataFrame, *, window: int = 3) -> dict[str, Any]:
+    """Nearest S1/S2 and R1/R2 from swing pivots + period extremes."""
+    empty = {
+        "s1": None, "s2": None, "r1": None, "r2": None,
+        "period_low": None, "period_high": None,
+        "levels": [],
+    }
+    if df is None or df.empty or len(df) < 5:
+        return empty
+
+    highs = df["high"].astype(float).values
+    lows = df["low"].astype(float).values
+    closes = df["close"].astype(float).values
+    last = float(closes[-1])
+    period_low = float(np.nanmin(lows))
+    period_high = float(np.nanmax(highs))
+
+    w = max(1, min(window, max(1, len(df) // 10)))
+    swing_lows: list[float] = []
+    swing_highs: list[float] = []
+    for i in range(w, len(df) - w):
+        if lows[i] == np.nanmin(lows[i - w:i + w + 1]):
+            swing_lows.append(float(lows[i]))
+        if highs[i] == np.nanmax(highs[i - w:i + w + 1]):
+            swing_highs.append(float(highs[i]))
+
+    # Deduplicate near-identical levels (~0.15% or absolute for tiny prices)
+    def _dedupe(levels: list[float], *, prefer: str) -> list[float]:
+        if not levels:
+            return []
+        ordered = sorted(levels, reverse=(prefer == "desc"))
+        out: list[float] = []
+        for lvl in ordered:
+            if not out:
+                out.append(lvl)
+                continue
+            ref = out[-1]
+            tol = max(abs(ref) * 0.0015, 1e-6)
+            if abs(lvl - ref) > tol:
+                out.append(lvl)
+        return out
+
+    supports_below = _dedupe([x for x in swing_lows if x < last], prefer="desc")
+    resists_above = _dedupe([x for x in swing_highs if x > last], prefer="asc")
+
+    # Fallbacks from percentiles / period extremes
+    if not supports_below:
+        supports_below = [period_low]
+    elif abs(supports_below[0] - period_low) / max(abs(period_low), 1e-9) > 0.002:
+        # Keep period low as deeper support if distinct
+        pass
+    if not resists_above:
+        resists_above = [period_high]
+
+    s1 = round(supports_below[0], 4) if supports_below else round(period_low, 4)
+    s2 = round(supports_below[1], 4) if len(supports_below) >= 2 else round(period_low, 4)
+    if s2 == s1 and period_low < s1:
+        s2 = round(period_low, 4)
+
+    r1 = round(resists_above[0], 4) if resists_above else round(period_high, 4)
+    r2 = round(resists_above[1], 4) if len(resists_above) >= 2 else round(period_high, 4)
+    if r2 == r1 and period_high > r1:
+        r2 = round(period_high, 4)
+
+    levels = [
+        {"key": "s2", "label": "S2", "kind": "support", "price": s2},
+        {"key": "s1", "label": "S1", "kind": "support", "price": s1},
+        {"key": "r1", "label": "R1", "kind": "resistance", "price": r1},
+        {"key": "r2", "label": "R2", "kind": "resistance", "price": r2},
+    ]
+    # Drop exact duplicates while keeping order
+    seen: set[float] = set()
+    unique_levels = []
+    for lvl in levels:
+        p = float(lvl["price"])
+        if p in seen:
+            continue
+        seen.add(p)
+        unique_levels.append(lvl)
+
+    return {
+        "s1": s1,
+        "s2": s2,
+        "r1": r1,
+        "r2": r2,
+        "period_low": round(period_low, 4),
+        "period_high": round(period_high, 4),
+        "last": round(last, 4),
+        "levels": unique_levels,
+    }
 
 
 def _pct_change_series(series: pd.Series) -> pd.Series:
@@ -223,7 +373,7 @@ def compute_oil_dollar_bond(
     session_date: str | None = None,
     interval: str = "1d",
 ) -> dict[str, Any]:
-    """Build Oil / Dollar / Bond / Gold / Silver chart payload."""
+    """Build macro chart payload (FX, oil, bonds, metals, indices, crypto)."""
     mode_norm = (mode or "daily").strip().lower()
     intraday = mode_norm in ("intraday", "same_day", "intraday_same_day")
     iv = _normalize_interval(interval, intraday=intraday)
@@ -284,8 +434,8 @@ def compute_oil_dollar_bond(
     errors: dict[str, str] = {}
 
     for spec in INSTRUMENTS:
-        sym, raw = _pick_series(list(spec["candidates"]), start, end, interval=iv)
-        if sym is None or raw.empty:
+        sym, ohlc = _pick_ohlc(list(spec["candidates"]), start, end, interval=iv)
+        if sym is None or ohlc.empty:
             errors[str(spec["id"])] = f"No data for {spec['label']} (tried {', '.join(spec['candidates'])})."
             series_out.append({
                 "id": spec["id"],
@@ -298,19 +448,21 @@ def compute_oil_dollar_bond(
                 "error": errors[str(spec["id"])],
                 "last": None,
                 "change_pct": None,
+                "support_resistance": None,
             })
             continue
 
         if intraday:
             day_start = pd.Timestamp(start)
             day_end = pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            clipped = raw[(raw.index >= day_start) & (raw.index <= day_end)]
+            clipped = ohlc[(ohlc.index >= day_start) & (ohlc.index <= day_end)]
         else:
-            clipped = raw[(raw.index >= pd.Timestamp(start)) & (raw.index <= pd.Timestamp(end) + pd.Timedelta(days=1))]
+            clipped = ohlc[(ohlc.index >= pd.Timestamp(start)) & (ohlc.index <= pd.Timestamp(end) + pd.Timedelta(days=1))]
         if clipped.empty:
-            clipped = raw
+            clipped = ohlc
 
-        points = _series_to_points(clipped, intraday=intraday)
+        close = clipped["close"]
+        points = _series_to_points(close, intraday=intraday)
         if len(points) < 2:
             errors[str(spec["id"])] = f"Insufficient {iv} bars for {spec['label']} on this session."
             series_out.append({
@@ -322,15 +474,17 @@ def compute_oil_dollar_bond(
                 "color": spec["color"],
                 "points": points,
                 "error": errors[str(spec["id"])],
-                "last": round(float(clipped.iloc[-1]), 4) if len(clipped) else None,
+                "last": round(float(close.iloc[-1]), 4) if len(close) else None,
                 "change_pct": None,
+                "support_resistance": None,
             })
             continue
 
-        first = float(clipped.iloc[0])
-        last = float(clipped.iloc[-1])
+        first = float(close.iloc[0])
+        last = float(close.iloc[-1])
         change_pct = ((last / first) - 1.0) * 100.0 if first else None
-        aligned[str(spec["id"])] = clipped
+        sr = _support_resistance(clipped, window=3 if intraday else 5)
+        aligned[str(spec["id"])] = close
         series_out.append({
             "id": spec["id"],
             "label": spec["label"],
@@ -344,6 +498,7 @@ def compute_oil_dollar_bond(
             "from": points[0]["t"] if points else None,
             "to": points[-1]["t"] if points else None,
             "bars": len(points),
+            "support_resistance": sr,
         })
 
     chart = _build_overlay(aligned, intraday=intraday)
@@ -379,7 +534,7 @@ def compute_oil_dollar_bond(
         "errors": errors,
         "summary": " · ".join(summary_bits) if summary_bits else None,
         "plain_english": (
-            f"Oil · Dollar · Bond · Gold · Silver — {range_txt}. "
+            f"Macro tape (FX · oil · bonds · metals · Nifty/Dow/Nasdaq · BTC/ETH) — {range_txt}. "
             + ("Normalized % change overlay compares direction across units. " if chart else "")
             + ("Loaded: " + ", ".join(summary_bits) + "." if summary_bits else "No series loaded.")
         ),
@@ -389,7 +544,11 @@ def compute_oil_dollar_bond(
             "Dollar Index rising usually pressures commodities; falling DXY often supports oil/gold/silver.",
             "Brent is the global oil benchmark; Gold/Silver are COMEX futures (GC=F / SI=F).",
             "US 2Y and US 10Y track rate expectations — watch 2s10s for risk appetite.",
-            "Each panel uses native units; the overlay is % change from the first bar.",
+            "Nifty 50 (^NSEI), Dow 30 (^DJI), Nasdaq (^IXIC) show equity risk appetite across regions.",
+            "Bitcoin / Ethereum (BTC-USD / ETH-USD) track crypto risk-on; often move with Nasdaq in risk regimes.",
+            "Each panel uses native units with clear S1/S2 support and R1/R2 resistance lines.",
+            "Green dashed = support · Red dashed = resistance · Period high/low used as deeper levels when needed.",
+            "The overlay is % change from the first bar (no S/R — scales differ).",
             "Educational macro context only — not a trade signal.",
         ],
     }

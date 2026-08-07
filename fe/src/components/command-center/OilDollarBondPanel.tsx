@@ -5,6 +5,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -50,19 +51,63 @@ function fmtNum(v: unknown, digits = 2): string {
   return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
 }
 
+type SrLevel = { key?: string; label: string; kind: string; price: number }
+type SupportResistance = {
+  s1?: number | null
+  s2?: number | null
+  r1?: number | null
+  r2?: number | null
+  levels?: SrLevel[]
+}
+
 function SeriesChart({
   title,
   subtitle,
   points,
   color,
   unit,
+  supportResistance,
 }: {
   title: string
   subtitle?: string
   points: Row[]
   color: string
   unit?: string
+  supportResistance?: SupportResistance | null
 }) {
+  const levels = useMemo(() => {
+    const raw = supportResistance?.levels
+    if (raw?.length) {
+      return raw
+        .map((lv) => ({
+          label: String(lv.label),
+          kind: String(lv.kind),
+          price: Number(lv.price),
+        }))
+        .filter((lv) => Number.isFinite(lv.price))
+    }
+    const fallback: SrLevel[] = []
+    if (supportResistance?.s2 != null) fallback.push({ label: 'S2', kind: 'support', price: Number(supportResistance.s2) })
+    if (supportResistance?.s1 != null) fallback.push({ label: 'S1', kind: 'support', price: Number(supportResistance.s1) })
+    if (supportResistance?.r1 != null) fallback.push({ label: 'R1', kind: 'resistance', price: Number(supportResistance.r1) })
+    if (supportResistance?.r2 != null) fallback.push({ label: 'R2', kind: 'resistance', price: Number(supportResistance.r2) })
+    return fallback.filter((lv) => Number.isFinite(lv.price))
+  }, [supportResistance])
+
+  const yDomain = useMemo((): [number | string, number | string] => {
+    if (!points.length) return ['auto', 'auto']
+    const vals = points.map((p) => Number(p.value)).filter((n) => Number.isFinite(n))
+    if (!vals.length) return ['auto', 'auto']
+    let lo = Math.min(...vals)
+    let hi = Math.max(...vals)
+    for (const lv of levels) {
+      lo = Math.min(lo, lv.price)
+      hi = Math.max(hi, lv.price)
+    }
+    const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
+    return [lo - pad, hi + pad]
+  }, [points, levels])
+
   if (!points.length) {
     return (
       <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-4">
@@ -80,15 +125,15 @@ function SeriesChart({
         </div>
         {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
       </div>
-      <div className="h-48 w-full">
+      <div className="h-52 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <LineChart data={points} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={28} />
             <YAxis
-              domain={['auto', 'auto']}
+              domain={yDomain}
               tick={{ fill: '#94a3b8', fontSize: 9 }}
-              width={48}
+              width={52}
               tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
             />
             <Tooltip
@@ -96,10 +141,43 @@ function SeriesChart({
               labelStyle={{ color: '#e2e8f0' }}
               formatter={(value: number) => [Number(value).toFixed(3), title]}
             />
+            {levels.map((lv) => {
+              const isSupport = lv.kind === 'support'
+              const stroke = isSupport ? '#34d399' : '#f87171'
+              return (
+                <ReferenceLine
+                  key={`${lv.label}-${lv.price}`}
+                  y={lv.price}
+                  stroke={stroke}
+                  strokeWidth={1.5}
+                  strokeDasharray="5 3"
+                  ifOverflow="extendDomain"
+                  label={{
+                    value: `${lv.label} ${fmtNum(lv.price, lv.price >= 100 ? 1 : 3)}`,
+                    position: isSupport ? 'insideBottomRight' : 'insideTopRight',
+                    fill: stroke,
+                    fontSize: 10,
+                  }}
+                />
+              )
+            })}
             <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
+      {levels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800/50 pt-2 text-[10px]">
+          {levels.map((lv) => (
+            <span
+              key={`legend-${lv.label}-${lv.price}`}
+              className={lv.kind === 'support' ? 'text-emerald-400' : 'text-rose-400'}
+            >
+              {lv.label} {fmtNum(lv.price, lv.price >= 100 ? 1 : 3)}
+            </span>
+          ))}
+          <span className="text-slate-600">· green = support · red = resistance</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -112,7 +190,7 @@ function OverlayChart({ chart, seriesMeta }: { chart: Row[]; seriesMeta: Row[] }
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <p className="mb-1 text-sm font-medium text-white">Normalized % change (overlay)</p>
       <p className="mb-2 text-[11px] text-slate-500">
-        Each series rebased to 0% at its first bar in range — compare direction, not absolute levels.
+        Each series rebased to 0% at its first bar — compare direction only (S/R shown on instrument charts above).
       </p>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -205,16 +283,19 @@ export function OilDollarBondPanel() {
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 text-sm font-semibold text-white">
               <Droplets size={16} className="text-amber-400" />
-              Oil · Dollar · Bond · Gold · Silver
+              Oil · Dollar · Bond · Indices · Crypto
             </p>
             <p className="mt-1 text-sm leading-relaxed text-slate-300">
               Macro tape for <strong className="text-white">DXY</strong>, <strong className="text-white">Brent</strong>,{' '}
-              <strong className="text-white">US 2Y / 10Y</strong>, <strong className="text-white">Gold</strong> and{' '}
-              <strong className="text-white">Silver</strong> — daily range or same-day intraday (Yahoo Finance).
+              <strong className="text-white">US 2Y / 10Y</strong>, <strong className="text-white">Gold</strong>,{' '}
+              <strong className="text-white">Silver</strong>, <strong className="text-white">Nifty 50</strong>,{' '}
+              <strong className="text-white">Dow 30</strong>, <strong className="text-white">Nasdaq</strong>,{' '}
+              <strong className="text-white">Bitcoin</strong> and <strong className="text-white">Ethereum</strong> —
+              daily range or same-day intraday (Yahoo Finance).
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Rising DXY often pressures commodities; yields track rate expectations. Overlay chart normalizes % change
-              across units.
+              Rising DXY often pressures commodities; yields track rate expectations; equities and crypto show risk
+              appetite. Overlay chart normalizes % change across units.
             </p>
           </div>
           <button
@@ -242,6 +323,11 @@ export function OilDollarBondPanel() {
               <li>US 10Y → <span className="text-slate-300">^TNX</span></li>
               <li>Gold → <span className="text-slate-300">GC=F</span></li>
               <li>Silver → <span className="text-slate-300">SI=F</span></li>
+              <li>Nifty 50 → <span className="text-slate-300">^NSEI</span></li>
+              <li>Dow 30 → <span className="text-slate-300">^DJI</span></li>
+              <li>Nasdaq → <span className="text-slate-300">^IXIC</span></li>
+              <li>Bitcoin → <span className="text-slate-300">BTC-USD</span></li>
+              <li>Ethereum → <span className="text-slate-300">ETH-USD</span></li>
             </ul>
           </div>
         )}
@@ -345,8 +431,8 @@ export function OilDollarBondPanel() {
         <Loading
           message={
             mode === 'intraday'
-              ? `Downloading same-day ${interval} bars for DXY, Brent, bonds, Gold & Silver…`
-              : 'Downloading DXY, Brent, US 2Y/10Y, Gold & Silver from Yahoo Finance…'
+              ? `Downloading same-day ${interval} bars for DXY, Brent, bonds, metals, Nifty/Dow/Nasdaq & BTC/ETH…`
+              : 'Downloading DXY, Brent, US 2Y/10Y, Gold, Silver, Nifty 50, Dow 30, Nasdaq, Bitcoin & Ethereum…'
           }
         />
       )}
@@ -407,6 +493,7 @@ export function OilDollarBondPanel() {
                       points={(s.points as Row[]) ?? []}
                       color={String(s.color ?? '#94a3b8')}
                       unit={String(s.unit ?? '')}
+                      supportResistance={(s.support_resistance as SupportResistance | null | undefined) ?? null}
                     />
                   ))}
                 </div>
@@ -423,7 +510,7 @@ export function OilDollarBondPanel() {
                 title="AI View"
                 section="command-center/oil-dollar-bond"
                 context={askContext}
-                defaultQuestion="Given DXY, Brent, US 2Y/10Y, Gold and Silver over this window, what is the macro risk regime and what would invalidate it?"
+                defaultQuestion="Given DXY, Brent, US 2Y/10Y, Gold, Silver, Nifty 50, Dow 30, Nasdaq, Bitcoin and Ethereum over this window, what is the macro risk regime and what would invalidate it?"
                 showPredictNextMove
               />
             </>
@@ -434,7 +521,7 @@ export function OilDollarBondPanel() {
   )
 }
 
-const MACRO_NEXT_MOVE_QUESTION = `As an expert institutional macro / rates / commodities desk trader, use ONLY the Oil-Dollar-Bond chart result data below.
+const MACRO_NEXT_MOVE_QUESTION = `As an expert institutional macro / rates / commodities / equities / crypto desk trader, use ONLY the Oil-Dollar-Bond chart result data below.
 
 Predict the highest-probability NEXT MOVE for the macro complex.
 
@@ -449,7 +536,7 @@ NN%
 (integer 0-100)
 
 ## THESIS
-2-4 sentences tying DXY, Brent, US 2Y/10Y, Gold and Silver together.
+2-4 sentences tying DXY, Brent, US 2Y/10Y, Gold, Silver, Nifty 50, Dow 30, Nasdaq, Bitcoin and Ethereum together.
 
 ## INSTRUMENT LEANS
 - DXY: UP | DOWN | FLAT · conf NN% · one-line why
@@ -458,6 +545,11 @@ NN%
 - US 10Y: UP | DOWN | FLAT · conf NN% · one-line why
 - Gold: UP | DOWN | FLAT · conf NN% · one-line why
 - Silver: UP | DOWN | FLAT · conf NN% · one-line why
+- Nifty 50: UP | DOWN | FLAT · conf NN% · one-line why
+- Dow 30: UP | DOWN | FLAT · conf NN% · one-line why
+- Nasdaq: UP | DOWN | FLAT · conf NN% · one-line why
+- Bitcoin: UP | DOWN | FLAT · conf NN% · one-line why
+- Ethereum: UP | DOWN | FLAT · conf NN% · one-line why
 
 ## TRIGGER / ENTRY
 What confirming print or level would activate the view.
@@ -502,8 +594,8 @@ function MacroNextMoveCard({ context }: { context: string }) {
         )}
       </div>
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Institutional macro desk read of DXY, Brent, US 2Y/10Y, Gold and Silver — overall regime plus per-instrument
-        UP / DOWN / FLAT leans with % confidence. Uses Manage → AI Settings.
+        Institutional macro desk read of DXY, Brent, US 2Y/10Y, Gold, Silver, Nifty 50, Dow 30, Nasdaq, Bitcoin and
+        Ethereum — overall regime plus per-instrument UP / DOWN / FLAT leans with % confidence. Uses Manage → AI Settings.
       </p>
       <Button onClick={() => predictMut.mutate()} disabled={!context.trim() || predictMut.isPending}>
         <Crosshair size={16} />

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
+  Activity,
   ArrowRight,
   ArrowUpDown,
   BarChart3,
@@ -9,7 +10,9 @@ import {
   Crosshair,
   Gauge,
   Landmark,
+  Scale,
   Search,
+  Sparkles,
   Trophy,
   Wallet,
   Layers,
@@ -22,9 +25,36 @@ import { StatCard } from '../components/ui/StatCard'
 import { Card } from '../components/ui/Card'
 import { Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
-import { AutoTradeWidget } from '../components/auto-trade/AutoTradeWidget'
+import { OilDollarBondPanel } from '../components/command-center/OilDollarBondPanel'
 
 const quickLinks = [
+  {
+    to: '/command-center?tab=advance_decline_graph',
+    title: 'Advance Decline',
+    description:
+      'Multi-asset advance/decline breadth — see whether the tape is broad participation or a narrow move.',
+    icon: Activity,
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/10',
+  },
+  {
+    to: '/command-center?tab=comparative_strength',
+    title: 'Comparative Strength',
+    description:
+      'Rank relative strength across indices, sectors, and assets to spot leaders vs laggards.',
+    icon: Scale,
+    color: 'text-lime-400',
+    bg: 'bg-lime-500/10',
+  },
+  {
+    to: '/options?section=market_prediction',
+    title: 'Market Prediction',
+    description:
+      'Options → Market Prediction — check if today’s move is backed by derivatives conviction or hollow.',
+    icon: Sparkles,
+    color: 'text-fuchsia-400',
+    bg: 'bg-fuchsia-500/10',
+  },
   {
     to: '/pro-trade/pa-vp-smc',
     title: 'PA-VP-SMC',
@@ -174,7 +204,7 @@ export default function Dashboard() {
       ) : null}
 
       <div className="mt-8">
-        <AutoTradeWidget />
+        <OilDollarBondPanel />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

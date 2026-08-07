@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
@@ -238,8 +239,37 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: s
 }
 
 export default function Options() {
-  const [section, setSection] = useState<SectionId>('double_calendar')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const sectionFromUrl = searchParams.get('section')
+  const initialSection: SectionId =
+    sectionFromUrl && SECTIONS.some((s) => s.id === sectionFromUrl)
+      ? (sectionFromUrl as SectionId)
+      : 'double_calendar'
+  const [section, setSection] = useState<SectionId>(initialSection)
   const bg = useOptionsBackground(section as OptionsSectionId)
+
+  useEffect(() => {
+    const next = searchParams.get('section')
+    if (next && SECTIONS.some((s) => s.id === next) && next !== section) {
+      setSection(next as SectionId)
+    }
+  }, [searchParams, section])
+
+  const selectSection = useCallback(
+    (id: SectionId) => {
+      setSection(id)
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev)
+          p.set('section', id)
+          return p
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>(DEFAULT_PICKER)
   const [error, setError] = useState('')
@@ -459,7 +489,7 @@ export default function Options() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
-          <Chip key={id} selected={section === id} onClick={() => setSection(id)}>{label}</Chip>
+          <Chip key={id} selected={section === id} onClick={() => selectSection(id)}>{label}</Chip>
         ))}
       </div>
 
