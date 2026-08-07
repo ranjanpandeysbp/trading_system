@@ -108,7 +108,7 @@ const TABS = [
   { id: 'option_chain', label: 'Option Chain', icon: Link2 },
   { id: 'option_short_long', label: 'Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)', icon: Target },
   { id: 'india_market_heatmap', label: 'IN-US-Crypto Market Heatmap', icon: Grid3x3 },
-  { id: 'advance_decline_graph', label: 'Advance Decline Graph', icon: Activity },
+  { id: 'advance_decline_graph', label: 'Advance Decline (Multi Asset)', icon: Activity },
   { id: 'comparative_strength', label: 'Comparative Strength', icon: Scale },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },

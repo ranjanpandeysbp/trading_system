@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   CartesianGrid,
@@ -22,12 +22,24 @@ import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Chip } from '../ui/Chip'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 
 type Row = Record<string, unknown>
+type AssetClass = 'india' | 'us' | 'crypto'
 
 const INTRADAY_TFS = ['5m', '10m', '15m', '30m', '1h'] as const
+const ASSET_OPTIONS: { id: AssetClass; label: string }[] = [
+  { id: 'india', label: 'India' },
+  { id: 'us', label: 'US' },
+  { id: 'crypto', label: 'Crypto' },
+]
+const DEFAULT_INDEX: Record<AssetClass, string> = {
+  india: 'NIFTY 50',
+  us: 'Dow 30',
+  crypto: 'Top 30 Crypto',
+}
 
 function isoDaysAgo(days: number): string {
   const d = new Date()
@@ -298,7 +310,8 @@ function AdRatioChart({
 }
 
 export function AdvanceDeclineGraphPanel() {
-  const [indexName, setIndexName] = useState('NIFTY 50')
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [indexName, setIndexName] = useState(DEFAULT_INDEX.india)
   const [fromDate, setFromDate] = useState(isoDaysAgo(30))
   const [toDate, setToDate] = useState(todayIso())
   const [timeframe, setTimeframe] = useState('1d')
@@ -306,14 +319,27 @@ export function AdvanceDeclineGraphPanel() {
   const [asOfTime, setAsOfTime] = useState('')
 
   const indicesQuery = useQuery({
-    queryKey: ['advance-decline-graph-indices'],
-    queryFn: fetchAdvanceDeclineGraphIndices,
+    queryKey: ['advance-decline-graph-indices', assetClass],
+    queryFn: () => fetchAdvanceDeclineGraphIndices(assetClass),
     staleTime: 60_000,
   })
+
+  useEffect(() => {
+    const names = indicesQuery.data?.index_names ?? []
+    if (!names.length) return
+    if (indicesQuery.data?.asset_class && indicesQuery.data.asset_class !== assetClass) return
+    if (!names.includes(indexName)) {
+      setIndexName(names[0] ?? DEFAULT_INDEX[assetClass])
+    }
+  }, [assetClass, indicesQuery.data, indexName])
+
+  const tzHint =
+    assetClass === 'us' ? 'ET' : assetClass === 'crypto' ? 'UTC' : 'IST'
 
   const runMut = useMutation({
     mutationFn: () =>
       runAdvanceDeclineGraph({
+        asset_class: assetClass,
         index_name: indexName,
         from_date: fromDate,
         to_date: toDate,
@@ -334,9 +360,12 @@ export function AdvanceDeclineGraphPanel() {
     <div className="space-y-4">
       <Card>
         <p className="mb-3 text-sm leading-relaxed text-slate-300">
-          Pick an NSE index and date range to plot <strong className="text-white">advances vs declines per day</strong>{' '}
-          across constituents. Choose an intraday timeframe to also see breadth <strong className="text-white">within a
-          session</strong> — each bar until the optional as-of time <strong className="text-white">(all times IST)</strong>.
+          Multi-asset breadth: pick <strong className="text-white">India / US / Crypto</strong>, an index universe,
+          and a date range to plot <strong className="text-white">advances vs declines</strong> across constituents.
+          For India F&O indices (Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50), the run also pulls a live{' '}
+          <strong className="text-white">options PCR / OI / max-pain</strong> snapshot.
+          Choose an intraday timeframe to also see breadth <strong className="text-white">within a session</strong>{' '}
+          — each bar until the optional as-of time ({tzHint}).
         </p>
         <p className="mb-3 text-xs leading-relaxed text-slate-500">
           Charts show <strong className="text-slate-400">A/D ratio</strong>,{' '}
@@ -346,8 +375,23 @@ export function AdvanceDeclineGraphPanel() {
           and rising strength = healthier move.
         </p>
 
+        <div className="mb-4 flex flex-wrap gap-2">
+          {ASSET_OPTIONS.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setIndexName(DEFAULT_INDEX[ac.id])
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
         <div className="grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <FormField label="Index">
+          <FormField label="Index / universe">
             <Select value={indexName} onChange={(e) => setIndexName(e.target.value)}>
               {(indicesQuery.data?.index_names ?? [indexName]).map((name) => (
                 <option key={name} value={name}>{name}</option>
@@ -377,15 +421,15 @@ export function AdvanceDeclineGraphPanel() {
           </FormField>
           {isIntraday && (
             <>
-              <FormField label="Session date (intraday, IST)">
+              <FormField label={`Session date (intraday, ${tzHint})`}>
                 <Input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
               </FormField>
-              <FormField label="As of time IST (optional)">
+              <FormField label={`As of time ${tzHint} (optional)`}>
                 <Input
                   type="time"
                   value={asOfTime}
                   onChange={(e) => setAsOfTime(e.target.value)}
-                  placeholder="HH:MM IST"
+                  placeholder={`HH:MM ${tzHint}`}
                 />
               </FormField>
             </>
@@ -487,6 +531,86 @@ export function AdvanceDeclineGraphPanel() {
                 />
               </div>
 
+              {(() => {
+                const opts = (data.options as Row | undefined) ?? null
+                if (!opts) return null
+                if (!opts.available) {
+                  return assetClass === 'india' ? (
+                    <p className="text-xs text-slate-500">
+                      Options: {String(opts.reason ?? 'not available for this universe.')}
+                    </p>
+                  ) : null
+                }
+                const bias = opts.bias != null ? String(opts.bias) : '—'
+                const pcr = opts.pcr_oi != null ? Number(opts.pcr_oi) : null
+                return (
+                  <div className="space-y-3 rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-100">
+                        Options snapshot · {String(opts.oc_symbol ?? '')}
+                        {opts.current_expiry != null && (
+                          <span className="ml-2 text-xs font-normal text-slate-500">
+                            expiry {String(opts.current_expiry)}
+                          </span>
+                        )}
+                      </p>
+                      <span
+                        className={
+                          bias === 'BULLISH'
+                            ? 'text-xs font-semibold text-emerald-300'
+                            : bias === 'BEARISH'
+                              ? 'text-xs font-semibold text-rose-300'
+                              : 'text-xs font-semibold text-slate-400'
+                        }
+                      >
+                        {bias}
+                        {opts.trade_signal != null && ` · ${String(opts.trade_signal)}`}
+                        {opts.confidence_pct != null && ` (${fmtNum(opts.confidence_pct, 0)}%)`}
+                      </span>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                      <StatCard
+                        label="PCR (OI)"
+                        value={pcr != null ? fmtNum(pcr, 2) : '—'}
+                        trend={pcr != null ? (pcr >= 1 ? 'up' : 'down') : 'neutral'}
+                      />
+                      <StatCard
+                        label="PCR (Vol)"
+                        value={opts.pcr_vol != null ? fmtNum(opts.pcr_vol, 2) : '—'}
+                      />
+                      <StatCard
+                        label="Call OI"
+                        value={opts.total_call_oi != null ? fmtNum(opts.total_call_oi, 0) : '—'}
+                      />
+                      <StatCard
+                        label="Put OI"
+                        value={opts.total_put_oi != null ? fmtNum(opts.total_put_oi, 0) : '—'}
+                      />
+                      <StatCard
+                        label="Max Pain"
+                        value={opts.max_pain != null ? fmtNum(opts.max_pain, 0) : '—'}
+                      />
+                      <StatCard
+                        label="S / R (OI)"
+                        value={
+                          opts.support != null || opts.resistance != null
+                            ? `${opts.support != null ? fmtNum(opts.support, 0) : '—'} / ${opts.resistance != null ? fmtNum(opts.resistance, 0) : '—'}`
+                            : '—'
+                        }
+                      />
+                    </div>
+                    {opts.plain_english != null && (
+                      <p className="text-xs text-slate-400">{String(opts.plain_english)}</p>
+                    )}
+                    {(data.outcome_layman as Row | undefined)?.options_line != null && (
+                      <p className="text-xs text-sky-200/90">
+                        {String((data.outcome_layman as Row).options_line)}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+
               <AdRatioChart
                 series={daily}
                 title={`A/D + Volume ratio — ${String(data.index_name)} (${fromDate} → ${toDate})`}
@@ -496,7 +620,7 @@ export function AdvanceDeclineGraphPanel() {
               {isIntraday && (
                 <AdRatioChart
                   series={intraday}
-                  title={`Intraday A/D + Volume (${timeframe}) — ${String(data.session_date ?? sessionDate)} IST${data.as_of_time ? ` until ${String(data.as_of_time)} IST` : ''}`}
+                  title={`Intraday A/D + Volume (${timeframe}) — ${String(data.session_date ?? sessionDate)} ${String(data.timezone ?? tzHint)}${data.as_of_time ? ` until ${String(data.as_of_time)}` : ''}`}
                   xKey="label"
                 />
               )}
@@ -509,7 +633,14 @@ export function AdvanceDeclineGraphPanel() {
             </Card>
           )}
 
-          {askContext && <AskAIPanel context={askContext} section="command-center/advance-decline-graph" />}
+          {askContext && (
+            <AskAIPanel
+              title="AI View"
+              section="command-center/advance-decline-graph"
+              context={askContext}
+              defaultQuestion="Given this advance/decline breadth plus the options PCR/OI/max-pain snapshot, is the market advance healthy or hollow, and what would invalidate that view?"
+            />
+          )}
         </>
       )}
     </div>

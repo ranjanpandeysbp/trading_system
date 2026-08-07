@@ -988,20 +988,27 @@ Use **Strategy Lab → Builder** to backtest presets; **Multi-Combo** to batch-s
 
     "strategy_encyclopedia": """
 ### Strategy Encyclopedia
-Master reference for the entire application.
+Master reference for the entire application (Strategy Lab → Encyclopedia tab).
 
-| Tab inside Encyclopedia | Contents |
-|-------------------------|----------|
-| **Application & Section Guide** | App overview, workflows, when-to-use matrix, every hub section (quick) |
-| **Detailed Strategy Encyclopedia** | Beginner deep dives — trading basics, SMC primer, every section elaborated |
-| **Preset Strategy Catalog** | Documented presets with Load into Builder |
+| Block | Contents |
+|-------|----------|
+| **App overview** | Hubs, Command Center highlights, Manage → AI Settings (Gemini · Groq · Claude Azure · OpenAI Azure) |
+| **Workflows** | Morning, scalp, swing, options/F&O, breadth + relative strength, Mega Analyser, Buy/Sell, Investigation |
+| **When to use what** | Goal × tool matrix, trader style, market type |
+| **All hubs & strategies** | Every section id with its Strategy Guide |
+| **Strategy Lab & tools detail** | Builder, Multi-Combo, AI Creator, Ask AI / AI View |
+| **Preset Strategy Catalog** | Documented presets for the Builder |
+
+**Recent docs coverage:** Advance Decline (Multi Asset + options PCR), Comparative Strength,
+OpenAI Azure deployments (`gpt-5.6-sol`, `DeepSeek-V4-Flash`, `gpt-4o`, `o4-mini`, `gpt-4o-mini`).
 
 Use **Strategy Lab → Builder** to backtest presets; **Multi-Combo** to batch-scan; **Alerts** to monitor live.
 """,
 
     "ai_strategy_creator": """
 ### AI Strategy Creator
-Convert plain English or transcripts into executable rules via LLM (Gemini/Groq).
+Convert plain English or transcripts into executable rules via LLM
+(Gemini · Groq · Claude Azure · OpenAI Azure — same as Manage → AI Settings).
 
 1. Paste strategy description or video transcript.
 2. LLM outputs JSON: indicators, entry/exit rules, SL/TP, timeframe.
@@ -2017,19 +2024,17 @@ or One-Click Trade Setup before acting on any single name.
 """,
 
     "india_market_heatmap": """
-### Indian Market Heatmap
+### Indian Market Heatmap / IN-US-Crypto Market Heatmap
 
-Pick any NSE/BSE index or sector from the dropdown (100+ supported — Nifty 50, all Nifty
-sectoral/thematic indices, Sensex, and all BSE indices), hit **Submit**, and see every
-constituent as a green/red heatmap tile, sourced live from tradebrains.in.
+Pick an index or sector universe (India NSE/BSE, and where enabled US / Crypto), hit **Submit**,
+and see every constituent as a green/red heatmap tile.
 
-- 🟩 **Green** = positive % change today, 🟥 **Red** = negative — tile color intensity scales
-  with the size of the move (bigger move = deeper color).
-- Each tile shows the ticker, company name, last traded price, and today's % change.
-- A summary strip shows total constituents, gainers, losers, and unchanged counts.
+- 🟩 **Green** = positive % change, 🟥 **Red** = negative — intensity scales with the move.
+- Each tile shows the ticker, name, last price, and % change.
+- Summary strip: constituents, gainers, losers, unchanged.
 
-**When to use:** A fast visual read on breadth within one index/sector — which names are
-driving the move and how broad-based it is, rather than scanning a plain table.
+**When to use:** Visual breadth inside one universe. Pair with **Advance Decline** for quantified
+A/D ratios and (on India F&O indices) options PCR.
 """,
 
     "quick_analyzer": """
@@ -2127,7 +2132,102 @@ verification.
 
 **When to use:** Before any F&O trade — confirm the technical direction isn't fighting
 heavy OI positioning on the other side. Pair with **Ticker Investigation** or **One-Click
-Trade Setup** for a non-options confirmation before acting.
+Trade Setup** for a non-options confirmation before acting. Also pair with
+**Advance Decline (Multi Asset)** on the same index for breadth + PCR confluence.
+""",
+
+    "advance_decline_graph": """
+### Advance Decline (Multi Asset) — Breadth + Options
+
+Reconstructs **advances / declines / unchanged** for an index universe from constituent OHLCV
+(NSE does not publish a historical A/D API). Works across **India · US · Crypto**.
+
+| Mode | What you get |
+|------|----------------|
+| **Daily** | Per session: A/D ratio, volume ratio, cumulative A/D line, trend, strength, RSI |
+| **Intraday** | Same metrics per bar inside local session hours (IST / ET / UTC) until optional as-of time |
+
+**How to read**
+
+| Signal | Meaning |
+|--------|---------|
+| **A/D ratio > 1** | More stocks rose than fell |
+| **Volume ratio > 1** | More stocks got busier (volume up) than quieter |
+| **UPTREND + rising strength** | Breadth improving and decisive |
+| **RSI** | Internals hot (>60) or washed out (<40) |
+| **Healthy advance** | A/D > 1 **and** volume ratio > 1 **and** uptrend |
+| **Hollow rally** | A/D > 1 but volume ratio < 1 (price up without participation) |
+
+**India options snapshot (automatic on F&O indices)**
+
+For **NIFTY 50 · NIFTY BANK · FINNIFTY · MIDCPNIFTY · NIFTY NEXT 50**, the same run attaches:
+
+- PCR (OI) & PCR (Volume)
+- Total Call / Put OI
+- Max pain
+- OI support / resistance (highest Put OI / Call OI strikes)
+- Bias · trade signal · confidence
+
+**Universes:** India Nifty family · US Dow/Nasdaq/S&P (capped) · Crypto Top 30/50/100 / Majors.
+
+**AI View:** Asks whether the advance is healthy or hollow given breadth **and** options (when present).
+
+**When to use:** Pre-market / mid-session breadth check; F&O confluence with Option Chain;
+confirm Comparative Strength leaders aren't riding a hollow tape.
+""",
+
+    "comparative_strength": """
+### Comparative Strength — Relative Long / Short vs Base
+
+Pick a **base** (index or ticker) and one or more **compare** symbols. The scan ranks who is
+**stronger / weaker / inline** vs the base by relative % return over a lookback, then suggests
+LONG / SHORT leans with confidence.
+
+| Concept | Meaning |
+|---------|---------|
+| **Relative strength %** | Peer return − base return (positive = peer beat the base) |
+| **Confidence** | Blend of RS size, multi-horizon agreement, CRS slope, EMA stack, volume |
+| **Trade ideas** | Relative long leaders / short laggards vs the base |
+
+**Asset classes:** India · US · Crypto · Commodity. Presets load common bases (Nifty 50, SPY, BTC, …).
+**Timeframes:** 1m → 1w. Runs can execute in the background like other heavy Command Center scans.
+
+**How to use with Advance Decline**
+
+1. Confirm breadth is healthy on the base universe (Advance Decline).
+2. Run Comparative Strength vs that base.
+3. Prefer LONG ideas only when breadth + RS agree; prefer SHORT ideas when breadth is weak and peers lag further.
+
+**AI View:** Default question picks the best relative long/short risk/reward and invalidation.
+
+**When to use:** Pairs / relative value, sector vs index, crypto majors vs BTC, stock vs SPY.
+Educational lean only — not a broker order ticket.
+""",
+
+    "mtf_trend_strength": """
+### MTF Trend and Strength
+
+Scores trend direction and strength across multiple timeframes for a ticker list
+(asset class: India · US · Crypto · Commodity).
+
+Use when you need **alignment** (e.g. 1d up + 1h up + 15m pullback) before taking a directional
+setup from Trade Setup, Take Trade, or One-Click styles.
+""",
+
+    "market_movers": """
+### Market Movers
+
+Index / universe gainers and losers across **India · US · Crypto · Commodity** with timeframe
+selection. Fast tape of what is moving today — pair with Fundamental Analysis or One-Click
+before acting on any single name.
+""",
+
+    "smart_money_activity": """
+### Check Smart Money Activity
+
+Surfaces institutional / smart-money style footprints on selected tickers (activity, positioning
+context). Use as a confirmation layer after breadth (Advance Decline) and relative strength
+(Comparative Strength), not as a standalone entry trigger.
 """,
 
     "nse_world_indices": """

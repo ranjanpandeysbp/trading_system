@@ -426,6 +426,7 @@ export function ComparativeStrengthPanel() {
 
               {askContext && (
                 <AskAIPanel
+                  title="AI View"
                   section="Comparative Strength"
                   context={askContext}
                   defaultQuestion="Which relative long/short has the best risk/reward vs the base, and what invalidates it?"

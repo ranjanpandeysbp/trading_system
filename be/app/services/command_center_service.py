@@ -1520,35 +1520,42 @@ class CommandCenterService:
         await _attach_day_range(rows, market, groww_token=token, exchange=exchange)
         return json_safe({"index_name": index_name, "symbol": symbol, "exchange": exchange, "rows": rows})
 
-    async def advance_decline_graph_indices(self) -> dict[str, Any]:
+    async def advance_decline_graph_indices(self, asset_class: str = "india") -> dict[str, Any]:
         from app.market_pulse.advance_decline_graph_engine import list_index_names
 
-        return json_safe({"index_names": list_index_names()})
+        ac = (asset_class or "india").strip().lower()
+        return json_safe({"asset_class": ac, "index_names": list_index_names(ac)})
 
     async def advance_decline_graph(
         self,
         index_name: str,
         *,
+        asset_class: str = "india",
         from_date: str,
         to_date: str,
         timeframe: str = "1d",
         session_date: str | None = None,
         as_of_time: str | None = None,
+        exchange: str | None = None,
     ) -> dict[str, Any]:
-        _, token, exchange = await self._ctx()
+        market, default_exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
         from app.market_pulse.advance_decline_graph_engine import compute_advance_decline_graph
 
         result = await asyncio.to_thread(
             compute_advance_decline_graph,
             index_name,
+            asset_class=asset_class,
             from_date=from_date,
             to_date=to_date,
             timeframe=timeframe,
             session_date=session_date,
             as_of_time=as_of_time,
             groww_token=token,
-            exchange=exchange or "NSE",
+            exchange=exchange or default_exchange,
         )
+        if isinstance(result, dict) and "market" not in result:
+            result["market"] = market
         return json_safe(result)
 
     async def comparative_strength_presets(self, asset_class: str = "india") -> dict[str, Any]:
@@ -1834,7 +1841,7 @@ class CommandCenterService:
                 {"id": "option_chain", "label": "Option Chain — Bias, PCR & Trade Signal (NSE)"},
                 {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Buy/Sell Call/Put"},
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
-                {"id": "advance_decline_graph", "label": "Advance Decline Graph"},
+                {"id": "advance_decline_graph", "label": "Advance Decline (Multi Asset)"},
                 {"id": "comparative_strength", "label": "Comparative Strength — Base vs Peers"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},

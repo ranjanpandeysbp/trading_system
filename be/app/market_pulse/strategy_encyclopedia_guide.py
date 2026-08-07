@@ -55,7 +55,12 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("quick_analyzer_crypto", "Quick Analyzer Crypto — Momentum + EMA + Technical Indicators (CoinDCX)"),
         ("quick_analyzer_us", "Quick Analyzer US — Momentum + EMA + Technical Indicators (Yahoo)"),
         ("nse_world_indices", "NSE and World Indices"),
-        ("india_market_heatmap", "Indian Market Heatmap — Index/Sector Constituent Heatmap"),
+        ("india_market_heatmap", "IN-US-Crypto Market Heatmap — Index/Sector Constituent Heatmap"),
+        ("advance_decline_graph", "Advance Decline (Multi Asset) — Breadth + Options PCR"),
+        ("comparative_strength", "Comparative Strength — Relative Long/Short vs Base"),
+        ("mtf_trend_strength", "MTF Trend and Strength — Multi-TF Trend Stack"),
+        ("market_movers", "Market Movers — Index Gainers/Losers · Multi-Asset"),
+        ("smart_money_activity", "Check Smart Money Activity — Institutional Footprints"),
         ("coindcx_24h_volatility", "24Hrs Volatile Crypto — CoinDCX Futures Heatmap"),
     ],
     "📊 Market Pulse": [
@@ -195,19 +200,20 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
 _OVERVIEW = """
 ### What is TrueBacktester?
 
-TrueBacktester is an **all-in-one trading research platform** for **NSE/BSE (Groww)** and **CoinDCX crypto futures**.
-It combines live market intelligence, **80+** technical screeners and hub sections, strategy backtesting, batch scanning,
-paper trading, and alert monitors — with **Ask AI** (Gemini/Groq) on most sections.
+TrueBacktester is an **all-in-one trading research platform** for **India (NSE/BSE via Groww)**, **US equities**,
+**CoinDCX crypto futures**, and **commodities**.
+It combines live market intelligence, **90+** technical screeners and hub sections, strategy backtesting, batch scanning,
+paper trading, and alert monitors — with **Ask AI / AI View** on most Command Center and screener results.
 
 ### The main hubs (top tabs)
 
 | Hub | Purpose | Start here if… |
 |-----|---------|----------------|
-| **Command Center** | One-click multi-engine scan + today/tomorrow outlook + Upgrade/Downgrade, Momentum, Mutual Fund Holdings, ETF Holdings (India/US/Crypto), EMA Position, Fundamental Analysis, One-Click Trade Setup, Today's Indian Tickers, Option Chain, Indian Market Heatmap, 24Hrs Volatile Crypto, Quick Analyzer (India/Crypto/US), NSE and World Indices | Fast morning briefing or unified scan |
+| **Command Center** | Morning briefing + multi-engine scans + breadth/RS + options PCR + holdings/rotation + One-Click setups + heatmaps | Fast morning briefing, breadth check, or unified scan |
 | **Market Pulse** | News, flows, breadth, rotation, gainers/losers, heatmaps | Macro context before picking trades |
 | **Technical Analysis** | Live screeners — price action, patterns, SMC, fakeout, BB, breakout MTF, ONE TA, **TOPDOWN-MTF**, **Box Trading**, confluence | You have a setup type in mind |
 | **ETF TA IN** | India NSE ETF systematic strategies (ETF Shop 4.0) | ETF rotation / SIP playbook |
-| **Strategy Lab** | Build, backtest, batch-scan, AI-generate strategies | Test or create systematic rules |
+| **Strategy Lab** | Build, backtest, batch-scan, AI-generate strategies + **Encyclopedia** (this page) | Test or create systematic rules |
 | **Screen & Scan** | Rule-based universe scan + gap events | Filter hundreds of tickers by rules |
 | **Seasonality** | Monthly historical edge patterns | Statistical seasonal confirmation |
 | **Swing Trading** | ST capitulation, MSS, SuperTrend, KISS, HA+EMA | Multi-day swing on India / US / crypto |
@@ -215,24 +221,47 @@ paper trading, and alert monitors — with **Ask AI** (Gemini/Groq) on most sect
 | **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
 | **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
 | **Pro Trade** | Volume Profile CE/POC · PA+VP · PA-VP-SMC · VSA next-candle | Institutional VP / PA / VSA confluence |
+| **Options** | Double Calendar · Delta Neutral · Gokul Chhabra ITM flow | F&O structures & index options timing |
 | **Demo Trading** | Paper portfolio (India + crypto) | Practice without real money |
 | **Alerts** | Telegram/email when saved setups fire | Hands-off monitoring after research |
 | **Watchlist** | Per-user, per-market saved tickers with live price & % change since added | Track a shortlist without re-scanning |
 
+### Command Center highlights (recent)
+
+| Section | What it adds |
+|---------|----------------|
+| **Advance Decline (Multi Asset)** | India / US / Crypto breadth (A/D + volume ratio + trend/strength/RSI). India F&O indices also attach live **options PCR / OI / max pain** |
+| **Comparative Strength** | Rank peers vs a base index/ticker (relative % + LONG/SHORT leans + AI View) |
+| **Option Chain / Option-Short-Long** | NSE PCR, max pain, OI walls, premium/discount buildup |
+| **Detect Sector Rotation** | CRS · Hull · pullback across India / US / Crypto |
+| **IN-US-Crypto Market Heatmap** | Constituent heat tiles for the chosen index universe |
+
 ### Universal UI patterns (every section)
 
-1. **Expand the hub section** — each tool lives in a collapsible block inside its hub tab.
-2. **📖 Strategy Guide & Methodology** — at the top of every section; read this first.
-3. **Market selector** — most TA tools offer **Groww (India)** or **CoinDCX Futures**.
-4. **Run Scan / Refresh** — data is fetched on demand (not always live-auto).
-5. **Ask AI panel** — at the bottom; summarizes scan results with your chosen LLM.
-6. **AI View** — per-ticker deep dive inside many screeners (configure provider in-section).
+1. **Open the hub tab** — each tool is a section/panel inside its hub.
+2. **📖 Strategy Guide & Methodology** — at the top of many sections; read this first (same text as Encyclopedia).
+3. **Asset / market selector** — India · US · Crypto · Commodity where supported.
+4. **Run Scan / Plot / Analyze** — data is fetched on demand (heavy scans may run in the background).
+5. **Ask AI / AI View** — at the bottom of results; uses your saved provider from **Manage → AI Settings**.
+6. **AI View** — Generate a plain-English verdict (BUY / SELL / AVOID) with levels and invalidation.
+
+### Manage → AI Settings (Ask AI · AI View)
+
+| Provider | Notes |
+|----------|-------|
+| **Google Gemini** | Default cloud LLM |
+| **Groq (LLaMA)** | Fast open models |
+| **Claude (Azure)** | Anthropic Foundry on Azure (`/anthropic` endpoint) |
+| **OpenAI (Azure)** | Azure AI Foundry (`…/openai/v1`). Deployments include **gpt-5.6-sol** (Responses API), **DeepSeek-V4-Flash** (chat.completions), **gpt-4o**, **o4-mini**, **gpt-4o-mini** |
+| **Investing Agent** | SuperInvesting chat tools (JWT token) |
+
+Keys are stored in the app database (env fallbacks still work).
 
 ### Sidebar essentials
 
-- **Login (mobile)** — unlocks saved strategies, demo portfolio, alerts.
-- **Groww token** (optional) — faster direct NSE feed; falls back to Yahoo if absent.
-- **AI provider keys** — Gemini or Groq for Ask AI / AI View.
+- **Login** — unlocks saved strategies, demo portfolio, alerts, watchlist.
+- **Groww token** (optional) — faster direct NSE / options feed; falls back if absent.
+- **AI provider keys** — set once in Manage; used by Ask AI / AI View across hubs.
 """
 
 _WORKFLOWS = """
@@ -292,11 +321,20 @@ _WORKFLOWS = """
 
 ### Workflow 7 — Options / F&O context (India)
 
-1. **Market Pulse → News Scanner** — PCR, max pain, OI walls.
-2. **SMC · Options Flow Screener** — delivery %, PCR, OI change + SMC structure.
-3. **Options → Gokul Chhabra** — 3m VWAP / VWMA / SuperTrend ITM call/put buying (09:45–15:15 IST).
-4. **MTF Intraday Bias** — includes PCR in equity scoring.
-5. **Options → Double Calendar / Delta Neutral** — theta-positive income structures.
+1. **Command Center → Advance Decline (Multi Asset)** — pick **NIFTY 50** or **NIFTY BANK**; read breadth **and** the attached options PCR / max-pain snapshot.
+2. **Command Center → Option Chain** — full nearest-expiry chain + Buy/Sell/Wait bias.
+3. **Command Center → Option-Short-Long** — OI buildup · premium/discount · Buy/Sell Call/Put.
+4. **Market Pulse → News Scanner** — PCR, max pain, OI walls in the market tape.
+5. **SMC · Options Flow Screener** — delivery %, PCR, OI change + SMC structure.
+6. **Options → Gokul Chhabra** — 3m VWAP / VWMA / SuperTrend ITM call/put buying (09:45–15:15 IST).
+7. **Options → Double Calendar / Delta Neutral** — theta-positive income structures.
+
+### Workflow 7b — Breadth + relative strength (multi-asset)
+
+1. **Advance Decline (Multi Asset)** — India / US / Crypto universe → A/D ratio, volume ratio, trend, strength, RSI.
+2. Confirm whether the advance is **healthy** (A/D > 1 + vol > 1 + uptrend) or **hollow**.
+3. **Comparative Strength** — pick a base (e.g. Nifty 50 / SPY / BTC) and compare peers; take LONG leaders / SHORT laggards ideas.
+4. Open **AI View** on both panels for a confluence verdict (breadth + RS + options when India).
 
 ### Workflow 8 — Mega Analyser (fastest research)
 
@@ -394,6 +432,9 @@ _WHEN_TO_USE = """
 | PA + VP + SMC multi-pillar confluence | Pro Trade → PA-VP-SMC | Hours – days |
 | VSA SOS/SOW next-candle edge | Pro Trade → Volume Spread - Next Candle | Next 1–3 bars |
 | Everything-at-once scan | Mega Analyser (22+ engines incl. Crypto Scalping · SMC FMS · Weak Strong S-R · Velez · Smart Wave) | — |
+| Market breadth (A/D + volume + RSI) | Advance Decline (Multi Asset) — India · US · Crypto | Session – weeks |
+| Breadth + India options PCR | Advance Decline on Nifty / Bank Nifty / FinNifty / Midcap / Next 50 | Intraday – swing |
+| Relative strength vs a base | Comparative Strength (Command Center) | Hours – weeks |
 | Asset-class buy/sell call | Buy or Sell Advisor (Command Center) | Scalp – swing |
 | News + tape on one symbol | Ticker Investigation (Command Center) | — |
 | Commodity futures news + TA | Ticker Investigation → Commodity (`CL=F`, `GC=F`, …) | Intraday – swing |
@@ -405,7 +446,7 @@ _WHEN_TO_USE = """
 | S/R levels + trendlines | Find S/R, Price Action | Varies |
 | Pre-pump detection | Pump & Dump Screener | Minutes – hours |
 | Elliott wave count | Elliott Wave Screener | Swing – position |
-| F&O + smart money | SMC · Options Flow | Intraday – swing |
+| F&O + smart money | SMC · Options Flow · Option Chain · Advance Decline options block | Intraday – swing |
 | Gap open play | Gap Trading Scanner | First hour |
 | Rule-based universe filter | Advanced Screener | — |
 | Historical monthly edge | Seasonality Analyzer | Weeks – months |
@@ -418,9 +459,9 @@ _WHEN_TO_USE = """
 
 **Scalper (1m–15m):** Fakeout 15M · Velez · KN Smart · MTF Scanner (1m/5m) · Top Down MTF · **TOPDOWN-MTF** · **Box Trading** · **Scalping Rectangle** · **Scalping SMC** · **Scalping ARC** · **Scalping A+ S/R MSS** · Crypto Scalping · BB Exposed (day preset)
 
-**Intraday (15m–4h):** Fakeout 4H · MTF Intraday Bias · Confluence · KN Smart · Price Action · **INTRA 9:45 Alpha** · **INTRA Fib 945** · **INTRA VWAP Fade** · **INTRA MTF Breakout-Retest** · **Box Trading** · **SMB SnP** · **SMC Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry**
+**Intraday (15m–4h):** Fakeout 4H · MTF Intraday Bias · Confluence · KN Smart · Price Action · **INTRA 9:45 Alpha** · **INTRA Fib 945** · **INTRA VWAP Fade** · **INTRA MTF Breakout-Retest** · **Box Trading** · **SMB SnP** · **SMC Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **Advance Decline** intraday TF · **Comparative Strength** on session TF
 
-**Swing (4h–1w):** Weekly Stoch · MTF Scanner (4h/1d) · Pattern Breakout · Sentiment · Seasonality · **Breakout MTF** · **ONE TA** · **TOPDOWN-MTF** (1d→1h→15m) · **ST Capitulation** · **ST MSS** · **ST SuperTrend** · BB Exposed (swing preset) · **TTG Sniper Entry** (HTF)
+**Swing (4h–1w):** Weekly Stoch · MTF Scanner (4h/1d) · Pattern Breakout · Sentiment · Seasonality · **Breakout MTF** · **ONE TA** · **TOPDOWN-MTF** (1d→1h→15m) · **ST Capitulation** · **ST MSS** · **ST SuperTrend** · BB Exposed (swing preset) · **TTG Sniper Entry** (HTF) · **Advance Decline** daily · **Comparative Strength** 1d/1w
 
 **SMC / Smart Money:** Top Down MTF · **TOPDOWN-MTF** · SMC Fake Market Shift · **CISD** · **Weekly Sweep CISD** · **MTF Day Plan** · **Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **SMB SnP** · Scalping SMC · ONE TA
 
@@ -430,13 +471,13 @@ _WHEN_TO_USE = """
 
 ### By market type
 
-**Trending:** MTF Scanner · KN Smart · Top Down MTF · Supertrend presets in Builder
+**Trending:** MTF Scanner · KN Smart · Top Down MTF · Supertrend presets in Builder · **Comparative Strength** leaders
 
-**Range-bound:** Fakeout 15M/4H · Confluence · BB/RSI presets · Top/Bottom
+**Range-bound:** Fakeout 15M/4H · Confluence · BB/RSI presets · Top/Bottom · hollow A/D (A/D > 1 but volume ratio < 1)
 
-**High volatility / crypto:** Smart Wave · Pump & Dump · MTF Crypto Bias · Demo Crypto ledger
+**High volatility / crypto:** Smart Wave · Pump & Dump · MTF Crypto Bias · Demo Crypto ledger · Advance Decline Crypto Top 30/50
 
-**India F&O:** SMC Options · News PCR · MTF Equity Bias (PCR component)
+**India F&O:** SMC Options · News PCR · Option Chain · Option-Short-Long · **Advance Decline** options snapshot · MTF Equity Bias (PCR component)
 """
 
 _STRATEGY_LAB_DETAIL = """
@@ -466,13 +507,23 @@ _STRATEGY_LAB_DETAIL = """
 
 #### AI Strategy Creator
 - Paste a YouTube transcript, PDF notes, or plain-English rules.
-- LLM (Gemini/Groq) outputs structured JSON: indicators, entry/exit, SL/TP, timeframe.
+- LLM (Gemini / Groq / Claude Azure / OpenAI Azure — same Manage settings) outputs structured JSON: indicators, entry/exit, SL/TP, timeframe.
 - Always **review in Builder** before trusting — LLM may misparse edge cases.
 
 #### Strategy Encyclopedia (this page)
-- **Application Guide** — how to use the whole app (you are here).
-- **Detailed Strategy Encyclopedia** — beginner-friendly deep dive on every concept and section.
-- **Preset Catalog** — documented preset strategies with **Load into Builder** button.
+- **App overview** — hubs, AI Settings, Command Center highlights.
+- **Workflows** — morning, scalp, swing, options, breadth+RS, Mega Analyser, Buy/Sell, Investigation.
+- **When to use what** — matrix by goal, style, and market type.
+- **All hubs & strategies** — every section with its Strategy Guide body.
+- **Preset Catalog** — documented preset strategies for the Builder.
+
+### Ask AI / AI View (everywhere)
+
+1. Run any scan that produces a results card.
+2. Scroll to **AI View** (or Ask AI) — context is auto-built from the scan JSON.
+3. Leave the default question or ask your own; click **Generate AI View**.
+4. Provider/model come from **Manage → AI Settings** (not per-panel keys).
+5. Treat the verdict as a second opinion — always cross-check levels against the chart.
 
 ### Screen & Scan
 
@@ -757,6 +808,22 @@ Live scanner is under **Pro Trade**; Strategy Lab backtest uses a historical app
 """,
     "volume_spread_next_candle": """
 **When to use:** Wyckoff VSA SOS/SOW bars — edge is primarily the **next candle** after Downthrust / No Supply / Upthrust / No Demand.
+""",
+    "advance_decline_graph": """
+**When to use:** Morning or session check that an index rally/selloff is broad-based.
+India F&O indices also show PCR — use when deciding if breadth and options positioning agree.
+""",
+    "comparative_strength": """
+**When to use:** Pair trades and relative longs/shorts — who is beating the base (Nifty / SPY / BTC) over the lookback.
+""",
+    "mtf_trend_strength": """
+**When to use:** Confirm trend alignment across multiple timeframes before sizing a directional trade.
+""",
+    "market_movers": """
+**When to use:** Quick scan of index gainers/losers across India / US / Crypto / Commodity universes.
+""",
+    "smart_money_activity": """
+**When to use:** Check institutional / smart-money footprints on a watchlist before committing to a setup.
 """,
 }
 

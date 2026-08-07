@@ -2412,10 +2412,11 @@ async def command_center_india_market_heatmap(
 
 @router.get("/command-center/advance-decline-graph/indices")
 async def command_center_advance_decline_graph_indices(
+    asset_class: str = "india",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await CommandCenterService(SettingsService(db)).advance_decline_graph_indices()
+    return await CommandCenterService(SettingsService(db)).advance_decline_graph_indices(asset_class)
 
 
 @router.post("/command-center/advance-decline-graph")
@@ -2426,11 +2427,13 @@ async def command_center_advance_decline_graph(
 ):
     return await CommandCenterService(SettingsService(db)).advance_decline_graph(
         payload.index_name,
+        asset_class=payload.asset_class,
         from_date=payload.from_date,
         to_date=payload.to_date,
         timeframe=payload.timeframe,
         session_date=payload.session_date,
         as_of_time=payload.as_of_time,
+        exchange=payload.exchange,
     )
 
 

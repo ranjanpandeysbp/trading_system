@@ -243,7 +243,7 @@ def get_ai_provider_settings() -> tuple[str, str, str]:
         model = st.session_state.get("shared_claude_model", os.getenv("CLAUDE_MODEL", "claude-sonnet-5"))
     elif provider == "OpenAI (Azure)":
         import os
-        model = st.session_state.get("shared_openai_model", os.getenv("OPENAI_MODEL", "gpt-5-nano"))
+        model = st.session_state.get("shared_openai_model", os.getenv("OPENAI_MODEL", "gpt-5.6-sol"))
     else:
         model = st.session_state.get(_SHARED_GEMINI_MODEL_KEY, get_gemini_model())
     api_key = get_api_key_for_provider(provider)
@@ -328,9 +328,20 @@ def _render_ai_provider_widget_row(key_prefix: str = "global") -> tuple[str, str
             st.session_state["shared_claude_model"] = model
         elif provider == "OpenAI (Azure)":
             import os
-            openai_default = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+            openai_default = os.getenv("OPENAI_MODEL", "gpt-5.6-sol")
             openai_opts = _model_options_with_env_default(
-                ["gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+                [
+                    "gpt-5.6-sol",
+                    "DeepSeek-V4-Flash",
+                    "gpt-4o",
+                    "o4-mini",
+                    "gpt-4o-mini",
+                    "gpt-5-nano",
+                    "gpt-5-mini",
+                    "gpt-5",
+                    "gpt-4.1",
+                    "gpt-4.1-mini",
+                ],
                 openai_default,
             )
             ok = f"{key_prefix}_ai_openai_model"

@@ -139,7 +139,7 @@ class SettingsResponse(BaseModel):
     gemini_model: str = "gemini-2.0-flash"
     claude_model: str = "claude-sonnet-5"
     claude_endpoint: str = "https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic"
-    openai_model: str = "gpt-5-nano"
+    openai_model: str = "gpt-5.6-sol"
     openai_endpoint: str = "https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1"
     default_market: str = "Groww (India Stocks)"
     youtube_api_key_set: bool = False
@@ -467,12 +467,14 @@ class CommandCenterHeatmapRequest(BaseModel):
 
 
 class CommandCenterAdvanceDeclineGraphRequest(BaseModel):
+    asset_class: Literal["india", "us", "crypto"] = "india"
     index_name: str = "NIFTY 50"
     from_date: str
     to_date: str
     timeframe: str = Field(default="1d", description="1d (daily) or intraday: 5m, 10m, 15m, 30m, 1h")
     session_date: str | None = Field(default=None, description="Session day for intraday (defaults to to_date)")
     as_of_time: str | None = Field(default=None, description="Optional HH:MM — include bars up to this time")
+    exchange: str | None = None
 
 
 class CommandCenterComparativeStrengthRequest(BaseModel):

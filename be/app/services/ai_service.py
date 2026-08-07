@@ -103,13 +103,16 @@ CLAUDE_MODEL_OPTIONS = [
 ]
 
 OPENAI_MODEL_OPTIONS = [
+    "gpt-5.6-sol",
+    "DeepSeek-V4-Flash",
+    "gpt-4o",
+    "o4-mini",
+    "gpt-4o-mini",
     "gpt-5-nano",
     "gpt-5-mini",
     "gpt-5",
     "gpt-4.1",
     "gpt-4.1-mini",
-    "gpt-4o",
-    "gpt-4o-mini",
 ]
 
 INVESTING_AGENT_MODEL = "superinvesting-chat"
@@ -219,10 +222,32 @@ def call_ai_report(
                 return "OpenAI SDK not installed. Run: pip install openai"
             endpoint = (base_url or DEFAULT_OPENAI_ENDPOINT).rstrip("/")
             client = OpenAI(base_url=endpoint, api_key=api_key)
-            # Prefer Responses API (Azure Foundry /gpt-5 style deployments).
-            # gpt-5* models spend tokens on reasoning first — a low max_output_tokens
-            # often returns status=incomplete with only a reasoning item and empty text.
             out_tokens = max(int(max_tokens or 3000), 2048)
+            model_l = (model or "").strip().lower()
+            # DeepSeek (and similar) on Azure Foundry use chat.completions;
+            # gpt-5* / sol deployments use the Responses API.
+            prefer_chat = model_l.startswith("deepseek") or "deepseek" in model_l
+
+            def _chat_completions() -> str:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    max_tokens=out_tokens,
+                    temperature=0.35,
+                )
+                return resp.choices[0].message.content or ""
+
+            if prefer_chat:
+                try:
+                    text = _chat_completions()
+                    if text:
+                        return text
+                except Exception:
+                    pass  # fall through to Responses API
+
             try:
                 create_kwargs: dict[str, Any] = {
                     "model": model,
@@ -230,7 +255,6 @@ def call_ai_report(
                     "input": user_msg,
                     "max_output_tokens": out_tokens,
                 }
-                # Prefer low reasoning when supported (faster + more room for answer text)
                 try:
                     response = client.responses.create(
                         **create_kwargs,
@@ -250,17 +274,10 @@ def call_ai_report(
                         "Try again or raise max tokens in Ask AI."
                     )
             except Exception:
-                # Fallback for deployments that only expose chat.completions
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    max_tokens=out_tokens,
-                    temperature=0.35,
-                )
-                return resp.choices[0].message.content or ""
+                try:
+                    return _chat_completions()
+                except Exception as chat_exc:
+                    return f"OpenAI call failed: {chat_exc}"
             return "OpenAI returned an empty response."
 
         if provider == AI_PROVIDER_GROQ:

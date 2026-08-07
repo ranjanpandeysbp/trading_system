@@ -7,7 +7,10 @@ from app.models.db_models import AppSetting
 DEFAULT_CLAUDE_ENDPOINT = "https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic"
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
 DEFAULT_OPENAI_ENDPOINT = "https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1"
-DEFAULT_OPENAI_MODEL = "gpt-5-nano"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-sol"
+DEFAULT_OPENAI_PROJECT = (
+    "https://aiadvisorassis8258039388.services.ai.azure.com/api/projects/aiadvisorassis825803938-project"
+)
 
 
 class SettingsService:

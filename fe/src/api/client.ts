@@ -1446,18 +1446,21 @@ export const fetchIndiaMarketHeatmapIndices = (assetClass: string = 'india') =>
 export const runIndiaMarketHeatmap = (payload: { index_name: string; asset_class?: string; tickers?: string[] }) =>
   api.post('/command-center/india-market-heatmap', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const fetchAdvanceDeclineGraphIndices = () =>
-  api.get<{ index_names: string[] }>('/command-center/advance-decline-graph/indices', {
+export const fetchAdvanceDeclineGraphIndices = (asset_class: string = 'india') =>
+  api.get<{ asset_class: string; index_names: string[] }>('/command-center/advance-decline-graph/indices', {
+    params: { asset_class },
     timeout: MP_TIMEOUT,
   }).then((r) => r.data)
 
 export const runAdvanceDeclineGraph = (payload: {
+  asset_class?: 'india' | 'us' | 'crypto'
   index_name: string
   from_date: string
   to_date: string
   timeframe?: string
   session_date?: string
   as_of_time?: string
+  exchange?: string
 }) => api.post('/command-center/advance-decline-graph', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchComparativeStrengthPresets = (asset_class: string) =>

@@ -1,18 +1,21 @@
 """
 advance_decline_graph_engine.py
 --------------------------------
-Command Center — Advance Decline Graph.
+Command Center — Advance Decline Graph (multi-asset).
 
-Reconstructs market-breadth (advances / declines / unchanged) for an NSE
-index universe from constituent OHLCV — NSE does not publish a historical A/D
-time series API.
+Reconstructs market-breadth (advances / declines / unchanged) for an index
+universe from constituent OHLCV — exchanges often do not publish a historical
+A/D time series API.
+
+Asset classes: india (NSE indices), us (Dow / Nasdaq / S&P / ETFs), crypto
+(CoinDCX USDT majors).
 
 Modes
   daily     — for each session date in [from_date, to_date], count how many
               constituents closed up / down / flat vs the prior session close.
   intraday  — for a chosen session date + timeframe, at each bar timestamp
-              (truncated to optional as_of HH:MM), count how many constituents
-              printed up / down / flat vs their previous bar close.
+              (truncated to optional as_of HH:MM in local market time), count
+              how many constituents printed up / down / flat vs previous bar.
 
 Also returns a cumulative A/D line (running sum of advances − declines).
 """
@@ -24,20 +27,35 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, time
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan
 from app.market_pulse.nifty_index_constituents import get_index_constituent_symbols
-from app.market_pulse.ticker_utils import GROWW_MARKET, INDEX_OPTIONS
+from app.market_pulse.ticker_utils import (
+    COINDCX_USDT_TICKERS,
+    CRYPTO_MARKET,
+    GROWW_MARKET,
+    INDEX_OPTIONS,
+    US_MARKET,
+)
 
 logger = logging.getLogger(__name__)
 
 INTRADAY_TIMEFRAMES = ["5m", "10m", "15m", "30m", "1h"]
 _MAX_WORKERS = 12
-# Soft cap — Nifty 500 is allowed but slow; FE warns above this.
+# Soft cap — large universes are allowed but slow; FE warns above this.
 _WARN_UNIVERSE = 120
+_HARD_CAP = 100  # max constituents fetched per run (keeps multi-asset scans usable)
 # Cap for charting when declines == 0 (infinite ratio) so the Y-axis stays readable.
 _AD_RATIO_CAP = 10.0
+
+# Session clocks (local market wall time after timezone normalize)
+_SESSION = {
+    "india": (time(9, 15), time(15, 30), "Asia/Kolkata", "IST"),
+    "us": (time(9, 30), time(16, 0), "America/New_York", "ET"),
+    "crypto": (None, None, "UTC", "UTC"),
+}
 
 
 def _ad_ratio(advances: int, declines: int) -> float | None:
@@ -49,11 +67,51 @@ def _ad_ratio(advances: int, declines: int) -> float | None:
     return round(min(_AD_RATIO_CAP, advances / declines), 3)
 
 
-def list_index_names() -> list[str]:
-    """Prefer INDEX_OPTIONS keys that resolve to equity lists (skip Default/ETF)."""
+def list_index_names(asset_class: str = "india") -> list[str]:
+    """Universe picker labels for the given asset class."""
+    ac = (asset_class or "india").strip().lower()
+    if ac == "us":
+        preferred = [
+            "Dow 30",
+            "Nasdaq 100",
+            "S&P 100",
+            "S&P 500",
+            "US Index ETFs (SPY/QQQ/DIA/IWM)",
+        ]
+        try:
+            from app.market_pulse.us_index_constituents import get_us_index_options
+
+            opts = get_us_index_options()
+        except Exception:
+            opts = {}
+        # Map short labels → first matching key in opts
+        out: list[str] = []
+        for short in preferred:
+            if short in opts:
+                out.append(short)
+                continue
+            match = next((k for k in opts if k.startswith(short) or short in k), None)
+            if match and match not in out:
+                out.append(match)
+        for k in opts:
+            if k not in out and "Russell" not in k and "Mid Cap" not in k and "Small Cap" not in k:
+                # skip huge duplicates already covered
+                if k.startswith("US Large") or k.startswith("US Megacap"):
+                    continue
+                out.append(k)
+        return out or preferred
+
+    if ac == "crypto":
+        return [
+            "Top 30 Crypto",
+            "Top 50 Crypto",
+            "Top 100 Crypto",
+            "Majors (ex-BTC)",
+        ]
+
+    # india (default)
     skip = {"Default Groww Tickers", "High Vol ETF"}
     names = [k for k in INDEX_OPTIONS.keys() if k not in skip]
-    # Friendly display aliases first
     preferred = [
         "NIFTY 50",
         "NIFTY BANK",
@@ -69,36 +127,211 @@ def list_index_names() -> list[str]:
     return ordered
 
 
-IST = "Asia/Kolkata"
-NSE_OPEN = time(9, 15)
-NSE_CLOSE = time(15, 30)
+def resolve_universe_symbols(asset_class: str, index_name: str) -> list[str]:
+    """Constituent symbols for A/D breadth (capped)."""
+    ac = (asset_class or "india").strip().lower()
+    name = (index_name or "").strip()
+
+    if ac == "us":
+        try:
+            from app.market_pulse.us_index_constituents import get_us_index_options
+
+            opts = get_us_index_options()
+        except Exception:
+            opts = {}
+        symbols = list(opts.get(name) or [])
+        if not symbols:
+            # fuzzy: Dow 30 / Nasdaq 100 / S&P 100 / S&P 500
+            for k, v in opts.items():
+                if name.lower() in k.lower() or k.lower().startswith(name.lower()):
+                    symbols = list(v)
+                    break
+        if not symbols and "ETF" in name.upper():
+            symbols = ["SPY", "QQQ", "DIA", "IWM", "MDY", "XLF", "XLK", "XLE", "XLV", "XLI"]
+        return symbols[:_HARD_CAP]
+
+    if ac == "crypto":
+        tickers = list(COINDCX_USDT_TICKERS)
+        if name.startswith("Top 30"):
+            return tickers[:30]
+        if name.startswith("Top 50"):
+            return tickers[:50]
+        if name.startswith("Top 100"):
+            return tickers[:100]
+        if "Majors" in name:
+            majors = [
+                "B-ETHUSDT", "B-SOLUSDT", "B-XRPUSDT", "B-BNBUSDT", "B-ADAUSDT",
+                "B-AVAXUSDT", "B-DOGEUSDT", "B-LINKUSDT", "B-DOTUSDT", "B-MATICUSDT",
+                "B-NEARUSDT", "B-LTCUSDT", "B-ATOMUSDT", "B-UNIUSDT", "B-AAVEUSDT",
+            ]
+            return [t for t in majors if t in tickers] or tickers[1:16]
+        return tickers[:50]
+
+    # india
+    return list(get_index_constituent_symbols(name) or [])[:_HARD_CAP]
+
+
+def _currency_for(asset_class: str) -> str:
+    ac = (asset_class or "india").strip().lower()
+    if ac in ("us", "crypto"):
+        return "$"
+    return "₹"
+
+
+# Display index name → NSE F&O option-chain symbol (exact INDEX_CHOICES only for live OC)
+_AD_INDEX_OC: dict[str, str] = {
+    "NIFTY 50": "NIFTY",
+    "NIFTY BANK": "BANKNIFTY",
+    "NIFTY FINANCIAL SERVICES": "FINNIFTY",
+    "NIFTY FIN SERVICE": "FINNIFTY",
+    "NIFTY FINANCIAL SERVICES 25/50": "FINNIFTY",
+    "NIFTY MIDCAP SELECT": "MIDCPNIFTY",
+    "NIFTY NEXT 50": "NIFTYNXT50",
+}
+
+
+def _oc_symbol_for_index(index_name: str) -> str | None:
+    name = (index_name or "").strip()
+    if not name:
+        return None
+    if name in _AD_INDEX_OC:
+        return _AD_INDEX_OC[name]
+    upper = name.upper()
+    # Exact F&O symbols typed directly
+    from app.market_pulse.option_chain_engine import INDEX_CHOICES
+
+    if upper in INDEX_CHOICES:
+        return upper
+    # Soft match preferred F&O names
+    for key, sym in _AD_INDEX_OC.items():
+        if key in name or name in key:
+            return sym
+    return None
+
+
+def _options_snapshot(
+    asset_class: str,
+    index_name: str,
+    *,
+    groww_token: str = "",
+) -> dict[str, Any]:
+    """Live index options PCR / OI snapshot (India F&O only). Soft-fails otherwise."""
+    ac = (asset_class or "india").strip().lower()
+    if ac == "crypto":
+        return {"available": False, "reason": "Crypto has no listed options feed in this app."}
+    if ac == "us":
+        return {
+            "available": False,
+            "reason": "US options chain is not wired into Advance Decline yet — India F&O only.",
+        }
+    if ac != "india":
+        return {"available": False, "reason": f"Options not supported for asset class '{ac}'."}
+
+    oc_sym = _oc_symbol_for_index(index_name)
+    if not oc_sym:
+        return {
+            "available": False,
+            "reason": (
+                f"No F&O option chain mapped for '{index_name}'. "
+                "Try NIFTY 50, NIFTY BANK, FINNIFTY, MIDCPNIFTY, or NIFTY NEXT 50."
+            ),
+        }
+
+    try:
+        from app.market_pulse.option_chain_engine import (
+            classify_option_chain_signal,
+            fetch_option_chain,
+        )
+
+        chain = fetch_option_chain(oc_sym, True, groww_token)
+    except Exception as exc:
+        logger.warning("A/D options fetch failed for %s: %s", oc_sym, exc)
+        return {"available": False, "oc_symbol": oc_sym, "reason": f"Option chain fetch failed: {exc}"}
+
+    if not chain:
+        return {
+            "available": False,
+            "oc_symbol": oc_sym,
+            "reason": f"No option chain data returned for {oc_sym}.",
+        }
+
+    try:
+        signal = classify_option_chain_signal(chain)
+    except Exception as exc:
+        logger.debug("A/D options classify failed for %s: %s", oc_sym, exc)
+        signal = {}
+
+    top_call = (chain.get("top_call_oi") or [{}])[0] if chain.get("top_call_oi") else {}
+    top_put = (chain.get("top_put_oi") or [{}])[0] if chain.get("top_put_oi") else {}
+
+    return {
+        "available": True,
+        "oc_symbol": oc_sym,
+        "underlying": chain.get("underlying"),
+        "current_expiry": chain.get("current_expiry"),
+        "pcr_oi": chain.get("pcr_oi"),
+        "pcr_vol": chain.get("pcr_vol"),
+        "total_call_oi": chain.get("total_call_oi"),
+        "total_put_oi": chain.get("total_put_oi"),
+        "total_call_vol": chain.get("total_call_vol"),
+        "total_put_vol": chain.get("total_put_vol"),
+        "max_pain": chain.get("max_pain"),
+        "support": signal.get("support"),
+        "resistance": signal.get("resistance"),
+        "bias": signal.get("bias"),
+        "trade_signal": signal.get("trade_signal"),
+        "confidence_pct": signal.get("confidence_pct"),
+        "top_call_oi_strike": top_call.get("strike"),
+        "top_put_oi_strike": top_put.get("strike"),
+        "source": chain.get("source"),
+        "plain_english": (
+            f"{oc_sym} options: PCR(OI) {chain.get('pcr_oi')}, "
+            f"bias {signal.get('bias') or '—'}, "
+            f"max pain {chain.get('max_pain')}, "
+            f"expiry {chain.get('current_expiry') or '—'}."
+        ),
+    }
+
+
+def _market_for(asset_class: str) -> str:
+    ac = (asset_class or "india").strip().lower()
+    if ac == "us":
+        return US_MARKET
+    if ac == "crypto":
+        return CRYPTO_MARKET
+    return GROWW_MARKET
+
+
+def _session_meta(asset_class: str) -> tuple[time | None, time | None, str, str]:
+    ac = (asset_class or "india").strip().lower()
+    return _SESSION.get(ac, _SESSION["india"])
 
 
 def _parse_date(s: str) -> datetime:
     return datetime.strptime(s.strip()[:10], "%Y-%m-%d")
 
 
-def _to_ist_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Normalize bar times to Asia/Kolkata (IST), returned as tz-naive IST wall clock.
+def _to_local_index(idx: pd.DatetimeIndex, tz_name: str) -> pd.DatetimeIndex:
+    """Normalize bar times to market local wall clock (tz-naive).
 
-    Groww candles use unix seconds → pandas builds a *naive UTC* index
-    (`pd.to_datetime(..., unit='s')`). Treating that as IST left the chart at
-    04:00–08:00 instead of the real 09:30–15:30 session. Always map naive
-    stamps through UTC → IST.
+    Upstream candles often arrive as naive UTC unix stamps — map through UTC → local.
     """
     if not isinstance(idx, pd.DatetimeIndex):
         idx = pd.to_datetime(idx)
     if getattr(idx, "tz", None) is not None:
-        return idx.tz_convert(IST).tz_localize(None)
-    return idx.tz_localize("UTC").tz_convert(IST).tz_localize(None)
+        return idx.tz_convert(tz_name).tz_localize(None)
+    return idx.tz_localize("UTC").tz_convert(tz_name).tz_localize(None)
 
 
-def _in_nse_session(ts: pd.Timestamp) -> bool:
+def _in_session(ts: pd.Timestamp, asset_class: str) -> bool:
+    open_t, close_t, _tz, _label = _session_meta(asset_class)
+    if open_t is None or close_t is None:
+        return True  # crypto 24h
     t = pd.Timestamp(ts).to_pydatetime().time()
-    return NSE_OPEN <= t <= NSE_CLOSE
+    return open_t <= t <= close_t
 
 
-def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_ohlcv(df: pd.DataFrame, asset_class: str = "india") -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     out = df.copy()
@@ -112,7 +345,8 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         else:
             out.index = pd.to_datetime(out.index)
     out = out.sort_index()
-    out.index = _to_ist_index(out.index)
+    _o, _c, tz_name, _lbl = _session_meta(asset_class)
+    out.index = _to_local_index(out.index, tz_name)
     cols = {c.lower(): c for c in out.columns}
     if "close" not in cols and "Close" in out.columns:
         out = out.rename(columns={"Close": "close", "Open": "open", "High": "high", "Low": "low"})
@@ -125,15 +359,17 @@ def _fetch_symbol(
     symbol: str,
     timeframe: str,
     *,
+    market: str,
     groww_token: str,
     exchange: str,
     limit: int,
+    asset_class: str = "india",
 ) -> tuple[str, pd.DataFrame]:
     try:
         raw = fetch_data_for_gap_scan(
-            symbol, timeframe, GROWW_MARKET, groww_token=groww_token, exchange=exchange, limit=limit,
+            symbol, timeframe, market, groww_token=groww_token, exchange=exchange, limit=limit,
         )
-        return symbol, _normalize_ohlcv(raw)
+        return symbol, _normalize_ohlcv(raw, asset_class)
     except Exception as exc:
         logger.debug("A/D fetch failed for %s %s: %s", symbol, timeframe, exc)
         return symbol, pd.DataFrame()
@@ -143,15 +379,21 @@ def _fetch_many(
     symbols: list[str],
     timeframe: str,
     *,
+    market: str,
     groww_token: str,
     exchange: str,
     limit: int,
+    asset_class: str = "india",
 ) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     workers = min(_MAX_WORKERS, max(1, len(symbols)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = [
-            pool.submit(_fetch_symbol, sym, timeframe, groww_token=groww_token, exchange=exchange, limit=limit)
+            pool.submit(
+                _fetch_symbol, sym, timeframe,
+                market=market, groww_token=groww_token, exchange=exchange, limit=limit,
+                asset_class=asset_class,
+            )
             for sym in symbols
         ]
         for fut in as_completed(futs):
@@ -242,6 +484,7 @@ def _intraday_series(
     session_date: datetime,
     *,
     as_of: time | None,
+    asset_class: str = "india",
 ) -> list[dict[str, Any]]:
     day = session_date.date()
     # timestamp -> list of price signals (+1/-1/0) and volume signals
@@ -265,14 +508,14 @@ def _intraday_series(
         closes = day_df["close"].astype(float)
         vols = day_df["volume"].astype(float) if has_vol else None
         for i, (ts, close) in enumerate(zip(closes.index, closes.values)):
-            if not _in_nse_session(ts):
+            if not _in_session(ts, asset_class):
                 continue
             t = pd.Timestamp(ts).to_pydatetime().time()
             if as_of is not None and t > as_of:
                 break
             prev_in_session_i = None
             for j in range(i - 1, -1, -1):
-                if _in_nse_session(closes.index[j]):
+                if _in_session(closes.index[j], asset_class):
                     prev_in_session_i = j
                     break
             if prev_in_session_i is not None:
@@ -771,7 +1014,7 @@ def _build_outcome_layman(
             "RSI (cyan, 0–100) = average stock RSI (or A/D-line RSI) — >70 hot, <30 washed out.",
             "Dashed line at 1.0 = even for A/D and volume ratios; RSI mid = 50.",
             "A/D > 1 + Vol > 1 + UPTREND → healthier advance. A/D > 1 + Vol < 1 → hollow rally.",
-            "Daily chart = one reading per session. Intraday = each bar in IST session hours.",
+            "Daily chart = one reading per session. Intraday = each bar in local market session hours.",
         ],
     }
 
@@ -779,6 +1022,7 @@ def _build_outcome_layman(
 def compute_advance_decline_graph(
     index_name: str,
     *,
+    asset_class: str = "india",
     from_date: str,
     to_date: str,
     timeframe: str = "1d",
@@ -787,12 +1031,19 @@ def compute_advance_decline_graph(
     groww_token: str = "",
     exchange: str = "NSE",
 ) -> dict[str, Any]:
-    """Build daily and/or intraday advance–decline series for an index."""
-    symbols = get_index_constituent_symbols(index_name)
+    """Build daily and/or intraday advance–decline series for an index universe."""
+    ac = (asset_class or "india").strip().lower()
+    if ac not in ("india", "us", "crypto"):
+        ac = "india"
+    market = _market_for(ac)
+    _open_t, _close_t, _tz_name, tz_label = _session_meta(ac)
+
+    symbols = resolve_universe_symbols(ac, index_name)
     if not symbols:
         return {
-            "error": f"No constituents found for index '{index_name}'.",
+            "error": f"No constituents found for '{index_name}' ({ac}).",
             "index_name": index_name,
+            "asset_class": ac,
         }
 
     try:
@@ -821,7 +1072,9 @@ def compute_advance_decline_graph(
     day_span = (to_dt - from_dt).days + 8  # buffer for prior close
     daily_limit = max(min(day_span + 15, 400), 40)
     daily_frames = _fetch_many(
-        symbols, "1d", groww_token=groww_token, exchange=exchange, limit=daily_limit,
+        symbols, "1d",
+        market=market, groww_token=groww_token, exchange=exchange, limit=daily_limit,
+        asset_class=ac,
     )
     daily = _daily_series(daily_frames, from_dt, to_dt)
 
@@ -838,11 +1091,14 @@ def compute_advance_decline_graph(
             limit = 40
         # Widen fetch window: need prior day for first-bar comparison
         intra_frames = _fetch_many(
-            symbols, tf, groww_token=groww_token, exchange=exchange, limit=limit,
+            symbols, tf,
+            market=market, groww_token=groww_token, exchange=exchange, limit=limit,
+            asset_class=ac,
         )
-        intraday = _intraday_series(intra_frames, sess_dt, as_of=as_of)
+        intraday = _intraday_series(intra_frames, sess_dt, as_of=as_of, asset_class=ac)
 
     last_daily = daily[-1] if daily else None
+    options = _options_snapshot(ac, index_name, groww_token=groww_token)
     outcome = _build_outcome_layman(
         index_name=index_name,
         from_date=from_date,
@@ -855,28 +1111,50 @@ def compute_advance_decline_graph(
         as_of=as_of,
         universe_size=len(symbols),
     )
+    # Fold a one-liner options read into the layman outcome when available
+    if options.get("available"):
+        opt_line = (
+            f"Options ({options.get('oc_symbol')}): PCR(OI) {options.get('pcr_oi')} · "
+            f"bias {options.get('bias') or '—'} · max pain {options.get('max_pain')} · "
+            f"S {options.get('support')} / R {options.get('resistance')}."
+        )
+        outcome["options_line"] = opt_line
+        how = list(outcome.get("how_to_read") or [])
+        how.append(
+            "Options PCR > 1 with A/D > 1 often confirms a healthier advance; "
+            "PCR < 0.8 with rising A/D can mean a hollow / short-covering rally."
+        )
+        outcome["how_to_read"] = how
+        summary = str(outcome.get("summary") or "")
+        if summary and opt_line not in summary:
+            outcome["summary"] = f"{summary} {opt_line}"
     plain = outcome["summary"]
 
     return {
         "index_name": index_name,
+        "asset_class": ac,
         "from_date": from_date,
         "to_date": to_date,
         "timeframe": tf,
         "session_date": sess_dt.date().isoformat() if is_intraday else None,
         "as_of_time": as_of.strftime("%H:%M") if as_of else None,
-        "timezone": "IST",
+        "timezone": tz_label,
         "mode": "intraday" if is_intraday else "daily",
         "universe_size": len(symbols),
         "scanned_daily": len(daily_frames),
         "warning": (
-            f"Large universe ({len(symbols)} names) — fetch may be slow."
-            if len(symbols) > _WARN_UNIVERSE else None
+            f"Universe capped at {len(symbols)} names for speed."
+            if len(symbols) >= _HARD_CAP else (
+                f"Large universe ({len(symbols)} names) — fetch may be slow."
+                if len(symbols) > _WARN_UNIVERSE else None
+            )
         ),
         "daily": daily,
         "intraday": intraday,
         "latest": last_daily,
+        "options": options,
         "outcome_layman": outcome,
         "plain_english": plain,
-        "currency": "₹",
-        "market": GROWW_MARKET,
+        "currency": _currency_for(ac),
+        "market": market,
     }

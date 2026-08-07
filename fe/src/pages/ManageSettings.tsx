@@ -32,17 +32,22 @@ const CLAUDE_MODELS = [
 ]
 
 const OPENAI_MODELS = [
+  'gpt-5.6-sol',
+  'DeepSeek-V4-Flash',
+  'gpt-4o',
+  'o4-mini',
+  'gpt-4o-mini',
   'gpt-5-nano',
   'gpt-5-mini',
   'gpt-5',
   'gpt-4.1',
   'gpt-4.1-mini',
-  'gpt-4o',
-  'gpt-4o-mini',
 ]
 
 const DEFAULT_CLAUDE_ENDPOINT = 'https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic'
 const DEFAULT_OPENAI_ENDPOINT = 'https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1'
+const OPENAI_PROJECT_URL =
+  'https://aiadvisorassis8258039388.services.ai.azure.com/api/projects/aiadvisorassis825803938-project'
 
 const MARKETS = [
   'Groww (India Stocks)',
@@ -292,7 +297,20 @@ export default function ManageSettings() {
                 </Select>
               </FormField>
               <p className="mb-4 rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs text-slate-400">
-                Uses Azure AI Foundry OpenAI (`base_url` …`/openai/v1`, Responses API). Deployment example: <code className="text-slate-300">gpt-5-nano</code>.
+                Azure AI Foundry OpenAI — <code className="text-slate-300">base_url</code> ends with{' '}
+                <code className="text-slate-300">/openai/v1</code>.{' '}
+                <code className="text-slate-300">gpt-5.6-sol</code> uses the Responses API;{' '}
+                <code className="text-slate-300">DeepSeek-V4-Flash</code> uses chat.completions.
+                Project:{' '}
+                <a
+                  className="text-sky-300 underline-offset-2 hover:underline"
+                  href={OPENAI_PROJECT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  aiadvisorassis825803938-project
+                </a>
+                .
               </p>
             </>
           ) : aiProvider === 'Investing Agent' ? (

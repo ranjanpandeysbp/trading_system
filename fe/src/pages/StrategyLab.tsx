@@ -49,7 +49,7 @@ export default function StrategyLab() {
     <div>
       <PageHeader
         title="Strategy Lab"
-        description="Backtest presets · Multi-combo scanner · Rule screener · Full hub encyclopedia — Command Center · Market Pulse · TA · Trading Hubs · Pro Trade · Options"
+        description="Backtest presets · Multi-combo scanner · Rule screener · Full hub encyclopedia (breadth · RS · options · AI Settings)"
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
