@@ -60,6 +60,7 @@ from app.models.schemas import (
     CommandCenterHeatmapRequest,
     CommandCenterAdvanceDeclineGraphRequest,
     CommandCenterComparativeStrengthRequest,
+    CommandCenterOilDollarBondRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
     CommandCenterOptionShortLongRequest,
@@ -2474,6 +2475,21 @@ async def command_center_comparative_strength(
         timeframe=payload.timeframe,
         lookback_bars=payload.lookback_bars,
         exchange=payload.exchange,
+    )
+
+
+@router.post("/command-center/oil-dollar-bond")
+async def command_center_oil_dollar_bond(
+    payload: CommandCenterOilDollarBondRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).oil_dollar_bond(
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+        mode=payload.mode,
+        session_date=payload.session_date,
+        interval=payload.interval,
     )
 
 

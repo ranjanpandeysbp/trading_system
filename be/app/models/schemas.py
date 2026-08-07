@@ -494,6 +494,14 @@ class CommandCenterComparativeStrengthRequest(BaseModel):
     exchange: str | None = None
 
 
+class CommandCenterOilDollarBondRequest(BaseModel):
+    from_date: str | None = Field(default=None, description="YYYY-MM-DD (daily mode)")
+    to_date: str | None = Field(default=None, description="YYYY-MM-DD (daily mode)")
+    mode: Literal["daily", "intraday"] = "daily"
+    session_date: str | None = Field(default=None, description="YYYY-MM-DD for same-day intraday")
+    interval: str = Field(default="1d", description="1d for daily; 1m/5m/15m/30m/1h for intraday")
+
+
 class CommandCenterSma20200Request(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"

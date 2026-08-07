@@ -1492,6 +1492,14 @@ export const runComparativeStrength = (payload: {
   exchange?: string
 }) => api.post('/command-center/comparative-strength', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runOilDollarBond = (payload: {
+  from_date?: string
+  to_date?: string
+  mode?: 'daily' | 'intraday'
+  session_date?: string
+  interval?: string
+}) => api.post('/command-center/oil-dollar-bond', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runDayBias = (payload: { ticker: string; asset_class: string; timeframe: string; exchange?: string }) =>
   api.post('/command-center/day-bias', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 

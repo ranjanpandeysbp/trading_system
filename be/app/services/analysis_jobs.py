@@ -355,6 +355,14 @@ async def _execute_command_center(section: str, payload: dict[str, Any], *, sett
             as_of_time=payload.get("as_of_time"),
             exchange=payload.get("exchange"),
         )
+    if section == "oil_dollar_bond":
+        return await svc.oil_dollar_bond(
+            from_date=payload.get("from_date") or None,
+            to_date=payload.get("to_date") or None,
+            mode=str(payload.get("mode") or "daily"),
+            session_date=payload.get("session_date") or None,
+            interval=str(payload.get("interval") or "1d"),
+        )
     raise ValueError(f"Unknown Command Center section: {section}")
 
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Activity, ArrowUpDown, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, FishingHook, Flame, Gauge, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { Activity, ArrowUpDown, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, Droplets, FishingHook, Flame, Gauge, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -56,6 +56,7 @@ import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
 import { IndiaFiiDiiHoldingsPanel } from '../components/command-center/IndiaFiiDiiHoldingsPanel'
 import { AdvanceDeclineGraphPanel } from '../components/command-center/AdvanceDeclineGraphPanel'
 import { ComparativeStrengthPanel } from '../components/command-center/ComparativeStrengthPanel'
+import { OilDollarBondPanel } from '../components/command-center/OilDollarBondPanel'
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
@@ -110,6 +111,7 @@ const TABS = [
   { id: 'india_market_heatmap', label: 'IN-US-Crypto Market Heatmap', icon: Grid3x3 },
   { id: 'advance_decline_graph', label: 'Advance Decline (Multi Asset)', icon: Activity },
   { id: 'comparative_strength', label: 'Comparative Strength', icon: Scale },
+  { id: 'oil_dollar_bond', label: 'Oil-Dollar-Bond', icon: Droplets },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
   { id: 'quick_analyzer', label: 'Quick Analyzer', icon: Zap },
@@ -140,6 +142,7 @@ const CC_BG_SKIP = new Set<TabId>([
   'detect_sector_rotation',
   'advance_decline_graph',
   'comparative_strength',
+  'oil_dollar_bond',
 ])
 
 type TabId = (typeof TABS)[number]['id']
@@ -638,6 +641,8 @@ export default function CommandCenter() {
         <AdvanceDeclineGraphPanel />
       ) : tab === 'comparative_strength' ? (
         <ComparativeStrengthPanel />
+      ) : tab === 'oil_dollar_bond' ? (
+        <OilDollarBondPanel />
       ) : tab === 'mutual_fund_holdings' ? (
         <MutualFundHoldingsPanel />
       ) : tab === 'etf_holdings' ? (
@@ -1165,7 +1170,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && tab !== 'comparative_strength' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && tab !== 'comparative_strength' && tab !== 'oil_dollar_bond' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

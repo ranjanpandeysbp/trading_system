@@ -1625,6 +1625,27 @@ class CommandCenterService:
             result.setdefault("resolved_peers", resolved_peers)
         return json_safe(result)
 
+    async def oil_dollar_bond(
+        self,
+        *,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        mode: str = "daily",
+        session_date: str | None = None,
+        interval: str = "1d",
+    ) -> dict[str, Any]:
+        from app.market_pulse.oil_dollar_bond_engine import compute_oil_dollar_bond
+
+        result = await asyncio.to_thread(
+            compute_oil_dollar_bond,
+            from_date=from_date,
+            to_date=to_date,
+            mode=mode,
+            session_date=session_date,
+            interval=interval,
+        )
+        return json_safe(result)
+
     async def day_bias(
         self, ticker: str, *, asset_class: str = "india", timeframe: str = "1d", exchange: str | None = None,
     ) -> dict[str, Any]:
@@ -1853,6 +1874,7 @@ class CommandCenterService:
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
                 {"id": "advance_decline_graph", "label": "Advance Decline (Multi Asset)"},
                 {"id": "comparative_strength", "label": "Comparative Strength — Base vs Peers"},
+                {"id": "oil_dollar_bond", "label": "Oil-Dollar-Bond"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
                 {"id": "quick_analyzer", "label": "Quick Analyzer (India · US · Crypto)"},

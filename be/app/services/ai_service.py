@@ -353,12 +353,16 @@ def call_ai_report(
 
 
 def parse_ai_verdict(report_text: str) -> str | None:
-    match = re.search(r"##\s*NEXT\s*MOVE\s*\n\s*(LONG|SHORT|WAIT|SIDEWAYS)", report_text, re.IGNORECASE)
+    match = re.search(
+        r"##\s*NEXT\s*MOVE\s*\n\s*(LONG|SHORT|WAIT|SIDEWAYS|RISK-ON|RISK-OFF|MIXED|BUY|SELL|AVOID)",
+        report_text,
+        re.IGNORECASE,
+    )
     if match:
         return match.group(1).upper()
-    match = re.search(r"##\s*FINAL\s*VERDICT\s*\n\s*(BUY|SELL|AVOID|LONG|SHORT|WAIT|HOLD)", report_text, re.IGNORECASE)
+    match = re.search(r"##\s*FINAL\s*VERDICT\s*\n\s*(BUY|SELL|AVOID|LONG|SHORT|WAIT|HOLD|RISK-ON|RISK-OFF|MIXED)", report_text, re.IGNORECASE)
     if not match:
-        match = re.search(r"\b(BUY|SELL|AVOID|LONG|SHORT|WAIT|SIDEWAYS)\b", report_text[:500], re.IGNORECASE)
+        match = re.search(r"\b(BUY|SELL|AVOID|LONG|SHORT|WAIT|SIDEWAYS|RISK-ON|RISK-OFF|MIXED)\b", report_text[:500], re.IGNORECASE)
     return match.group(1).upper() if match else None
 
 
