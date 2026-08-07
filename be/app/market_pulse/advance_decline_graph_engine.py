@@ -36,6 +36,17 @@ INTRADAY_TIMEFRAMES = ["5m", "10m", "15m", "30m", "1h"]
 _MAX_WORKERS = 12
 # Soft cap — Nifty 500 is allowed but slow; FE warns above this.
 _WARN_UNIVERSE = 120
+# Cap for charting when declines == 0 (infinite ratio) so the Y-axis stays readable.
+_AD_RATIO_CAP = 10.0
+
+
+def _ad_ratio(advances: int, declines: int) -> float | None:
+    """Advances ÷ Declines. Neutral = 1.0. Capped when declines are zero."""
+    if advances <= 0 and declines <= 0:
+        return None
+    if declines <= 0:
+        return round(min(_AD_RATIO_CAP, float(max(advances, 1))), 3)
+    return round(min(_AD_RATIO_CAP, advances / declines), 3)
 
 
 def list_index_names() -> list[str]:
@@ -162,10 +173,7 @@ def _daily_series(
         net = b["advances"] - b["declines"]
         ad_line += net
         total = b["advances"] + b["declines"] + b["unchanged"]
-        if b["declines"] == 0:
-            ratio = float(b["advances"]) if b["advances"] else None
-        else:
-            ratio = round(b["advances"] / b["declines"], 3)
+        ratio = _ad_ratio(b["advances"], b["declines"])
         series.append({
             "date": key,
             "label": key,
@@ -232,10 +240,7 @@ def _intraday_series(
         unc = sum(1 for s in sigs if s == 0)
         net = adv - dec
         ad_line += net
-        if dec == 0:
-            ratio = float(adv) if adv else None
-        else:
-            ratio = round(adv / dec, 3)
+        ratio = _ad_ratio(adv, dec)
         series.append({
             "date": key,
             "label": key[11:] if len(key) >= 16 else key,  # HH:MM for chart axis
@@ -350,16 +355,17 @@ def _build_outcome_layman(
         )
 
     headline = f"{index_name}: {mood}"
-    summary_parts = [
+        summary_parts = [
         f"We checked about {universe_size} stocks that make up {index_name}.",
-        "Green bars = how many stocks went up that day. Red bars = how many went down.",
-        "The violet A/D line adds up (ups − downs) day after day — rising means breadth is getting healthier; falling means the opposite.",
+        "The graph shows the Advance/Decline ratio (ups ÷ downs). Above 1 means more stocks rose; below 1 means more fell.",
+        "Green bars = ratio ≥ 1 (bullish breadth). Red bars = ratio < 1 (bearish breadth). The dashed line at 1.0 is even.",
     ]
     if last:
+        ratio = last.get("ad_ratio")
         summary_parts.append(
             f"On the latest day ({last.get('date')}): "
-            f"{last.get('advances')} stocks advanced, {last.get('declines')} declined, "
-            f"{last.get('unchanged')} were unchanged. Verdict: {mood_line}"
+            f"{last.get('advances')} stocks advanced, {last.get('declines')} declined "
+            f"(A/D ratio {ratio if ratio is not None else '—'}). Verdict: {mood_line}"
         )
     summary_parts.append(ad_note)
     if intra_line:
@@ -383,12 +389,12 @@ def _build_outcome_layman(
         "summary": " ".join(summary_parts),
         "what_it_means": what_it_means,
         "how_to_read": [
-            "Advances (green) — stocks that closed higher than the previous period.",
-            "Declines (red) — stocks that closed lower.",
-            "Unchanged — barely moved.",
-            "A/D line (violet) — running score of (advances − declines). Up = improving breadth, down = weakening.",
-            "Daily chart — one crowd count per trading day across your date range.",
-            "Intraday chart — same idea inside one day, at each 5m/15m/… bar up to your as-of time.",
+            "A/D ratio = Advances ÷ Declines (main graph).",
+            "Ratio above 1 (green) — more stocks rose than fell that period.",
+            "Ratio below 1 (red) — more stocks fell than rose.",
+            "Dashed line at 1.0 — even breadth (same number up and down).",
+            "Daily chart — one ratio per trading day across your date range.",
+            "Intraday chart — ratio at each bar that day up to your as-of time.",
         ],
     }
 

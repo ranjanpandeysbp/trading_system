@@ -5,11 +5,13 @@ import {
   ComposedChart,
   Legend,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
   Bar,
+  Cell,
 } from 'recharts'
 import {
   apiErrorMessage,
@@ -43,7 +45,19 @@ function fmtNum(v: unknown, digits = 0): string {
   return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
 }
 
-function AdChart({
+function withChartRatio(series: Row[]): Row[] {
+  return series.map((row) => {
+    const ratio = row.ad_ratio != null ? Number(row.ad_ratio) : null
+    return {
+      ...row,
+      ad_ratio: ratio != null && Number.isFinite(ratio) ? ratio : null,
+      /** Distance from neutral 1.0 — positive = more advances, negative = more declines */
+      ad_ratio_vs_neutral: ratio != null && Number.isFinite(ratio) ? ratio - 1 : null,
+    }
+  })
+}
+
+function AdRatioChart({
   series,
   title,
   xKey = 'label',
@@ -52,41 +66,99 @@ function AdChart({
   title: string
   xKey?: string
 }) {
-  if (!series.length) {
+  const chartData = useMemo(() => withChartRatio(series), [series])
+  if (!chartData.length) {
     return <p className="text-sm text-slate-500">No points to chart yet.</p>
   }
 
+  const ratios = chartData.map((r) => Number(r.ad_ratio)).filter((n) => Number.isFinite(n))
+  const yMax = Math.min(10, Math.max(2, ...(ratios.length ? ratios : [2]), 1.2))
+  const latest = chartData[chartData.length - 1]
+  const latestRatio = latest?.ad_ratio != null ? Number(latest.ad_ratio) : null
+
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-slate-200">{title}</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-slate-200">{title}</p>
+        {latestRatio != null && (
+          <p className="text-xs text-slate-400">
+            Latest A/D ratio:{' '}
+            <strong className={latestRatio >= 1 ? 'text-emerald-300' : 'text-rose-300'}>
+              {fmtNum(latestRatio, 2)}
+            </strong>
+            <span className="text-slate-500"> (1.0 = even)</span>
+          </p>
+        )}
+      </div>
       <div className="h-80 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={series} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={28} />
-            <YAxis yAxisId="count" tick={{ fill: '#94a3b8', fontSize: 11 }} width={40} />
-            <YAxis yAxisId="line" orientation="right" tick={{ fill: '#94a3b8', fontSize: 11 }} width={44} />
+            <YAxis
+              yAxisId="ratio"
+              domain={[0, yMax]}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              width={44}
+              label={{ value: 'A/D ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
+            />
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
               labelStyle={{ color: '#e2e8f0' }}
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null
+                const row = payload[0]?.payload as Row | undefined
+                if (!row) return null
+                return (
+                  <div className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-200">
+                    <p className="mb-1 font-medium text-white">{String(label)}</p>
+                    <p>A/D ratio: <strong className={Number(row.ad_ratio) >= 1 ? 'text-emerald-300' : 'text-rose-300'}>{fmtNum(row.ad_ratio, 2)}</strong></p>
+                    <p className="text-slate-400">Advances {fmtNum(row.advances)} · Declines {fmtNum(row.declines)} · Flat {fmtNum(row.unchanged)}</p>
+                  </div>
+                )
+              }}
             />
             <Legend />
-            <Bar yAxisId="count" dataKey="advances" name="Advances" fill="#34d399" fillOpacity={0.75} />
-            <Bar yAxisId="count" dataKey="declines" name="Declines" fill="#f87171" fillOpacity={0.75} />
+            <ReferenceLine
+              yAxisId="ratio"
+              y={1}
+              stroke="#94a3b8"
+              strokeDasharray="4 4"
+              label={{ value: '1.0 even', fill: '#94a3b8', fontSize: 10, position: 'insideTopRight' }}
+            />
+            <Bar yAxisId="ratio" dataKey="ad_ratio" name="A/D ratio" fill="#34d399" radius={[3, 3, 0, 0]}>
+              {chartData.map((row, i) => {
+                const r = Number(row.ad_ratio)
+                const bullish = Number.isFinite(r) && r >= 1
+                return (
+                  <Cell
+                    key={`${String(row[xKey])}-${i}`}
+                    fill={bullish ? '#34d399' : '#f87171'}
+                    fillOpacity={0.8}
+                  />
+                )
+              })}
+            </Bar>
             <Line
-              yAxisId="line"
+              yAxisId="ratio"
               type="monotone"
-              dataKey="ad_line"
-              name="A/D line"
+              dataKey="ad_ratio"
+              name="Ratio trend"
               stroke="#a78bfa"
               strokeWidth={2}
-              dot={false}
+              dot={{ r: 2, fill: '#c4b5fd' }}
+              connectNulls
+              legendType="line"
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
       <p className="text-[11px] text-slate-500">
-        Bars = advances vs declines · Violet line = cumulative (advances − declines) over the window
+        A/D ratio = Advances ÷ Declines. Above 1 (green) = more stocks rising · Below 1 (red) = more stocks falling ·
+        Dashed line = even (1.0). Ratio is capped at 10 when there are zero declines.
+      </p>
+      <p className="text-[11px] text-slate-600">
+        Hover a bar for raw advances / declines counts in the tooltip context — ratio is the main signal.
       </p>
     </div>
   )
@@ -134,9 +206,9 @@ export function AdvanceDeclineGraphPanel() {
           session</strong> — each bar until the optional as-of time.
         </p>
         <p className="mb-3 text-xs leading-relaxed text-slate-500">
-          In plain English: this is a <strong className="text-slate-400">crowd count</strong> of how many stocks in the
-          index went up vs down — not a buy/sell tip by itself. More green than red = healthier rally; more red than
-          green = broader selling. After you plot, the results box explains the latest day in everyday language.
+          In plain English: the chart plots the <strong className="text-slate-400">Advance/Decline ratio</strong>{' '}
+          (stocks up ÷ stocks down). Above 1 = more winners; below 1 = more losers. After you plot, the results box
+          explains the latest reading in everyday language.
         </p>
 
         <div className="grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -247,25 +319,25 @@ export function AdvanceDeclineGraphPanel() {
                 <StatCard label="Universe" value={fmtNum(data.universe_size)} />
                 <StatCard label="Scanned (daily)" value={fmtNum(data.scanned_daily)} />
                 <StatCard
-                  label="Latest advances"
-                  value={latest ? fmtNum(latest.advances) : '—'}
+                  label="Latest A/D ratio"
+                  value={latest?.ad_ratio != null ? fmtNum(latest.ad_ratio, 2) : '—'}
                 />
                 <StatCard
-                  label="Latest declines"
-                  value={latest ? fmtNum(latest.declines) : '—'}
+                  label="Latest adv / dec"
+                  value={latest ? `${fmtNum(latest.advances)} / ${fmtNum(latest.declines)}` : '—'}
                 />
               </div>
 
-              <AdChart
+              <AdRatioChart
                 series={daily}
-                title={`Daily Advance / Decline — ${String(data.index_name)} (${fromDate} → ${toDate})`}
+                title={`Advance / Decline ratio — ${String(data.index_name)} (${fromDate} → ${toDate})`}
                 xKey="date"
               />
 
               {isIntraday && (
-                <AdChart
+                <AdRatioChart
                   series={intraday}
-                  title={`Intraday ${timeframe} — ${String(data.session_date ?? sessionDate)}${data.as_of_time ? ` until ${String(data.as_of_time)}` : ''}`}
+                  title={`Intraday A/D ratio (${timeframe}) — ${String(data.session_date ?? sessionDate)}${data.as_of_time ? ` until ${String(data.as_of_time)}` : ''}`}
                   xKey="label"
                 />
               )}
