@@ -427,6 +427,55 @@ def build_delta_neutral(
         )
 
     entry_ok = bool(vol_env["favorable"] and choppy)
+    tp_pct = round(cfg.profit_target_pct * 100, 2)
+    sl_pct = round(cfg.stop_loss_multiple * 100, 2) if cfg.stop_loss_multiple else None
+    rr = round(tp_pct / sl_pct, 2) if sl_pct and sl_pct > 0 else None
+
+    conf_bits: list[str] = []
+    confidence = 40.0
+    if entry_ok:
+        action, action_label = "BUY", f"BUY {structure_label.upper()}"
+        confidence = 70.0
+        conf_bits.append("IV/vol favorable")
+        conf_bits.append("Market choppy / not strongly trending")
+        if pop_pct is not None:
+            confidence += max(-8.0, min(10.0, (float(pop_pct) - 50.0) * 0.25))
+            conf_bits.append(f"Est. PoP ~{float(pop_pct):.0f}%")
+        plain = (
+            f"BUY the {structure_label} — environment favors premium selling. "
+            f"Take profit near {tp_pct:g}% of credit captured (cost-to-close {close_at_price})."
+            + (f" Defensive exit if cost-to-close rises to ~{defensive_close_price} (−{sl_pct:g}% vs credit)." if defensive_close_price is not None and sl_pct is not None else "")
+        )
+    else:
+        action, action_label = "WAIT", "WAIT"
+        confidence = 46.0
+        if not vol_env.get("favorable"):
+            conf_bits.append("IV/vol unfavorable for short premium")
+        if not choppy:
+            conf_bits.append("Market trending — short strikes more likely breached")
+            confidence += 4.0
+        plain = (
+            f"WAIT — do not sell the {structure_label} until vol is favorable and the tape is range-bound. "
+            f"When ready: TP ~{tp_pct:g}% of credit"
+            + (f", defensive SL ~{sl_pct:g}% of credit" if sl_pct is not None else "")
+            + "."
+        )
+    confidence = round(max(15.0, min(92.0, confidence)), 1)
+
+    trade = {
+        "action": action,
+        "action_label": action_label,
+        "confidence_pct": confidence,
+        "confidence_reasons": conf_bits,
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
+        "rr": rr,
+        "entry_price": net_credit,
+        "entry_basis": "net_credit",
+        "stop_price": defensive_close_price,
+        "target_price": close_at_price,
+        "plain_english": plain,
+    }
 
     return {
         "ticker": ticker, "asset_class": asset_class, "market": market,
@@ -439,6 +488,11 @@ def build_delta_neutral(
         "net_credit": net_credit, "max_profit": max_profit, "max_loss": max_loss, "pop_pct": pop_pct,
         "close_at_price": close_at_price, "defensive_close_price": defensive_close_price,
         "entry_ok": entry_ok,
+        "trade_suggestion": trade,
+        "action": trade["action"],
+        "confidence_pct": trade["confidence_pct"],
+        "sl_pct": trade["sl_pct"],
+        "tp_pct": trade["tp_pct"],
         "reasons": reasons,
     }
 

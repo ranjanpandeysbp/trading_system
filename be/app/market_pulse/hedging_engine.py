@@ -171,6 +171,131 @@ def evaluate_adjustment_signal(df_tf: pd.DataFrame, zones: dict[str, Any], cfg: 
     return {"status": "HOLD", "note": "Price is inside the Demand/Supply range — no adjustment needed, let theta decay work."}
 
 
+def build_hedging_trade_suggestion(
+    *,
+    adjustment: dict[str, Any],
+    entry_ok: bool,
+    zones: dict[str, Any],
+    cfg: HedgingConfig,
+    spot: float | None,
+    net_credit: float | None,
+    pop_pct: float | None,
+) -> dict[str, Any]:
+    """Map zone/adjustment + vol filter into a clear BUY / SELL / WAIT call.
+
+    BUY  = enter (or keep) the short-straddle + hedge structure
+    SELL = exit / adjust now (zone broken — close the losing short leg)
+    WAIT = do not enter yet, or stand by while price tests a zone
+    """
+    status = str(adjustment.get("status") or "NO_DATA")
+    note = str(adjustment.get("note") or "")
+    has_demand = bool(zones.get("demand"))
+    has_supply = bool(zones.get("supply"))
+    zones_ok = has_demand and has_supply
+    fallback = bool(zones.get("fallback_used"))
+    tp_pct = round(cfg.profit_target_pct_of_capital * 100, 2)
+    sl_pct = round(cfg.max_loss_pct_of_capital * 100, 2)
+    profit_target = round(cfg.total_capital * cfg.profit_target_pct_of_capital, 2)
+    loss_limit = round(cfg.total_capital * cfg.max_loss_pct_of_capital, 2)
+    rr = round(tp_pct / sl_pct, 2) if sl_pct > 0 else None
+
+    conf_bits: list[str] = []
+    confidence = 40.0
+
+    if status in ("ADJUST_CALL", "ADJUST_PUT"):
+        action = "SELL"
+        action_label = "SELL / ADJUST"
+        confidence = 82.0
+        conf_bits.append("Zone break confirmed on closed candle")
+        plain = (
+            f"SELL / ADJUST now — {note} "
+            f"Hard stop remains {sl_pct:g}% of capital (~{loss_limit:,.0f}); "
+            f"do not chase beyond one adjustment/day."
+        )
+    elif status in ("WATCH_DEMAND", "WATCH_SUPPLY"):
+        action = "WAIT"
+        action_label = "WAIT"
+        confidence = 58.0
+        conf_bits.append("Price is only testing a zone — fake-adjustment trap")
+        plain = (
+            f"WAIT — {note} "
+            f"No new entry/adjustment until a candle closes beyond the zone."
+        )
+    elif status == "NO_DATA":
+        action = "WAIT"
+        action_label = "WAIT"
+        confidence = 28.0
+        conf_bits.append("Insufficient intraday data for zone read")
+        plain = "WAIT — not enough zone data to justify entering or adjusting the hedge yet."
+    elif entry_ok and zones_ok and status == "HOLD":
+        action = "BUY"
+        action_label = "BUY HEDGE"
+        confidence = 72.0
+        conf_bits.append("Vol/chop filter favors entry")
+        conf_bits.append("Demand + Supply zones mapped")
+        conf_bits.append("Price inside range — theta can work")
+        if fallback:
+            confidence -= 8.0
+            conf_bits.append("Zone timeframe fell back (slightly weaker)")
+        if pop_pct is not None:
+            confidence += max(-6.0, min(8.0, (float(pop_pct) - 50.0) * 0.2))
+            conf_bits.append(f"Est. PoP ~{float(pop_pct):.0f}%")
+        plain = (
+            f"BUY the hedge structure (short ATM Call+Put, long far OTM wings) — "
+            f"zones are intact and the environment looks favorable. "
+            f"Target ~{tp_pct:g}% of capital (~{profit_target:,.0f}); "
+            f"hard stop ~{sl_pct:g}% of capital (~{loss_limit:,.0f})."
+        )
+    elif status == "HOLD" and not entry_ok:
+        action = "WAIT"
+        action_label = "WAIT"
+        confidence = 48.0
+        conf_bits.append("Vol/trend filter says environment is not favorable yet")
+        if not zones_ok:
+            confidence -= 6.0
+            conf_bits.append("Missing Demand and/or Supply zone")
+        plain = (
+            "WAIT — price may be inside the range, but vol/chop conditions are not "
+            "favorable for entering the hedge right now. Prefer a quieter, range-bound tape."
+        )
+    else:
+        # HOLD without full zones, or unexpected status
+        action = "WAIT"
+        action_label = "WAIT"
+        confidence = 42.0
+        if not zones_ok:
+            conf_bits.append("Incomplete Demand/Supply map")
+        plain = (
+            f"WAIT — {note or 'setup incomplete'}. "
+            "Map both zones and confirm a quiet tape before buying the hedge."
+        )
+
+    confidence = round(max(15.0, min(95.0, confidence)), 1)
+    if action == "BUY" and not conf_bits:
+        conf_bits.append("Structure ready")
+    if action == "SELL" and status == "ADJUST_CALL":
+        conf_bits.append("Supply zone broken — Call side losing")
+    if action == "SELL" and status == "ADJUST_PUT":
+        conf_bits.append("Demand zone broken — Put side losing")
+
+    return {
+        "action": action,
+        "action_label": action_label,
+        "confidence_pct": confidence,
+        "confidence_reasons": conf_bits,
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
+        "rr": rr,
+        "entry_price": round(float(net_credit), 4) if net_credit is not None else None,
+        "entry_basis": "net_credit",
+        "spot": round(float(spot), 6) if spot is not None else None,
+        "stop_price": loss_limit,
+        "target_price": profit_target,
+        "plain_english": plain,
+        "adjustment_status": status,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -202,8 +327,21 @@ def build_hedging(
 
     profit_target = round(cfg.total_capital * cfg.profit_target_pct_of_capital, 2)
     loss_limit = round(cfg.total_capital * cfg.max_loss_pct_of_capital, 2)
+    entry_ok = bool(base.get("entry_ok", True))
+    trade = build_hedging_trade_suggestion(
+        adjustment=adjustment,
+        entry_ok=entry_ok,
+        zones=zones,
+        cfg=cfg,
+        spot=base.get("spot"),
+        net_credit=base.get("net_credit"),
+        pop_pct=base.get("pop_pct"),
+    )
 
     reasons: list[str] = [
+        f"Signal: {trade['action']} ({trade['action_label']}) · {trade['confidence_pct']:.0f}% confidence · "
+        f"TP {trade['tp_pct']:g}% / SL {trade['sl_pct']:g}% of total capital.",
+        trade["plain_english"],
         f"Non-Directional Delta-Neutral Hedge on {ticker}: short ATM Call + ATM Put (straddle, ~0.5Δ each, "
         f"canceling out), hedged with far OTM Call + Put ~{cfg.hedge_distance_pct:.1f}% away from spot to cap "
         "tail risk on a gap or broker glitch.",
@@ -247,8 +385,13 @@ def build_hedging(
         "zone_timeframe": zones.get("timeframe"), "zone_fallback_used": zones.get("fallback_used", False),
         "session_open": zones.get("session_open"),
         "adjustment_signal": adjustment,
+        "trade_suggestion": trade,
+        "action": trade["action"],
+        "confidence_pct": trade["confidence_pct"],
+        "sl_pct": trade["sl_pct"],
+        "tp_pct": trade["tp_pct"],
         "total_capital": cfg.total_capital, "profit_target": profit_target, "loss_limit": loss_limit,
-        "entry_ok": bool(base.get("entry_ok", True)),
+        "entry_ok": entry_ok,
         "reasons": reasons,
     }
 

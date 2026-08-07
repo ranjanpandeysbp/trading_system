@@ -529,6 +529,61 @@ def build_double_calendar(
         )
 
     entry_ok = bool(vol_env["favorable"])
+    majority_strong = bool(per_tf_trend) and strong_trend_count > len(per_tf_trend) / 2
+    tp_pct = round(cfg.take_profit_start * 100, 2)
+    sl_pct = round(abs(cfg.stop_loss) * 100, 2)
+    rr = round(tp_pct / sl_pct, 2) if sl_pct > 0 else None
+
+    conf_bits: list[str] = []
+    confidence = 40.0
+    if entry_ok and not majority_strong:
+        action, action_label = "BUY", "BUY SPREAD"
+        confidence = 68.0
+        conf_bits.append("IV/vol environment favorable for calendar")
+        if per_tf_trend and not majority_strong:
+            conf_bits.append("Trend context not majority-strong (range-friendly)")
+            confidence += 6.0
+        plain = (
+            f"BUY the {'Double Diagonal' if is_diagonal else 'Double Calendar'} — "
+            f"debit environment looks workable. Scale out from +{tp_pct:g}% of debit; "
+            f"mental stop around −{sl_pct:g}% of debit."
+        )
+    elif majority_strong:
+        action, action_label = "WAIT", "WAIT"
+        confidence = 52.0
+        conf_bits.append("Majority of timeframes show a strong trend — poor for theta calendars")
+        if not entry_ok:
+            confidence -= 8.0
+            conf_bits.append("IV/vol also unfavorable")
+        plain = (
+            "WAIT — strong trend across timeframes fights a range-bound calendar. "
+            "Prefer consolidation before buying the debit spread."
+        )
+    else:
+        action, action_label = "WAIT", "WAIT"
+        confidence = 45.0
+        conf_bits.append("IV/vol environment unfavorable")
+        plain = (
+            "WAIT — IV/vol filter does not favor buying this calendar right now. "
+            f"Keep mental SL −{sl_pct:g}% / TP +{tp_pct:g}% ready for when conditions improve."
+        )
+    confidence = round(max(15.0, min(92.0, confidence)), 1)
+
+    trade = {
+        "action": action,
+        "action_label": action_label,
+        "confidence_pct": confidence,
+        "confidence_reasons": conf_bits,
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
+        "rr": rr,
+        "entry_price": net_debit,
+        "entry_basis": "net_debit",
+        "stop_price": round(net_debit * (1 + cfg.stop_loss), 4),
+        "target_price": round(net_debit * (1 + cfg.take_profit_start), 4),
+        "target_max_price": round(net_debit * (1 + cfg.take_profit_max), 4),
+        "plain_english": plain,
+    }
 
     return {
         "ticker": ticker, "asset_class": asset_class, "market": market,
@@ -545,6 +600,11 @@ def build_double_calendar(
         "take_profit_max_price": round(net_debit * (1 + cfg.take_profit_max), 4),
         "stop_loss_price": round(net_debit * (1 + cfg.stop_loss), 4),
         "entry_ok": entry_ok,
+        "trade_suggestion": trade,
+        "action": trade["action"],
+        "confidence_pct": trade["confidence_pct"],
+        "sl_pct": trade["sl_pct"],
+        "tp_pct": trade["tp_pct"],
         "reasons": reasons,
     }
 

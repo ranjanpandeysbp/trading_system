@@ -300,6 +300,37 @@ def evaluate_live_signal(
         "trade_plan": {**plan, "holding_period": hold_duration} if take else None,
     }, hold_duration=hold_duration)
 
+    if take and direction == "LONG":
+        action, action_label = "BUY", "BUY CALL"
+        plain = (
+            f"BUY CALL — Zero-to-Hero long pullback setup. "
+            f"Book ~partial at 1:1 (+{tp_pct}%), ride remainder; SL −{sl_pct}%."
+        )
+    elif take and direction == "SHORT":
+        action, action_label = "SELL", "BUY PUT"
+        plain = (
+            f"SELL bias → BUY PUT — Zero-to-Hero short pullback setup. "
+            f"Book ~partial at 1:1 (+{tp_pct}%), ride remainder; SL −{sl_pct}%."
+        )
+    else:
+        action, action_label = "WAIT", "WAIT"
+        plain = "WAIT — no Zero-to-Hero pullback-and-reversal vs prior day range yet."
+
+    rr = round(float(tp_pct) / float(sl_pct), 2) if take and sl_pct and float(sl_pct) > 0 else None
+    live["trade_suggestion"] = {
+        "action": action,
+        "action_label": action_label,
+        "confidence_pct": round(float(confidence), 1) if take else 0.0,
+        "confidence_reasons": reasons[:4],
+        "sl_pct": sl_pct if take else None,
+        "tp_pct": tp_pct if take else None,
+        "rr": rr,
+        "entry_price": round(entry, 6) if take else None,
+        "stop_price": round(stop, 6) if take else None,
+        "target_price": round(target_1r, 6) if take else None,
+        "plain_english": plain,
+    }
+    live["action"] = action
     return live
 
 
@@ -332,6 +363,11 @@ def analyze_ticker(
         "ticker": index_name, "market": market, "execution_tf": cfg.execution_tf,
         "bars": len(work), "last_close": float(work["close"].iloc[-1]),
         "signal_history": signals[-8:], "live": live,
+        "trade_suggestion": live.get("trade_suggestion"),
+        "action": live.get("action"),
+        "confidence_pct": (live.get("trade_suggestion") or {}).get("confidence_pct"),
+        "sl_pct": (live.get("trade_suggestion") or {}).get("sl_pct"),
+        "tp_pct": (live.get("trade_suggestion") or {}).get("tp_pct"),
     }
 
 

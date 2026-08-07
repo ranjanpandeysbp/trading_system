@@ -404,6 +404,39 @@ def analyze_gokul_chhabra(
         sl_pct = round(sl_pts / prem * 100, 2) if prem else None
         tp_pct = round(cfg.min_rr * sl_pts / prem * 100, 2) if prem else None
 
+    if take_trade and verdict == "LONG":
+        action, action_label = "BUY", "BUY CALL"
+        plain = (
+            f"BUY CALL — bullish Gokul setup (VWAP/VWMA/SuperTrend aligned). "
+            f"Confidence {confidence_pct:.0f}%."
+            + (f" Option SL −{sl_pct}% / TP +{tp_pct}%." if sl_pct is not None and tp_pct is not None else "")
+        )
+    elif take_trade and verdict == "SHORT":
+        action, action_label = "SELL", "BUY PUT"
+        plain = (
+            f"SELL bias → BUY PUT — bearish Gokul setup. "
+            f"Confidence {confidence_pct:.0f}%."
+            + (f" Option SL −{sl_pct}% / TP +{tp_pct}%." if sl_pct is not None and tp_pct is not None else "")
+        )
+    else:
+        action, action_label = "WAIT", "WAIT"
+        plain = "WAIT — no Gokul breakout/pullback entry in the window, or outside the session window."
+
+    rr = round(float(tp_pct) / float(sl_pct), 2) if sl_pct and tp_pct and float(sl_pct) > 0 else None
+    trade = {
+        "action": action,
+        "action_label": action_label,
+        "confidence_pct": round(float(confidence_pct), 1) if take_trade else 0.0,
+        "confidence_reasons": reasons[:4],
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
+        "rr": rr,
+        "entry_price": (option_leg or {}).get("premium") or (trade_plan or {}).get("entry"),
+        "stop_price": (option_leg or {}).get("stop_price") or (trade_plan or {}).get("stop_loss"),
+        "target_price": (option_leg or {}).get("target_price") or (trade_plan or {}).get("target"),
+        "plain_english": plain,
+    }
+
     return {
         "ticker": index_name,
         "spot": round(spot, 4),
@@ -416,6 +449,11 @@ def analyze_gokul_chhabra(
         "all_signals": signals,
         "option_leg": option_leg,
         "trade_plan": trade_plan,
+        "trade_suggestion": trade,
+        "action": trade["action"],
+        "confidence_pct": trade["confidence_pct"],
+        "sl_pct": trade["sl_pct"],
+        "tp_pct": trade["tp_pct"],
         "reasons": reasons,
         "last_bar_time": last_bar_time.strftime("%H:%M"),
         "in_session": in_window,

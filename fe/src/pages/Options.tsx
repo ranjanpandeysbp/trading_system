@@ -142,6 +142,11 @@ const HEDGING_EXPLANATION = `Non-Directional Delta-Neutral Options Hedging — i
 (https://www.youtube.com/watch?v=FXhudoBZ5SU). Profits from premium decay in a sideways market while capping
 catastrophic risk with hedges bought up front.
 
+Clear signal on every scan:
+  BUY  = enter the hedge (zones intact + favorable vol/chop) — shown with confidence %, SL% and TP% of total capital
+  SELL = exit / adjust now (a candle closed beyond Demand or Supply) — close the losing short leg, keep hedges
+  WAIT = stand by (zone only being tested, missing data, or environment not favorable yet)
+
 Pre-requisite — chart Demand/Supply zones: on a 15-minute chart, the strong swing low below the session's
 opening price is your Demand Zone; the strong swing high above it is your Supply Zone. If no clear zone has
 formed yet (early session), this falls back to the 1-hour chart to find recent major reversal areas. Mark

@@ -48,6 +48,153 @@ const ADJUSTMENT_BADGE: Record<string, string> = {
   NO_DATA: '⚪ No data',
 }
 
+function tradeActionBadgeClass(action: string): string {
+  const a = action.toUpperCase()
+  if (a === 'BUY') return 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+  if (a === 'SELL') return 'border-rose-500/40 bg-rose-500/15 text-rose-300'
+  return 'border-slate-600/60 bg-slate-800/60 text-slate-300'
+}
+
+/** Resolve trade_suggestion from result / live / top-level fields. */
+function resolveTradeSuggestion(result: Row, fallbackSl?: number | null, fallbackTp?: number | null): Row {
+  const fromResult = result.trade_suggestion as Row | undefined
+  const live = (result.live as Row | undefined) ?? {}
+  const fromLive = live.trade_suggestion as Row | undefined
+  if (fromResult && fromResult.action != null) return fromResult
+  if (fromLive && fromLive.action != null) return fromLive
+
+  const direction = String(live.direction ?? result.direction ?? '').toUpperCase()
+  const take = Boolean(live.take_trade ?? result.take_trade)
+  let action = String(result.action ?? live.action ?? 'WAIT').toUpperCase()
+  let actionLabel = String(result.action_label ?? 'WAIT')
+  if (take && (direction === 'LONG' || action === 'BUY')) {
+    action = 'BUY'
+    actionLabel = String(live.option_action ?? 'BUY CALL')
+  } else if (take && (direction === 'SHORT' || action === 'SELL')) {
+    action = 'SELL'
+    actionLabel = String(live.option_action ?? 'BUY PUT')
+  } else if (!take && (action === 'BUY' || action === 'SELL') && live.take_trade === false) {
+    action = 'WAIT'
+    actionLabel = 'WAIT'
+  } else if (action !== 'BUY' && action !== 'SELL') {
+    action = 'WAIT'
+    actionLabel = actionLabel === 'WAIT' ? 'WAIT' : actionLabel
+  }
+
+  const conf = live.confidence_pct ?? result.confidence_pct
+  const sl = live.sl_pct ?? result.sl_pct ?? fallbackSl ?? null
+  const tp = live.tp_pct ?? result.tp_pct ?? fallbackTp ?? null
+  const rr = sl != null && tp != null && Number(sl) > 0 ? Number(tp) / Number(sl) : null
+
+  return {
+    action,
+    action_label: actionLabel,
+    confidence_pct: conf,
+    sl_pct: sl,
+    tp_pct: tp,
+    rr: rr != null ? Math.round(rr * 100) / 100 : null,
+    entry_price: live.entry_price ?? result.entry_price ?? result.net_debit ?? result.net_credit,
+    stop_price: live.stop_price ?? result.stop_price ?? result.stop_loss_price ?? result.defensive_close_price ?? result.loss_limit,
+    target_price: live.target_price ?? result.target_price ?? result.take_profit_start_price ?? result.close_at_price ?? result.profit_target,
+    plain_english: result.plain_english ?? live.plain_english,
+    confidence_reasons: (live.reasons as string[] | undefined)?.slice(0, 4) ?? [],
+  }
+}
+
+function OptionsSignalHeaderChips({ trade }: { trade: Row }) {
+  const action = String(trade.action ?? 'WAIT').toUpperCase()
+  return (
+    <>
+      <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${tradeActionBadgeClass(action)}`}>
+        {action}
+      </span>
+      {trade.confidence_pct != null && (
+        <span className="text-xs font-medium text-teal-300">{fmtNum(trade.confidence_pct, 0)}% conf</span>
+      )}
+      <span className="text-xs text-slate-500">
+        SL {trade.sl_pct != null ? `${fmtNum(trade.sl_pct, 1)}%` : '—'} · TP {trade.tp_pct != null ? `${fmtNum(trade.tp_pct, 1)}%` : '—'}
+      </span>
+    </>
+  )
+}
+
+function OptionsTradeSignalBlock({
+  trade,
+  currency = '',
+  legend,
+  entryLabel = 'Entry',
+}: {
+  trade: Row
+  currency?: string
+  legend?: string
+  entryLabel?: string
+}) {
+  const action = String(trade.action ?? 'WAIT').toUpperCase()
+  const actionLabel = String(trade.action_label ?? action)
+  const confReasons =
+    (trade.confidence_reasons as string[] | undefined)
+    ?? (trade.reasons as string[] | undefined)
+    ?? []
+
+  return (
+    <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold ${tradeActionBadgeClass(action)}`}>
+          {action}
+        </span>
+        <span className="text-xs font-medium text-slate-300">{actionLabel}</span>
+        {trade.confidence_pct != null && (
+          <span className="text-xs font-medium text-teal-300">{fmtNum(trade.confidence_pct, 0)}% confidence</span>
+        )}
+        {trade.grade != null && (
+          <span className="inline-flex items-center rounded-md border border-slate-700/60 bg-slate-800/50 px-2 py-0.5 text-xs font-semibold text-slate-300">
+            Grade {String(trade.grade)}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div>
+          <p className="text-xs text-slate-500">{entryLabel}</p>
+          <p className="font-medium text-white">{currency}{fmtNum(trade.entry_price, 4)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Stop-loss</p>
+          <p className="font-medium text-rose-400">
+            {trade.sl_pct != null ? `−${fmtNum(trade.sl_pct, 1)}%` : '—'}
+            {trade.stop_price != null && (
+              <span className="ml-1 text-xs font-normal text-slate-500">({currency}{fmtNum(trade.stop_price, 4)})</span>
+            )}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Target</p>
+          <p className="font-medium text-emerald-400">
+            {trade.tp_pct != null ? `+${fmtNum(trade.tp_pct, 1)}%` : '—'}
+            {trade.target_price != null && (
+              <span className="ml-1 text-xs font-normal text-slate-500">({currency}{fmtNum(trade.target_price, 4)})</span>
+            )}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Reward : Risk</p>
+          <p className="font-medium text-white">{trade.rr != null ? `1 : ${fmtNum(trade.rr, 2)}` : '—'}</p>
+        </div>
+      </div>
+      {(trade.plain_english != null || trade.advice != null) && (
+        <p className="mt-3 text-xs leading-relaxed text-slate-300">{String(trade.plain_english ?? trade.advice)}</p>
+      )}
+      {confReasons.length > 0 && (
+        <ul className="mt-2 space-y-0.5 border-t border-slate-800/60 pt-2">
+          {confReasons.slice(0, 6).map((r) => (
+            <li key={r} className="text-xs text-slate-500">· {r}</li>
+          ))}
+        </ul>
+      )}
+      {legend && <p className="mt-2 text-[11px] text-slate-500">{legend}</p>}
+    </div>
+  )
+}
+
 function OptionLegsTable({ legs, currency, legOrder }: { legs: Row; currency: string; legOrder: Array<[string, string]> }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-800/60">
@@ -112,6 +259,7 @@ function DoubleCalendarResultCard({
   const reasons = (result.reasons as string[]) ?? []
   const netDebit = Number(result.net_debit ?? 0)
   const ltp = result.ltp as Row | undefined
+  const trade = resolveTradeSuggestion(result, Math.abs(stopLoss) * 100, takeProfitStart * 100)
 
   const [mark, setMark] = useState(netDebit)
   const pnlMut = useMutation({
@@ -127,10 +275,11 @@ function DoubleCalendarResultCard({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
       >
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{ticker}</span>
+        <OptionsSignalHeaderChips trade={trade} />
         <span className="text-slate-500">
           · LTP {ltpStr(ltp, currency)} · {isDiagonal ? 'Double Diagonal' : 'Double Calendar'} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} IV/vol ·
           {' '}Net debit {currency}{fmtNum(netDebit, 4)}
@@ -138,6 +287,13 @@ function DoubleCalendarResultCard({
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
+          <OptionsTradeSignalBlock
+            trade={trade}
+            currency={currency}
+            entryLabel="Entry (net debit)"
+            legend="BUY = enter the calendar · WAIT = skip until IV/range improves · SL/TP are % of debit paid"
+          />
+
           <p className="text-slate-300">
             <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
             Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
@@ -277,6 +433,7 @@ function DeltaNeutralResultCard({
   const netCredit = Number(result.net_credit ?? 0)
   const defensiveClose = result.defensive_close_price as number | null
   const ltp = result.ltp as Row | undefined
+  const trade = resolveTradeSuggestion(result, stopLossMultiple * 100, profitTargetPct * 100)
 
   const [mark, setMark] = useState(netCredit)
   const pnlMut = useMutation({
@@ -292,10 +449,11 @@ function DeltaNeutralResultCard({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
       >
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{ticker}</span>
+        <OptionsSignalHeaderChips trade={trade} />
         <span className="text-slate-500">
           · LTP {ltpStr(ltp, currency)} · {String(result.structure ?? '—')} · {entryOk ? '✅ Favorable' : '❌ Unfavorable'} ·
           {' '}Net credit {currency}{fmtNum(netCredit, 4)} · POP ~{fmtNum(result.pop_pct, 0)}%
@@ -303,6 +461,13 @@ function DeltaNeutralResultCard({
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
+          <OptionsTradeSignalBlock
+            trade={trade}
+            currency={currency}
+            entryLabel="Entry (net credit)"
+            legend="BUY = sell the iron structure · WAIT = skip until vol is high and tape is choppy · TP/SL vs credit received"
+          />
+
           <p className="text-slate-300">
             <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
             Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong> · Realized vol <strong>{fmtNum(result.realized_vol_pct, 2)}%</strong>
@@ -446,6 +611,7 @@ function HedgingResultCard({
   const supply = result.supply_zone as Row | null
   const adjustment = (result.adjustment_signal as Row) ?? {}
   const adjStatus = String(adjustment.status ?? 'NO_DATA')
+  const trade = resolveTradeSuggestion(result, maxLossPctOfCapital * 100, profitTargetPctOfCapital * 100)
   const reasons = (result.reasons as string[]) ?? []
   const ltp = result.ltp as Row | undefined
 
@@ -463,10 +629,11 @@ function HedgingResultCard({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800/30"
       >
         {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
         <span className="font-semibold text-white">{ticker}</span>
+        <OptionsSignalHeaderChips trade={trade} />
         <span className="text-slate-500">
           · LTP {ltpStr(ltp, currency)} · {ADJUSTMENT_BADGE[adjStatus] ?? adjStatus} ·{' '}
           Net credit {currency}{fmtNum(netCredit, 4)}
@@ -474,6 +641,13 @@ function HedgingResultCard({
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-800/60 px-3 py-3 text-sm">
+          <OptionsTradeSignalBlock
+            trade={trade}
+            currency={currency}
+            entryLabel="Entry (net credit)"
+            legend="BUY = enter the hedge · SELL = exit/adjust now · WAIT = stand by (no new entry/adjustment)"
+          />
+
           <p className="text-slate-300">
             <strong>LTP {ltpStr(ltp, currency)}</strong> {ltp?.price != null ? <span className="text-xs text-slate-500">(live quote)</span> : null} ·{' '}
             Spot (last close) <strong>{currency}{fmtNum(result.spot, 4)}</strong>
@@ -570,29 +744,32 @@ function GokulResultCard({ result, index, currency }: { result: Row; index: numb
   const plan = (result.trade_plan as Row) ?? null
   const reasons = (result.reasons as string[]) ?? (live.reasons as string[]) ?? []
   const verdict = String(live.verdict ?? result.verdict ?? 'WAIT')
-  const take = Boolean(live.take_trade)
-  const badge = take
-    ? (String(live.direction) === 'SHORT' ? '🔴 BUY PUT' : '🟢 BUY CALL')
-    : '⚪ WAIT'
+  const trade = resolveTradeSuggestion(result)
 
   return (
     <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left"
       >
-        <span className="text-sm font-medium text-white">
-          {String(result.ticker ?? '—')} · {badge} · align {String(result.alignment ?? live.phase ?? '—')} · conf {fmtNum(live.confidence_pct, 0)}%
+        <span className="text-sm font-semibold text-white">{String(result.ticker ?? '—')}</span>
+        <OptionsSignalHeaderChips trade={trade} />
+        <span className="text-xs text-slate-500">
+          · {String(trade.action_label ?? '')} · align {String(result.alignment ?? live.phase ?? '—')}
         </span>
-        {open ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
+        {open ? <ChevronDown size={14} className="ml-auto text-slate-500" /> : <ChevronRight size={14} className="ml-auto text-slate-500" />}
       </button>
       {open && (
         <div className="space-y-2 border-t border-slate-800/60 px-3 py-3 text-sm text-slate-300">
+          <OptionsTradeSignalBlock
+            trade={trade}
+            currency={currency}
+            entryLabel="Entry"
+            legend="BUY = buy Call · SELL = buy Put (bearish) · WAIT = no setup · SL/TP on option premium where available"
+          />
           <p>
             Spot {currency}{fmtNum(result.last_close ?? live.entry_price)} · Verdict <strong className="text-white">{verdict}</strong>
-            {live.sl_pct != null && <> · SL -{fmtNum(live.sl_pct)}%</>}
-            {live.tp_pct != null && <> · TP +{fmtNum(live.tp_pct)}%</>}
           </p>
           {plan && (
             <p className="text-xs text-slate-400">
@@ -644,28 +821,32 @@ function ZeroToHeroResultCard({ result, index, currency }: { result: Row; index:
   const reasons = (live.reasons as string[]) ?? []
   const verdict = String(live.verdict ?? 'WAIT')
   const take = Boolean(live.take_trade)
-  const badge = take
-    ? (String(live.direction) === 'SHORT' ? '🔴 BUY PUT' : '🟢 BUY CALL')
-    : '⚪ WAIT'
+  const trade = resolveTradeSuggestion(result)
 
   return (
     <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left"
       >
-        <span className="text-sm font-medium text-white">
-          {String(result.ticker ?? '—')} · {badge} · bias {String(live.phase ?? '—')} · conf {fmtNum(live.confidence_pct, 0)}%
+        <span className="text-sm font-semibold text-white">{String(result.ticker ?? '—')}</span>
+        <OptionsSignalHeaderChips trade={trade} />
+        <span className="text-xs text-slate-500">
+          · {String(trade.action_label ?? '')} · bias {String(live.phase ?? '—')}
         </span>
-        {open ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
+        {open ? <ChevronDown size={14} className="ml-auto text-slate-500" /> : <ChevronRight size={14} className="ml-auto text-slate-500" />}
       </button>
       {open && (
         <div className="space-y-2 border-t border-slate-800/60 px-3 py-3 text-sm text-slate-300">
+          <OptionsTradeSignalBlock
+            trade={trade}
+            currency={currency}
+            entryLabel="Entry"
+            legend="BUY = buy Call · SELL = buy Put · WAIT = no setup · TP is the 1:1 partial-book level"
+          />
           <p>
             Spot {currency}{fmtNum(result.last_close)} · Verdict <strong className="text-white">{verdict}</strong>
-            {live.sl_pct != null && <> · SL -{fmtNum(live.sl_pct)}%</>}
-            {live.tp_pct != null && <> · 1:1 book +{fmtNum(live.tp_pct)}%</>}
           </p>
           <p className="text-xs text-slate-400">
             Prev day high {fmtNum(live.prev_day_high)} · Prev day low {fmtNum(live.prev_day_low)}
@@ -723,12 +904,6 @@ function riskStanceBadgeClass(stance: string): string {
   return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
 }
 
-function tradeActionBadgeClass(action: string): string {
-  if (action === 'BUY') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-  if (action === 'SELL') return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
-  return 'border-slate-700/60 bg-slate-800/50 text-slate-300'
-}
-
 function OutlookLeg({ leg }: { leg: Row }) {
   const direction = String(leg.direction ?? 'NEUTRAL')
   const dirClass =
@@ -767,7 +942,7 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
   const plainEnglish = data.plain_english != null ? String(data.plain_english) : null
   const chainSignal = (data.chain_signal as Row | null) ?? null
   const outlook = (data.outlook as Row | null) ?? null
-  const trade = (data.trade_suggestion as Row | null) ?? null
+  const trade = resolveTradeSuggestion(data)
 
   return (
     <div className="space-y-4">
@@ -818,59 +993,15 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
         )}
       </div>
 
-      {trade && (
-        <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold ${tradeActionBadgeClass(String(trade.action ?? 'WAIT'))}`}>
-              {String(trade.action ?? 'WAIT')}
-            </span>
-            {trade.confidence_pct != null && (
-              <span className="text-xs font-medium text-slate-300">{fmtNum(trade.confidence_pct, 0)}% confidence</span>
-            )}
-            {trade.grade != null && (
-              <span className="inline-flex items-center rounded-md border border-slate-700/60 bg-slate-800/50 px-2 py-0.5 text-xs font-semibold text-slate-300">
-                Grade {String(trade.grade)}
-              </span>
-            )}
-          </div>
-
-          {trade.action !== 'WAIT' && (
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <div>
-                <p className="text-xs text-slate-500">Entry</p>
-                <p className="font-medium text-white">{fmtNum(trade.entry_price)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Stop-loss</p>
-                <p className="font-medium text-rose-400">
-                  {trade.sl_pct != null ? `-${fmtNum(trade.sl_pct, 1)}%` : '—'} ({fmtNum(trade.stop_price)})
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Target</p>
-                <p className="font-medium text-emerald-400">
-                  {trade.tp_pct != null ? `+${fmtNum(trade.tp_pct, 1)}%` : '—'} ({fmtNum(trade.target_price)})
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Reward : Risk</p>
-                <p className="font-medium text-white">{trade.rr != null ? `1 : ${fmtNum(trade.rr, 2)}` : '—'}</p>
-              </div>
-            </div>
-          )}
-
-          {trade.advice != null && (
-            <p className="mt-3 text-sm leading-relaxed text-slate-300">{String(trade.advice)}</p>
-          )}
-
-          {Array.isArray(trade.reasons) && (trade.reasons as string[]).length > 0 && (
-            <div className="mt-3 space-y-1 border-t border-slate-800/60 pt-3">
-              {(trade.reasons as string[]).map((r, i) => (
-                <p key={i} className="text-xs leading-relaxed text-slate-400">· {r}</p>
-              ))}
-            </div>
-          )}
-        </div>
+      {trade && trade.action != null && (
+        <OptionsTradeSignalBlock
+          trade={{
+            ...trade,
+            plain_english: trade.advice ?? trade.plain_english,
+            confidence_reasons: (trade.reasons as string[] | undefined) ?? (trade.confidence_reasons as string[] | undefined) ?? [],
+          }}
+          legend="BUY / SELL / WAIT from market prediction · SL% / TP% on the index idea"
+        />
       )}
 
       {outlook != null && Boolean(outlook.available) && (
