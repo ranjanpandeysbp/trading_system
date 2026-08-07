@@ -1551,6 +1551,42 @@ class CommandCenterService:
         )
         return json_safe(result)
 
+    async def comparative_strength_presets(self, asset_class: str = "india") -> dict[str, Any]:
+        from app.market_pulse.comparative_strength_engine import list_base_presets
+
+        return json_safe({"asset_class": asset_class, "presets": list_base_presets(asset_class)})
+
+    async def comparative_strength(
+        self,
+        *,
+        asset_class: str = "india",
+        base_symbol: str,
+        compare_symbols: list[str],
+        timeframe: str = "1d",
+        lookback_bars: int = 20,
+        exchange: str | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.comparative_strength_engine import compute_comparative_strength
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        _, token, _ = await self._ctx()
+        resolved_base = self.universe.resolve(asset_class, [base_symbol])[0]
+        resolved_peers = self.universe.resolve(asset_class, compare_symbols)
+
+        result = await asyncio.to_thread(
+            compute_comparative_strength,
+            asset_class=asset_class,
+            base_symbol=resolved_base,
+            compare_symbols=resolved_peers,
+            timeframe=timeframe,
+            lookback_bars=lookback_bars,
+            groww_token=token,
+            exchange=exchange or default_exchange,
+        )
+        # market string is already inside result; keep for debugging
+        result.setdefault("resolved_market", market)
+        return json_safe(result)
+
     async def day_bias(
         self, ticker: str, *, asset_class: str = "india", timeframe: str = "1d", exchange: str | None = None,
     ) -> dict[str, Any]:
@@ -1778,6 +1814,7 @@ class CommandCenterService:
                 {"id": "option_short_long", "label": "Option-Short-Long — OI Buildup · Buy/Sell Call/Put"},
                 {"id": "india_market_heatmap", "label": "IN-US-Crypto Market Heatmap"},
                 {"id": "advance_decline_graph", "label": "Advance Decline Graph"},
+                {"id": "comparative_strength", "label": "Comparative Strength — Base vs Peers"},
                 {"id": "nse_world_indices", "label": "NSE and World Indices"},
                 {"id": "coindcx_24h_volatility", "label": "24Hrs Volatile Crypto"},
                 {"id": "quick_analyzer", "label": "Quick Analyzer (India · US · Crypto)"},

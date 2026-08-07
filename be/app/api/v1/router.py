@@ -59,6 +59,7 @@ from app.models.schemas import (
     CommandCenterSmartMoneyActivityRequest,
     CommandCenterHeatmapRequest,
     CommandCenterAdvanceDeclineGraphRequest,
+    CommandCenterComparativeStrengthRequest,
     CommandCenterOneClickRequest,
     CommandCenterOptionChainRequest,
     CommandCenterOptionShortLongRequest,
@@ -2430,6 +2431,31 @@ async def command_center_advance_decline_graph(
         timeframe=payload.timeframe,
         session_date=payload.session_date,
         as_of_time=payload.as_of_time,
+    )
+
+
+@router.get("/command-center/comparative-strength/presets")
+async def command_center_comparative_strength_presets(
+    asset_class: str = "india",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).comparative_strength_presets(asset_class)
+
+
+@router.post("/command-center/comparative-strength")
+async def command_center_comparative_strength(
+    payload: CommandCenterComparativeStrengthRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await CommandCenterService(SettingsService(db)).comparative_strength(
+        asset_class=payload.asset_class,
+        base_symbol=payload.base_symbol,
+        compare_symbols=payload.compare_symbols,
+        timeframe=payload.timeframe,
+        lookback_bars=payload.lookback_bars,
+        exchange=payload.exchange,
     )
 
 

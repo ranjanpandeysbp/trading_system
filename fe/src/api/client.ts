@@ -260,9 +260,15 @@ export const getSettings = () => api.get<{
   benchmark_ticker: string
   gemini_token_set: boolean
   groq_token_set: boolean
+  claude_token_set: boolean
+  openai_token_set: boolean
   ai_provider: string
   groq_model: string
   gemini_model: string
+  claude_model: string
+  claude_endpoint: string
+  openai_model: string
+  openai_endpoint: string
   default_market: string
   youtube_api_key_set: boolean
   youtube_channel_ids: string
@@ -1453,6 +1459,21 @@ export const runAdvanceDeclineGraph = (payload: {
   session_date?: string
   as_of_time?: string
 }) => api.post('/command-center/advance-decline-graph', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchComparativeStrengthPresets = (asset_class: string) =>
+  api.get<{ asset_class: string; presets: Array<{ label: string; symbol: string }> }>(
+    '/command-center/comparative-strength/presets',
+    { params: { asset_class }, timeout: MP_TIMEOUT },
+  ).then((r) => r.data)
+
+export const runComparativeStrength = (payload: {
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  base_symbol: string
+  compare_symbols: string[]
+  timeframe?: string
+  lookback_bars?: number
+  exchange?: string
+}) => api.post('/command-center/comparative-strength', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runDayBias = (payload: { ticker: string; asset_class: string; timeframe: string; exchange?: string }) =>
   api.post('/command-center/day-bias', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

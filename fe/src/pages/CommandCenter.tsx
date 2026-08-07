@@ -55,6 +55,7 @@ import { MutualFundHoldingsPanel } from '../components/command-center/MutualFund
 import { EtfHoldingsPanel } from '../components/command-center/EtfHoldingsPanel'
 import { IndiaFiiDiiHoldingsPanel } from '../components/command-center/IndiaFiiDiiHoldingsPanel'
 import { AdvanceDeclineGraphPanel } from '../components/command-center/AdvanceDeclineGraphPanel'
+import { ComparativeStrengthPanel } from '../components/command-center/ComparativeStrengthPanel'
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
@@ -108,6 +109,7 @@ const TABS = [
   { id: 'option_short_long', label: 'Option-Short-Long — OI Buildup · Premium/Discount · Buy/Sell Call/Put (NSE)', icon: Target },
   { id: 'india_market_heatmap', label: 'IN-US-Crypto Market Heatmap', icon: Grid3x3 },
   { id: 'advance_decline_graph', label: 'Advance Decline Graph', icon: Activity },
+  { id: 'comparative_strength', label: 'Comparative Strength', icon: Scale },
   { id: 'nse_world_indices', label: 'NSE and World Indices', icon: Globe2 },
   { id: 'coindcx_24h_volatility', label: '24Hrs Volatile Crypto', icon: Flame },
   { id: 'quick_analyzer', label: 'Quick Analyzer', icon: Zap },
@@ -137,6 +139,7 @@ const CC_BG_SKIP = new Set<TabId>([
   'smart_money_activity',
   'detect_sector_rotation',
   'advance_decline_graph',
+  'comparative_strength',
 ])
 
 type TabId = (typeof TABS)[number]['id']
@@ -618,6 +621,8 @@ export default function CommandCenter() {
         <IndiaFiiDiiHoldingsPanel />
       ) : tab === 'advance_decline_graph' ? (
         <AdvanceDeclineGraphPanel />
+      ) : tab === 'comparative_strength' ? (
+        <ComparativeStrengthPanel />
       ) : tab === 'mutual_fund_holdings' ? (
         <MutualFundHoldingsPanel />
       ) : tab === 'etf_holdings' ? (
@@ -1124,7 +1129,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && (
+      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && tab !== 'comparative_strength' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>

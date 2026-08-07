@@ -1,11 +1,15 @@
-"""Gemini / Groq / Investing Agent AI reports — settings-backed keys (same pattern as Groww token)."""
+"""Gemini / Groq / Claude / OpenAI / Investing Agent AI reports — settings-backed keys."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from app.services.settings_service import SettingsService
+from app.services.settings_service import (
+    DEFAULT_CLAUDE_ENDPOINT,
+    DEFAULT_OPENAI_ENDPOINT,
+    SettingsService,
+)
 
 try:
     from groq import Groq
@@ -25,10 +29,28 @@ except ImportError:
         GENAI_NEW = False
         genai = None  # type: ignore
 
+try:
+    from anthropic import AnthropicFoundry
+except ImportError:
+    AnthropicFoundry = None  # type: ignore
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # type: ignore
+
 AI_PROVIDER_GEMINI = "Google Gemini"
 AI_PROVIDER_GROQ = "Groq (LLaMA)"
+AI_PROVIDER_CLAUDE = "Claude (Azure)"
+AI_PROVIDER_OPENAI = "OpenAI (Azure)"
 AI_PROVIDER_INVESTING_AGENT = "Investing Agent"
-SUPPORTED_AI_PROVIDERS = [AI_PROVIDER_GEMINI, AI_PROVIDER_GROQ, AI_PROVIDER_INVESTING_AGENT]
+SUPPORTED_AI_PROVIDERS = [
+    AI_PROVIDER_GEMINI,
+    AI_PROVIDER_GROQ,
+    AI_PROVIDER_CLAUDE,
+    AI_PROVIDER_OPENAI,
+    AI_PROVIDER_INVESTING_AGENT,
+]
 
 # Accept common aliases / casing from older saves
 _PROVIDER_ALIASES = {
@@ -36,6 +58,12 @@ _PROVIDER_ALIASES = {
     "gemini": AI_PROVIDER_GEMINI,
     "groq (llama)": AI_PROVIDER_GROQ,
     "groq": AI_PROVIDER_GROQ,
+    "claude (azure)": AI_PROVIDER_CLAUDE,
+    "claude": AI_PROVIDER_CLAUDE,
+    "anthropic": AI_PROVIDER_CLAUDE,
+    "openai (azure)": AI_PROVIDER_OPENAI,
+    "openai": AI_PROVIDER_OPENAI,
+    "azure openai": AI_PROVIDER_OPENAI,
     "investing agent": AI_PROVIDER_INVESTING_AGENT,
     "superinvesting": AI_PROVIDER_INVESTING_AGENT,
     "super investing": AI_PROVIDER_INVESTING_AGENT,
@@ -67,6 +95,23 @@ GEMINI_MODEL_OPTIONS = [
     "gemini-1.5-pro",
 ]
 
+CLAUDE_MODEL_OPTIONS = [
+    "claude-sonnet-5",
+    "claude-opus-4-1",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+]
+
+OPENAI_MODEL_OPTIONS = [
+    "gpt-5-nano",
+    "gpt-5-mini",
+    "gpt-5",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+]
+
 INVESTING_AGENT_MODEL = "superinvesting-chat"
 
 DEFAULT_ASK_AI_SYSTEM = """You are an expert trading analyst for Indian equities, US stocks, and crypto futures.
@@ -79,6 +124,48 @@ Then: Setup summary, key levels, risk (SL %), reward (TP %), and what would inva
 Do not invent prices or indicators not present in the context."""
 
 
+def _extract_openai_response_text(response: Any) -> str:
+    text = getattr(response, "output_text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+    parts: list[str] = []
+    for item in getattr(response, "output", None) or []:
+        content = getattr(item, "content", None)
+        if content is None and isinstance(item, dict):
+            content = item.get("content")
+        if not content:
+            # Some SDKs return a single content item / string-ish object
+            maybe = getattr(item, "text", None) or (item.get("text") if isinstance(item, dict) else None)
+            if maybe:
+                parts.append(str(maybe))
+            continue
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+                continue
+            btype = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+            if btype in ("output_text", "text"):
+                val = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else None)
+                if val:
+                    parts.append(str(val))
+            else:
+                val = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else None)
+                if val:
+                    parts.append(str(val))
+    return "\n".join(parts).strip()
+
+
+def _extract_claude_text(message: Any) -> str:
+    chunks: list[str] = []
+    for block in getattr(message, "content", None) or []:
+        text = getattr(block, "text", None)
+        if text:
+            chunks.append(str(text))
+        elif isinstance(block, dict) and block.get("text"):
+            chunks.append(str(block["text"]))
+    return "\n".join(chunks).strip()
+
+
 def call_ai_report(
     prompt_data: str,
     system_prompt: str,
@@ -88,11 +175,15 @@ def call_ai_report(
     *,
     user_intro: str | None = None,
     max_tokens: int = 3000,
+    base_url: str | None = None,
 ) -> str:
-    """Call Groq, Gemini, or Investing Agent and return report text."""
+    """Call Groq, Gemini, Claude, OpenAI, or Investing Agent and return report text."""
     provider = normalize_ai_provider(provider)
     if provider not in SUPPORTED_AI_PROVIDERS:
-        return "Custom AI provider is not supported. Use Google Gemini, Groq (LLaMA), or Investing Agent."
+        return (
+            "Custom AI provider is not supported. Use Google Gemini, Groq (LLaMA), "
+            "Claude (Azure), OpenAI (Azure), or Investing Agent."
+        )
     if not api_key:
         return f"Missing API key for {provider}. Add it in Manage → AI Settings."
 
@@ -108,6 +199,69 @@ def call_ai_report(
             if len(full) > 12000:
                 full = full[:12000] + "\n\n[Truncated.]"
             return analyze_message_sync(api_key, full)
+
+        if provider == AI_PROVIDER_CLAUDE:
+            if AnthropicFoundry is None:
+                return "Anthropic SDK not installed. Run: pip install anthropic"
+            endpoint = (base_url or DEFAULT_CLAUDE_ENDPOINT).rstrip("/")
+            client = AnthropicFoundry(api_key=api_key, base_url=endpoint)
+            message = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            text = _extract_claude_text(message)
+            return text or str(message.content)
+
+        if provider == AI_PROVIDER_OPENAI:
+            if OpenAI is None:
+                return "OpenAI SDK not installed. Run: pip install openai"
+            endpoint = (base_url or DEFAULT_OPENAI_ENDPOINT).rstrip("/")
+            client = OpenAI(base_url=endpoint, api_key=api_key)
+            # Prefer Responses API (Azure Foundry /gpt-5 style deployments).
+            # gpt-5* models spend tokens on reasoning first — a low max_output_tokens
+            # often returns status=incomplete with only a reasoning item and empty text.
+            out_tokens = max(int(max_tokens or 3000), 2048)
+            try:
+                create_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "instructions": system_prompt,
+                    "input": user_msg,
+                    "max_output_tokens": out_tokens,
+                }
+                # Prefer low reasoning when supported (faster + more room for answer text)
+                try:
+                    response = client.responses.create(
+                        **create_kwargs,
+                        reasoning={"effort": "low"},
+                    )
+                except TypeError:
+                    response = client.responses.create(**create_kwargs)
+                except Exception:
+                    response = client.responses.create(**create_kwargs)
+                text = _extract_openai_response_text(response)
+                if text:
+                    return text
+                status = getattr(response, "status", None)
+                if status == "incomplete":
+                    return (
+                        "OpenAI response incomplete (likely hit max_output_tokens while reasoning). "
+                        "Try again or raise max tokens in Ask AI."
+                    )
+            except Exception:
+                # Fallback for deployments that only expose chat.completions
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    max_tokens=out_tokens,
+                    temperature=0.35,
+                )
+                return resp.choices[0].message.content or ""
+            return "OpenAI returned an empty response."
 
         if provider == AI_PROVIDER_GROQ:
             if Groq is None:
@@ -152,11 +306,20 @@ class AIService:
     def __init__(self, settings: SettingsService):
         self.settings = settings
 
+    async def _base_url_for_provider(self, provider: str) -> str | None:
+        if provider == AI_PROVIDER_CLAUDE:
+            return await self.settings.get_claude_endpoint()
+        if provider == AI_PROVIDER_OPENAI:
+            return await self.settings.get_openai_endpoint()
+        return None
+
     async def provider_config(self) -> dict[str, Any]:
         provider = normalize_ai_provider(await self.settings.get_ai_provider())
         model = await self.settings.get_ai_model(provider)
         gemini_set = bool(await self.settings.get_gemini_api_key())
         groq_set = bool(await self.settings.get_groq_api_key())
+        claude_set = bool(await self.settings.get_claude_api_key())
+        openai_set = bool(await self.settings.get_openai_api_key())
         si_set = bool(await self.settings.get_superinvesting_token())
         key = await self.settings.get_api_key_for_provider(provider)
         return {
@@ -164,10 +327,16 @@ class AIService:
             "model": model,
             "gemini_token_set": gemini_set,
             "groq_token_set": groq_set,
+            "claude_token_set": claude_set,
+            "openai_token_set": openai_set,
             "superinvesting_token_set": si_set,
             "ready": bool(key),
             "groq_models": GROQ_MODEL_OPTIONS,
             "gemini_models": GEMINI_MODEL_OPTIONS,
+            "claude_models": CLAUDE_MODEL_OPTIONS,
+            "openai_models": OPENAI_MODEL_OPTIONS,
+            "claude_endpoint": await self.settings.get_claude_endpoint(),
+            "openai_endpoint": await self.settings.get_openai_endpoint(),
             "providers": SUPPORTED_AI_PROVIDERS,
         }
 
@@ -236,9 +405,10 @@ class AIService:
             system_prompt or DEFAULT_ASK_AI_SYSTEM,
             provider,
             model,
-            api_key,
+            api_key or "",
             user_intro=intro,
             max_tokens=max_tokens,
+            base_url=await self._base_url_for_provider(provider),
         )
 
         return {

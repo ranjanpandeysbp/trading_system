@@ -48,11 +48,11 @@ function fmtNum(v: unknown, digits = 0): string {
 function withChartRatio(series: Row[]): Row[] {
   return series.map((row) => {
     const ratio = row.ad_ratio != null ? Number(row.ad_ratio) : null
+    const volRatio = row.vol_ratio != null ? Number(row.vol_ratio) : null
     return {
       ...row,
       ad_ratio: ratio != null && Number.isFinite(ratio) ? ratio : null,
-      /** Distance from neutral 1.0 — positive = more advances, negative = more declines */
-      ad_ratio_vs_neutral: ratio != null && Number.isFinite(ratio) ? ratio - 1 : null,
+      vol_ratio: volRatio != null && Number.isFinite(volRatio) ? volRatio : null,
     }
   })
 }
@@ -71,24 +71,36 @@ function AdRatioChart({
     return <p className="text-sm text-slate-500">No points to chart yet.</p>
   }
 
-  const ratios = chartData.map((r) => Number(r.ad_ratio)).filter((n) => Number.isFinite(n))
+  const ratios = chartData
+    .flatMap((r) => [Number(r.ad_ratio), Number(r.vol_ratio)])
+    .filter((n) => Number.isFinite(n))
   const yMax = Math.min(10, Math.max(2, ...(ratios.length ? ratios : [2]), 1.2))
   const latest = chartData[chartData.length - 1]
   const latestRatio = latest?.ad_ratio != null ? Number(latest.ad_ratio) : null
+  const latestVol = latest?.vol_ratio != null ? Number(latest.vol_ratio) : null
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slate-200">{title}</p>
-        {latestRatio != null && (
-          <p className="text-xs text-slate-400">
-            Latest A/D ratio:{' '}
-            <strong className={latestRatio >= 1 ? 'text-emerald-300' : 'text-rose-300'}>
-              {fmtNum(latestRatio, 2)}
-            </strong>
-            <span className="text-slate-500"> (1.0 = even)</span>
-          </p>
-        )}
+        <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+          {latestRatio != null && (
+            <span>
+              A/D:{' '}
+              <strong className={latestRatio >= 1 ? 'text-emerald-300' : 'text-rose-300'}>
+                {fmtNum(latestRatio, 2)}
+              </strong>
+            </span>
+          )}
+          {latestVol != null && (
+            <span>
+              Vol:{' '}
+              <strong className={latestVol >= 1 ? 'text-amber-300' : 'text-slate-400'}>
+                {fmtNum(latestVol, 2)}
+              </strong>
+            </span>
+          )}
+        </div>
       </div>
       <div className="h-80 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -100,11 +112,9 @@ function AdRatioChart({
               domain={[0, yMax]}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               width={44}
-              label={{ value: 'A/D ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
+              label={{ value: 'Ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
             />
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: '#e2e8f0' }}
               content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null
                 const row = payload[0]?.payload as Row | undefined
@@ -112,8 +122,24 @@ function AdRatioChart({
                 return (
                   <div className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-200">
                     <p className="mb-1 font-medium text-white">{String(label)}</p>
-                    <p>A/D ratio: <strong className={Number(row.ad_ratio) >= 1 ? 'text-emerald-300' : 'text-rose-300'}>{fmtNum(row.ad_ratio, 2)}</strong></p>
-                    <p className="text-slate-400">Advances {fmtNum(row.advances)} · Declines {fmtNum(row.declines)} · Flat {fmtNum(row.unchanged)}</p>
+                    <p>
+                      A/D ratio:{' '}
+                      <strong className={Number(row.ad_ratio) >= 1 ? 'text-emerald-300' : 'text-rose-300'}>
+                        {fmtNum(row.ad_ratio, 2)}
+                      </strong>
+                      <span className="text-slate-500">
+                        {' '}({fmtNum(row.advances)}↑ / {fmtNum(row.declines)}↓)
+                      </span>
+                    </p>
+                    <p>
+                      Vol ratio:{' '}
+                      <strong className={Number(row.vol_ratio) >= 1 ? 'text-amber-300' : 'text-slate-300'}>
+                        {fmtNum(row.vol_ratio, 2)}
+                      </strong>
+                      <span className="text-slate-500">
+                        {' '}({fmtNum(row.volume_up)} vol↑ / {fmtNum(row.volume_down)} vol↓)
+                      </span>
+                    </p>
                   </div>
                 )
               }}
@@ -134,7 +160,7 @@ function AdRatioChart({
                   <Cell
                     key={`${String(row[xKey])}-${i}`}
                     fill={bullish ? '#34d399' : '#f87171'}
-                    fillOpacity={0.8}
+                    fillOpacity={0.55}
                   />
                 )
               })}
@@ -143,10 +169,21 @@ function AdRatioChart({
               yAxisId="ratio"
               type="monotone"
               dataKey="ad_ratio"
-              name="Ratio trend"
+              name="A/D trend"
               stroke="#a78bfa"
               strokeWidth={2}
               dot={{ r: 2, fill: '#c4b5fd' }}
+              connectNulls
+              legendType="line"
+            />
+            <Line
+              yAxisId="ratio"
+              type="monotone"
+              dataKey="vol_ratio"
+              name="Volume ratio"
+              stroke="#fbbf24"
+              strokeWidth={2.25}
+              dot={{ r: 2, fill: '#fcd34d' }}
               connectNulls
               legendType="line"
             />
@@ -154,11 +191,8 @@ function AdRatioChart({
         </ResponsiveContainer>
       </div>
       <p className="text-[11px] text-slate-500">
-        A/D ratio = Advances ÷ Declines. Above 1 (green) = more stocks rising · Below 1 (red) = more stocks falling ·
-        Dashed line = even (1.0). Ratio is capped at 10 when there are zero declines.
-      </p>
-      <p className="text-[11px] text-slate-600">
-        Hover a bar for raw advances / declines counts in the tooltip context — ratio is the main signal.
+        Green/red bars + violet = A/D ratio (price breadth). Amber line = volume ratio (activity breadth).
+        Both above 1 = healthier move; A/D up + volume down = hollow rally; A/D down + volume up = aggressive selling.
       </p>
     </div>
   )
@@ -206,9 +240,9 @@ export function AdvanceDeclineGraphPanel() {
           session</strong> — each bar until the optional as-of time <strong className="text-white">(all times IST)</strong>.
         </p>
         <p className="mb-3 text-xs leading-relaxed text-slate-500">
-          In plain English: the chart plots the <strong className="text-slate-400">Advance/Decline ratio</strong>{' '}
-          (stocks up ÷ stocks down). Above 1 = more winners; below 1 = more losers. After you plot, the results box
-          explains the latest reading in everyday language.
+          Charts show <strong className="text-slate-400">A/D ratio</strong> (price breadth) and{' '}
+          <strong className="text-slate-400">volume ratio</strong> (how many stocks got busier vs quieter).
+          Both above 1 = healthier move. After you plot, the results box explains both in plain English.
         </p>
 
         <div className="grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -298,6 +332,12 @@ export function AdvanceDeclineGraphPanel() {
                     <p className="mt-2 text-xs text-slate-400">
                       {String(outcome?.summary ?? data.plain_english ?? '')}
                     </p>
+                    {outcome?.combo_line != null && (
+                      <p className="mt-2 text-xs leading-relaxed text-amber-200/90">
+                        <span className="font-medium text-amber-200">Price + volume: </span>
+                        {String(outcome.combo_line)}
+                      </p>
+                    )}
                     {outcome?.what_it_means != null && (
                       <p className="mt-2 text-xs leading-relaxed text-violet-200/90">
                         <span className="font-medium text-violet-200">What it means: </span>
@@ -317,27 +357,34 @@ export function AdvanceDeclineGraphPanel() {
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard label="Universe" value={fmtNum(data.universe_size)} />
-                <StatCard label="Scanned (daily)" value={fmtNum(data.scanned_daily)} />
                 <StatCard
                   label="Latest A/D ratio"
                   value={latest?.ad_ratio != null ? fmtNum(latest.ad_ratio, 2) : '—'}
                 />
                 <StatCard
-                  label="Latest adv / dec"
-                  value={latest ? `${fmtNum(latest.advances)} / ${fmtNum(latest.declines)}` : '—'}
+                  label="Latest vol ratio"
+                  value={latest?.vol_ratio != null ? fmtNum(latest.vol_ratio, 2) : '—'}
+                />
+                <StatCard
+                  label="Adv / Dec · Vol↑ / Vol↓"
+                  value={
+                    latest
+                      ? `${fmtNum(latest.advances)}/${fmtNum(latest.declines)} · ${fmtNum(latest.volume_up)}/${fmtNum(latest.volume_down)}`
+                      : '—'
+                  }
                 />
               </div>
 
               <AdRatioChart
                 series={daily}
-                title={`Advance / Decline ratio — ${String(data.index_name)} (${fromDate} → ${toDate})`}
+                title={`A/D + Volume ratio — ${String(data.index_name)} (${fromDate} → ${toDate})`}
                 xKey="date"
               />
 
               {isIntraday && (
                 <AdRatioChart
                   series={intraday}
-                  title={`Intraday A/D ratio (${timeframe}) — ${String(data.session_date ?? sessionDate)} IST${data.as_of_time ? ` until ${String(data.as_of_time)} IST` : ''}`}
+                  title={`Intraday A/D + Volume (${timeframe}) — ${String(data.session_date ?? sessionDate)} IST${data.as_of_time ? ` until ${String(data.as_of_time)} IST` : ''}`}
                   xKey="label"
                 />
               )}

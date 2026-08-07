@@ -4,6 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.db_models import AppSetting
 
+DEFAULT_CLAUDE_ENDPOINT = "https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+DEFAULT_OPENAI_ENDPOINT = "https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1"
+DEFAULT_OPENAI_MODEL = "gpt-5-nano"
+
 
 class SettingsService:
     def __init__(self, db: AsyncSession):
@@ -56,16 +61,40 @@ class SettingsService:
             token = (os.getenv("GROQ_API_KEY") or "").strip()
         return token or None
 
+    async def get_claude_api_key(self) -> str | None:
+        token = await self._get("claude_api_key", "")
+        if not token:
+            import os
+            token = (
+                os.getenv("CLAUDE_API_KEY")
+                or os.getenv("ANTHROPIC_FOUNDRY_API_KEY")
+                or ""
+            ).strip()
+        return token or None
+
+    async def get_openai_api_key(self) -> str | None:
+        token = await self._get("openai_api_key", "")
+        if not token:
+            import os
+            token = (os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY") or "").strip()
+        return token or None
+
     async def get_ai_provider(self) -> str:
         provider = await self._get("ai_provider", "")
         if not provider:
             gemini = await self.get_gemini_api_key()
             groq = await self.get_groq_api_key()
+            claude = await self.get_claude_api_key()
+            openai = await self.get_openai_api_key()
             si = await self.get_superinvesting_token()
             if gemini:
                 return "Google Gemini"
             if groq:
                 return "Groq (LLaMA)"
+            if claude:
+                return "Claude (Azure)"
+            if openai:
+                return "OpenAI (Azure)"
             if si:
                 return "Investing Agent"
             return "Google Gemini"
@@ -79,12 +108,48 @@ class SettingsService:
         import os
         return await self._get("gemini_model", os.getenv("MODEL_NAME", "gemini-2.0-flash"))
 
+    async def get_claude_model(self) -> str:
+        import os
+        return await self._get(
+            "claude_model",
+            os.getenv("CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL),
+        )
+
+    async def get_claude_endpoint(self) -> str:
+        import os
+        return await self._get(
+            "claude_endpoint",
+            os.getenv("CLAUDE_ENDPOINT")
+            or os.getenv("ANTHROPIC_FOUNDRY_BASE_URL")
+            or DEFAULT_CLAUDE_ENDPOINT,
+        )
+
+    async def get_openai_model(self) -> str:
+        import os
+        return await self._get(
+            "openai_model",
+            os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        )
+
+    async def get_openai_endpoint(self) -> str:
+        import os
+        return await self._get(
+            "openai_endpoint",
+            os.getenv("OPENAI_ENDPOINT")
+            or os.getenv("AZURE_OPENAI_ENDPOINT")
+            or DEFAULT_OPENAI_ENDPOINT,
+        )
+
     async def get_ai_model(self, provider: str | None = None) -> str:
         provider = provider or await self.get_ai_provider()
         if provider == "Groq (LLaMA)":
             return await self.get_groq_model()
         if provider == "Investing Agent":
             return "superinvesting-chat"
+        if provider == "Claude (Azure)":
+            return await self.get_claude_model()
+        if provider == "OpenAI (Azure)":
+            return await self.get_openai_model()
         return await self.get_gemini_model()
 
     async def get_api_key_for_provider(self, provider: str) -> str | None:
@@ -94,6 +159,10 @@ class SettingsService:
             return await self.get_gemini_api_key()
         if provider == "Investing Agent":
             return await self.get_superinvesting_token()
+        if provider == "Claude (Azure)":
+            return await self.get_claude_api_key()
+        if provider == "OpenAI (Azure)":
+            return await self.get_openai_api_key()
         return None
 
     async def get_default_market(self) -> str:
@@ -155,9 +224,15 @@ class SettingsService:
             "benchmark_ticker": await self.get_benchmark_ticker(),
             "gemini_token_set": bool(await self.get_gemini_api_key()),
             "groq_token_set": bool(await self.get_groq_api_key()),
+            "claude_token_set": bool(await self.get_claude_api_key()),
+            "openai_token_set": bool(await self.get_openai_api_key()),
             "ai_provider": await self.get_ai_provider(),
             "groq_model": await self.get_groq_model(),
             "gemini_model": await self.get_gemini_model(),
+            "claude_model": await self.get_claude_model(),
+            "claude_endpoint": await self.get_claude_endpoint(),
+            "openai_model": await self.get_openai_model(),
+            "openai_endpoint": await self.get_openai_endpoint(),
             "default_market": await self.get_default_market(),
             "youtube_api_key_set": bool(await self.get_youtube_api_key(user_id)),
             "youtube_channel_ids": await self.get_youtube_channel_ids(user_id),
@@ -181,12 +256,24 @@ class SettingsService:
             await self._set("gemini_api_key", payload["gemini_api_key"])
         if payload.get("groq_api_key") is not None:
             await self._set("groq_api_key", payload["groq_api_key"])
+        if payload.get("claude_api_key") is not None:
+            await self._set("claude_api_key", payload["claude_api_key"].strip())
+        if payload.get("openai_api_key") is not None:
+            await self._set("openai_api_key", payload["openai_api_key"].strip())
         if payload.get("ai_provider") is not None:
             await self._set("ai_provider", payload["ai_provider"])
         if payload.get("groq_model") is not None:
             await self._set("groq_model", payload["groq_model"])
         if payload.get("gemini_model") is not None:
             await self._set("gemini_model", payload["gemini_model"])
+        if payload.get("claude_model") is not None:
+            await self._set("claude_model", payload["claude_model"].strip())
+        if payload.get("claude_endpoint") is not None:
+            await self._set("claude_endpoint", payload["claude_endpoint"].strip().rstrip("/"))
+        if payload.get("openai_model") is not None:
+            await self._set("openai_model", payload["openai_model"].strip())
+        if payload.get("openai_endpoint") is not None:
+            await self._set("openai_endpoint", payload["openai_endpoint"].strip().rstrip("/"))
         if payload.get("default_market") is not None:
             await self._set("default_market", payload["default_market"])
         if user_id is not None and (

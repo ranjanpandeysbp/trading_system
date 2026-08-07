@@ -29,8 +29,8 @@ except ImportError:
         GENAI_NEW = False
         genai = None
 
-AI_PROVIDER_OPTIONS = ["Google Gemini", "Groq (LLaMA)", "Investing Agent", "Custom / Other"]
-SUPPORTED_AI_PROVIDERS = ["Google Gemini", "Groq (LLaMA)", "Investing Agent"]
+AI_PROVIDER_OPTIONS = ["Google Gemini", "Groq (LLaMA)", "Claude (Azure)", "OpenAI (Azure)", "Investing Agent", "Custom / Other"]
+SUPPORTED_AI_PROVIDERS = ["Google Gemini", "Groq (LLaMA)", "Claude (Azure)", "OpenAI (Azure)", "Investing Agent"]
 DEFAULT_AI_PROVIDER_INDEX = default_ai_provider_index()
 
 GROQ_MODEL_OPTIONS = [
@@ -238,6 +238,12 @@ def get_ai_provider_settings() -> tuple[str, str, str]:
         model = st.session_state.get(_SHARED_GROQ_MODEL_KEY, get_groq_model())
     elif provider == "Investing Agent":
         model = "superinvesting-chat"
+    elif provider == "Claude (Azure)":
+        import os
+        model = st.session_state.get("shared_claude_model", os.getenv("CLAUDE_MODEL", "claude-sonnet-5"))
+    elif provider == "OpenAI (Azure)":
+        import os
+        model = st.session_state.get("shared_openai_model", os.getenv("OPENAI_MODEL", "gpt-5-nano"))
     else:
         model = st.session_state.get(_SHARED_GEMINI_MODEL_KEY, get_gemini_model())
     api_key = get_api_key_for_provider(provider)
@@ -296,6 +302,51 @@ def _render_ai_provider_widget_row(key_prefix: str = "global") -> tuple[str, str
                 groq_args["index"] = groq_index
             st.selectbox(**groq_args)
             model = st.session_state[gk]
+        elif provider == "Investing Agent":
+            st.caption("SuperInvesting chat (no model picker)")
+            model = "superinvesting-chat"
+        elif provider == "Claude (Azure)":
+            import os
+            claude_default = os.getenv("CLAUDE_MODEL", "claude-sonnet-5")
+            claude_opts = _model_options_with_env_default(
+                ["claude-sonnet-5", "claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4-5"],
+                claude_default,
+            )
+            ck = f"{key_prefix}_ai_claude_model"
+            c_index = claude_opts.index(shared_model) if shared_model in claude_opts else 0
+            c_args: dict = {
+                "label": "Model",
+                "options": claude_opts,
+                "key": ck,
+                "on_change": _on_ai_model_change,
+                "args": (key_prefix,),
+            }
+            if ck not in st.session_state:
+                c_args["index"] = c_index
+            st.selectbox(**c_args)
+            model = st.session_state[ck]
+            st.session_state["shared_claude_model"] = model
+        elif provider == "OpenAI (Azure)":
+            import os
+            openai_default = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+            openai_opts = _model_options_with_env_default(
+                ["gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+                openai_default,
+            )
+            ok = f"{key_prefix}_ai_openai_model"
+            o_index = openai_opts.index(shared_model) if shared_model in openai_opts else 0
+            o_args: dict = {
+                "label": "Model",
+                "options": openai_opts,
+                "key": ok,
+                "on_change": _on_ai_model_change,
+                "args": (key_prefix,),
+            }
+            if ok not in st.session_state:
+                o_args["index"] = o_index
+            st.selectbox(**o_args)
+            model = st.session_state[ok]
+            st.session_state["shared_openai_model"] = model
         else:
             gem_opts = _model_options_with_env_default(GEMINI_MODEL_OPTIONS, get_gemini_model())
             gem_index = (
@@ -318,7 +369,13 @@ def _render_ai_provider_widget_row(key_prefix: str = "global") -> tuple[str, str
     api_key = get_api_key_for_provider(provider)
     with col_s:
         if api_key:
-            short = "Groq" if provider == "Groq (LLaMA)" else "Gemini"
+            short = {
+                "Groq (LLaMA)": "Groq",
+                "Google Gemini": "Gemini",
+                "Claude (Azure)": "Claude",
+                "OpenAI (Azure)": "OpenAI",
+                "Investing Agent": "Investing",
+            }.get(provider, provider)
             st.caption(f"✅ `{short}` key from `.env`")
         else:
             st.warning(api_key_env_hint(provider), icon="⚠️")
@@ -352,20 +409,35 @@ def render_ai_config(key_prefix: str, caption: str = "AI View uses these setting
 
 
 def call_ai_report(prompt_data, system_prompt, provider, model, api_key, user_intro=None, max_tokens=3000):
-    """Call Groq, Gemini, or Investing Agent and return the report text."""
+    """Call Groq, Gemini, Claude, OpenAI, or Investing Agent and return the report text."""
     if provider == "Custom / Other":
-        return "❌ Custom / Other AI provider is not supported for AI View. Use Groq, Google Gemini, or Investing Agent."
-    if provider == "Investing Agent":
+        return "❌ Custom / Other AI provider is not supported for AI View. Use Groq, Gemini, Claude, OpenAI, or Investing Agent."
+    if provider in ("Investing Agent", "Claude (Azure)", "OpenAI (Azure)"):
+        import os
         from app.services.ai_service import call_ai_report as _svc_call
 
+        base_url = None
+        if provider == "Claude (Azure)":
+            base_url = (
+                os.getenv("CLAUDE_ENDPOINT")
+                or os.getenv("ANTHROPIC_FOUNDRY_BASE_URL")
+                or "https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic"
+            )
+        elif provider == "OpenAI (Azure)":
+            base_url = (
+                os.getenv("OPENAI_ENDPOINT")
+                or os.getenv("AZURE_OPENAI_ENDPOINT")
+                or "https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1"
+            )
         return _svc_call(
             prompt_data,
             system_prompt,
             provider,
-            model or "superinvesting-chat",
+            model or ("superinvesting-chat" if provider == "Investing Agent" else ""),
             api_key or "",
             user_intro=user_intro,
             max_tokens=max_tokens,
+            base_url=base_url,
         )
     if not api_key:
         return f"❌ {api_key_env_hint(provider)}"
@@ -400,7 +472,7 @@ def call_ai_report(prompt_data, system_prompt, provider, model, api_key, user_in
             return "❌ Google Gemini library not installed."
     except Exception as e:
         return f"❌ AI Report Error: {str(e)}\n\nPlease check your API key and model selection."
-    return "❌ Unknown AI provider. Use Google Gemini, Groq (LLaMA), or Investing Agent."
+    return "❌ Unknown AI provider. Use Google Gemini, Groq (LLaMA), Claude (Azure), OpenAI (Azure), or Investing Agent."
 
 
 def safe_ai_key(key: str) -> str:

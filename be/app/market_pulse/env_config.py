@@ -10,6 +10,8 @@ load_dotenv(_ROOT / ".env")
 
 GROQ_API_KEY_ENV = "GROQ_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
+CLAUDE_API_KEY_ENV = "CLAUDE_API_KEY"
+OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 GROQ_MODEL_ENV = "GROQ_MODEL"
 GEMINI_MODEL_ENV = "MODEL_NAME"
 
@@ -20,6 +22,18 @@ def get_groq_api_key() -> str:
 
 def get_gemini_api_key() -> str:
     return (os.getenv(GEMINI_API_KEY_ENV) or "").strip()
+
+
+def get_claude_api_key() -> str:
+    return (
+        os.getenv(CLAUDE_API_KEY_ENV)
+        or os.getenv("ANTHROPIC_FOUNDRY_API_KEY")
+        or ""
+    ).strip()
+
+
+def get_openai_api_key() -> str:
+    return (os.getenv(OPENAI_API_KEY_ENV) or os.getenv("AZURE_OPENAI_API_KEY") or "").strip()
 
 
 def get_groq_model(default: str = "llama-3.3-70b-versatile") -> str:
@@ -35,6 +49,10 @@ def get_api_key_for_provider(provider: str) -> str:
         return get_groq_api_key()
     if provider == "Google Gemini":
         return get_gemini_api_key()
+    if provider == "Claude (Azure)":
+        return get_claude_api_key()
+    if provider == "OpenAI (Azure)":
+        return get_openai_api_key()
     return ""
 
 
@@ -43,6 +61,10 @@ def api_key_env_hint(provider: str) -> str:
         return f"Set `{GROQ_API_KEY_ENV}` in your `.env` file (project root)."
     if provider == "Google Gemini":
         return f"Set `{GEMINI_API_KEY_ENV}` in your `.env` file (project root)."
+    if provider == "Claude (Azure)":
+        return f"Set `{CLAUDE_API_KEY_ENV}` (or ANTHROPIC_FOUNDRY_API_KEY) in `.env` / Manage → AI Settings."
+    if provider == "OpenAI (Azure)":
+        return f"Set `{OPENAI_API_KEY_ENV}` in `.env` / Manage → AI Settings."
     return "Enter your API key below."
 
 
@@ -52,12 +74,16 @@ def default_ai_provider() -> str:
         return "Google Gemini"
     if get_groq_api_key():
         return "Groq (LLaMA)"
+    if get_claude_api_key():
+        return "Claude (Azure)"
+    if get_openai_api_key():
+        return "OpenAI (Azure)"
     return "Google Gemini"
 
 
 def default_ai_provider_index() -> int:
     provider = default_ai_provider()
-    options = ["Google Gemini", "Groq (LLaMA)"]
+    options = ["Google Gemini", "Groq (LLaMA)", "Claude (Azure)", "OpenAI (Azure)"]
     return options.index(provider) if provider in options else 0
 
 

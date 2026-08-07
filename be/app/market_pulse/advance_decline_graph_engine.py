@@ -166,37 +166,57 @@ def _daily_series(
     from_dt: datetime,
     to_dt: datetime,
 ) -> list[dict[str, Any]]:
-    # date(str) -> advances/declines/unchanged
+    # date(str) -> advances/declines + volume_up/volume_down
     buckets: dict[str, dict[str, int]] = {}
     for _sym, df in frames.items():
         if "close" not in df.columns or len(df) < 2:
             continue
         closes = df["close"].astype(float)
-        # Pair each bar with previous close
-        prev = closes.shift(1)
-        for ts, close, pclose in zip(closes.index, closes.values, prev.values):
+        has_vol = "volume" in df.columns
+        vols = df["volume"].astype(float) if has_vol else None
+        prev_c = closes.shift(1)
+        prev_v = vols.shift(1) if vols is not None else None
+        for i, (ts, close, pclose) in enumerate(zip(closes.index, closes.values, prev_c.values)):
             if pd.isna(pclose):
                 continue
             d = pd.Timestamp(ts).to_pydatetime().date()
             if d < from_dt.date() or d > to_dt.date():
                 continue
             key = d.isoformat()
-            bucket = buckets.setdefault(key, {"advances": 0, "declines": 0, "unchanged": 0})
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "advances": 0, "declines": 0, "unchanged": 0,
+                    "volume_up": 0, "volume_down": 0, "volume_flat": 0,
+                },
+            )
             if close > pclose:
                 bucket["advances"] += 1
             elif close < pclose:
                 bucket["declines"] += 1
             else:
                 bucket["unchanged"] += 1
+            if vols is not None and prev_v is not None:
+                vol = float(vols.iloc[i])
+                pvol = float(prev_v.iloc[i]) if not pd.isna(prev_v.iloc[i]) else None
+                if pvol is not None and pvol >= 0:
+                    if vol > pvol:
+                        bucket["volume_up"] += 1
+                    elif vol < pvol:
+                        bucket["volume_down"] += 1
+                    else:
+                        bucket["volume_flat"] += 1
 
     series: list[dict[str, Any]] = []
     ad_line = 0
+    vol_line = 0
     for key in sorted(buckets.keys()):
         b = buckets[key]
         net = b["advances"] - b["declines"]
         ad_line += net
+        v_net = b["volume_up"] - b["volume_down"]
+        vol_line += v_net
         total = b["advances"] + b["declines"] + b["unchanged"]
-        ratio = _ad_ratio(b["advances"], b["declines"])
         series.append({
             "date": key,
             "label": key,
@@ -205,8 +225,14 @@ def _daily_series(
             "unchanged": b["unchanged"],
             "net": net,
             "total": total,
-            "ad_ratio": ratio,
+            "ad_ratio": _ad_ratio(b["advances"], b["declines"]),
             "ad_line": ad_line,
+            "volume_up": b["volume_up"],
+            "volume_down": b["volume_down"],
+            "volume_flat": b["volume_flat"],
+            "vol_net": v_net,
+            "vol_ratio": _ad_ratio(b["volume_up"], b["volume_down"]),
+            "vol_line": vol_line,
         })
     return series
 
@@ -218,59 +244,79 @@ def _intraday_series(
     as_of: time | None,
 ) -> list[dict[str, Any]]:
     day = session_date.date()
-    # Per timestamp: list of +1 / -1 / 0 from each stock's bar at that stamp
-    # Use floor to minute string for alignment across stocks
-    by_ts: dict[str, list[int]] = {}
+    # timestamp -> list of price signals (+1/-1/0) and volume signals
+    by_ts_px: dict[str, list[int]] = {}
+    by_ts_vol: dict[str, list[int]] = {}
 
     for _sym, df in frames.items():
         if "close" not in df.columns or len(df) < 2:
             continue
         day_df = df[df.index.normalize() == pd.Timestamp(day)]
         if day_df.empty:
-            # Some feeds are tz-naive but date match via .date()
             day_df = df[[pd.Timestamp(i).date() == day for i in df.index]]
         if len(day_df) < 1:
             continue
 
-        # Need previous close: last bar before session, else first prior bar overall
         prior = df[df.index < day_df.index[0]]
         prev_close = float(prior["close"].iloc[-1]) if len(prior) else None
+        has_vol = "volume" in day_df.columns
+        prev_vol = float(prior["volume"].iloc[-1]) if has_vol and len(prior) and "volume" in prior.columns else None
 
         closes = day_df["close"].astype(float)
+        vols = day_df["volume"].astype(float) if has_vol else None
         for i, (ts, close) in enumerate(zip(closes.index, closes.values)):
             if not _in_nse_session(ts):
                 continue
             t = pd.Timestamp(ts).to_pydatetime().time()
             if as_of is not None and t > as_of:
                 break
-            prev_in_session = None
+            prev_in_session_i = None
             for j in range(i - 1, -1, -1):
                 if _in_nse_session(closes.index[j]):
-                    prev_in_session = float(closes.iloc[j])
+                    prev_in_session_i = j
                     break
-            if prev_in_session is not None:
-                pclose = prev_in_session
+            if prev_in_session_i is not None:
+                pclose = float(closes.iloc[prev_in_session_i])
+                pvol = float(vols.iloc[prev_in_session_i]) if vols is not None else None
             else:
                 pclose = prev_close if prev_close is not None else close
+                pvol = prev_vol
+
             if close > pclose:
-                sig = 1
+                psig = 1
             elif close < pclose:
-                sig = -1
+                psig = -1
             else:
-                sig = 0
+                psig = 0
+
+            vsig = 0
+            if vols is not None and pvol is not None:
+                vol = float(vols.iloc[i])
+                if vol > pvol:
+                    vsig = 1
+                elif vol < pvol:
+                    vsig = -1
+
             key = pd.Timestamp(ts).strftime("%Y-%m-%d %H:%M")
-            by_ts.setdefault(key, []).append(sig)
+            by_ts_px.setdefault(key, []).append(psig)
+            by_ts_vol.setdefault(key, []).append(vsig)
 
     series: list[dict[str, Any]] = []
     ad_line = 0
-    for key in sorted(by_ts.keys()):
-        sigs = by_ts[key]
-        adv = sum(1 for s in sigs if s > 0)
-        dec = sum(1 for s in sigs if s < 0)
-        unc = sum(1 for s in sigs if s == 0)
+    vol_line = 0
+    for key in sorted(by_ts_px.keys()):
+        psigs = by_ts_px[key]
+        vsigs = by_ts_vol.get(key, [])
+        adv = sum(1 for s in psigs if s > 0)
+        dec = sum(1 for s in psigs if s < 0)
+        unc = sum(1 for s in psigs if s == 0)
+        v_up = sum(1 for s in vsigs if s > 0)
+        v_dn = sum(1 for s in vsigs if s < 0)
+        v_flat = sum(1 for s in vsigs if s == 0)
         net = adv - dec
         ad_line += net
-        ratio = _ad_ratio(adv, dec)
+        v_net = v_up - v_dn
+        vol_line += v_net
         hhmm = key[11:] if len(key) >= 16 else key
         series.append({
             "date": key,
@@ -283,8 +329,14 @@ def _intraday_series(
             "unchanged": unc,
             "net": net,
             "total": adv + dec + unc,
-            "ad_ratio": ratio,
+            "ad_ratio": _ad_ratio(adv, dec),
             "ad_line": ad_line,
+            "volume_up": v_up,
+            "volume_down": v_dn,
+            "volume_flat": v_flat,
+            "vol_net": v_net,
+            "vol_ratio": _ad_ratio(v_up, v_dn),
+            "vol_line": vol_line,
         })
     return series
 
@@ -300,6 +352,60 @@ def _parse_as_of(as_of_time: str | None) -> time | None:
         except ValueError:
             continue
     return None
+
+
+def _volume_mood(volume_up: int, volume_down: int, volume_flat: int = 0) -> tuple[str, str]:
+    """Return (mood_label, one_line) for volume-breadth layman copy."""
+    total = volume_up + volume_down + volume_flat
+    if total <= 0:
+        return "NO VOLUME DATA", "Volume comparison was not available for enough stocks."
+    if volume_down == 0 and volume_up > 0:
+        return "VOLUME EXPANDING", "Almost every stock traded more than the prior period — activity is heating up."
+    if volume_up == 0 and volume_down > 0:
+        return "VOLUME DRYING UP", "Almost every stock traded less than the prior period — activity is fading."
+    ratio = volume_up / max(volume_down, 1)
+    net = volume_up - volume_down
+    share_up = volume_up / total
+    if share_up >= 0.65 or ratio >= 2.0:
+        return "VOLUME EXPANDING", "More stocks saw higher volume than lower — participation/interest is rising."
+    if share_up <= 0.35 or ratio <= 0.5:
+        return "VOLUME DRYING UP", "More stocks saw lower volume — the move may lack fuel."
+    if abs(net) <= max(2, int(total * 0.05)):
+        return "VOLUME MIXED", "Volume up and volume down are nearly tied — no clear activity skew."
+    if net > 0:
+        return "VOLUME SLIGHTLY UP", "Slightly more stocks traded heavier than lighter."
+    return "VOLUME SLIGHTLY DOWN", "Slightly more stocks traded lighter than heavier."
+
+
+def _combine_price_volume(ad_mood: str, vol_mood: str) -> str:
+    """Plain-English combo of price breadth + volume breadth."""
+    bullish_px = "BULLISH" in ad_mood or ad_mood.startswith("MILDLY BULLISH")
+    bearish_px = "BEARISH" in ad_mood or ad_mood.startswith("MILDLY BEARISH")
+    vol_up = "EXPANDING" in vol_mood or "SLIGHTLY UP" in vol_mood
+    vol_dn = "DRYING" in vol_mood or "SLIGHTLY DOWN" in vol_mood
+    if bullish_px and vol_up:
+        return (
+            "Price breadth and volume are both expanding — a healthier, better-confirmed advance "
+            "(more stocks rising on rising activity)."
+        )
+    if bullish_px and vol_dn:
+        return (
+            "Prices are advancing but volume is drying up — a softer / hollow rally that can fade "
+            "(ups without growing interest)."
+        )
+    if bearish_px and vol_up:
+        return (
+            "Prices are falling with expanding volume — more aggressive selling "
+            "(downs on rising activity)."
+        )
+    if bearish_px and vol_dn:
+        return (
+            "Prices are soft but volume is quiet — a drift lower rather than a panic "
+            "(selling without a surge in activity)."
+        )
+    return (
+        "Price breadth and volume breadth are mixed — wait for them to line up before trusting the move."
+    )
 
 
 def _breadth_mood(advances: int, declines: int, unchanged: int = 0) -> tuple[str, str]:
@@ -340,12 +446,20 @@ def _build_outcome_layman(
 ) -> dict[str, Any]:
     last = daily[-1] if daily else None
     mood, mood_line = ("NO DATA", "No daily points yet.")
+    vol_mood, vol_line = ("NO VOLUME DATA", "No volume points yet.")
     if last:
         mood, mood_line = _breadth_mood(
             int(last.get("advances") or 0),
             int(last.get("declines") or 0),
             int(last.get("unchanged") or 0),
         )
+        vol_mood, vol_line = _volume_mood(
+            int(last.get("volume_up") or 0),
+            int(last.get("volume_down") or 0),
+            int(last.get("volume_flat") or 0),
+        )
+
+    combo = _combine_price_volume(mood, vol_mood)
 
     # Trend of A/D line over the window
     ad_trend = "flat"
@@ -372,8 +486,25 @@ def _build_outcome_layman(
                 f"(net {int(delta):+d}). Breadth did not clearly improve or deteriorate."
             )
 
+    vol_trend_note = ""
+    if len(daily) >= 2 and daily[-1].get("vol_line") is not None:
+        v0 = float(daily[0].get("vol_line") or 0)
+        v1 = float(daily[-1].get("vol_line") or 0)
+        vd = v1 - v0
+        if vd > 5:
+            vol_trend_note = (
+                f"Cumulative volume-breadth also rose (net +{int(vd)}) — activity expanded across the window."
+            )
+        elif vd < -5:
+            vol_trend_note = (
+                f"Cumulative volume-breadth fell (net {int(vd)}) — activity faded across the window."
+            )
+        else:
+            vol_trend_note = "Cumulative volume-breadth stayed roughly flat across the window."
+
     intra_mood = None
     intra_line = None
+    intra_vol_line = None
     if is_intraday and intraday:
         last_i = intraday[-1]
         intra_mood, intra_line = _breadth_mood(
@@ -381,54 +512,73 @@ def _build_outcome_layman(
             int(last_i.get("declines") or 0),
             int(last_i.get("unchanged") or 0),
         )
+        _vm, vline = _volume_mood(
+            int(last_i.get("volume_up") or 0),
+            int(last_i.get("volume_down") or 0),
+            int(last_i.get("volume_flat") or 0),
+        )
         until = f" until {as_of.strftime('%H:%M')} IST" if as_of else ""
         intra_line = (
             f"On {session_date} ({timeframe} bars{until}): {intra_line} "
             f"Last bar — {last_i.get('advances')} up / {last_i.get('declines')} down / "
-            f"{last_i.get('unchanged')} flat."
+            f"{last_i.get('unchanged')} flat (A/D ratio {last_i.get('ad_ratio', '—')})."
+        )
+        intra_vol_line = (
+            f"Same session volume: {vline} "
+            f"Last bar — {last_i.get('volume_up')} volume-up / {last_i.get('volume_down')} volume-down "
+            f"(vol ratio {last_i.get('vol_ratio', '—')})."
         )
 
-    headline = f"{index_name}: {mood}"
+    headline = f"{index_name}: {mood} · {vol_mood}"
     summary_parts = [
         f"We checked about {universe_size} stocks that make up {index_name}.",
-        "The graph shows the Advance/Decline ratio (ups ÷ downs). Above 1 means more stocks rose; below 1 means more fell.",
-        "Green bars = ratio ≥ 1 (bullish breadth). Red bars = ratio < 1 (bearish breadth). The dashed line at 1.0 is even.",
+        "Top chart: Advance/Decline ratio (stocks up ÷ stocks down). Above 1 = more winners.",
+        "Same chart also shows Volume ratio (stocks with higher volume ÷ stocks with lower volume). Above 1 = activity expanding.",
     ]
     if last:
-        ratio = last.get("ad_ratio")
         summary_parts.append(
-            f"On the latest day ({last.get('date')}): "
-            f"{last.get('advances')} stocks advanced, {last.get('declines')} declined "
-            f"(A/D ratio {ratio if ratio is not None else '—'}). Verdict: {mood_line}"
+            f"Latest day ({last.get('date')}): "
+            f"A/D {last.get('advances')}/{last.get('declines')} (ratio {last.get('ad_ratio', '—')}) — {mood_line} "
+            f"Volume-up {last.get('volume_up')}/{last.get('volume_down')} (ratio {last.get('vol_ratio', '—')}) — {vol_line}"
         )
+    summary_parts.append(combo)
     summary_parts.append(ad_note)
+    if vol_trend_note:
+        summary_parts.append(vol_trend_note)
     if intra_line:
         summary_parts.append(intra_line)
+    if intra_vol_line:
+        summary_parts.append(intra_vol_line)
 
     what_it_means = (
-        "Think of this as a crowd count, not a price tip. "
-        "If the index is up but most stocks are red, a few big names may be carrying the move — fragile rally. "
-        "If the index is flat/down but most stocks are green, selling may be concentrated — healthier under the hood. "
-        "Use it with price, not instead of it."
+        "Price breadth answers “how many stocks moved which way?” "
+        "Volume breadth answers “are more stocks getting busier or quieter?” "
+        "Best bullish confirmation: A/D ratio > 1 and volume ratio > 1. "
+        "Best bearish confirmation: A/D ratio < 1 and volume ratio > 1 (selling with activity). "
+        "A rise on falling volume is often less trustworthy. Use with price, not instead of it."
     )
 
     return {
         "headline": headline,
         "mood": mood,
         "mood_line": mood_line,
+        "volume_mood": vol_mood,
+        "volume_mood_line": vol_line,
+        "combo_line": combo,
         "ad_trend": ad_trend,
         "ad_trend_line": ad_note,
         "intraday_mood": intra_mood,
         "intraday_line": intra_line,
+        "intraday_volume_line": intra_vol_line,
         "summary": " ".join(summary_parts),
         "what_it_means": what_it_means,
         "how_to_read": [
-            "A/D ratio = Advances ÷ Declines (main graph).",
-            "Ratio above 1 (green) — more stocks rose than fell that period.",
-            "Ratio below 1 (red) — more stocks fell than rose.",
-            "Dashed line at 1.0 — even breadth (same number up and down).",
-            "Daily chart — one ratio per trading day across your date range.",
-            "Intraday chart — ratio at each bar that day (IST) up to your as-of time.",
+            "A/D ratio (green/red bars + violet line) = Advances ÷ Declines. Above 1 = more stocks rose.",
+            "Volume ratio (amber line) = Volume-up ÷ Volume-down. Above 1 = more stocks got busier.",
+            "Dashed line at 1.0 = even for both ratios.",
+            "A/D > 1 + Vol > 1 → healthier advance. A/D > 1 + Vol < 1 → hollow rally.",
+            "A/D < 1 + Vol > 1 → aggressive selling. A/D < 1 + Vol < 1 → quiet drift lower.",
+            "Daily chart = one reading per session. Intraday = each bar in IST session hours.",
         ],
     }
 

@@ -132,9 +132,15 @@ class SettingsResponse(BaseModel):
     benchmark_ticker: str
     gemini_token_set: bool = False
     groq_token_set: bool = False
+    claude_token_set: bool = False
+    openai_token_set: bool = False
     ai_provider: str = "Google Gemini"
     groq_model: str = "llama-3.3-70b-versatile"
     gemini_model: str = "gemini-2.0-flash"
+    claude_model: str = "claude-sonnet-5"
+    claude_endpoint: str = "https://atul-mjil3w7p-swedencentral.services.ai.azure.com/anthropic"
+    openai_model: str = "gpt-5-nano"
+    openai_endpoint: str = "https://aiadvisorassis8258039388.services.ai.azure.com/openai/v1"
     default_market: str = "Groww (India Stocks)"
     youtube_api_key_set: bool = False
     youtube_channel_ids: str = ""
@@ -150,9 +156,15 @@ class SettingsUpdate(BaseModel):
     benchmark_ticker: str | None = None
     gemini_api_key: str | None = None
     groq_api_key: str | None = None
+    claude_api_key: str | None = None
+    openai_api_key: str | None = None
     ai_provider: str | None = None
     groq_model: str | None = None
     gemini_model: str | None = None
+    claude_model: str | None = None
+    claude_endpoint: str | None = None
+    openai_model: str | None = None
+    openai_endpoint: str | None = None
     default_market: str | None = None
     youtube_api_key: str | None = None
     youtube_channel_ids: str | None = None
@@ -461,6 +473,15 @@ class CommandCenterAdvanceDeclineGraphRequest(BaseModel):
     timeframe: str = Field(default="1d", description="1d (daily) or intraday: 5m, 10m, 15m, 30m, 1h")
     session_date: str | None = Field(default=None, description="Session day for intraday (defaults to to_date)")
     as_of_time: str | None = Field(default=None, description="Optional HH:MM — include bars up to this time")
+
+
+class CommandCenterComparativeStrengthRequest(BaseModel):
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    base_symbol: str = Field(..., min_length=1, max_length=64)
+    compare_symbols: list[str] = Field(..., min_length=1)
+    timeframe: str = Field(default="1d", description="5m, 15m, 1h, 4h, 1d, 1w")
+    lookback_bars: int = Field(default=20, ge=3, le=120)
+    exchange: str | None = None
 
 
 class CommandCenterSma20200Request(BaseModel):
