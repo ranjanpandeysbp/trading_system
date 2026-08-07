@@ -70,6 +70,8 @@ def list_index_names() -> list[str]:
 
 
 IST = "Asia/Kolkata"
+NSE_OPEN = time(9, 15)
+NSE_CLOSE = time(15, 30)
 
 
 def _parse_date(s: str) -> datetime:
@@ -77,13 +79,23 @@ def _parse_date(s: str) -> datetime:
 
 
 def _to_ist_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Normalize bar times to Asia/Kolkata (IST), returned as tz-naive IST wall clock."""
+    """Normalize bar times to Asia/Kolkata (IST), returned as tz-naive IST wall clock.
+
+    Groww candles use unix seconds → pandas builds a *naive UTC* index
+    (`pd.to_datetime(..., unit='s')`). Treating that as IST left the chart at
+    04:00–08:00 instead of the real 09:30–15:30 session. Always map naive
+    stamps through UTC → IST.
+    """
     if not isinstance(idx, pd.DatetimeIndex):
         idx = pd.to_datetime(idx)
     if getattr(idx, "tz", None) is not None:
         return idx.tz_convert(IST).tz_localize(None)
-    # Naive India feed timestamps are already exchange-local (IST).
-    return idx
+    return idx.tz_localize("UTC").tz_convert(IST).tz_localize(None)
+
+
+def _in_nse_session(ts: pd.Timestamp) -> bool:
+    t = pd.Timestamp(ts).to_pydatetime().time()
+    return NSE_OPEN <= t <= NSE_CLOSE
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -226,13 +238,20 @@ def _intraday_series(
 
         closes = day_df["close"].astype(float)
         for i, (ts, close) in enumerate(zip(closes.index, closes.values)):
+            if not _in_nse_session(ts):
+                continue
             t = pd.Timestamp(ts).to_pydatetime().time()
             if as_of is not None and t > as_of:
                 break
-            if i == 0:
-                pclose = prev_close if prev_close is not None else close
+            prev_in_session = None
+            for j in range(i - 1, -1, -1):
+                if _in_nse_session(closes.index[j]):
+                    prev_in_session = float(closes.iloc[j])
+                    break
+            if prev_in_session is not None:
+                pclose = prev_in_session
             else:
-                pclose = float(closes.iloc[i - 1])
+                pclose = prev_close if prev_close is not None else close
             if close > pclose:
                 sig = 1
             elif close < pclose:
