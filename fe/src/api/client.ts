@@ -1453,7 +1453,7 @@ export const fetchAdvanceDeclineGraphIndices = (asset_class: string = 'india') =
   }).then((r) => r.data)
 
 export const runAdvanceDeclineGraph = (payload: {
-  asset_class?: 'india' | 'us' | 'crypto'
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
   index_name: string
   from_date: string
   to_date: string

@@ -8,7 +8,7 @@ universe from constituent OHLCV — exchanges often do not publish a historical
 A/D time series API.
 
 Asset classes: india (NSE indices), us (Dow / Nasdaq / S&P / ETFs), crypto
-(CoinDCX USDT majors).
+(CoinDCX USDT majors), commodity (Yahoo futures + related liquid names).
 
 Modes
   daily     — for each session date in [from_date, to_date], count how many
@@ -55,6 +55,29 @@ _SESSION = {
     "india": (time(9, 15), time(15, 30), "Asia/Kolkata", "IST"),
     "us": (time(9, 30), time(16, 0), "America/New_York", "ET"),
     "crypto": (None, None, "UTC", "UTC"),
+    # Commodity futures / related equities trade on US hours via Yahoo
+    "commodity": (time(9, 30), time(16, 0), "America/New_York", "ET"),
+}
+
+# Commodity A/D universes (Yahoo symbols). Futures alone are thin — baskets mix
+# front-month futures with liquid related equities / ETFs for meaningful breadth.
+_COMMODITY_UNIVERSES: dict[str, list[str]] = {
+    "All Commodities": [
+        "CL=F", "GC=F", "SI=F", "HG=F", "NG=F", "ZW=F", "ZC=F", "ZS=F", "BHP",
+        "XLE", "GLD", "SLV", "CPER", "UNG", "USO",
+    ],
+    "Energy complex": [
+        "CL=F", "NG=F", "BZ=F", "XOM", "CVX", "SLB", "COP", "EOG", "OXY", "XLE", "USO", "UNG",
+    ],
+    "Precious metals": [
+        "GC=F", "SI=F", "GLD", "SLV", "GDX", "NEM", "AEM", "GOLD",
+    ],
+    "Industrial metals": [
+        "HG=F", "BHP", "FCX", "SCCO", "RIO", "VALE", "CPER",
+    ],
+    "Agri / softs": [
+        "ZW=F", "ZC=F", "ZS=F", "KC=F", "CT=F", "SB=F", "ADM", "BG", "DE",
+    ],
 }
 
 
@@ -108,6 +131,9 @@ def list_index_names(asset_class: str = "india") -> list[str]:
             "Top 100 Crypto",
             "Majors (ex-BTC)",
         ]
+
+    if ac == "commodity":
+        return list(_COMMODITY_UNIVERSES.keys())
 
     # india (default)
     skip = {"Default Groww Tickers", "High Vol ETF"}
@@ -167,13 +193,40 @@ def resolve_universe_symbols(asset_class: str, index_name: str) -> list[str]:
             return [t for t in majors if t in tickers] or tickers[1:16]
         return tickers[:50]
 
+    if ac == "commodity":
+        symbols = list(_COMMODITY_UNIVERSES.get(name) or [])
+        if not symbols:
+            # fuzzy match universe label
+            for k, v in _COMMODITY_UNIVERSES.items():
+                if name.lower() in k.lower() or k.lower() in name.lower():
+                    symbols = list(v)
+                    break
+        if not symbols:
+            # fall back to COMMODITY_META Yahoo fronts + a few ETFs
+            try:
+                from app.market_pulse.commodity_screener_engine import COMMODITY_META
+
+                symbols = [str(m["yf"]) for m in COMMODITY_META.values()]
+                symbols += ["XLE", "GLD", "SLV", "USO"]
+            except Exception:
+                symbols = list(_COMMODITY_UNIVERSES["All Commodities"])
+        # de-dupe preserve order
+        seen: set[str] = set()
+        out: list[str] = []
+        for s in symbols:
+            u = str(s).strip().upper()
+            if u and u not in seen:
+                seen.add(u)
+                out.append(u)
+        return out[:_HARD_CAP]
+
     # india
     return list(get_index_constituent_symbols(name) or [])[:_HARD_CAP]
 
 
 def _currency_for(asset_class: str) -> str:
     ac = (asset_class or "india").strip().lower()
-    if ac in ("us", "crypto"):
+    if ac in ("us", "crypto", "commodity"):
         return "$"
     return "₹"
 
@@ -223,6 +276,11 @@ def _options_snapshot(
         return {
             "available": False,
             "reason": "US options chain is not wired into Advance Decline yet — India F&O only.",
+        }
+    if ac == "commodity":
+        return {
+            "available": False,
+            "reason": "Commodity options are not wired into Advance Decline — India F&O only.",
         }
     if ac != "india":
         return {"available": False, "reason": f"Options not supported for asset class '{ac}'."}
@@ -295,7 +353,7 @@ def _options_snapshot(
 
 def _market_for(asset_class: str) -> str:
     ac = (asset_class or "india").strip().lower()
-    if ac == "us":
+    if ac in ("us", "commodity"):
         return US_MARKET
     if ac == "crypto":
         return CRYPTO_MARKET
@@ -1033,7 +1091,7 @@ def compute_advance_decline_graph(
 ) -> dict[str, Any]:
     """Build daily and/or intraday advance–decline series for an index universe."""
     ac = (asset_class or "india").strip().lower()
-    if ac not in ("india", "us", "crypto"):
+    if ac not in ("india", "us", "crypto", "commodity"):
         ac = "india"
     market = _market_for(ac)
     _open_t, _close_t, _tz_name, tz_label = _session_meta(ac)

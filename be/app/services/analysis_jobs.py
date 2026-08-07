@@ -316,6 +316,17 @@ async def _execute_command_center(section: str, payload: dict[str, Any], *, sett
             lookback_bars=int(payload.get("lookback_bars") or 20),
             exchange=payload.get("exchange"),
         )
+    if section == "advance_decline_graph":
+        return await svc.advance_decline_graph(
+            str(payload.get("index_name") or "NIFTY 50"),
+            asset_class=str(payload.get("asset_class") or ac or "india"),
+            from_date=str(payload.get("from_date") or ""),
+            to_date=str(payload.get("to_date") or ""),
+            timeframe=str(payload.get("timeframe") or (tfs[0] if tfs else "1d")),
+            session_date=payload.get("session_date"),
+            as_of_time=payload.get("as_of_time"),
+            exchange=payload.get("exchange"),
+        )
     raise ValueError(f"Unknown Command Center section: {section}")
 
 

@@ -467,7 +467,7 @@ class CommandCenterHeatmapRequest(BaseModel):
 
 
 class CommandCenterAdvanceDeclineGraphRequest(BaseModel):
-    asset_class: Literal["india", "us", "crypto"] = "india"
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     index_name: str = "NIFTY 50"
     from_date: str
     to_date: str

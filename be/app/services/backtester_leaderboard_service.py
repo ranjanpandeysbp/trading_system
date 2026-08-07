@@ -44,8 +44,8 @@ def _curated_catalog_category() -> dict[str, Any] | None:
         "label": "Command Center",
         "description": (
             "Walk-forward-calibrated Command Center scanners (Momentum, Weak/Strong, Divergences, "
-            "20/200 SMA) — evaluated bar-by-bar with no lookahead, the same harness behind the "
-            "Strategy Lab leaderboard."
+            "200SMA-20SMA, Comparative Strength, Advance Decline proxy) — evaluated bar-by-bar with "
+            "no lookahead, the same harness behind the Strategy Lab leaderboard."
         ),
         "timeframes": ["1d"],
         "strategy_count": len(cc),

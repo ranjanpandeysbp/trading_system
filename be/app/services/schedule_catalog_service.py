@@ -44,6 +44,8 @@ _COMMAND_CENTER_SECTIONS: list[tuple[str, str]] = [
     ("option_chain", "Option Chain — Bias, PCR & Trade Signal (NSE)"),
     ("option_short_long", "Option-Short-Long — OI Buildup · Buy/Sell Call/Put"),
     ("india_market_heatmap", "IN-US-Crypto Market Heatmap"),
+    ("advance_decline_graph", "Advance Decline (Multi Asset) — Breadth + Options PCR"),
+    ("comparative_strength", "Comparative Strength — Relative Long/Short vs Base"),
     ("nse_world_indices", "NSE and World Indices"),
     ("coindcx_24h_volatility", "24Hrs Volatile Crypto"),
     ("quick_analyzer", "Quick Analyzer (India · US · Crypto)"),

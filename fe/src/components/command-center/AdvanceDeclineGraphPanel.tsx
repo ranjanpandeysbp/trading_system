@@ -27,18 +27,20 @@ import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 
 type Row = Record<string, unknown>
-type AssetClass = 'india' | 'us' | 'crypto'
+type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 
 const INTRADAY_TFS = ['5m', '10m', '15m', '30m', '1h'] as const
 const ASSET_OPTIONS: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
   { id: 'us', label: 'US' },
   { id: 'crypto', label: 'Crypto' },
+  { id: 'commodity', label: 'Commodity' },
 ]
 const DEFAULT_INDEX: Record<AssetClass, string> = {
   india: 'NIFTY 50',
   us: 'Dow 30',
   crypto: 'Top 30 Crypto',
+  commodity: 'All Commodities',
 }
 
 function isoDaysAgo(days: number): string {
@@ -335,7 +337,11 @@ export function AdvanceDeclineGraphPanel() {
   }, [assetClass, indicesQuery.data, indexName])
 
   const tzHint =
-    assetClass === 'us' ? 'ET' : assetClass === 'crypto' ? 'UTC' : 'IST'
+    assetClass === 'us' || assetClass === 'commodity'
+      ? 'ET'
+      : assetClass === 'crypto'
+        ? 'UTC'
+        : 'IST'
 
   const runMut = useMutation({
     mutationFn: () =>
@@ -363,12 +369,12 @@ export function AdvanceDeclineGraphPanel() {
         <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <p className="text-sm leading-relaxed text-slate-300">
-              Multi-asset breadth: pick <strong className="text-white">India / US / Crypto</strong>, an index universe,
+              Multi-asset breadth: pick <strong className="text-white">India / US / Crypto / Commodity</strong>, an index universe,
               and a date range to plot <strong className="text-white">advances vs declines</strong> across constituents.
               For India F&O indices (Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50), the run also pulls a live{' '}
               <strong className="text-white">options PCR / OI / max-pain</strong> snapshot.
-              Choose an intraday timeframe to also see breadth <strong className="text-white">within a session</strong>{' '}
-              — each bar until the optional as-of time ({tzHint}).
+              Commodity baskets mix Yahoo futures with related liquid equities/ETFs. Choose an intraday timeframe to also see breadth{' '}
+              <strong className="text-white">within a session</strong> — each bar until the optional as-of time ({tzHint}).
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
               Charts show <strong className="text-slate-400">A/D ratio</strong>,{' '}
@@ -392,8 +398,8 @@ export function AdvanceDeclineGraphPanel() {
             <div>
               <p className="mb-1.5 font-medium text-slate-200">How to run</p>
               <ol className="list-decimal space-y-1 pl-4">
-                <li>Pick asset class: <span className="text-slate-300">India</span>, <span className="text-slate-300">US</span>, or <span className="text-slate-300">Crypto</span>.</li>
-                <li>Choose an index / universe (e.g. NIFTY 50, Dow 30, Top 30 Crypto).</li>
+                <li>Pick asset class: <span className="text-slate-300">India</span>, <span className="text-slate-300">US</span>, <span className="text-slate-300">Crypto</span>, or <span className="text-slate-300">Commodity</span>.</li>
+                <li>Choose an index / universe (e.g. NIFTY 50, Dow 30, Top 30 Crypto, All Commodities / Energy complex).</li>
                 <li>Set <span className="text-slate-300">From / To</span> for the daily breadth chart.</li>
                 <li>Leave timeframe on <span className="text-slate-300">Daily</span>, or pick an intraday TF + session date (optional as-of time in {tzHint}).</li>
                 <li>Click <span className="text-slate-300">Plot Advance / Decline</span>. Wait for constituent candles + (India F&O) options snapshot.</li>
@@ -423,7 +429,7 @@ export function AdvanceDeclineGraphPanel() {
               <p>
                 On Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50 the panel adds PCR (OI &amp; Vol), Call/Put OI,
                 max pain, and OI support/resistance. PCR &gt; 1 with A/D &gt; 1 often confirms a healthier bullish tape;
-                PCR &lt; 0.8 with rising A/D can mean a short-covering / hollow rally. US and Crypto show breadth only.
+                PCR &lt; 0.8 with rising A/D can mean a short-covering / hollow rally. US, Crypto, and Commodity show breadth only.
               </p>
             </div>
             <div>

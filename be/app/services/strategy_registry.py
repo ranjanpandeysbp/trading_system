@@ -205,6 +205,131 @@ register(StrategyDef(
 ))
 
 
+def _make_comparative_strength_signal() -> MultiSignalFn:
+    """Walk-forward adapter for Command Center Comparative Strength (ticker vs base)."""
+    from app.market_pulse.comparative_strength_engine import _analyze_peer
+
+    def fn(history: dict[str, pd.DataFrame]) -> dict[str, Any] | None:
+        primary = history.get("primary")
+        bench = history.get("benchmark")
+        if primary is None or primary.empty or bench is None or bench.empty:
+            return None
+        if len(primary) < 25 or len(bench) < 25:
+            return None
+        try:
+            row = _analyze_peer(
+                symbol="PRIMARY",
+                peer_df=primary,
+                base_df=bench,
+                base_symbol="BASE",
+                lookback=20,
+            )
+        except Exception:
+            return None
+        if not row or row.get("status") == "ERROR":
+            return None
+        trade = row.get("trade") or {}
+        action = str(trade.get("action") or "")
+        conf = float(trade.get("confidence_pct") or 0)
+        if action in ("LONG", "LONG_WATCH"):
+            return {"direction": "LONG", "confidence_pct": conf if action == "LONG" else min(conf, 58.0)}
+        if action in ("SHORT", "SHORT_WATCH"):
+            return {"direction": "SHORT", "confidence_pct": conf if action == "SHORT" else min(conf, 58.0)}
+        return None
+
+    return fn
+
+
+register(StrategyDef(
+    id="cc_comparative_strength",
+    label="Comparative Strength — relative long/short vs base",
+    hub="Command Center",
+    timeframes=["1d"],
+    multi_tf=True,
+    needs_benchmark=True,
+    make_signal_fn=_make_comparative_strength_signal,
+    notes=(
+        "Needs a benchmark series (auto-resolved per market: NIFTY/SPY/BTC). "
+        "LONG when the ticker outperforms the base with constructive RS/CRS; "
+        "SHORT when it underperforms. Same engine as Command Center → Comparative Strength."
+    ),
+))
+
+
+def _make_advance_decline_signal() -> SingleSignalFn:
+    """Walk-forward proxy of Advance Decline internals on a single ticker's bars.
+
+    True market A/D needs a full universe at each step (too heavy for this harness).
+    Here we reuse the panel's A/D-ratio / volume-ratio / EMA-trend ideas on the
+    ticker's own up/down bars — labelled honestly as a participation proxy.
+    """
+
+    def fn(history: pd.DataFrame) -> dict[str, Any] | None:
+        if history is None or history.empty or len(history) < 30:
+            return None
+        if "close" not in history.columns:
+            return None
+        close = history["close"].astype(float)
+        lookback = min(20, len(close) - 2)
+        if lookback < 5:
+            return None
+        window = close.iloc[-(lookback + 1):]
+        diffs = window.diff().dropna()
+        if diffs.empty:
+            return None
+        advances = int((diffs > 0).sum())
+        declines = int((diffs < 0).sum())
+        if advances <= 0 and declines <= 0:
+            return None
+        ad_ratio = (advances / declines) if declines > 0 else float(min(10.0, max(advances, 1)))
+
+        vol_ratio = None
+        if "volume" in history.columns:
+            vols = history["volume"].astype(float).iloc[-(lookback + 1):]
+            vdiff = vols.diff().dropna()
+            if not vdiff.empty:
+                v_up = int((vdiff > 0).sum())
+                v_dn = int((vdiff < 0).sum())
+                if v_up > 0 or v_dn > 0:
+                    vol_ratio = (v_up / v_dn) if v_dn > 0 else float(min(10.0, max(v_up, 1)))
+
+        ema9 = close.ewm(span=9, adjust=False).mean()
+        ema21 = close.ewm(span=21, adjust=False).mean()
+        uptrend = float(ema9.iloc[-1]) > float(ema21.iloc[-1])
+        downtrend = float(ema9.iloc[-1]) < float(ema21.iloc[-1])
+
+        # Healthy advance / confirmed selloff heuristics (mirror A/D panel language)
+        healthy_long = ad_ratio >= 1.15 and uptrend and (vol_ratio is None or vol_ratio >= 1.0)
+        hollow_skip = ad_ratio >= 1.15 and vol_ratio is not None and vol_ratio < 0.85
+        confirmed_short = ad_ratio <= 0.85 and downtrend and (vol_ratio is None or vol_ratio >= 1.0)
+
+        if healthy_long and not hollow_skip:
+            stretch = min(1.0, (ad_ratio - 1.0) / 1.5)
+            conf = round(55.0 + stretch * 25.0 + (5.0 if vol_ratio and vol_ratio >= 1.2 else 0.0), 1)
+            return {"direction": "LONG", "confidence_pct": min(92.0, conf)}
+        if confirmed_short:
+            stretch = min(1.0, (1.0 - ad_ratio) / 0.7)
+            conf = round(55.0 + stretch * 25.0 + (5.0 if vol_ratio and vol_ratio >= 1.2 else 0.0), 1)
+            return {"direction": "SHORT", "confidence_pct": min(92.0, conf)}
+        return None
+
+    return fn
+
+
+register(StrategyDef(
+    id="cc_advance_decline_graph",
+    label="Advance Decline — healthy advance / confirmed selloff proxy",
+    hub="Command Center",
+    timeframes=["1d"],
+    make_signal_fn=_make_advance_decline_signal,
+    notes=(
+        "Walk-forward proxy of Command Center → Advance Decline methodology on the ticker's own "
+        "up/down + volume bars (true index-universe A/D is live-scan only). "
+        "LONG on healthy advance (A/D>1 + uptrend + volume support); SHORT on confirmed selloff."
+    ),
+))
+
+
 # ---------------------------------------------------------------------------
 # Trading Hubs — Swing
 # ---------------------------------------------------------------------------
