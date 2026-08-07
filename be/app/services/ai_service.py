@@ -127,6 +127,46 @@ Then: Setup summary, key levels, risk (SL %), reward (TP %), and what would inva
 Do not invent prices or indicators not present in the context."""
 
 
+NEXT_MOVE_SYSTEM = """You are a senior institutional proprietary trader and desk strategist
+(buy-side + sell-side experience across equities, indices, futures, and crypto).
+Use ONLY the scan/result data provided — never invent prices, indicators, news, or volume.
+Think in confluence, liquidity, invalidation, asymmetric payoff, and risk of ruin.
+
+Structure your reply EXACTLY as:
+
+## NEXT MOVE
+LONG | SHORT | WAIT | SIDEWAYS
+(one word on its own line)
+
+## CONFIDENCE
+NN%
+(integer 0-100 on its own line — institutional conviction in the next move, not a marketing number)
+
+## THESIS
+2-4 sentences: why this is the highest-probability next move given the data.
+
+## TRIGGER / ENTRY
+Concrete level or condition from the data (or "wait for …" if WAIT/SIDEWAYS).
+
+## INVALIDATION
+What would kill the thesis (level or condition from the data).
+
+## RISK / REWARD
+Suggested SL %, TP %, and approximate R:R if inferable; otherwise say insufficient data.
+
+## KEY RISKS
+- 2 to 4 bullets of the main risks
+
+Be decisive but honest. If signals conflict, prefer WAIT with lower confidence over a forced directional call.
+This is research / education only — not financial advice."""
+
+
+DEFAULT_NEXT_MOVE_QUESTION = (
+    "As an expert institutional pro trader, use ONLY this result data to predict the next possible "
+    "move with an explicit % confidence. Prefer WAIT when evidence is mixed."
+)
+
+
 def _extract_openai_response_text(response: Any) -> str:
     text = getattr(response, "output_text", None)
     if isinstance(text, str) and text.strip():
@@ -313,10 +353,26 @@ def call_ai_report(
 
 
 def parse_ai_verdict(report_text: str) -> str | None:
-    match = re.search(r"##\s*FINAL\s*VERDICT\s*\n\s*(BUY|SELL|AVOID)", report_text, re.IGNORECASE)
+    match = re.search(r"##\s*NEXT\s*MOVE\s*\n\s*(LONG|SHORT|WAIT|SIDEWAYS)", report_text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    match = re.search(r"##\s*FINAL\s*VERDICT\s*\n\s*(BUY|SELL|AVOID|LONG|SHORT|WAIT|HOLD)", report_text, re.IGNORECASE)
     if not match:
-        match = re.search(r"\b(BUY|SELL|AVOID)\b", report_text[:400], re.IGNORECASE)
+        match = re.search(r"\b(BUY|SELL|AVOID|LONG|SHORT|WAIT|SIDEWAYS)\b", report_text[:500], re.IGNORECASE)
     return match.group(1).upper() if match else None
+
+
+def parse_ai_confidence_pct(report_text: str) -> float | None:
+    match = re.search(r"##\s*CONFIDENCE\s*\n\s*(\d{1,3})\s*%?", report_text, re.IGNORECASE)
+    if not match:
+        match = re.search(r"\bCONFIDENCE\s*[:\-]?\s*(\d{1,3})\s*%", report_text, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(100.0, value))
 
 
 class AIService:
@@ -365,10 +421,13 @@ class AIService:
         system_prompt: str | None = None,
         section: str | None = None,
         max_tokens: int = 3000,
+        mode: str = "ask",
     ) -> dict[str, Any]:
         provider = normalize_ai_provider(await self.settings.get_ai_provider())
         model = await self.settings.get_ai_model(provider)
         api_key = await self.settings.get_api_key_for_provider(provider)
+        mode_norm = (mode or "ask").strip().lower()
+        is_next_move = mode_norm in ("next_move", "predict", "predict_next_move")
 
         if not context.strip():
             raise ValueError("Context is empty — run a scan first, then Ask AI.")
@@ -376,7 +435,12 @@ class AIService:
         if len(context) > 14000:
             context = context[:14000] + "\n\n[Context truncated to 14k chars.]"
 
-        intro = question or "Analyze this section output and give an actionable trade verdict."
+        if is_next_move:
+            sys = NEXT_MOVE_SYSTEM
+            intro = question or DEFAULT_NEXT_MOVE_QUESTION
+        else:
+            sys = system_prompt or DEFAULT_ASK_AI_SYSTEM
+            intro = question or "Analyze this section output and give an actionable trade verdict."
         if section:
             intro = f"Section: {section}\n\n{intro}"
 
@@ -387,12 +451,12 @@ class AIService:
                 return {
                     "report": "Missing SuperInvesting token. Add it in Manage → AI Settings (or Investing Agent page).",
                     "verdict": None,
+                    "confidence_pct": None,
                     "provider": provider,
                     "model": model,
                     "section": section,
                     "error": True,
                 }
-            sys = system_prompt or DEFAULT_ASK_AI_SYSTEM
             message = f"{sys.strip()}\n\n{intro}\n\n{context}"
             if len(message) > 12000:
                 message = message[:12000] + "\n\n[Truncated.]"
@@ -407,6 +471,7 @@ class AIService:
             return {
                 "report": report,
                 "verdict": parse_ai_verdict(report),
+                "confidence_pct": parse_ai_confidence_pct(report) if is_next_move else None,
                 "provider": provider,
                 "model": model,
                 "section": section,
@@ -419,7 +484,7 @@ class AIService:
 
         report = call_ai_report(
             context,
-            system_prompt or DEFAULT_ASK_AI_SYSTEM,
+            sys,
             provider,
             model,
             api_key or "",
@@ -431,6 +496,7 @@ class AIService:
         return {
             "report": report,
             "verdict": parse_ai_verdict(report),
+            "confidence_pct": parse_ai_confidence_pct(report) if is_next_move else None,
             "provider": provider,
             "model": model,
             "section": section,

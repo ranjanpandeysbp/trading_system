@@ -189,11 +189,13 @@ class AskAIRequest(BaseModel):
     section: str | None = None
     system_prompt: str | None = None
     max_tokens: int = Field(default=3000, ge=256, le=8000)
+    mode: Literal["ask", "next_move"] = "ask"
 
 
 class AskAIResponse(BaseModel):
     report: str
     verdict: str | None = None
+    confidence_pct: float | None = None
     provider: str
     model: str
     section: str | None = None

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Clapperboard, FolderOpen, Pencil, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { Bot, Clapperboard, Crosshair, FolderOpen, Pencil, Save, Sparkles, Trash2, X } from 'lucide-react'
 import {
   apiErrorMessage,
+  askAI,
   deleteYoutubeAiView,
   fetchYoutubeAiView,
   fetchYoutubeAiViews,
@@ -14,7 +15,7 @@ import {
   updateYoutubeAiView,
   type SavedYoutubeAiViewSummary,
 } from '../api/client'
-import { AskAIPanel } from '../components/ai/AskAIPanel'
+import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { CollapsibleScrollSection } from '../components/command-center/CollapsibleScrollSection'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -74,6 +75,14 @@ export default function YoutubeAnalysis() {
   const [aiView, setAiView] = useState<{
     report: string
     verdict?: string | null
+    confidence_pct?: number | null
+    provider: string
+    model: string
+  } | null>(null)
+  const [nextMove, setNextMove] = useState<{
+    report: string
+    verdict?: string | null
+    confidence_pct?: number | null
     provider: string
     model: string
   } | null>(null)
@@ -132,6 +141,7 @@ export default function YoutubeAnalysis() {
       setError('')
       setPrefsMsg('Video list saved for your account.')
       setAiView(null)
+      setNextMove(null)
       const saved = String(data.youtube_channel_ids || '')
       if (saved) setVideosRaw(saved)
       const channels = (data.channels as ChannelBucket[]) || []
@@ -162,6 +172,23 @@ export default function YoutubeAnalysis() {
       setAiView(data)
       setViewedSavedId(null)
     },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const nextMoveMut = useMutation({
+    mutationFn: () => {
+      const data = scanMut.data
+      if (!data) throw new Error('Fetch transcripts first')
+      const ctx =
+        String(data.ai_context || '').trim() ||
+        buildAskContext('YouTube Analysis', data)
+      return askAI({
+        context: ctx,
+        section: 'youtube-analysis/next-move',
+        mode: 'next_move',
+      })
+    },
+    onSuccess: (data) => setNextMove(data),
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
@@ -345,15 +372,25 @@ export default function YoutubeAnalysis() {
             <div className="mt-4 flex flex-wrap gap-3">
               <Button
                 onClick={() => aiViewMut.mutate()}
-                disabled={aiViewMut.isPending || !Number(data.transcript_count || 0)}
+                disabled={aiViewMut.isPending || nextMoveMut.isPending || !Number(data.transcript_count || 0)}
               >
                 <span className="inline-flex items-center gap-2">
                   <Sparkles size={16} />
                   {aiViewMut.isPending ? 'Building market view…' : 'AI View'}
                 </span>
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => nextMoveMut.mutate()}
+                disabled={aiViewMut.isPending || nextMoveMut.isPending || !Number(data.transcript_count || 0)}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Crosshair size={16} />
+                  {nextMoveMut.isPending ? 'Predicting…' : 'Predict Next Move'}
+                </span>
+              </Button>
               <span className="self-center text-xs text-slate-500">
-                Summarizes all transcripts → market impact for days & weeks
+                AI View = narrative · Predict Next Move = institutional directional call with % confidence
               </span>
             </div>
             {aiViewMut.isError && (
@@ -361,7 +398,20 @@ export default function YoutubeAnalysis() {
                 <Alert type="error">{apiErrorMessage(aiViewMut.error)}</Alert>
               </div>
             )}
-            {aiViewMut.isPending && <Loading message="Calling AI for market view…" />}
+            {nextMoveMut.isError && (
+              <div className="mt-3">
+                <Alert type="error">{apiErrorMessage(nextMoveMut.error)}</Alert>
+              </div>
+            )}
+            {(aiViewMut.isPending || nextMoveMut.isPending) && (
+              <Loading
+                message={
+                  nextMoveMut.isPending
+                    ? 'Institutional next-move prediction…'
+                    : 'Calling AI for market view…'
+                }
+              />
+            )}
             {aiView && !aiViewMut.isPending && (
               <div className="mt-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -404,6 +454,26 @@ export default function YoutubeAnalysis() {
                 )}
                 <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-700/60 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-300">
                   {aiView.report}
+                </pre>
+              </div>
+            )}
+            {nextMove && !nextMoveMut.isPending && (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Crosshair className="text-amber-400" size={18} />
+                  <h3 className="font-semibold text-white">Next Move Prediction</h3>
+                  <span className="text-xs text-slate-500">
+                    {nextMove.provider} · {nextMove.model}
+                  </span>
+                  {nextMove.verdict && <Badge action={nextMove.verdict} />}
+                  {nextMove.confidence_pct != null && Number.isFinite(Number(nextMove.confidence_pct)) && (
+                    <span className="inline-flex rounded-lg bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-amber-300 ring-1 ring-amber-500/30">
+                      {Math.round(Number(nextMove.confidence_pct))}% confidence
+                    </span>
+                  )}
+                </div>
+                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-xl border border-amber-500/20 bg-slate-900/60 p-4 text-sm leading-relaxed text-slate-300">
+                  {nextMove.report}
                 </pre>
               </div>
             )}

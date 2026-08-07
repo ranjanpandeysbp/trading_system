@@ -361,6 +361,7 @@ async def ai_ask(
             system_prompt=payload.system_prompt,
             section=payload.section,
             max_tokens=payload.max_tokens,
+            mode=payload.mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

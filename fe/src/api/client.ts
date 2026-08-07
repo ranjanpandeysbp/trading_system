@@ -287,9 +287,11 @@ export const askAI = (payload: {
   section?: string
   system_prompt?: string
   max_tokens?: number
+  mode?: 'ask' | 'next_move'
 }) => api.post<{
   report: string
   verdict: string | null
+  confidence_pct?: number | null
   provider: string
   model: string
   error: boolean
