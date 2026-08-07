@@ -24,6 +24,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+from app.market_pulse.asset_class_config import ALL_DURATIONS
 from app.market_pulse.gap_trading import fetch_data_for_gap_scan, fetch_ohlcv_yfinance
 from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 from app.market_pulse.ticker_utils import is_crypto_market, is_us_market
@@ -32,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 AssetClass = Literal["india", "us", "crypto", "commodity"]
 
-TIMEFRAME_OPTIONS = ["5m", "15m", "1h", "4h", "1d", "1w"]
+TIMEFRAME_OPTIONS = list(ALL_DURATIONS)  # 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w
 LOOKBACK_OPTIONS = [5, 10, 20, 40, 60]
 
-_MIN_BARS = 30
+_MIN_BARS = 20
 _HORIZONS = (5, 10, 20, 60)
 
 # Sensible quick-pick bases per asset class (label → symbol for fetch)
@@ -85,22 +86,88 @@ def _market_for(asset_class: str) -> str:
     return str(cfg["market"])
 
 
+def _looks_like_index(symbol: str, asset_class: str) -> bool:
+    s = (symbol or "").strip().upper()
+    if not s:
+        return False
+    if asset_class == "india":
+        try:
+            from app.market_pulse.nse_index_yfinance import is_nse_index_symbol
+
+            return is_nse_index_symbol(s)
+        except Exception:
+            return s.startswith("NIFTY") or s in {"SENSEX", "BANKNIFTY", "FINNIFTY"}
+    if asset_class == "us":
+        return s in {"SPY", "QQQ", "DIA", "IWM", "^GSPC", "^IXIC", "^DJI"}
+    return False
+
+
+def _normalize_index(idx: pd.DatetimeIndex, timeframe: str) -> pd.DatetimeIndex:
+    out = pd.to_datetime(idx)
+    if getattr(out, "tz", None) is not None:
+        out = out.tz_convert(None)
+    if timeframe in ("1d", "1w", "1M"):
+        out = out.normalize()
+    return out
+
+
 def _fetch_ohlcv(
     symbol: str,
     market: str,
     timeframe: str,
     *,
+    asset_class: str = "india",
     groww_token: str = "",
     exchange: str = "NSE",
     limit: int = 320,
 ) -> pd.DataFrame:
-    df = fetch_data_for_gap_scan(symbol, timeframe, market, groww_token, exchange, limit=limit)
-    df = normalize_ohlcv(df)
+    """Fetch OHLC for stock or index. Indices use dedicated index OHLCV path."""
+    sym = (symbol or "").strip()
+    df = pd.DataFrame()
+
+    # NSE / broad indices (NIFTY 50, BANKNIFTY, …) — do not send raw name to Groww equity API
+    if asset_class in ("india",) and _looks_like_index(sym, asset_class):
+        try:
+            from app.market_pulse.index_ohlcv import fetch_index_ohlcv_for_interval
+
+            raw = fetch_index_ohlcv_for_interval(
+                sym, timeframe, limit=limit, groww_token=groww_token, exchange=exchange,
+            )
+            if raw is not None and not raw.empty:
+                df = normalize_ohlcv(raw)
+        except Exception as exc:
+            logger.debug("Index OHLCV failed for %s: %s", sym, exc)
+
+    if df.empty:
+        try:
+            df = normalize_ohlcv(
+                fetch_data_for_gap_scan(sym, timeframe, market, groww_token, exchange, limit=limit)
+            )
+        except Exception as exc:
+            logger.debug("Gap-scan OHLCV failed for %s: %s", sym, exc)
+            df = pd.DataFrame()
+
     if df.empty or len(df) < _MIN_BARS:
         is_crypto = is_crypto_market(market)
+        # Map common India index names to Yahoo for fallback
+        yf_sym = sym
+        if asset_class == "india" and _looks_like_index(sym, asset_class):
+            try:
+                from app.market_pulse.nse_index_yfinance import index_yf_candidates
+
+                cands = index_yf_candidates(sym)
+                if cands:
+                    yf_sym = cands[0]
+            except Exception:
+                yf_sym = "^NSEI" if "50" in sym.upper() else sym
         df = normalize_ohlcv(
-            fetch_ohlcv_yfinance(symbol, timeframe, is_crypto=is_crypto, limit=limit, market=market)
+            fetch_ohlcv_yfinance(yf_sym, timeframe, is_crypto=is_crypto, limit=limit, market=market)
         )
+
+    if not df.empty and "close" in df.columns:
+        df = df.copy()
+        df.index = _normalize_index(pd.DatetimeIndex(df.index), timeframe)
+        df = df[~df.index.duplicated(keep="last")].sort_index()
     return df
 
 
@@ -119,15 +186,16 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
 
 
 def _trend_stack(close: pd.Series) -> dict[str, Any]:
-    if len(close) < 55:
+    n = len(close)
+    if n < 25:
         return {"bias": "INSUFFICIENT", "ema9": None, "ema21": None, "ema50": None}
     e9 = float(_ema(close, 9).iloc[-1])
-    e21 = float(_ema(close, 21).iloc[-1])
-    e50 = float(_ema(close, 50).iloc[-1])
+    e21 = float(_ema(close, min(21, max(5, n // 3))).iloc[-1])
+    e50 = float(_ema(close, min(50, max(10, n // 2))).iloc[-1]) if n >= 40 else None
     last = float(close.iloc[-1])
-    if last >= e9 >= e21 >= e50:
+    if e50 is not None and last >= e9 >= e21 >= e50:
         bias = "BULLISH"
-    elif last <= e9 <= e21 <= e50:
+    elif e50 is not None and last <= e9 <= e21 <= e50:
         bias = "BEARISH"
     elif last > e21:
         bias = "MILDLY_BULLISH"
@@ -139,7 +207,7 @@ def _trend_stack(close: pd.Series) -> dict[str, Any]:
         "bias": bias,
         "ema9": round(e9, 4),
         "ema21": round(e21, 4),
-        "ema50": round(e50, 4),
+        "ema50": round(e50, 4) if e50 is not None else None,
         "last": round(last, 4),
     }
 
@@ -304,7 +372,7 @@ def _analyze_peer(
         [peer_close.rename("peer"), base_close.rename("base")],
         axis=1,
     ).dropna()
-    if len(aligned) < max(_MIN_BARS, lookback + 2):
+    if len(aligned) < max(8, min(_MIN_BARS, lookback + 2)):
         return {
             "symbol": symbol,
             "error": f"Insufficient overlapping bars ({len(aligned)}).",
@@ -406,6 +474,11 @@ def compute_comparative_strength(
     if asset_class not in ("india", "us", "crypto", "commodity"):
         asset_class = "india"
     timeframe = (timeframe or "1d").strip()
+    # Accept any known duration; unknown → 1d
+    if timeframe not in TIMEFRAME_OPTIONS:
+        # tolerate aliases
+        aliases = {"daily": "1d", "day": "1d", "weekly": "1w", "week": "1w", "60m": "1h", "240m": "4h"}
+        timeframe = aliases.get(timeframe.lower(), timeframe)
     if timeframe not in TIMEFRAME_OPTIONS:
         timeframe = "1d"
     lookback = int(lookback_bars or 20)
@@ -427,12 +500,34 @@ def compute_comparative_strength(
         return {"error": "Select at least one compare ticker different from the base.", "rows": []}
 
     market = _market_for(asset_class)
-    limit = max(320, lookback + 80)
+    # Intraday needs more bars for overlap; daily/weekly less
+    if timeframe in ("1m", "5m"):
+        limit = max(400, lookback + 120)
+    elif timeframe in ("15m", "30m", "1h"):
+        limit = max(320, lookback + 100)
+    else:
+        limit = max(260, lookback + 80)
 
-    base_df = _fetch_ohlcv(base, market, timeframe, groww_token=groww_token, exchange=exchange, limit=limit)
-    if base_df.empty or len(base_df) < _MIN_BARS:
+    try:
+        base_df = _fetch_ohlcv(
+            base, market, timeframe,
+            asset_class=asset_class, groww_token=groww_token, exchange=exchange, limit=limit,
+        )
+    except Exception as exc:
         return {
-            "error": f"Could not load enough bars for base {base}. Check symbol / market.",
+            "error": f"Failed to load base {base}: {exc}",
+            "base_symbol": base,
+            "rows": [],
+        }
+
+    min_needed = max(8, min(_MIN_BARS, lookback + 2))
+    if base_df.empty or len(base_df) < min_needed:
+        return {
+            "error": (
+                f"Could not load enough bars for base {base} on {timeframe} "
+                f"(got {0 if base_df is None or base_df.empty else len(base_df)}). "
+                "Try another symbol, a higher timeframe, or check Groww/Yahoo connectivity."
+            ),
             "base_symbol": base,
             "rows": [],
         }
@@ -442,9 +537,12 @@ def compute_comparative_strength(
 
     def _one(sym: str) -> tuple[str, pd.DataFrame | None, str | None]:
         try:
-            df = _fetch_ohlcv(sym, market, timeframe, groww_token=groww_token, exchange=exchange, limit=limit)
-            if df.empty or len(df) < _MIN_BARS:
-                return sym, None, f"{sym}: insufficient data"
+            df = _fetch_ohlcv(
+                sym, market, timeframe,
+                asset_class=asset_class, groww_token=groww_token, exchange=exchange, limit=limit,
+            )
+            if df.empty or len(df) < min_needed:
+                return sym, None, f"{sym}: insufficient data ({0 if df is None or df.empty else len(df)} bars)"
             return sym, df, None
         except Exception as exc:
             return sym, None, f"{sym}: {exc}"

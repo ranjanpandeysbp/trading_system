@@ -1570,21 +1570,42 @@ class CommandCenterService:
 
         market, default_exchange = await self._asset_ctx(asset_class)
         _, token, _ = await self._ctx()
-        resolved_base = self.universe.resolve(asset_class, [base_symbol])[0]
-        resolved_peers = self.universe.resolve(asset_class, compare_symbols)
+        try:
+            resolved_base_list = self.universe.resolve(asset_class, [base_symbol])
+            resolved_peers = self.universe.resolve(asset_class, compare_symbols or [])
+        except Exception as exc:
+            return json_safe({"error": f"Symbol resolve failed: {exc}", "rows": []})
 
-        result = await asyncio.to_thread(
-            compute_comparative_strength,
-            asset_class=asset_class,
-            base_symbol=resolved_base,
-            compare_symbols=resolved_peers,
-            timeframe=timeframe,
-            lookback_bars=lookback_bars,
-            groww_token=token,
-            exchange=exchange or default_exchange,
-        )
-        # market string is already inside result; keep for debugging
-        result.setdefault("resolved_market", market)
+        if not resolved_base_list:
+            return json_safe({"error": f"Could not resolve base symbol '{base_symbol}'.", "rows": []})
+        resolved_base = resolved_base_list[0]
+        if not resolved_peers:
+            return json_safe({
+                "error": "Select at least one compare ticker different from the base.",
+                "rows": [],
+            })
+
+        try:
+            result = await asyncio.to_thread(
+                compute_comparative_strength,
+                asset_class=asset_class,
+                base_symbol=resolved_base,
+                compare_symbols=resolved_peers,
+                timeframe=timeframe,
+                lookback_bars=lookback_bars,
+                groww_token=token,
+                exchange=exchange or default_exchange,
+            )
+        except Exception as exc:
+            return json_safe({
+                "error": f"Comparative strength failed: {exc}",
+                "base_symbol": resolved_base,
+                "rows": [],
+            })
+        if isinstance(result, dict):
+            result.setdefault("resolved_market", market)
+            result.setdefault("resolved_base", resolved_base)
+            result.setdefault("resolved_peers", resolved_peers)
         return json_safe(result)
 
     async def day_bias(

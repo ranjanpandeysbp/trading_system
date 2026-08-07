@@ -307,6 +307,15 @@ async def _execute_command_center(section: str, payload: dict[str, Any], *, sett
             pullback_months=int(payload.get("pullback_months") or 2),
             pullback_mode=str(payload.get("pullback_mode") or "months"),
         )
+    if section == "comparative_strength":
+        return await svc.comparative_strength(
+            asset_class=str(payload.get("asset_class") or ac or "india"),
+            base_symbol=str(payload.get("base_symbol") or ""),
+            compare_symbols=list(payload.get("compare_symbols") or tickers or []),
+            timeframe=str(payload.get("timeframe") or (tfs[0] if tfs else "1d")),
+            lookback_bars=int(payload.get("lookback_bars") or 20),
+            exchange=payload.get("exchange"),
+        )
     raise ValueError(f"Unknown Command Center section: {section}")
 
 

@@ -479,7 +479,7 @@ class CommandCenterComparativeStrengthRequest(BaseModel):
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     base_symbol: str = Field(..., min_length=1, max_length=64)
     compare_symbols: list[str] = Field(..., min_length=1)
-    timeframe: str = Field(default="1d", description="5m, 15m, 1h, 4h, 1d, 1w")
+    timeframe: str = Field(default="1d", description="1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w")
     lookback_bars: int = Field(default=20, ge=3, le=120)
     exchange: str | None = None
 

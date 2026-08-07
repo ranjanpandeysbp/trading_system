@@ -49,10 +49,18 @@ function withChartRatio(series: Row[]): Row[] {
   return series.map((row) => {
     const ratio = row.ad_ratio != null ? Number(row.ad_ratio) : null
     const volRatio = row.vol_ratio != null ? Number(row.vol_ratio) : null
+    const rsi = row.rsi != null ? Number(row.rsi) : null
+    const strength = row.strength != null ? Number(row.strength) : null
+    const trendScore = row.trend_score != null ? Number(row.trend_score) : null
     return {
       ...row,
       ad_ratio: ratio != null && Number.isFinite(ratio) ? ratio : null,
       vol_ratio: volRatio != null && Number.isFinite(volRatio) ? volRatio : null,
+      rsi: rsi != null && Number.isFinite(rsi) ? rsi : null,
+      strength: strength != null && Number.isFinite(strength) ? strength : null,
+      /** Map trend_score (-100..100) → 0..100 for overlay on RSI axis (50 = flat) */
+      trend_overlay:
+        trendScore != null && Number.isFinite(trendScore) ? Math.max(0, Math.min(100, 50 + trendScore / 2)) : null,
     }
   })
 }
@@ -78,6 +86,9 @@ function AdRatioChart({
   const latest = chartData[chartData.length - 1]
   const latestRatio = latest?.ad_ratio != null ? Number(latest.ad_ratio) : null
   const latestVol = latest?.vol_ratio != null ? Number(latest.vol_ratio) : null
+  const latestRsi = latest?.rsi != null ? Number(latest.rsi) : null
+  const latestStrength = latest?.strength != null ? Number(latest.strength) : null
+  const latestTrend = latest?.trend != null ? String(latest.trend) : null
 
   return (
     <div className="space-y-2">
@@ -100,11 +111,44 @@ function AdRatioChart({
               </strong>
             </span>
           )}
+          {latestTrend != null && (
+            <span>
+              Trend:{' '}
+              <strong
+                className={
+                  latestTrend === 'UPTREND'
+                    ? 'text-sky-300'
+                    : latestTrend === 'DOWNTREND'
+                      ? 'text-rose-300'
+                      : 'text-slate-300'
+                }
+              >
+                {latestTrend}
+              </strong>
+            </span>
+          )}
+          {latestStrength != null && (
+            <span>
+              Strength: <strong className="text-orange-300">{fmtNum(latestStrength, 0)}</strong>
+            </span>
+          )}
+          {latestRsi != null && (
+            <span>
+              RSI:{' '}
+              <strong
+                className={
+                  latestRsi >= 60 ? 'text-cyan-300' : latestRsi <= 40 ? 'text-fuchsia-300' : 'text-slate-300'
+                }
+              >
+                {fmtNum(latestRsi, 1)}
+              </strong>
+            </span>
+          )}
         </div>
       </div>
-      <div className="h-80 w-full">
+      <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+          <ComposedChart data={chartData} margin={{ top: 8, right: 48, left: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={28} />
             <YAxis
@@ -113,6 +157,14 @@ function AdRatioChart({
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               width={44}
               label={{ value: 'Ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
+            />
+            <YAxis
+              yAxisId="osc"
+              orientation="right"
+              domain={[0, 100]}
+              tick={{ fill: '#64748b', fontSize: 10 }}
+              width={40}
+              label={{ value: 'RSI / Strength', angle: 90, position: 'insideRight', fill: '#64748b', fontSize: 10 }}
             />
             <Tooltip
               content={({ active, payload, label }) => {
@@ -136,9 +188,21 @@ function AdRatioChart({
                       <strong className={Number(row.vol_ratio) >= 1 ? 'text-amber-300' : 'text-slate-300'}>
                         {fmtNum(row.vol_ratio, 2)}
                       </strong>
-                      <span className="text-slate-500">
-                        {' '}({fmtNum(row.volume_up)} vol↑ / {fmtNum(row.volume_down)} vol↓)
-                      </span>
+                    </p>
+                    <p>
+                      Trend:{' '}
+                      <strong className="text-sky-300">{String(row.trend ?? '—')}</strong>
+                      <span className="text-slate-500"> (score {fmtNum(row.trend_score, 0)})</span>
+                    </p>
+                    <p>
+                      Strength: <strong className="text-orange-300">{fmtNum(row.strength, 0)}</strong>
+                      <span className="text-slate-500"> / 100</span>
+                    </p>
+                    <p>
+                      RSI: <strong className="text-cyan-300">{fmtNum(row.rsi, 1)}</strong>
+                      {row.pct_uptrend != null && (
+                        <span className="text-slate-500"> · {fmtNum(row.pct_uptrend, 0)}% above EMA</span>
+                      )}
                     </p>
                   </div>
                 )
@@ -152,6 +216,7 @@ function AdRatioChart({
               strokeDasharray="4 4"
               label={{ value: '1.0 even', fill: '#94a3b8', fontSize: 10, position: 'insideTopRight' }}
             />
+            <ReferenceLine yAxisId="osc" y={50} stroke="#475569" strokeDasharray="3 3" />
             <Bar yAxisId="ratio" dataKey="ad_ratio" name="A/D ratio" fill="#34d399" radius={[3, 3, 0, 0]}>
               {chartData.map((row, i) => {
                 const r = Number(row.ad_ratio)
@@ -160,7 +225,7 @@ function AdRatioChart({
                   <Cell
                     key={`${String(row[xKey])}-${i}`}
                     fill={bullish ? '#34d399' : '#f87171'}
-                    fillOpacity={0.55}
+                    fillOpacity={0.45}
                   />
                 )
               })}
@@ -182,8 +247,42 @@ function AdRatioChart({
               dataKey="vol_ratio"
               name="Volume ratio"
               stroke="#fbbf24"
-              strokeWidth={2.25}
+              strokeWidth={2}
               dot={{ r: 2, fill: '#fcd34d' }}
+              connectNulls
+              legendType="line"
+            />
+            <Line
+              yAxisId="osc"
+              type="monotone"
+              dataKey="rsi"
+              name="RSI"
+              stroke="#22d3ee"
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+              legendType="line"
+            />
+            <Line
+              yAxisId="osc"
+              type="monotone"
+              dataKey="strength"
+              name="Strength"
+              stroke="#fb923c"
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+              legendType="line"
+            />
+            <Line
+              yAxisId="osc"
+              type="monotone"
+              dataKey="trend_overlay"
+              name="Trend score"
+              stroke="#38bdf8"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={false}
               connectNulls
               legendType="line"
             />
@@ -191,8 +290,8 @@ function AdRatioChart({
         </ResponsiveContainer>
       </div>
       <p className="text-[11px] text-slate-500">
-        Green/red bars + violet = A/D ratio (price breadth). Amber line = volume ratio (activity breadth).
-        Both above 1 = healthier move; A/D up + volume down = hollow rally; A/D down + volume up = aggressive selling.
+        Left axis: A/D (green/red + violet) and volume ratio (amber). Right axis: RSI (cyan), strength (orange),
+        trend score (sky, 50 = flat). Uptrend + rising strength + RSI recovering from &lt;40 supports a healthier advance.
       </p>
     </div>
   )
@@ -240,9 +339,11 @@ export function AdvanceDeclineGraphPanel() {
           session</strong> — each bar until the optional as-of time <strong className="text-white">(all times IST)</strong>.
         </p>
         <p className="mb-3 text-xs leading-relaxed text-slate-500">
-          Charts show <strong className="text-slate-400">A/D ratio</strong> (price breadth) and{' '}
-          <strong className="text-slate-400">volume ratio</strong> (how many stocks got busier vs quieter).
-          Both above 1 = healthier move. After you plot, the results box explains both in plain English.
+          Charts show <strong className="text-slate-400">A/D ratio</strong>,{' '}
+          <strong className="text-slate-400">volume ratio</strong>, plus{' '}
+          <strong className="text-slate-400">trend</strong>, <strong className="text-slate-400">strength</strong>, and{' '}
+          <strong className="text-slate-400">RSI</strong> of market internals. Both ratios above 1 with an uptrend
+          and rising strength = healthier move.
         </p>
 
         <div className="grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -355,7 +456,7 @@ export function AdvanceDeclineGraphPanel() {
                 )
               })()}
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <StatCard label="Universe" value={fmtNum(data.universe_size)} />
                 <StatCard
                   label="Latest A/D ratio"
@@ -366,12 +467,23 @@ export function AdvanceDeclineGraphPanel() {
                   value={latest?.vol_ratio != null ? fmtNum(latest.vol_ratio, 2) : '—'}
                 />
                 <StatCard
-                  label="Adv / Dec · Vol↑ / Vol↓"
-                  value={
-                    latest
-                      ? `${fmtNum(latest.advances)}/${fmtNum(latest.declines)} · ${fmtNum(latest.volume_up)}/${fmtNum(latest.volume_down)}`
-                      : '—'
+                  label="Trend"
+                  value={latest?.trend != null ? String(latest.trend) : '—'}
+                  trend={
+                    String(latest?.trend) === 'UPTREND'
+                      ? 'up'
+                      : String(latest?.trend) === 'DOWNTREND'
+                        ? 'down'
+                        : 'neutral'
                   }
+                />
+                <StatCard
+                  label="Strength"
+                  value={latest?.strength != null ? fmtNum(latest.strength, 0) : '—'}
+                />
+                <StatCard
+                  label="RSI"
+                  value={latest?.rsi != null ? fmtNum(latest.rsi, 1) : '—'}
                 />
               </div>
 

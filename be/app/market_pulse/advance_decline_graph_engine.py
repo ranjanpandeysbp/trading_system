@@ -234,7 +234,7 @@ def _daily_series(
             "vol_ratio": _ad_ratio(b["volume_up"], b["volume_down"]),
             "vol_line": vol_line,
         })
-    return series
+    return _enrich_breadth_indicators(series, frames, mode="daily")
 
 
 def _intraday_series(
@@ -338,7 +338,181 @@ def _intraday_series(
             "vol_ratio": _ad_ratio(v_up, v_dn),
             "vol_line": vol_line,
         })
-    return series
+    return _enrich_breadth_indicators(series, frames, mode="intraday")
+
+
+def _prep_indicator_frames(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Attach EMA21 + RSI14 to each constituent frame (for universe aggregates)."""
+    from app.market_pulse.indicators import add_ema, add_rsi
+
+    out: dict[str, pd.DataFrame] = {}
+    for sym, df in frames.items():
+        if df is None or df.empty or "close" not in df.columns or len(df) < 20:
+            continue
+        try:
+            w = df.copy()
+            w = add_ema(w, 9)
+            w = add_ema(w, 21)
+            w = add_rsi(w, 14)
+            out[sym] = w
+        except Exception:
+            continue
+    return out
+
+
+def _rsi_series(values: pd.Series, period: int = 14) -> pd.Series:
+    delta = values.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=period - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=period - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+def _enrich_breadth_indicators(
+    series: list[dict[str, Any]],
+    frames: dict[str, pd.DataFrame] | None = None,
+    *,
+    mode: str = "daily",
+) -> list[dict[str, Any]]:
+    """
+    Add trend / strength / RSI onto each A/D point.
+
+    • rsi — RSI(14) of the cumulative A/D line (breadth momentum)
+    • trend — UPTREND / DOWNTREND / SIDEWAYS from A/D-line EMA9 vs EMA21
+    • trend_score — −100..+100
+    • strength — 0..100 conviction (how one-sided + how stretched breadth is)
+    • avg_rsi / pct_uptrend — universe internals when constituent frames available
+    """
+    import numpy as np
+
+    if not series:
+        return series
+
+    df = pd.DataFrame(series)
+    ad = pd.to_numeric(df.get("ad_line"), errors="coerce").astype(float)
+    net = pd.to_numeric(df.get("net"), errors="coerce").astype(float)
+    total = pd.to_numeric(df.get("total"), errors="coerce").astype(float).replace(0, np.nan)
+    ad_ratio = pd.to_numeric(df.get("ad_ratio"), errors="coerce").astype(float)
+
+    # Prefer A/D line RSI; fall back to net if line is too short/flat early
+    rsi = _rsi_series(ad, 14)
+    if rsi.notna().sum() < 3:
+        rsi = _rsi_series(net.fillna(0), 14)
+
+    ema9 = ad.ewm(span=9, adjust=False).mean()
+    ema21 = ad.ewm(span=21, adjust=False).mean()
+    # Short-window slope of A/D line (% over last ~5 bars)
+    slope = ad.diff(min(5, max(1, len(ad) // 4)))
+
+    # Universe internals
+    uni_avg_rsi: list[float | None] = [None] * len(df)
+    uni_pct_up: list[float | None] = [None] * len(df)
+    uni_pct_strong: list[float | None] = [None] * len(df)
+
+    if frames:
+        ind_frames = _prep_indicator_frames(frames)
+        for pos, (_, row) in enumerate(df.iterrows()):
+            key = str(row.get("date") or row.get("timestamp") or "")
+            rsis: list[float] = []
+            ups = 0
+            strong = 0
+            n = 0
+            for _sym, w in ind_frames.items():
+                try:
+                    if mode == "daily":
+                        day = key[:10]
+                        mask = w.index.normalize() == pd.Timestamp(day)
+                        if not mask.any():
+                            mask = pd.Series([pd.Timestamp(ix).date().isoformat() == day for ix in w.index], index=w.index)
+                        if not mask.any():
+                            continue
+                        bar = w.loc[mask].iloc[-1]
+                    else:
+                        ts = pd.Timestamp(key)
+                        # nearest bar at or before timestamp
+                        prior = w[w.index <= ts]
+                        if prior.empty:
+                            continue
+                        bar = prior.iloc[-1]
+                    n += 1
+                    close = float(bar["close"])
+                    e21 = float(bar["ema_21"]) if "ema_21" in bar.index and pd.notna(bar["ema_21"]) else None
+                    e9 = float(bar["ema_9"]) if "ema_9" in bar.index and pd.notna(bar["ema_9"]) else None
+                    rv = float(bar["rsi_14"]) if "rsi_14" in bar.index and pd.notna(bar["rsi_14"]) else None
+                    if rv is not None:
+                        rsis.append(rv)
+                        if rv >= 60 or rv <= 40:
+                            strong += 1
+                    trend_ref = e21 if e21 is not None else e9
+                    if trend_ref is not None and close > trend_ref:
+                        ups += 1
+                except Exception:
+                    continue
+            if n > 0:
+                uni_avg_rsi[pos] = round(float(np.mean(rsis)), 2) if rsis else None
+                uni_pct_up[pos] = round(100.0 * ups / n, 1)
+                uni_pct_strong[pos] = round(100.0 * strong / n, 1)
+
+    enriched: list[dict[str, Any]] = []
+    for i, row in enumerate(series):
+        r = dict(row)
+        rsi_v = float(rsi.iloc[i]) if i < len(rsi) and pd.notna(rsi.iloc[i]) else None
+        e9v = float(ema9.iloc[i]) if i < len(ema9) and pd.notna(ema9.iloc[i]) else None
+        e21v = float(ema21.iloc[i]) if i < len(ema21) and pd.notna(ema21.iloc[i]) else None
+        sl = float(slope.iloc[i]) if i < len(slope) and pd.notna(slope.iloc[i]) else 0.0
+
+        # Trend from EMA stack + slope
+        trend = "SIDEWAYS"
+        trend_score = 0.0
+        if e9v is not None and e21v is not None:
+            if e9v > e21v and sl >= 0:
+                trend = "UPTREND"
+                trend_score = 55 + min(40, abs(sl) * 0.5)
+            elif e9v < e21v and sl <= 0:
+                trend = "DOWNTREND"
+                trend_score = -(55 + min(40, abs(sl) * 0.5))
+            elif e9v > e21v:
+                trend = "UPTREND"
+                trend_score = 35
+            elif e9v < e21v:
+                trend = "DOWNTREND"
+                trend_score = -35
+            else:
+                trend_score = max(-20, min(20, sl))
+        elif sl > 0:
+            trend = "UPTREND"
+            trend_score = 25
+        elif sl < 0:
+            trend = "DOWNTREND"
+            trend_score = -25
+
+        # Strength 0-100: how decisive breadth is
+        ar = float(ad_ratio.iloc[i]) if i < len(ad_ratio) and pd.notna(ad_ratio.iloc[i]) else 1.0
+        net_share = abs(float(net.iloc[i]) / float(total.iloc[i])) * 100 if i < len(net) and pd.notna(total.iloc[i]) else 0.0
+        ratio_stretch = min(50.0, abs(ar - 1.0) * 25.0)  # |ratio-1|=2 → 50
+        rsi_stretch = abs((rsi_v if rsi_v is not None else 50) - 50) * 0.8  # 0..40
+        uni_strong = float(uni_pct_strong[i] or 0) * 0.25
+        strength = round(min(100.0, max(0.0, net_share * 0.45 + ratio_stretch + rsi_stretch * 0.4 + uni_strong)), 1)
+
+        # Prefer universe avg RSI when available; else A/D-line RSI
+        display_rsi = uni_avg_rsi[i] if uni_avg_rsi[i] is not None else (round(rsi_v, 2) if rsi_v is not None else None)
+
+        r.update({
+            "rsi": display_rsi,
+            "breadth_rsi": round(rsi_v, 2) if rsi_v is not None else None,
+            "avg_rsi": uni_avg_rsi[i],
+            "trend": trend,
+            "trend_score": round(float(max(-100, min(100, trend_score))), 1),
+            "strength": strength,
+            "pct_uptrend": uni_pct_up[i],
+            "pct_strong": uni_pct_strong[i],
+            "ad_ema9": round(e9v, 2) if e9v is not None else None,
+            "ad_ema21": round(e21v, 2) if e21v is not None else None,
+        })
+        enriched.append(r)
+    return enriched
 
 
 def _parse_as_of(as_of_time: str | None) -> time | None:
@@ -541,6 +715,15 @@ def _build_outcome_layman(
             f"A/D {last.get('advances')}/{last.get('declines')} (ratio {last.get('ad_ratio', '—')}) — {mood_line} "
             f"Volume-up {last.get('volume_up')}/{last.get('volume_down')} (ratio {last.get('vol_ratio', '—')}) — {vol_line}"
         )
+        if last.get("trend") or last.get("rsi") is not None or last.get("strength") is not None:
+            summary_parts.append(
+                f"Breadth internals — trend {last.get('trend', '—')} "
+                f"(score {last.get('trend_score', '—')}), "
+                f"strength {last.get('strength', '—')}/100, "
+                f"RSI {last.get('rsi', '—')}"
+                + (f", % stocks above EMA {last.get('pct_uptrend')}%" if last.get("pct_uptrend") is not None else "")
+                + "."
+            )
     summary_parts.append(combo)
     summary_parts.append(ad_note)
     if vol_trend_note:
@@ -553,9 +736,13 @@ def _build_outcome_layman(
     what_it_means = (
         "Price breadth answers “how many stocks moved which way?” "
         "Volume breadth answers “are more stocks getting busier or quieter?” "
-        "Best bullish confirmation: A/D ratio > 1 and volume ratio > 1. "
-        "Best bearish confirmation: A/D ratio < 1 and volume ratio > 1 (selling with activity). "
-        "A rise on falling volume is often less trustworthy. Use with price, not instead of it."
+        "Trend is the A/D-line EMA stack (up = improving breadth). "
+        "Strength (0–100) shows how one-sided / decisive that breadth is. "
+        "RSI is average constituent RSI (fallback: RSI of the A/D line) — "
+        "above 60 = hot internals, below 40 = washed out. "
+        "Best bullish confirmation: A/D ratio > 1, volume ratio > 1, uptrend, rising strength, RSI recovering from oversold. "
+        "Best bearish confirmation: A/D ratio < 1 with volume expanding and downtrend. "
+        "Use with price, not instead of it."
     )
 
     return {
@@ -567,6 +754,10 @@ def _build_outcome_layman(
         "combo_line": combo,
         "ad_trend": ad_trend,
         "ad_trend_line": ad_note,
+        "breadth_trend": (last or {}).get("trend"),
+        "breadth_trend_score": (last or {}).get("trend_score"),
+        "breadth_strength": (last or {}).get("strength"),
+        "breadth_rsi": (last or {}).get("rsi"),
         "intraday_mood": intra_mood,
         "intraday_line": intra_line,
         "intraday_volume_line": intra_vol_line,
@@ -575,9 +766,11 @@ def _build_outcome_layman(
         "how_to_read": [
             "A/D ratio (green/red bars + violet line) = Advances ÷ Declines. Above 1 = more stocks rose.",
             "Volume ratio (amber line) = Volume-up ÷ Volume-down. Above 1 = more stocks got busier.",
-            "Dashed line at 1.0 = even for both ratios.",
-            "A/D > 1 + Vol > 1 → healthier advance. A/D > 1 + Vol < 1 → hollow rally.",
-            "A/D < 1 + Vol > 1 → aggressive selling. A/D < 1 + Vol < 1 → quiet drift lower.",
+            "Trend (sky line score) = A/D-line EMA9 vs EMA21 — UPTREND means breadth improving.",
+            "Strength (orange, 0–100) = how decisive / one-sided the breadth move is.",
+            "RSI (cyan, 0–100) = average stock RSI (or A/D-line RSI) — >70 hot, <30 washed out.",
+            "Dashed line at 1.0 = even for A/D and volume ratios; RSI mid = 50.",
+            "A/D > 1 + Vol > 1 + UPTREND → healthier advance. A/D > 1 + Vol < 1 → hollow rally.",
             "Daily chart = one reading per session. Intraday = each bar in IST session hours.",
         ],
     }

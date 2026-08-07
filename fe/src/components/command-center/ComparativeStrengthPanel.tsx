@@ -21,6 +21,11 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from './AssetClassTickerPicker'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../analysis/AnalysisBackground'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
@@ -31,7 +36,7 @@ import { StatCard } from '../ui/StatCard'
 
 type Row = Record<string, unknown>
 
-const TIMEFRAMES = ['1d', '1w', '4h', '1h', '15m', '5m'] as const
+const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'] as const
 const LOOKBACKS = [5, 10, 20, 40, 60] as const
 
 function fmtPct(v: unknown, digits = 2): string {
@@ -96,6 +101,8 @@ export function ComparativeStrengthPanel() {
   const [timeframe, setTimeframe] = useState('1d')
   const [lookback, setLookback] = useState(20)
   const [selectedPeer, setSelectedPeer] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const bg = useAnalysisBackground('command_center', 'comparative_strength')
 
   const presetsQuery = useQuery({
     queryKey: ['comparative-strength-presets', assetClass],
@@ -119,23 +126,27 @@ export function ComparativeStrengthPanel() {
     setBaseSymbol(first.symbol)
   }, [assetClass, presetsQuery.data])
 
+  const buildPayload = () => ({
+    asset_class: assetClass,
+    base_symbol: baseSymbol.trim(),
+    compare_symbols: compare.tickers,
+    timeframe,
+    lookback_bars: lookback,
+  })
+
   const runMut = useMutation({
-    mutationFn: () =>
-      runComparativeStrength({
-        asset_class: assetClass,
-        base_symbol: baseSymbol.trim(),
-        compare_symbols: compare.tickers,
-        timeframe,
-        lookback_bars: lookback,
-      }),
+    mutationFn: () => runComparativeStrength(buildPayload()),
     onSuccess: (data) => {
+      setError('')
+      bg.setViewedReportId(null)
       const rows = ((data as Row)?.rows as Row[]) ?? []
       const firstOk = rows.find((r) => r.status === 'STRONGER' || r.status === 'WEAKER' || r.status === 'INLINE')
       setSelectedPeer(firstOk ? String(firstOk.symbol) : null)
     },
+    onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Row | undefined
+  const data = (bg.viewedPayload ?? runMut.data) as Row | undefined
   const rows = useMemo(() => ((data?.rows as Row[]) ?? []), [data])
   const stronger = useMemo(() => ((data?.stronger as Row[]) ?? []), [data])
   const weaker = useMemo(() => ((data?.weaker as Row[]) ?? []), [data])
@@ -143,6 +154,13 @@ export function ComparativeStrengthPanel() {
   const howTo = useMemo(() => ((data?.how_to_read as string[]) ?? []), [data])
   const chartRow = rows.find((r) => String(r.symbol) === selectedPeer) ?? rows[0]
   const askContext = data ? buildAskContext('Comparative Strength', data) : ''
+
+  useEffect(() => {
+    if (!data || Boolean(data.error)) return
+    const r = ((data.rows as Row[]) ?? [])
+    const firstOk = r.find((row) => row.status === 'STRONGER' || row.status === 'WEAKER' || row.status === 'INLINE')
+    if (firstOk) setSelectedPeer(String(firstOk.symbol))
+  }, [data])
 
   return (
     <div className="space-y-4">
@@ -244,31 +262,51 @@ export function ComparativeStrengthPanel() {
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
             onClick={() => runMut.mutate()}
-            disabled={runMut.isPending || !baseSymbol.trim() || compare.tickers.length === 0}
+            disabled={runMut.isPending || !baseSymbol.trim() || compare.tickers.length === 0 || bg.runInBackground}
           >
             {runMut.isPending ? 'Comparing strength…' : 'Run Comparative Strength'}
           </Button>
           {compare.tickers.length > 0 && (
-            <span className="ml-3 text-xs text-slate-500">
+            <span className="text-xs text-slate-500">
               {compare.tickers.length} peer{compare.tickers.length === 1 ? '' : 's'} selected
             </span>
           )}
         </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Comparative Strength · ${baseSymbol || 'base'} · ${timeframe} · ${new Date().toLocaleDateString()}`}
+          onStart={() =>
+            bg.startBackground(buildPayload(), () => {
+              if (!baseSymbol.trim()) return 'Enter a base index or stock'
+              if (!compare.tickers.length) return 'Select at least one compare ticker'
+              return null
+            })
+          }
+        />
 
-        {runMut.isError && (
+        {(error || runMut.isError) && (
           <div className="mt-3">
-            <Alert type="error">{apiErrorMessage(runMut.error)}</Alert>
+            <Alert type="error">{error || apiErrorMessage(runMut.error)}</Alert>
           </div>
         )}
       </Card>
 
-      {runMut.isPending && <Loading message="Fetching OHLC and ranking relative strength…" />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && (
+      {runMut.isPending && !bg.viewedPayload && (
+        <Loading message="Fetching OHLC and ranking relative strength…" />
+      )}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
+          {bg.viewedReportMeta?.name && (
+            <p className="text-sm text-slate-400">
+              Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+            </p>
+          )}
           {Boolean(data.error) && <Alert type="error">{String(data.error)}</Alert>}
 
           {!data.error && (
