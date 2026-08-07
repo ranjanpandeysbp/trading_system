@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, ChevronUp, TrendingDown, TrendingUp } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   apiErrorMessage,
   fetchInvestingAgentStatus,
@@ -4799,6 +4799,73 @@ function StrategyRunsTable({ runs }: { runs: Row[] }) {
   )
 }
 
+function MtfTrendPathChart({ r }: { r: Row }) {
+  const path = (r.trend_path as Row[]) ?? []
+  const summary = (r.trend_path_summary as Row) ?? {}
+  if (!path.length) return null
+
+  const direction = String(summary.direction ?? 'sideways')
+  const stroke =
+    direction === 'increasing' ? '#34d399' :
+    direction === 'decreasing' ? '#fb7185' :
+    '#94a3b8'
+  const directionLabel =
+    direction === 'increasing' ? 'Increasing trend over period' :
+    direction === 'decreasing' ? 'Decreasing trend over period' :
+    direction === 'sideways' ? 'Sideways / flat over period' :
+    'Trend path'
+
+  const from = summary.from_date ? String(summary.from_date) : ''
+  const to = summary.to_date ? String(summary.to_date) : ''
+  const rangeTxt = from && to ? `${from} → ${to}` : from || to || ''
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-800/50 bg-slate-950/40 p-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Trend over period</p>
+        <p className={`text-[11px] font-semibold ${
+          direction === 'increasing' ? 'text-emerald-400' :
+          direction === 'decreasing' ? 'text-rose-400' :
+          'text-slate-400'
+        }`}>
+          {directionLabel}
+          {summary.delta_score != null ? ` · Δ ${fmtNum(summary.delta_score, 1)}` : ''}
+        </p>
+      </div>
+      {rangeTxt && <p className="mb-2 text-[10px] text-slate-500">{rangeTxt}</p>}
+      <div className="h-40 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={path} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={28} />
+            <YAxis
+              domain={[-100, 100]}
+              tick={{ fill: '#94a3b8', fontSize: 9 }}
+              width={36}
+              label={{ value: 'Trend', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }}
+            />
+            <Tooltip
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+              labelStyle={{ color: '#e2e8f0' }}
+              formatter={(value: number, name: string) => [
+                typeof value === 'number' ? value.toFixed(1) : value,
+                name === 'trend_score' ? 'Trend score' : name === 'strength' ? 'Strength' : name,
+              ]}
+            />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 3" />
+            <Line type="monotone" dataKey="trend_score" name="Trend score" stroke={stroke} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="strength" name="Strength" stroke="#64748b" strokeWidth={1.25} strokeDasharray="4 3" dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-1 text-[10px] text-slate-600">
+        Trend score −100…+100 (signed strength). Rising line = bullish bias strengthening; falling = bearish bias strengthening.
+      </p>
+    </div>
+  )
+}
+
 function MtfTimeframeCard({ r }: { r: Row }) {
   const [showReasons, setShowReasons] = useState(false)
   const bias = String(r.bias ?? '—')
@@ -4831,6 +4898,7 @@ function MtfTimeframeCard({ r }: { r: Row }) {
       <p className="mt-2 text-[11px] text-slate-500">
         ADX {fmtNum(components.adx, 1)} · Efficiency ratio {fmtNum(components.efficiency_ratio, 2)} · Directional conviction {fmtNum(components.directional_conviction, 0)}
       </p>
+      <MtfTrendPathChart r={r} />
       {reasons.length > 0 && (
         <div className="mt-2 border-t border-slate-800/60 pt-2">
           <button
@@ -4865,6 +4933,8 @@ function MtfTrendStrengthPanel({ data }: { data: Row }) {
   const errors = (r.errors as Record<string, string>) ?? {}
   const confluence = (r.confluence as Row) ?? {}
   const elevated = (r.elevated_reversal_timeframes as string[]) ?? []
+  const rangeFrom = data.from_date ?? r.from_date
+  const rangeTo = data.to_date ?? r.to_date
 
   return (
     <div className="space-y-4">
@@ -4873,6 +4943,12 @@ function MtfTrendStrengthPanel({ data }: { data: Row }) {
           <Chip key={t} selected={idx === i} onClick={() => setIdx(i)}>{t}</Chip>
         ))}
       </div>
+
+      {(rangeFrom || rangeTo) && (
+        <p className="text-xs text-slate-500">
+          Date range {String(rangeFrom ?? '—')} → {String(rangeTo ?? '—')} · charts show whether each timeframe’s trend score rose or fell over this period
+        </p>
+      )}
 
       <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 px-4 py-5 sm:px-6">
         <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Cross-timeframe confluence — {ticker}</p>

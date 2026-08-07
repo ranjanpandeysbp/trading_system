@@ -505,7 +505,13 @@ class CommandCenterService:
         return json_safe({"market": market, "results": results})
 
     async def mtf_trend_strength(
-        self, tickers: list[str], *, asset_class: str = "india", timeframes: list[str] | None = None,
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        timeframes: list[str] | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.mtf_trend_strength_engine import MTF_TIMEFRAME_OPTIONS, scan_universe
 
@@ -515,7 +521,11 @@ class CommandCenterService:
         tfs = timeframes or MTF_TIMEFRAME_OPTIONS[:4]
 
         def _run():
-            return scan_universe(resolved, tfs, market, groww_token=token, exchange=exchange)
+            return scan_universe(
+                resolved, tfs, market,
+                groww_token=token, exchange=exchange,
+                from_date=from_date or None, to_date=to_date or None,
+            )
 
         payload = await asyncio.to_thread(_run)
         return json_safe(payload)

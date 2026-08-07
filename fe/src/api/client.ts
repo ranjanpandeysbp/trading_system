@@ -1269,7 +1269,13 @@ export const runMomentumScan = (payload: { tickers: string[]; asset_class: strin
 export const runEmaPositionScan = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
   api.post('/command-center/ema-position', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
-export const runMtfTrendStrength = (payload: { tickers: string[]; asset_class: string; timeframes?: string[] }) =>
+export const runMtfTrendStrength = (payload: {
+  tickers: string[]
+  asset_class: string
+  timeframes?: string[]
+  from_date?: string
+  to_date?: string
+}) =>
   api.post('/command-center/mtf-trend-strength', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export interface MarketMoversOption { label: string; value: string }

@@ -223,7 +223,13 @@ async def _execute_command_center(section: str, payload: dict[str, Any], *, sett
     if section == "ema_position":
         return await svc.ema_position(tickers, asset_class=ac, timeframes=tfs)
     if section == "mtf_trend_strength":
-        return await svc.mtf_trend_strength(tickers, asset_class=ac, timeframes=tfs)
+        return await svc.mtf_trend_strength(
+            tickers,
+            asset_class=ac,
+            timeframes=tfs,
+            from_date=payload.get("from_date") or None,
+            to_date=payload.get("to_date") or None,
+        )
     if section == "divergences":
         return await svc.divergences(tickers, asset_class=ac, timeframes=tfs)
     if section == "candlestick_chart_patterns" or section == "patterns":

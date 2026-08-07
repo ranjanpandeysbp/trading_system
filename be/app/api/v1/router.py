@@ -1207,7 +1207,11 @@ async def command_center_mtf_trend_strength(
     current_user: User = Depends(get_current_user),
 ):
     return await CommandCenterService(SettingsService(db)).mtf_trend_strength(
-        payload.tickers, asset_class=payload.asset_class, timeframes=payload.timeframes,
+        payload.tickers,
+        asset_class=payload.asset_class,
+        timeframes=payload.timeframes,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
     )
 
 

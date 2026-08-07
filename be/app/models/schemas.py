@@ -315,6 +315,8 @@ class CommandCenterTickerScanRequest(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     timeframes: list[str] | None = None
+    from_date: str | None = None
+    to_date: str | None = None
 
 
 class CommandCenterMarketMoversRequest(BaseModel):

@@ -197,6 +197,8 @@ export default function CommandCenter() {
   const [qaTimeframes, setQaTimeframes] = useState('15m,1h,4h,1d')
   const [qaFromDate, setQaFromDate] = useState(() => isoDaysAgo(90))
   const [qaToDate, setQaToDate] = useState(() => isoDaysAgo(0))
+  const [mtfFromDate, setMtfFromDate] = useState(() => isoDaysAgo(90))
+  const [mtfToDate, setMtfToDate] = useState(() => isoDaysAgo(0))
   const [qaIncludeFundamentals, setQaIncludeFundamentals] = useState(false)
   const [qaIncludeOptionChain, setQaIncludeOptionChain] = useState(false)
 
@@ -391,9 +393,10 @@ export default function CommandCenter() {
       case 'sma_20_200':
       case 'take_trade':
       case 'ema_position':
-      case 'mtf_trend_strength':
       case 'trade_setup':
         return base
+      case 'mtf_trend_strength':
+        return { ...base, from_date: mtfFromDate, to_date: mtfToDate }
       case 'copy_trade':
         return { tickers, asset_class: assetClass }
       case 'fundamental_analysis':
@@ -442,6 +445,11 @@ export default function CommandCenter() {
       const qaTfs = qaTimeframes.split(',').map((t) => t.trim()).filter(Boolean)
       if (!qaTfs.length) return 'Select at least one timeframe'
       if (qaFromDate > qaToDate) return 'From date must be on or before To date'
+      return null
+    }
+    if (tab === 'mtf_trend_strength') {
+      if (!tickers.length) return 'Select at least one ticker'
+      if (mtfFromDate > mtfToDate) return 'From date must be on or before To date'
       return null
     }
     if (!['mega_setup_advisor', 'market_movers', 'option_chain', 'option_short_long', 'india_market_heatmap', 'quick_analyzer'].includes(tab) && !tickers.length) {
@@ -542,7 +550,14 @@ export default function CommandCenter() {
         case 'ema_position':
           return runEmaPositionScan({ tickers, asset_class: assetClass, timeframes: durations })
         case 'mtf_trend_strength':
-          return runMtfTrendStrength({ tickers, asset_class: assetClass, timeframes: durations })
+          if (mtfFromDate > mtfToDate) throw new Error('From date must be on or before To date')
+          return runMtfTrendStrength({
+            tickers,
+            asset_class: assetClass,
+            timeframes: durations,
+            from_date: mtfFromDate,
+            to_date: mtfToDate,
+          })
         case 'trade_setup':
           return runTradeSetup({ tickers, asset_class: assetClass, timeframes: durations })
         case 'fundamental_analysis':
@@ -1046,6 +1061,27 @@ export default function CommandCenter() {
                   className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
                   value={qaToDate}
                   onChange={(e) => setQaToDate(e.target.value)}
+                />
+              </FormField>
+            </div>
+          )}
+
+          {tab === 'mtf_trend_strength' && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <FormField label="From date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={mtfFromDate}
+                  onChange={(e) => setMtfFromDate(e.target.value)}
+                />
+              </FormField>
+              <FormField label="To date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={mtfToDate}
+                  onChange={(e) => setMtfToDate(e.target.value)}
                 />
               </FormField>
             </div>
