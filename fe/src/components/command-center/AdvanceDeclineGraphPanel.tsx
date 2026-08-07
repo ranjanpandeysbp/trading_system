@@ -133,6 +133,11 @@ export function AdvanceDeclineGraphPanel() {
           across constituents. Choose an intraday timeframe to also see breadth <strong className="text-white">within a
           session</strong> — each bar until the optional as-of time.
         </p>
+        <p className="mb-3 text-xs leading-relaxed text-slate-500">
+          In plain English: this is a <strong className="text-slate-400">crowd count</strong> of how many stocks in the
+          index went up vs down — not a buy/sell tip by itself. More green than red = healthier rally; more red than
+          green = broader selling. After you plot, the results box explains the latest day in everyday language.
+        </p>
 
         <div className="grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <FormField label="Index">
@@ -209,9 +214,34 @@ export function AdvanceDeclineGraphPanel() {
 
           {!data.error && (
             <Card className="space-y-4">
-              {data.plain_english != null && (
-                <p className="text-sm leading-relaxed text-slate-300">{String(data.plain_english)}</p>
-              )}
+              {(() => {
+                const outcome = (data.outcome_layman as Row | undefined) ?? null
+                const howTo = (outcome?.how_to_read as string[] | undefined) ?? []
+                return (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 px-3 py-3 text-sm leading-relaxed text-slate-300">
+                    <p className="font-medium text-slate-100">Results in plain English</p>
+                    {outcome?.headline != null && (
+                      <p className="mt-2 text-base font-semibold text-white">{String(outcome.headline)}</p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-400">
+                      {String(outcome?.summary ?? data.plain_english ?? '')}
+                    </p>
+                    {outcome?.what_it_means != null && (
+                      <p className="mt-2 text-xs leading-relaxed text-violet-200/90">
+                        <span className="font-medium text-violet-200">What it means: </span>
+                        {String(outcome.what_it_means)}
+                      </p>
+                    )}
+                    {howTo.length > 0 && (
+                      <ul className="mt-2 space-y-0.5 border-t border-slate-800/60 pt-2">
+                        {howTo.map((line) => (
+                          <li key={line} className="text-xs text-slate-500">· {line}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard label="Universe" value={fmtNum(data.universe_size)} />

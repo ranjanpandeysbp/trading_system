@@ -263,6 +263,136 @@ def _parse_as_of(as_of_time: str | None) -> time | None:
     return None
 
 
+def _breadth_mood(advances: int, declines: int, unchanged: int = 0) -> tuple[str, str]:
+    """Return (mood_label, one_line) for layman copy."""
+    total = advances + declines + unchanged
+    if total <= 0:
+        return "NO DATA", "Not enough stock closes to read breadth yet."
+    if declines == 0 and advances > 0:
+        return "VERY BULLISH BREADTH", "Almost everything in the basket finished higher — broad participation."
+    if advances == 0 and declines > 0:
+        return "VERY BEARISH BREADTH", "Almost everything finished lower — selling is widespread."
+    ratio = advances / max(declines, 1)
+    net = advances - declines
+    share_up = advances / total
+    if share_up >= 0.65 or ratio >= 2.0:
+        return "BULLISH BREADTH", "More stocks rose than fell by a clear margin — buyers had the upper hand."
+    if share_up <= 0.35 or ratio <= 0.5:
+        return "BEARISH BREADTH", "More stocks fell than rose — selling pressure was broader than buying."
+    if abs(net) <= max(2, int(total * 0.05)):
+        return "MIXED / CHOPPY", "Advances and declines are nearly tied — the index move may be led by a few heavyweights."
+    if net > 0:
+        return "MILDLY BULLISH", "Slightly more stocks rose than fell — positive but not a stampede."
+    return "MILDLY BEARISH", "Slightly more stocks fell than rose — soft under the surface."
+
+
+def _build_outcome_layman(
+    *,
+    index_name: str,
+    from_date: str,
+    to_date: str,
+    daily: list[dict[str, Any]],
+    intraday: list[dict[str, Any]],
+    is_intraday: bool,
+    timeframe: str,
+    session_date: str | None,
+    as_of: time | None,
+    universe_size: int,
+) -> dict[str, Any]:
+    last = daily[-1] if daily else None
+    mood, mood_line = ("NO DATA", "No daily points yet.")
+    if last:
+        mood, mood_line = _breadth_mood(
+            int(last.get("advances") or 0),
+            int(last.get("declines") or 0),
+            int(last.get("unchanged") or 0),
+        )
+
+    # Trend of A/D line over the window
+    ad_trend = "flat"
+    ad_note = "The running A/D line did not move much across the period."
+    if len(daily) >= 2:
+        start_line = float(daily[0].get("ad_line") or 0)
+        end_line = float(daily[-1].get("ad_line") or 0)
+        delta = end_line - start_line
+        if delta > 5:
+            ad_trend = "rising"
+            ad_note = (
+                f"Over {from_date} → {to_date}, the cumulative A/D line rose "
+                f"(net +{int(delta)}). Breadth improved — more days of winners than losers stacked up."
+            )
+        elif delta < -5:
+            ad_trend = "falling"
+            ad_note = (
+                f"Over {from_date} → {to_date}, the cumulative A/D line fell "
+                f"(net {int(delta)}). Breadth weakened — losers piled up more than winners."
+            )
+        else:
+            ad_note = (
+                f"Over {from_date} → {to_date}, the cumulative A/D line stayed roughly flat "
+                f"(net {int(delta):+d}). Breadth did not clearly improve or deteriorate."
+            )
+
+    intra_mood = None
+    intra_line = None
+    if is_intraday and intraday:
+        last_i = intraday[-1]
+        intra_mood, intra_line = _breadth_mood(
+            int(last_i.get("advances") or 0),
+            int(last_i.get("declines") or 0),
+            int(last_i.get("unchanged") or 0),
+        )
+        until = f" until {as_of.strftime('%H:%M')}" if as_of else ""
+        intra_line = (
+            f"On {session_date} ({timeframe} bars{until}): {intra_line} "
+            f"Last bar — {last_i.get('advances')} up / {last_i.get('declines')} down / "
+            f"{last_i.get('unchanged')} flat."
+        )
+
+    headline = f"{index_name}: {mood}"
+    summary_parts = [
+        f"We checked about {universe_size} stocks that make up {index_name}.",
+        "Green bars = how many stocks went up that day. Red bars = how many went down.",
+        "The violet A/D line adds up (ups − downs) day after day — rising means breadth is getting healthier; falling means the opposite.",
+    ]
+    if last:
+        summary_parts.append(
+            f"On the latest day ({last.get('date')}): "
+            f"{last.get('advances')} stocks advanced, {last.get('declines')} declined, "
+            f"{last.get('unchanged')} were unchanged. Verdict: {mood_line}"
+        )
+    summary_parts.append(ad_note)
+    if intra_line:
+        summary_parts.append(intra_line)
+
+    what_it_means = (
+        "Think of this as a crowd count, not a price tip. "
+        "If the index is up but most stocks are red, a few big names may be carrying the move — fragile rally. "
+        "If the index is flat/down but most stocks are green, selling may be concentrated — healthier under the hood. "
+        "Use it with price, not instead of it."
+    )
+
+    return {
+        "headline": headline,
+        "mood": mood,
+        "mood_line": mood_line,
+        "ad_trend": ad_trend,
+        "ad_trend_line": ad_note,
+        "intraday_mood": intra_mood,
+        "intraday_line": intra_line,
+        "summary": " ".join(summary_parts),
+        "what_it_means": what_it_means,
+        "how_to_read": [
+            "Advances (green) — stocks that closed higher than the previous period.",
+            "Declines (red) — stocks that closed lower.",
+            "Unchanged — barely moved.",
+            "A/D line (violet) — running score of (advances − declines). Up = improving breadth, down = weakening.",
+            "Daily chart — one crowd count per trading day across your date range.",
+            "Intraday chart — same idea inside one day, at each 5m/15m/… bar up to your as-of time.",
+        ],
+    }
+
+
 def compute_advance_decline_graph(
     index_name: str,
     *,
@@ -330,22 +460,19 @@ def compute_advance_decline_graph(
         intraday = _intraday_series(intra_frames, sess_dt, as_of=as_of)
 
     last_daily = daily[-1] if daily else None
-    plain = (
-        f"Advance/Decline for {index_name}: {len(symbols)} constituents scanned. "
-        f"Daily series covers {from_date} → {to_date} ({len(daily)} sessions)."
+    outcome = _build_outcome_layman(
+        index_name=index_name,
+        from_date=from_date,
+        to_date=to_date,
+        daily=daily,
+        intraday=intraday,
+        is_intraday=is_intraday,
+        timeframe=tf,
+        session_date=sess_dt.date().isoformat() if is_intraday else None,
+        as_of=as_of,
+        universe_size=len(symbols),
     )
-    if is_intraday:
-        plain += (
-            f" Intraday {tf} on {sess_dt.date().isoformat()}"
-            + (f" until {as_of.strftime('%H:%M')}" if as_of else "")
-            + f" — {len(intraday)} bars."
-        )
-    if last_daily:
-        plain += (
-            f" Latest session {last_daily['date']}: "
-            f"{last_daily['advances']} advancing / {last_daily['declines']} declining "
-            f"/ {last_daily['unchanged']} unchanged."
-        )
+    plain = outcome["summary"]
 
     return {
         "index_name": index_name,
@@ -364,6 +491,7 @@ def compute_advance_decline_graph(
         "daily": daily,
         "intraday": intraday,
         "latest": last_daily,
+        "outcome_layman": outcome,
         "plain_english": plain,
         "currency": "₹",
         "market": GROWW_MARKET,
