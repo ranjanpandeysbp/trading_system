@@ -58,6 +58,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("india_market_heatmap", "IN-US-Crypto Market Heatmap — Index/Sector Constituent Heatmap"),
         ("advance_decline_graph", "Advance Decline (Multi Asset) — Breadth + Options PCR"),
         ("comparative_strength", "Comparative Strength — Relative Long/Short vs Base"),
+        ("oil_dollar_bond", "Oil · Dollar · Bond — Macro Tape · Metals · Indices · Crypto"),
         ("mtf_trend_strength", "MTF Trend and Strength — Multi-TF Trend Stack"),
         ("market_movers", "Market Movers — Index Gainers/Losers · Multi-Asset"),
         ("smart_money_activity", "Check Smart Money Activity — Institutional Footprints"),
@@ -179,11 +180,19 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("pa_volume_profile", "PA - Volume Profile — FVG + VP cluster · S/R flip"),
         ("pa_vp_smc", "PA-VP-SMC — Price Action + Volume Profile + Smart Money confluence"),
         ("volume_spread_next_candle", "Volume Spread - Next Candle — VSA Downthrust / Upthrust"),
+        ("elliott_wave_pro", "Elliott Wave — impulse / corrective Pro Trade scanner"),
+        ("fibonacci_pro", "Fibonacci Pro — golden-zone pullback · multi-strategy Fib"),
+        ("bb_mean_reversion", "BB Mean Reversion — %B stretch · squeeze · S/R confluence"),
+        ("btst", "Buy Today Sell Tomorrow — closing-strength BTST / STBT"),
+        ("ticker_chart", "Ticker Chart — daily / intraday with S1/S2 · R1/R2"),
     ],
     "📉 Options": [
         ("double_calendar", "Double Calendar — dual-expiry premium capture"),
         ("delta_neutral", "Delta Neutral — volatility / premium strategies"),
+        ("hedging", "Hedging — protective overlays · beta · pairs"),
         ("gokul_chhabra", "Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM options"),
+        ("zero_to_hero", "Zero to Hero — high-conviction options progression"),
+        ("market_prediction", "Market Prediction — derivatives conviction vs hollow move"),
     ],
     "📓 Demo Trading": [
         ("demo_india", "Demo Trading — India (Groww)"),
@@ -220,8 +229,8 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 | **Intraday** | 9:45 scanners, Fib bias, VWAP fade, MTF breakout-retest | Session-timed NSE / global intraday |
 | **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
 | **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
-| **Pro Trade** | Volume Profile CE/POC · PA+VP · PA-VP-SMC · VSA next-candle | Institutional VP / PA / VSA confluence |
-| **Options** | Double Calendar · Delta Neutral · Gokul Chhabra ITM flow | F&O structures & index options timing |
+| **Pro Trade** | Volume Profile CE/POC · PA+VP · PA-VP-SMC · VSA · Elliott · Fib Pro · BB Mean Rev · BTST · **Ticker Chart** | Institutional VP / PA / VSA / charting |
+| **Options** | Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · **Market Prediction** | F&O structures & derivatives conviction |
 | **Demo Trading** | Paper portfolio (India + crypto) | Practice without real money |
 | **Alerts** | Telegram/email when saved setups fire | Hands-off monitoring after research |
 | **Watchlist** | Per-user, per-market saved tickers with live price & % change since added | Track a shortlist without re-scanning |
@@ -232,6 +241,7 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 |---------|----------------|
 | **Advance Decline (Multi Asset)** | India / US / Crypto breadth (A/D + volume ratio + trend/strength/RSI). India F&O indices also attach live **options PCR / OI / max pain** |
 | **Comparative Strength** | Rank peers vs a base index/ticker (relative % + LONG/SHORT leans + AI View) |
+| **Oil · Dollar · Bond** | Macro tape: DXY · Brent · US 2Y/10Y · Gold/Silver · Nifty/Dow/Nasdaq · BTC/ETH with S/R + AI next-move (also on **Dashboard**) |
 | **Option Chain / Option-Short-Long** | NSE PCR, max pain, OI walls, premium/discount buildup |
 | **Detect Sector Rotation** | CRS · Hull · pullback across India / US / Crypto |
 | **IN-US-Crypto Market Heatmap** | Constituent heat tiles for the chosen index universe |
@@ -336,6 +346,19 @@ _WORKFLOWS = """
 3. **Comparative Strength** — pick a base (e.g. Nifty 50 / SPY / BTC) and compare peers; take LONG leaders / SHORT laggards ideas.
 4. Open **AI View** on both panels for a confluence verdict (breadth + RS + options when India).
 
+### Workflow 7c — Macro tape (Oil · Dollar · Bond)
+
+1. **Dashboard** or **Command Center → Oil · Dollar · Bond**.
+2. Choose **Daily range** or **Same-day intraday** (1m–1h).
+3. Read DXY · Brent · US 2Y/10Y · Gold/Silver · Nifty 50 · Dow 30 · Nasdaq · Bitcoin · Ethereum — each with **S1/S2 · R1/R2**.
+4. Use the normalized % overlay for direction; open **AI Predictor — Next Move** for RISK-ON / RISK-OFF / MIXED.
+
+### Workflow 7d — Options Market Prediction
+
+1. **Options → Market Prediction** — pick Index or Stock.
+2. Check whether today's move is backed by synthetic futures, OI buildup, IV skew, PCR/max pain, VIX, late-session move, FII/DII.
+3. Prefer acting only when Market Prediction agrees with Advance Decline / Option Chain bias.
+
 ### Workflow 8 — Mega Analyser (fastest research)
 
 1. **Command Center → Mega Analyser**.
@@ -374,15 +397,18 @@ _WORKFLOWS = """
 7. **SMB SnP** — Fashionably Late: LOD grind → 9 EMA × VWAP cross (10:00–13:30, 3:1 R:R).
 8. Pair with **Top Down MTF**, **ONE TA Golden Zone**, or **SMC Fake Market Shift** for confluence.
 
-### Workflow 13 — Pro Trade (Volume Profile / VSA)
+### Workflow 13 — Pro Trade (Volume Profile / VSA / Chart)
 
 1. **Pro Trade → Volume Profile CE** — VA rejection, POC compression breakout, or I-profile LVN slice.
 2. **Pro Trade → Volume Profile POC** — wait for HVN zone breakout, then trade the **first** retest of the zone edge.
 3. **Pro Trade → PA - Volume Profile** — FVG with POC cluster at the gap start, or S/R flip first retest.
 4. **Pro Trade → PA-VP-SMC** — multi-pillar confluence (trend + sweep + VP + SMC zone); prefer high-confidence rows.
 5. **Pro Trade → Volume Spread - Next Candle** — SOS (Downthrust / No Supply) longs or SOW (Upthrust / No Demand) shorts for the next bar.
-6. Validate in **Strategy Lab / Backtesting** under category **Pro Trade** (historical approximations of live scanners).
-7. **Demo Trading** before live size.
+6. **Pro Trade → Elliott Wave / Fibonacci Pro / BB Mean Reversion** — wave count, golden-zone Fib, or %B mean-reversion setups.
+7. **Pro Trade → Buy Today Sell Tomorrow** — closing-strength BTST / STBT with OI and historical edge.
+8. **Pro Trade → Ticker Chart** — pick India / US / Crypto / Commodity ticker (autosuggest) + date range or intraday; chart auto-draws with **S1/S2 · R1/R2**.
+9. Validate in **Strategy Lab / Backtesting** under category **Pro Trade** where available (historical approximations of live scanners).
+10. **Demo Trading** before live size.
 """
 
 _WHEN_TO_USE = """
@@ -431,6 +457,13 @@ _WHEN_TO_USE = """
 | FVG + VP cluster · S/R flip retest | Pro Trade → PA - Volume Profile | 15 min – 1d |
 | PA + VP + SMC multi-pillar confluence | Pro Trade → PA-VP-SMC | Hours – days |
 | VSA SOS/SOW next-candle edge | Pro Trade → Volume Spread - Next Candle | Next 1–3 bars |
+| Elliott impulse / corrective scan | Pro Trade → Elliott Wave | Hours – days |
+| Fib golden-zone pullback | Pro Trade → Fibonacci Pro | Hours – days |
+| BB %B stretch / squeeze mean reversion | Pro Trade → BB Mean Reversion | Scalp – swing |
+| BTST / STBT closing strength | Pro Trade → Buy Today Sell Tomorrow | Overnight |
+| Quick OHLC chart + S/R levels | Pro Trade → Ticker Chart (daily or intraday) | Session – months |
+| Macro FX / oil / yields / metals / indices / crypto | Command Center / Dashboard → Oil · Dollar · Bond | Session – weeks |
+| Hollow vs conviction move (derivatives) | Options → Market Prediction | Same session |
 | Everything-at-once scan | Mega Analyser (22+ engines incl. Crypto Scalping · SMC FMS · Weak Strong S-R · Velez · Smart Wave) | — |
 | Market breadth (A/D + volume + RSI) | Advance Decline (Multi Asset) — India · US · Crypto | Session – weeks |
 | Breadth + India options PCR | Advance Decline on Nifty / Bank Nifty / FinNifty / Midcap / Next 50 | Intraday – swing |
@@ -465,19 +498,19 @@ _WHEN_TO_USE = """
 
 **SMC / Smart Money:** Top Down MTF · **TOPDOWN-MTF** · SMC Fake Market Shift · **CISD** · **Weekly Sweep CISD** · **MTF Day Plan** · **Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **SMB SnP** · Scalping SMC · ONE TA
 
-**Pro Trade (VP / VSA):** **Volume Profile CE** · **Volume Profile POC** · **PA - Volume Profile** · **PA-VP-SMC** · **Volume Spread - Next Candle**
+**Pro Trade (VP / VSA / Chart):** **Volume Profile CE** · **Volume Profile POC** · **PA - Volume Profile** · **PA-VP-SMC** · **Volume Spread - Next Candle** · **Elliott Wave** · **Fibonacci Pro** · **BB Mean Reversion** · **BTST** · **Ticker Chart**
 
-**Positional (1w+):** Weekly Stoch · Elliott Wave · Seasonality · Sentiment on 1d/1w
+**Positional (1w+):** Weekly Stoch · Elliott Wave · Seasonality · Sentiment on 1d/1w · **Oil · Dollar · Bond** macro regime
 
 ### By market type
 
-**Trending:** MTF Scanner · KN Smart · Top Down MTF · Supertrend presets in Builder · **Comparative Strength** leaders
+**Trending:** MTF Scanner · KN Smart · Top Down MTF · Supertrend presets in Builder · **Comparative Strength** leaders · **Oil · Dollar · Bond** risk-on tape
 
-**Range-bound:** Fakeout 15M/4H · Confluence · BB/RSI presets · Top/Bottom · hollow A/D (A/D > 1 but volume ratio < 1)
+**Range-bound:** Fakeout 15M/4H · Confluence · BB/RSI presets · Top/Bottom · hollow A/D (A/D > 1 but volume ratio < 1) · **BB Mean Reversion**
 
-**High volatility / crypto:** Smart Wave · Pump & Dump · MTF Crypto Bias · Demo Crypto ledger · Advance Decline Crypto Top 30/50
+**High volatility / crypto:** Smart Wave · Pump & Dump · MTF Crypto Bias · Demo Crypto ledger · Advance Decline Crypto Top 30/50 · **Ticker Chart** (Crypto) · Oil-Dollar-Bond BTC/ETH panels
 
-**India F&O:** SMC Options · News PCR · Option Chain · Option-Short-Long · **Advance Decline** options snapshot · MTF Equity Bias (PCR component)
+**India F&O:** SMC Options · News PCR · Option Chain · Option-Short-Long · **Advance Decline** options snapshot · **Market Prediction** · MTF Equity Bias (PCR component)
 """
 
 _STRATEGY_LAB_DETAIL = """
@@ -816,6 +849,11 @@ India F&O indices also show PCR — use when deciding if breadth and options pos
     "comparative_strength": """
 **When to use:** Pair trades and relative longs/shorts — who is beating the base (Nifty / SPY / BTC) over the lookback.
 """,
+    "oil_dollar_bond": """
+**When to use:** Macro regime read — DXY vs oil/metals/yields plus Nifty/Dow/Nasdaq and BTC/ETH.
+Daily or same-day intraday with S/R on every panel; AI next-move for RISK-ON / RISK-OFF / MIXED.
+Also available on the **Dashboard**.
+""",
     "mtf_trend_strength": """
 **When to use:** Confirm trend alignment across multiple timeframes before sizing a directional trade.
 """,
@@ -824,6 +862,31 @@ India F&O indices also show PCR — use when deciding if breadth and options pos
 """,
     "smart_money_activity": """
 **When to use:** Check institutional / smart-money footprints on a watchlist before committing to a setup.
+""",
+    "elliott_wave_pro": """
+**When to use:** Pro Trade Elliott impulse/corrective scanner on a watchlist — pair with Fibonacci Pro for targets.
+""",
+    "fibonacci_pro": """
+**When to use:** Golden-zone Fib pullbacks and multi-strategy Fib evaluations on India / US / Crypto / Commodity.
+""",
+    "bb_mean_reversion": """
+**When to use:** Mean-reversion when %B stretches and S/R + RSI + volume climax agree — avoid strong-trend (high ER) regimes.
+""",
+    "btst": """
+**When to use:** Overnight BTST / STBT when closing strength (CLV), volume, RS, VWAP, and optional OI buildup align.
+""",
+    "ticker_chart": """
+**When to use:** Fast OHLC chart for any India / US / Crypto / Commodity ticker with auto S1/S2 · R1/R2.
+Daily date range or same-day intraday; chart draws as soon as ticker + dates are set (autosuggest ticker box).
+""",
+    "hedging": """
+**When to use:** Protective overlays, beta hedges, and pairs-style option hedges around an existing view.
+""",
+    "zero_to_hero": """
+**When to use:** Structured high-conviction options progression setups (see Options → Zero to Hero guide).
+""",
+    "market_prediction": """
+**When to use:** Before trusting today's index/stock move — check whether derivatives (synthetic futures, OI, IV skew, PCR, VIX, FII/DII) back the tape or call it hollow.
 """,
 }
 

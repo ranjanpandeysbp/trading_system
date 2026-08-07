@@ -2486,6 +2486,129 @@ Primary edge is the **next candle** after the signal bar. Stop beyond the signal
 
 **When to use:** Short-hold VSA confirmation after climactic volume events.
 """,
+
+    "oil_dollar_bond": """
+### Oil · Dollar · Bond — Macro Tape
+
+Command Center (and **Dashboard**) macro panel for:
+
+| Instrument | Typical Yahoo symbol |
+|------------|----------------------|
+| US Dollar Index | DX-Y.NYB |
+| Brent Crude | BZ=F |
+| US 2Y / US 10Y | ^UST2Y / ^TNX (futures fallbacks) |
+| Gold / Silver | GC=F / SI=F |
+| Nifty 50 · Dow 30 · Nasdaq | ^NSEI · ^DJI · ^IXIC |
+| Bitcoin · Ethereum | BTC-USD · ETH-USD |
+
+**Modes**
+
+| Mode | Controls |
+|------|----------|
+| **Daily** | From / To date range → 1d bars |
+| **Intraday** | One session date + 1m / 5m / 15m / 30m / 1h |
+
+Each instrument chart draws **S1/S2 (support)** and **R1/R2 (resistance)** from swing pivots in the window.
+A normalized **% change overlay** compares direction across units (no S/R on the overlay).
+
+**AI Predictor — Next Move:** RISK-ON / RISK-OFF / MIXED / WAIT with per-instrument UP/DOWN/FLAT leans.
+
+**When to use:** Morning or overnight macro regime; pair with Advance Decline + Comparative Strength before equity size.
+""",
+
+    "ticker_chart": """
+### Ticker Chart — OHLC + Support / Resistance
+
+Pro Trade charting for **India · US · Crypto · Commodities**.
+
+| Control | Behavior |
+|---------|----------|
+| **Asset class** | India / US / Crypto / Commodities |
+| **Ticker** | Autosuggest as you type (same suggestion API as watchlist) |
+| **Daily range** | From / To — chart loads automatically once ticker + dates are set |
+| **Same-day intraday** | Session date + bar size (1m–1h); Yahoo history windows apply |
+
+**Levels:** Green dashed **S1/S2** (nearer / deeper support) · Red dashed **R1/R2** (nearer / higher resistance).
+
+**When to use:** Quick visual of any ticker before running a scanner; confirm levels for SL/TP placement.
+Educational chart only — not a trade signal by itself.
+""",
+
+    "elliott_wave_pro": """
+### Elliott Wave (Pro Trade)
+
+Pro Trade watchlist scanner for impulse / corrective wave structure on India · US · Crypto · Commodity
+tickers. Complements the Technical Analysis **Elliott Wave Screener** with the Pro Trade asset-class
+picker and Ask AI / Predict Next Move flow.
+
+**When to use:** Swing / positional wave counts; pair with **Fibonacci Pro** for golden-zone targets.
+""",
+
+    "fibonacci_pro": """
+### Fibonacci Pro
+
+Multi-strategy Fib toolkit (golden-zone pullbacks and related Fib evaluations) across
+India · US · Crypto · Commodity.
+
+**When to use:** Pullback entries into 0.618–0.65 after an impulse; combine with Ticker Chart S/R.
+""",
+
+    "bb_mean_reversion": """
+### BB Mean Reversion
+
+Bollinger %B stretch confirmed by regime filter (Efficiency Ratio), RSI, candlestick reversal,
+volume climax, and Support/Resistance confluence.
+
+**When to use:** Range / mean-reversion days — skip when ER shows a strong trend (hard block).
+""",
+
+    "btst": """
+### Buy Today Sell Tomorrow (BTST / STBT)
+
+Closing-strength (CLV) signature confirmed by trend, volume, relative strength vs Nifty, VWAP,
+RSI chase-risk guard, options OI buildup, late-session fade check, and this ticker's own
+historical follow-through rate.
+
+**When to use:** Overnight India cash/F&O carries when multiple confirmation pillars agree.
+Supports background jobs and saved reports.
+""",
+
+    "hedging": """
+### Options Hedging
+
+Protective overlays and hedge constructions around an existing directional or portfolio view
+(beta, pairs, or defined-risk option hedges depending on configuration).
+
+**When to use:** After a bullish/bearish view is set — reduce tail risk without fully exiting.
+""",
+
+    "zero_to_hero": """
+### Zero to Hero
+
+Structured high-conviction options progression playbook (see in-app guide on Options → Zero to Hero).
+
+**When to use:** When you want a staged options plan rather than a one-shot directional buy.
+""",
+
+    "market_prediction": """
+### Market Prediction — derivatives conviction vs hollow move
+
+Checks whether today's index or stock move is backed by conviction in the NSE options chain
+(and related context), or is a **hollow** move — price rising while derivatives quietly price doubt.
+
+| Signal | Idea |
+|--------|------|
+| Synthetic futures premium/discount | Put-call parity stand-in for futures LTP |
+| OI buildup | Long/Short Buildup vs covering/unwinding |
+| IV skew | Put vs Call ATM IV (hedging demand) |
+| PCR / Max pain | Broader positioning picture |
+| India VIX | Fear rising into a rally (or vice versa) |
+| Late-session move | Outsized last-5-minute swing |
+| FII/DII cash flow | Institutional cash vs the move |
+
+**When to use:** Before trusting a big day on Nifty / Bank Nifty / F&O stocks — pair with
+**Advance Decline** and **Option Chain**. Open from Dashboard quick link or Options → Market Prediction.
+""",
 }
 
 
@@ -2502,6 +2625,10 @@ _SECTION_ID_ALIASES: dict[str, str] = {
     "big_whale": "big_whale_pump_dump",
     "smc_fake_shift": "smc_fake_market_shift",
     "opposite_hedge": "opposite_hedge_mtf",
+    "oil_dollar_bond_macro": "oil_dollar_bond",
+    "pro_trade_ticker_chart": "ticker_chart",
+    "pro_trade_elliott_wave": "elliott_wave_pro",
+    "elliott_wave_pro_trade": "elliott_wave_pro",
 }
 
 for _alias, _canon in _SECTION_ID_ALIASES.items():

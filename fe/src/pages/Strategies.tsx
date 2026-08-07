@@ -1,7 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart3, ChevronRight, Clock, Layers, Search, X, Zap } from 'lucide-react'
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  ChevronRight,
+  Clock,
+  Droplets,
+  Layers,
+  LineChart,
+  Scale,
+  Search,
+  Sparkles,
+  X,
+  Zap,
+} from 'lucide-react'
 import { fetchStrategyCategories, type StrategyInfo } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -14,6 +29,57 @@ const CATEGORY_STYLES: Record<string, { icon: typeof Zap; accent: string; chip: 
   intraday: { icon: Clock, accent: 'text-blue-400', chip: 'bg-blue-500/15 text-blue-300' },
   swing: { icon: Layers, accent: 'text-violet-400', chip: 'bg-violet-500/15 text-violet-300' },
 }
+
+const RESEARCH_LINKS = [
+  {
+    to: '/command-center?tab=oil_dollar_bond',
+    title: 'Oil · Dollar · Bond',
+    description: 'Macro tape with S/R — DXY, Brent, yields, metals, Nifty/Dow/Nasdaq, BTC/ETH',
+    icon: Droplets,
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10',
+  },
+  {
+    to: '/pro-trade/ticker-chart',
+    title: 'Ticker Chart',
+    description: 'India / US / Crypto / Commodities OHLC with autosuggest + S1/S2 · R1/R2',
+    icon: LineChart,
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/10',
+  },
+  {
+    to: '/command-center?tab=advance_decline_graph',
+    title: 'Advance Decline',
+    description: 'Multi-asset breadth — healthy vs hollow advances',
+    icon: Activity,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10',
+  },
+  {
+    to: '/command-center?tab=comparative_strength',
+    title: 'Comparative Strength',
+    description: 'Relative long/short vs a base index or ticker',
+    icon: Scale,
+    color: 'text-lime-400',
+    bg: 'bg-lime-500/10',
+  },
+  {
+    to: '/options?section=market_prediction',
+    title: 'Market Prediction',
+    description: 'Options — is today’s move backed by derivatives conviction?',
+    icon: Sparkles,
+    color: 'text-fuchsia-400',
+    bg: 'bg-fuchsia-500/10',
+  },
+  {
+    to: '/strategy-lab',
+    title: 'Strategy Encyclopedia',
+    description: 'Full hub map, workflows, and when-to-use matrix for every section',
+    icon: BookOpen,
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/10',
+  },
+] as const
 
 function StrategyDetail({ strategy, onClose }: { strategy: StrategyInfo; onClose: () => void }) {
   const style = CATEGORY_STYLES[strategy.category] ?? CATEGORY_STYLES.intraday
@@ -151,8 +217,28 @@ export default function Strategies() {
     <div>
       <PageHeader
         title="Strategies"
-        description="15 rule-based strategies across Scalping, Intraday, and Swing — read how each one works"
+        description="15 rule-based strategies across Scalping, Intraday, and Swing — plus quick links to macro, charts, breadth, and the full encyclopedia"
       />
+
+      <div className="mb-6">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Research tools</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {RESEARCH_LINKS.map(({ to, title, description, icon: Icon, color, bg }) => (
+            <Link key={to} to={to}>
+              <Card hover className="group h-full">
+                <div className={`mb-3 inline-flex rounded-xl p-2 ${bg}`}>
+                  <Icon size={18} className={color} />
+                </div>
+                <h3 className="mb-1 text-sm font-semibold text-white group-hover:text-blue-300">{title}</h3>
+                <p className="mb-2 text-xs leading-relaxed text-slate-500">{description}</p>
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-400">
+                  Open <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
         <Chip selected={activeCategory === 'all'} onClick={() => setActiveCategory('all')}>All</Chip>
