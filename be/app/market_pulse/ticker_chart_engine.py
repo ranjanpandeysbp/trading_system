@@ -277,7 +277,11 @@ def compute_ticker_chart(
 ) -> dict[str, Any]:
     """Build close chart + OHLC candles + S/R for one ticker."""
     from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG, resolve_tickers
-    from app.market_pulse.data_source_ctx import get_sources_used, reset_sources_used
+    from app.market_pulse.data_source_ctx import (
+        attach_data_source,
+        clear_tracking,
+        start_tracking,
+    )
 
     ac = (asset_class or "india").strip().lower()
     if ac not in ASSET_CLASS_CONFIG:
@@ -312,81 +316,82 @@ def compute_ticker_chart(
         if end < start:
             start, end = end, start
 
-    reset_sources_used()
-    ohlc = _download_ohlc(yf_sym, start, end, interval=iv)
-    # Prefer marking source even on empty so FE can show badge consistently
+    start_tracking()
     try:
-        from app.market_pulse.data_source_ctx import mark_source
-        if not ohlc.empty:
-            ohlc = mark_source(ohlc, "yfinance")
-    except Exception:
-        pass
+        ohlc = _download_ohlc(yf_sym, start, end, interval=iv)
+        # Prefer marking source even on empty so FE can show badge consistently
+        try:
+            from app.market_pulse.data_source_ctx import mark_source
+            if not ohlc.empty:
+                ohlc = mark_source(ohlc, "yfinance")
+        except Exception:
+            pass
 
-    if ohlc.empty:
-        return {
-            "error": f"No {iv} data for {resolved} ({yf_sym}) in this window.",
+        if ohlc.empty:
+            return attach_data_source({
+                "error": f"No {iv} data for {resolved} ({yf_sym}) in this window.",
+                "ticker": resolved,
+                "yf_symbol": yf_sym,
+                "asset_class": ac,
+                "mode": "intraday" if intraday else "daily",
+                "interval": iv,
+                "points": [],
+                "candles": [],
+                "support_resistance": None,
+            })
+
+        if intraday:
+            day_start = pd.Timestamp(_parse_date(session_date or start.strftime("%Y-%m-%d")))
+            day_end = day_start + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            clipped = ohlc[(ohlc.index >= day_start) & (ohlc.index <= day_end)]
+        else:
+            clipped = ohlc[
+                (ohlc.index >= pd.Timestamp(start))
+                & (ohlc.index <= pd.Timestamp(end) + pd.Timedelta(days=1))
+            ]
+        if clipped.empty:
+            clipped = ohlc
+
+        close = clipped["close"]
+        points = _series_to_points(close, intraday=intraday)
+        candles = _ohlc_to_candles(clipped, intraday=intraday)
+        sr = _support_resistance(clipped, window=3 if intraday else 5)
+
+        first = float(close.iloc[0]) if len(close) else None
+        last = float(close.iloc[-1]) if len(close) else None
+        change_pct = ((last / first) - 1.0) * 100.0 if first and last else None
+
+        range_txt = (
+            f"{session_date} · {iv}"
+            if intraday
+            else f"{start.strftime('%Y-%m-%d')} → {end.strftime('%Y-%m-%d')} · {iv}"
+        )
+
+        return attach_data_source({
             "ticker": resolved,
             "yf_symbol": yf_sym,
             "asset_class": ac,
             "mode": "intraday" if intraday else "daily",
             "interval": iv,
-            "points": [],
-            "candles": [],
-            "support_resistance": None,
-            "data_sources_used": get_sources_used(),
-        }
-
-    if intraday:
-        day_start = pd.Timestamp(_parse_date(session_date or start.strftime("%Y-%m-%d")))
-        day_end = day_start + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        clipped = ohlc[(ohlc.index >= day_start) & (ohlc.index <= day_end)]
-    else:
-        clipped = ohlc[
-            (ohlc.index >= pd.Timestamp(start))
-            & (ohlc.index <= pd.Timestamp(end) + pd.Timedelta(days=1))
-        ]
-    if clipped.empty:
-        clipped = ohlc
-
-    close = clipped["close"]
-    points = _series_to_points(close, intraday=intraday)
-    candles = _ohlc_to_candles(clipped, intraday=intraday)
-    sr = _support_resistance(clipped, window=3 if intraday else 5)
-
-    first = float(close.iloc[0]) if len(close) else None
-    last = float(close.iloc[-1]) if len(close) else None
-    change_pct = ((last / first) - 1.0) * 100.0 if first and last else None
-
-    range_txt = (
-        f"{session_date} · {iv}"
-        if intraday
-        else f"{start.strftime('%Y-%m-%d')} → {end.strftime('%Y-%m-%d')} · {iv}"
-    )
-
-    return {
-        "ticker": resolved,
-        "yf_symbol": yf_sym,
-        "asset_class": ac,
-        "mode": "intraday" if intraday else "daily",
-        "interval": iv,
-        "from": points[0]["t"] if points else None,
-        "to": points[-1]["t"] if points else None,
-        "bars": len(points),
-        "last": round(last, 4) if last is not None else None,
-        "change_pct": round(change_pct, 2) if change_pct is not None else None,
-        "points": points,
-        "candles": candles,
-        "support_resistance": sr,
-        "summary": f"{resolved} ({yf_sym}) · {range_txt} · Δ {change_pct:+.2f}%" if change_pct is not None else f"{resolved} · {range_txt}",
-        "plain_english": (
-            f"Ticker chart for {resolved} over {range_txt}. "
-            f"Green S1/S2 = support · Red R1/R2 = resistance from swing pivots in this window."
-        ),
-        "how_to_read": [
-            "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
-            "Intraday: pick session date + bar size (1m–1h). Yahoo keeps a limited intraday history window.",
-            "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
-            "Educational chart only — not a trade signal.",
-        ],
-        "data_sources_used": get_sources_used() or ["yfinance"],
-    }
+            "from": points[0]["t"] if points else None,
+            "to": points[-1]["t"] if points else None,
+            "bars": len(points),
+            "last": round(last, 4) if last is not None else None,
+            "change_pct": round(change_pct, 2) if change_pct is not None else None,
+            "points": points,
+            "candles": candles,
+            "support_resistance": sr,
+            "summary": f"{resolved} ({yf_sym}) · {range_txt} · Δ {change_pct:+.2f}%" if change_pct is not None else f"{resolved} · {range_txt}",
+            "plain_english": (
+                f"Ticker chart for {resolved} over {range_txt}. "
+                f"Green S1/S2 = support · Red R1/R2 = resistance from swing pivots in this window."
+            ),
+            "how_to_read": [
+                "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
+                "Intraday: pick session date + bar size (1m–1h). Yahoo keeps a limited intraday history window.",
+                "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
+                "Educational chart only — not a trade signal.",
+            ],
+        })
+    finally:
+        clear_tracking()
