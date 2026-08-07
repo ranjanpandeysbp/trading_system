@@ -355,7 +355,7 @@ def _build_outcome_layman(
         )
 
     headline = f"{index_name}: {mood}"
-        summary_parts = [
+    summary_parts = [
         f"We checked about {universe_size} stocks that make up {index_name}.",
         "The graph shows the Advance/Decline ratio (ups ÷ downs). Above 1 means more stocks rose; below 1 means more fell.",
         "Green bars = ratio ≥ 1 (bullish breadth). Red bars = ratio < 1 (bearish breadth). The dashed line at 1.0 is even.",
