@@ -247,6 +247,57 @@ def _vol_confirm(df: pd.DataFrame) -> str:
     return "NORMAL"
 
 
+def _atr_pct(df: pd.DataFrame, period: int = 14) -> float | None:
+    """ATR as % of last close — used for educational SL/TP sizing."""
+    if df is None or df.empty or len(df) < period + 2:
+        return None
+    if "high" not in df.columns or "low" not in df.columns or "close" not in df.columns:
+        return None
+    try:
+        from app.market_pulse.indicators import add_atr
+
+        w = add_atr(df.copy(), period)
+        atr_col = f"atr_{period}"
+        if atr_col not in w.columns:
+            return None
+        atr = float(w[atr_col].iloc[-1])
+        close = float(w["close"].iloc[-1])
+        if close <= 0 or not np.isfinite(atr) or atr <= 0:
+            return None
+        return round(atr / close * 100.0, 3)
+    except Exception:
+        return None
+
+
+def _risk_setup(
+    *,
+    side: str,
+    last_price: float,
+    atr_pct: float | None,
+    rr: float = 2.0,
+) -> dict[str, Any]:
+    """ATR-based %SL / %TP (educational). Falls back to 1.5% / 3.0% if ATR missing."""
+    sl_pct = float(atr_pct) if atr_pct is not None and atr_pct > 0 else 1.5
+    sl_pct = round(max(0.4, min(8.0, sl_pct * 1.2)), 2)
+    tp_pct = round(sl_pct * rr, 2)
+    entry = round(last_price, 4) if last_price > 0 else None
+    stop = target = None
+    if entry is not None and side == "LONG":
+        stop = round(entry * (1 - sl_pct / 100.0), 4)
+        target = round(entry * (1 + tp_pct / 100.0), 4)
+    elif entry is not None and side == "SHORT":
+        stop = round(entry * (1 + sl_pct / 100.0), 4)
+        target = round(entry * (1 - tp_pct / 100.0), 4)
+    return {
+        "sl_pct": sl_pct if side in ("LONG", "SHORT") else None,
+        "tp_pct": tp_pct if side in ("LONG", "SHORT") else None,
+        "rr_ratio": rr if side in ("LONG", "SHORT") else None,
+        "entry_price": entry,
+        "stop_price": stop,
+        "target_price": target,
+    }
+
+
 def _trade_suggestion(
     *,
     symbol: str,
@@ -257,25 +308,27 @@ def _trade_suggestion(
     base_trend: dict[str, Any],
     crs_slope: float | None,
     volume: str,
+    last_price: float,
+    atr_pct: float | None,
 ) -> dict[str, Any]:
-    """Expert relative-strength trade framing with confidence."""
+    """Relative-strength framing with ticker name + educational %SL / %TP."""
     score = 0.0
     reasons: list[str] = []
 
     if rs_pct >= 8:
         score += 28
-        reasons.append(f"Strong outperformance vs {base_symbol} (+{rs_pct:.1f}%).")
+        reasons.append(f"{symbol} strongly beat {base_symbol} (+{rs_pct:.1f}% relative).")
     elif rs_pct >= 3:
         score += 16
-        reasons.append(f"Moderate outperformance vs {base_symbol} (+{rs_pct:.1f}%).")
+        reasons.append(f"{symbol} moderately beat {base_symbol} (+{rs_pct:.1f}% relative).")
     elif rs_pct <= -8:
         score -= 28
-        reasons.append(f"Strong underperformance vs {base_symbol} ({rs_pct:.1f}%).")
+        reasons.append(f"{symbol} strongly lagged {base_symbol} ({rs_pct:.1f}% relative).")
     elif rs_pct <= -3:
         score -= 16
-        reasons.append(f"Moderate underperformance vs {base_symbol} ({rs_pct:.1f}%).")
+        reasons.append(f"{symbol} moderately lagged {base_symbol} ({rs_pct:.1f}% relative).")
     else:
-        reasons.append(f"RS near flat vs {base_symbol} ({rs_pct:+.1f}%) — no clear edge yet.")
+        reasons.append(f"{symbol} vs {base_symbol} is near flat ({rs_pct:+.1f}%) — no clear edge yet.")
 
     vals = [v for v in horizons.values() if v is not None]
     if len(vals) >= 2:
@@ -283,77 +336,107 @@ def _trade_suggestion(
         neg = sum(1 for v in vals if v < -0.5)
         if pos >= max(2, len(vals) - 1):
             score += 14
-            reasons.append("Multi-horizon RS consistently positive.")
+            reasons.append(f"{symbol} relative edge is consistent across horizons.")
         elif neg >= max(2, len(vals) - 1):
             score -= 14
-            reasons.append("Multi-horizon RS consistently negative.")
+            reasons.append(f"{symbol} relative weakness is consistent across horizons.")
         else:
             reasons.append("Horizons disagree — treat as tactical only.")
 
     if crs_slope is not None:
         if crs_slope >= 1.5:
             score += 12
-            reasons.append(f"CRS rising ({crs_slope:+.1f}%) — peer strengthening vs base.")
+            reasons.append(f"CRS rising ({crs_slope:+.1f}%) — {symbol} strengthening vs {base_symbol}.")
         elif crs_slope <= -1.5:
             score -= 12
-            reasons.append(f"CRS falling ({crs_slope:+.1f}%) — peer weakening vs base.")
+            reasons.append(f"CRS falling ({crs_slope:+.1f}%) — {symbol} weakening vs {base_symbol}.")
 
     pb = str(peer_trend.get("bias") or "")
     bb = str(base_trend.get("bias") or "")
     if "BULLISH" in pb:
         score += 10
-        reasons.append(f"Peer EMA stack {pb.replace('_', ' ').lower()}.")
+        reasons.append(f"{symbol} EMA stack {pb.replace('_', ' ').lower()}.")
     elif "BEARISH" in pb:
         score -= 10
-        reasons.append(f"Peer EMA stack {pb.replace('_', ' ').lower()}.")
+        reasons.append(f"{symbol} EMA stack {pb.replace('_', ' ').lower()}.")
     if "BULLISH" in bb and score < 0:
         score -= 4
-        reasons.append("Base still constructive — prefer short peer / rotate into base.")
+        reasons.append(f"{base_symbol} still constructive — prefer SHORT {symbol} or rotate into {base_symbol}.")
     if "BEARISH" in bb and score > 0:
         score += 4
-        reasons.append("Base soft — long peer is a relative long, not a broad-market long.")
+        reasons.append(f"{base_symbol} soft — LONG {symbol} is a relative long, not a broad-market long.")
 
     if volume == "EXPANDING":
         score += 6 if score >= 0 else -6
-        reasons.append("Volume expanding — move has participation.")
+        reasons.append(f"{symbol} volume expanding — move has participation.")
     elif volume == "DRYING":
         score *= 0.85
-        reasons.append("Volume drying — treat RS move with caution.")
+        reasons.append(f"{symbol} volume drying — treat the RS move with caution.")
 
     score = float(max(-100.0, min(100.0, score)))
     conf = int(round(min(95, max(35, abs(score) * 0.9 + 20))))
 
     if score >= 35:
         action = "LONG"
+        side = "LONG"
         thesis = (
-            f"LONG {symbol} vs {base_symbol}: peer is relatively stronger. "
-            "Prefer pullbacks in the peer; use base weakness or peer EMA as timing."
+            f"LONG {symbol} vs {base_symbol}: {symbol} (compare ticker) is relatively stronger than the base. "
+            f"Prefer buying pullbacks in {symbol}; use weakness in {base_symbol} or {symbol} EMA support as timing."
         )
     elif score <= -35:
         action = "SHORT"
+        side = "SHORT"
         thesis = (
-            f"SHORT {symbol} / rotate toward {base_symbol}: peer is relatively weaker. "
-            "Prefer bounces to short peer, or reduce peer and overweight base."
+            f"SHORT {symbol} / rotate toward {base_symbol}: {symbol} (compare ticker) is relatively weaker. "
+            f"Prefer shorting bounces in {symbol}, or reduce {symbol} and overweight {base_symbol}."
         )
     elif score >= 15:
         action = "LONG_WATCH"
-        thesis = f"Lean LONG {symbol} on dips — RS edge exists but conviction is only moderate."
+        side = "LONG"
+        thesis = (
+            f"Lean LONG {symbol} on dips vs {base_symbol} — relative edge exists but conviction is only moderate."
+        )
         conf = min(conf, 58)
     elif score <= -15:
         action = "SHORT_WATCH"
-        thesis = f"Lean SHORT {symbol} / favor {base_symbol} — weakness present but not decisive."
+        side = "SHORT"
+        thesis = (
+            f"Lean SHORT {symbol} / favor {base_symbol} — weakness in {symbol} is present but not decisive."
+        )
         conf = min(conf, 58)
     else:
         action = "WAIT"
-        thesis = f"No high-conviction relative trade vs {base_symbol} right now — wait for RS to stretch."
+        side = "WAIT"
+        thesis = (
+            f"No high-conviction relative trade for {symbol} vs {base_symbol} right now — wait for RS to stretch."
+        )
         conf = min(conf, 45)
 
+    risk_side = side if action in ("LONG", "SHORT") else "WAIT"
+    risk = _risk_setup(side=risk_side, last_price=last_price, atr_pct=atr_pct)
+    setup_line = None
+    if action in ("LONG", "SHORT") and risk.get("sl_pct") is not None:
+        setup_line = (
+            f"Setup · Ticker {symbol} · {action} vs {base_symbol} · "
+            f"%SL {risk['sl_pct']}% · %TP {risk['tp_pct']}% (~{risk['rr_ratio']}:1 R:R, ATR-based)"
+        )
+        thesis = f"{thesis} {setup_line}."
+
     return {
+        "ticker": symbol,
+        "base_ticker": base_symbol,
         "action": action,
-        "side": "LONG" if "LONG" in action else ("SHORT" if "SHORT" in action else "WAIT"),
+        "side": side if action != "WAIT" else "WAIT",
         "confidence_pct": conf,
         "score": round(score, 1),
         "thesis": thesis,
+        "setup_line": setup_line,
+        "sl_pct": risk.get("sl_pct"),
+        "tp_pct": risk.get("tp_pct"),
+        "rr_ratio": risk.get("rr_ratio"),
+        "entry_price": risk.get("entry_price"),
+        "stop_price": risk.get("stop_price"),
+        "target_price": risk.get("target_price"),
         "reasons": reasons[:6],
     }
 
@@ -402,6 +485,8 @@ def _analyze_peer(
     base_trend = _trend_stack(base_s)
     crs_slope = _crs_slope_pct(peer_s, base_s, bars=min(10, max(3, lb // 2)))
     volume = _vol_confirm(peer_df)
+    last_price = float(peer_s.iloc[-1])
+    atr_pct = _atr_pct(peer_df)
 
     if rs_pct >= 1.0:
         status = "STRONGER"
@@ -419,6 +504,8 @@ def _analyze_peer(
         base_trend=base_trend,
         crs_slope=crs_slope,
         volume=volume,
+        last_price=last_price,
+        atr_pct=atr_pct,
     )
 
     window = aligned.tail(lb + 1).copy()
@@ -435,10 +522,18 @@ def _analyze_peer(
         for i, idx in enumerate(window.index)
     ]
 
+    sl = trade.get("sl_pct")
+    tp = trade.get("tp_pct")
+    levels = ""
+    if sl is not None and tp is not None and trade.get("action") in ("LONG", "SHORT"):
+        levels = f" Setup: Ticker {symbol} · %SL {sl}% · %TP {tp}%."
+
     return {
         "symbol": symbol,
+        "ticker": symbol,
         "status": status,
         "peer_return_pct": peer_ret,
+        "compare_return_pct": peer_ret,
         "base_return_pct": base_ret,
         "relative_strength_pct": rs_pct,
         "lookback_bars": lb,
@@ -447,14 +542,17 @@ def _analyze_peer(
         "peer_trend": peer_trend,
         "base_trend": base_trend,
         "volume": volume,
-        "last_price": round(float(peer_s.iloc[-1]), 4),
+        "last_price": round(last_price, 4),
         "base_last_price": round(float(base_s.iloc[-1]), 4),
         "trade": trade,
+        "sl_pct": trade.get("sl_pct"),
+        "tp_pct": trade.get("tp_pct"),
         "series": series,
         "plain_english": (
-            f"{symbol} is {status.lower()} than {base_symbol} by {rs_pct:+.2f}% "
-            f"over {lb} bars (peer {peer_ret:+.2f}% vs base {base_ret:+.2f}%). "
+            f"{symbol} (compare ticker) is {status.lower()} than base {base_symbol} by {rs_pct:+.2f}% "
+            f"over {lb} bars ({symbol} {peer_ret:+.2f}% vs {base_symbol} {base_ret:+.2f}%). "
             f"Trade lean: {trade['action']} · confidence {trade['confidence_pct']}%."
+            f"{levels}"
         ),
     }
 
@@ -596,30 +694,42 @@ def compute_comparative_strength(
         if t.get("action") in ("LONG", "SHORT", "LONG_WATCH", "SHORT_WATCH"):
             ideas.append({
                 "symbol": r["symbol"],
+                "ticker": r.get("ticker") or r["symbol"],
+                "base_ticker": base,
                 "action": t.get("action"),
                 "side": t.get("side"),
                 "confidence_pct": t.get("confidence_pct"),
                 "relative_strength_pct": r.get("relative_strength_pct"),
                 "thesis": t.get("thesis"),
+                "setup_line": t.get("setup_line"),
+                "sl_pct": t.get("sl_pct"),
+                "tp_pct": t.get("tp_pct"),
+                "rr_ratio": t.get("rr_ratio"),
+                "entry_price": t.get("entry_price"),
+                "stop_price": t.get("stop_price"),
+                "target_price": t.get("target_price"),
                 "reasons": t.get("reasons") or [],
             })
     ideas.sort(key=lambda x: (0 if x["action"] in ("LONG", "SHORT") else 1, -int(x.get("confidence_pct") or 0)))
 
     parts = [
-        f"Base: {base} ({timeframe}, {lookback} bars). Base return "
+        f"Base (benchmark): {base} ({timeframe}, {lookback} bars). Base return "
         f"{base_ret if base_ret is not None else '—'}%. Trend: {base_trend.get('bias', '—')}."
     ]
     if stronger:
         top = ", ".join(f"{r['symbol']} ({r['relative_strength_pct']:+.1f}%)" for r in stronger[:5])
-        parts.append(f"Stronger than base: {top}.")
+        parts.append(f"Compare tickers stronger than base: {top}.")
     if weaker:
         bot = ", ".join(f"{r['symbol']} ({r['relative_strength_pct']:+.1f}%)" for r in weaker[:5])
-        parts.append(f"Weaker than base: {bot}.")
+        parts.append(f"Compare tickers weaker than base: {bot}.")
     if ideas:
         best = ideas[0]
+        sl_tp = ""
+        if best.get("sl_pct") is not None and best.get("tp_pct") is not None:
+            sl_tp = f", %SL {best['sl_pct']}% / %TP {best['tp_pct']}%"
         parts.append(
-            f"Top idea: {best['action']} {best['symbol']} "
-            f"(RS {best['relative_strength_pct']:+.1f}%, conf {best['confidence_pct']}%)."
+            f"Top idea: {best['action']} ticker {best['ticker']} vs {base} "
+            f"(RS {best['relative_strength_pct']:+.1f}%, conf {best['confidence_pct']}%{sl_tp})."
         )
     else:
         parts.append("No high-conviction relative long/short right now — wait for a clearer RS stretch.")
@@ -643,10 +753,11 @@ def compute_comparative_strength(
         "errors": errors,
         "summary": " ".join(parts),
         "how_to_read": [
-            "Relative strength % = peer return − base return over the lookback.",
-            "+ve = peer stronger than base · −ve = peer weaker than base.",
-            "LONG ideas favor outperforming peers with constructive trend/CRS.",
-            "SHORT ideas favor underperforming peers (or rotate capital into the base).",
+            "Base = the benchmark (e.g. NIFTY 50). Compare ticker = each stock you selected to rank against it (e.g. TECHM).",
+            "Relative strength % = compare-ticker return − base return. +ve means the compare ticker beat the base.",
+            "LONG TECHM vs NIFTY 50 means: buy/hold TECHM (the compare ticker) because it is relatively stronger than the base.",
+            "Trade setup shows Ticker · %SL · %TP (ATR-based educational levels, ~2:1 R:R).",
+            "SHORT ideas favor underperforming compare tickers (or rotate capital into the base).",
             "Confidence blends RS magnitude, multi-horizon agreement, CRS slope, EMA stack, and volume.",
             "Educational only — not financial advice. Size risk and confirm with price action.",
         ],

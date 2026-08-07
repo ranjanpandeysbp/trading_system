@@ -317,6 +317,7 @@ export function AdvanceDeclineGraphPanel() {
   const [timeframe, setTimeframe] = useState('1d')
   const [sessionDate, setSessionDate] = useState(todayIso())
   const [asOfTime, setAsOfTime] = useState('')
+  const [showHow, setShowHow] = useState(false)
 
   const indicesQuery = useQuery({
     queryKey: ['advance-decline-graph-indices', assetClass],
@@ -359,21 +360,82 @@ export function AdvanceDeclineGraphPanel() {
   return (
     <div className="space-y-4">
       <Card>
-        <p className="mb-3 text-sm leading-relaxed text-slate-300">
-          Multi-asset breadth: pick <strong className="text-white">India / US / Crypto</strong>, an index universe,
-          and a date range to plot <strong className="text-white">advances vs declines</strong> across constituents.
-          For India F&O indices (Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50), the run also pulls a live{' '}
-          <strong className="text-white">options PCR / OI / max-pain</strong> snapshot.
-          Choose an intraday timeframe to also see breadth <strong className="text-white">within a session</strong>{' '}
-          — each bar until the optional as-of time ({tzHint}).
-        </p>
-        <p className="mb-3 text-xs leading-relaxed text-slate-500">
-          Charts show <strong className="text-slate-400">A/D ratio</strong>,{' '}
-          <strong className="text-slate-400">volume ratio</strong>, plus{' '}
-          <strong className="text-slate-400">trend</strong>, <strong className="text-slate-400">strength</strong>, and{' '}
-          <strong className="text-slate-400">RSI</strong> of market internals. Both ratios above 1 with an uptrend
-          and rising strength = healthier move.
-        </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-relaxed text-slate-300">
+              Multi-asset breadth: pick <strong className="text-white">India / US / Crypto</strong>, an index universe,
+              and a date range to plot <strong className="text-white">advances vs declines</strong> across constituents.
+              For India F&O indices (Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50), the run also pulls a live{' '}
+              <strong className="text-white">options PCR / OI / max-pain</strong> snapshot.
+              Choose an intraday timeframe to also see breadth <strong className="text-white">within a session</strong>{' '}
+              — each bar until the optional as-of time ({tzHint}).
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              Charts show <strong className="text-slate-400">A/D ratio</strong>,{' '}
+              <strong className="text-slate-400">volume ratio</strong>, plus{' '}
+              <strong className="text-slate-400">trend</strong>, <strong className="text-slate-400">strength</strong>, and{' '}
+              <strong className="text-slate-400">RSI</strong> of market internals. Both ratios above 1 with an uptrend
+              and rising strength = healthier move.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-xs text-slate-400 hover:text-white"
+            onClick={() => setShowHow((v) => !v)}
+          >
+            {showHow ? 'Hide guide' : 'How to'}
+          </button>
+        </div>
+
+        {showHow && (
+          <div className="mb-4 space-y-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">How to run</p>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>Pick asset class: <span className="text-slate-300">India</span>, <span className="text-slate-300">US</span>, or <span className="text-slate-300">Crypto</span>.</li>
+                <li>Choose an index / universe (e.g. NIFTY 50, Dow 30, Top 30 Crypto).</li>
+                <li>Set <span className="text-slate-300">From / To</span> for the daily breadth chart.</li>
+                <li>Leave timeframe on <span className="text-slate-300">Daily</span>, or pick an intraday TF + session date (optional as-of time in {tzHint}).</li>
+                <li>Click <span className="text-slate-300">Plot Advance / Decline</span>. Wait for constituent candles + (India F&O) options snapshot.</li>
+                <li>Optional: open <span className="text-slate-300">AI View</span> for a healthy-vs-hollow verdict.</li>
+              </ol>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">How to read the chart</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li><span className="text-emerald-300">A/D ratio &gt; 1</span> — more stocks rose than fell (green bars). Below 1 = decline-led (red).</li>
+                <li><span className="text-amber-300">Volume ratio &gt; 1</span> — more names got busier; below 1 = quiet / thin participation.</li>
+                <li><span className="text-sky-300">UPTREND</span> + rising <span className="text-orange-300">strength</span> — breadth improving and decisive.</li>
+                <li><span className="text-cyan-300">RSI</span> — internals hot (&gt;60) or washed out (&lt;40). Mid ~50 is neutral.</li>
+                <li>Dashed line at <span className="text-slate-300">1.0</span> = even for A/D and volume ratios; RSI mid = 50.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">Healthy vs hollow</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li><span className="text-emerald-300">Healthy advance</span> — A/D &gt; 1 <strong>and</strong> volume ratio &gt; 1 <strong>and</strong> uptrend (optionally PCR &gt; 1 on India F&O).</li>
+                <li><span className="text-rose-300">Hollow rally</span> — A/D &gt; 1 but volume ratio &lt; 1 (price up without participation).</li>
+                <li><span className="text-rose-300">Confirmed selloff</span> — A/D &lt; 1 with volume expanding and downtrend.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">Options block (India F&O only)</p>
+              <p>
+                On Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50 the panel adds PCR (OI &amp; Vol), Call/Put OI,
+                max pain, and OI support/resistance. PCR &gt; 1 with A/D &gt; 1 often confirms a healthier bullish tape;
+                PCR &lt; 0.8 with rising A/D can mean a short-covering / hollow rally. US and Crypto show breadth only.
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">Pair with</p>
+              <p>
+                <span className="text-slate-300">Comparative Strength</span> (who leads the base) ·{' '}
+                <span className="text-slate-300">Option Chain</span> (full PCR deep dive) ·{' '}
+                <span className="text-slate-300">Market Heatmap</span> (visual constituents).
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap gap-2">
           {ASSET_OPTIONS.map((ac) => (

@@ -102,6 +102,7 @@ export function ComparativeStrengthPanel() {
   const [lookback, setLookback] = useState(20)
   const [selectedPeer, setSelectedPeer] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [showHow, setShowHow] = useState(false)
   const bg = useAnalysisBackground('command_center', 'comparative_strength')
 
   const presetsQuery = useQuery({
@@ -165,16 +166,85 @@ export function ComparativeStrengthPanel() {
   return (
     <div className="space-y-4">
       <Card>
-        <p className="mb-3 text-sm leading-relaxed text-slate-300">
-          Pick a <strong className="text-white">base</strong> index or stock, then one or more{' '}
-          <strong className="text-white">compare</strong> tickers. The scan ranks who is{' '}
-          <strong className="text-emerald-300">stronger</strong> / <strong className="text-rose-300">weaker</strong>{' '}
-          than the base by relative % and suggests LONG / SHORT leans with confidence.
-        </p>
-        <p className="mb-4 text-xs leading-relaxed text-slate-500">
-          Relative strength % = peer return − base return. Positive means the peer beat the base over the lookback.
-          Confidence blends RS size, multi-horizon agreement, CRS slope, EMA stack, and volume. Educational only.
-        </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-relaxed text-slate-300">
+              Pick a <strong className="text-white">base</strong> index or stock, then one or more{' '}
+              <strong className="text-white">compare</strong> tickers. The scan ranks who is{' '}
+              <strong className="text-emerald-300">stronger</strong> / <strong className="text-rose-300">weaker</strong>{' '}
+              than the base by relative % and suggests LONG / SHORT leans with confidence.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              Relative strength % = compare-ticker return − base return. Positive means the compare ticker beat the base.
+              Confidence blends RS size, multi-horizon agreement, CRS slope, EMA stack, and volume. Educational only.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-xs text-slate-400 hover:text-white"
+            onClick={() => setShowHow((v) => !v)}
+          >
+            {showHow ? 'Hide guide' : 'How to'}
+          </button>
+        </div>
+
+        {showHow && (
+          <div className="mb-4 space-y-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">How to run</p>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>Select <span className="text-slate-300">asset class</span> (India / US / Crypto / Commodity).</li>
+                <li>Pick a <span className="text-slate-300">base</span> from presets or type a symbol (NIFTY 50, SPY, BTC…).</li>
+                <li>Add one or more <span className="text-slate-300">compare</span> tickers in the picker.</li>
+                <li>Choose <span className="text-slate-300">timeframe</span> (1m→1w) and <span className="text-slate-300">lookback bars</span> (how many bars of relative return).</li>
+                <li>Click <span className="text-slate-300">Run comparative strength</span> (or queue in background).</li>
+                <li>Click a peer row to see the cumulative return chart vs the base; use <span className="text-slate-300">AI View</span> for the best relative long/short.</li>
+              </ol>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">What “compare ticker” means</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li><span className="text-slate-300">Base</span> = the benchmark (e.g. NIFTY 50).</li>
+                <li><span className="text-slate-300">Compare ticker</span> = each stock you picked to rank against the base (e.g. TECHM). Older copy said “peer” — same thing.</li>
+                <li>
+                  <span className="text-emerald-300">LONG TECHM vs NIFTY 50</span> means: TECHM beat the base on a relative basis —
+                  prefer buying / holding <span className="text-slate-300">TECHM</span>, not longing the index itself.
+                </li>
+                <li>
+                  Timing tip: buy pullbacks in TECHM; use weakness in NIFTY 50 or TECHM’s own EMA as entry timing.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">How to read the table</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li><span className="text-emerald-300">STRONGER</span> — compare ticker beat the base (positive RS %). Lean <span className="text-emerald-300">LONG</span> that ticker.</li>
+                <li><span className="text-rose-300">WEAKER</span> — compare ticker lagged the base. Lean <span className="text-rose-300">SHORT</span> that ticker (or overweight the base).</li>
+                <li><span className="text-slate-300">INLINE</span> — roughly matched the base; no strong relative edge.</li>
+                <li><span className="text-slate-300">%SL / %TP</span> — ATR-based educational stop and target on the compare ticker (~2:1 R:R).</li>
+                <li><span className="text-slate-300">Confidence %</span> — higher when RS is large, horizons agree, CRS / EMA / volume support the lean.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">Playbook tips</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li>Prefer LONG leaders only when <span className="text-slate-300">Advance Decline</span> shows a healthy tape on the base universe.</li>
+                <li>Prefer SHORT laggards when breadth is weak (A/D &lt; 1, downtrend) and the peer is even weaker.</li>
+                <li>Use daily/weekly for swing pairs; 15m–1h for intraday relative scalps.</li>
+                <li>Educational lean only — not a broker order ticket. Always set your own SL/TP.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1.5 font-medium text-slate-200">Pair with</p>
+              <p>
+                <span className="text-slate-300">Advance Decline</span> (is the advance healthy?) ·{' '}
+                <span className="text-slate-300">Weak / Strong</span> ·{' '}
+                <span className="text-slate-300">Detect Sector Rotation</span> ·{' '}
+                <span className="text-slate-300">Take Trade / One-Click</span> for timing.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <FormField label="Asset class">
@@ -337,30 +407,56 @@ export function ComparativeStrengthPanel() {
               {ideas.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-slate-200">Trade opportunities</p>
+                  <p className="text-[11px] text-slate-500">
+                    Compare ticker = the stock named in the card (not the base). %SL / %TP are ATR-based educational levels on that ticker.
+                  </p>
                   <div className="grid gap-2 lg:grid-cols-2">
-                    {ideas.slice(0, 6).map((idea) => (
-                      <div
-                        key={`${String(idea.symbol)}-${String(idea.action)}`}
-                        className={`rounded-lg border px-3 py-2.5 ${actionTone(String(idea.action))}`}
-                      >
-                        <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <p className="font-semibold">
-                            {String(idea.action)} {String(idea.symbol)}
+                    {ideas.slice(0, 6).map((idea) => {
+                      const ticker = String(idea.ticker ?? idea.symbol ?? '')
+                      const baseT = String(idea.base_ticker ?? data.base_symbol ?? baseSymbol)
+                      return (
+                        <div
+                          key={`${ticker}-${String(idea.action)}`}
+                          className={`rounded-lg border px-3 py-2.5 ${actionTone(String(idea.action))}`}
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <p className="font-semibold">
+                              {String(idea.action)} · Ticker {ticker}
+                            </p>
+                            <p className="text-xs tabular-nums">
+                              RS {fmtPct(idea.relative_strength_pct)} · conf {fmtNum(idea.confidence_pct, 0)}%
+                            </p>
+                          </div>
+                          <p className="mt-1 text-[11px] opacity-90">
+                            vs base <span className="font-medium">{baseT}</span>
+                            {idea.sl_pct != null && idea.tp_pct != null && (
+                              <>
+                                {' · '}
+                                <span className="font-semibold">%SL {fmtNum(idea.sl_pct, 2)}%</span>
+                                {' · '}
+                                <span className="font-semibold">%TP {fmtNum(idea.tp_pct, 2)}%</span>
+                                {idea.rr_ratio != null && <> · R:R {fmtNum(idea.rr_ratio, 1)}</>}
+                              </>
+                            )}
                           </p>
-                          <p className="text-xs tabular-nums">
-                            RS {fmtPct(idea.relative_strength_pct)} · conf {fmtNum(idea.confidence_pct, 0)}%
-                          </p>
+                          {(idea.entry_price != null || idea.stop_price != null || idea.target_price != null) && (
+                            <p className="mt-0.5 text-[11px] tabular-nums opacity-80">
+                              Entry {fmtNum(idea.entry_price, 2)}
+                              {idea.stop_price != null && <> · SL {fmtNum(idea.stop_price, 2)}</>}
+                              {idea.target_price != null && <> · TP {fmtNum(idea.target_price, 2)}</>}
+                            </p>
+                          )}
+                          <p className="mt-1 text-xs opacity-90">{String(idea.thesis ?? '')}</p>
+                          {Array.isArray(idea.reasons) && (idea.reasons as string[]).length > 0 && (
+                            <ul className="mt-1.5 space-y-0.5">
+                              {(idea.reasons as string[]).slice(0, 3).map((r) => (
+                                <li key={r} className="text-[11px] opacity-80">· {r}</li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
-                        <p className="mt-1 text-xs opacity-90">{String(idea.thesis ?? '')}</p>
-                        {Array.isArray(idea.reasons) && (idea.reasons as string[]).length > 0 && (
-                          <ul className="mt-1.5 space-y-0.5">
-                            {(idea.reasons as string[]).slice(0, 3).map((r) => (
-                              <li key={r} className="text-[11px] opacity-80">· {r}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -372,11 +468,13 @@ export function ComparativeStrengthPanel() {
                       <th className="px-3 py-2">Ticker</th>
                       <th className="px-3 py-2">vs base</th>
                       <th className="px-3 py-2">RS %</th>
-                      <th className="px-3 py-2">Peer %</th>
+                      <th className="px-3 py-2">Compare %</th>
                       <th className="px-3 py-2">Base %</th>
                       <th className="px-3 py-2">CRS slope</th>
                       <th className="px-3 py-2">Trend</th>
                       <th className="px-3 py-2">Idea</th>
+                      <th className="px-3 py-2">%SL</th>
+                      <th className="px-3 py-2">%TP</th>
                       <th className="px-3 py-2">Conf</th>
                     </tr>
                   </thead>
@@ -384,6 +482,8 @@ export function ComparativeStrengthPanel() {
                     {[...stronger, ...weaker, ...((data.inline as Row[]) ?? []), ...rows.filter((r) => r.status === 'ERROR')].map((row) => {
                       const trade = (row.trade as Row | undefined) ?? {}
                       const sym = String(row.symbol)
+                      const sl = trade.sl_pct ?? row.sl_pct
+                      const tp = trade.tp_pct ?? row.tp_pct
                       return (
                         <tr
                           key={sym}
@@ -397,7 +497,7 @@ export function ComparativeStrengthPanel() {
                           <td className={`px-3 py-2 tabular-nums font-medium ${Number(row.relative_strength_pct) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                             {fmtPct(row.relative_strength_pct)}
                           </td>
-                          <td className="px-3 py-2 tabular-nums">{fmtPct(row.peer_return_pct)}</td>
+                          <td className="px-3 py-2 tabular-nums">{fmtPct(row.compare_return_pct ?? row.peer_return_pct)}</td>
                           <td className="px-3 py-2 tabular-nums">{fmtPct(row.base_return_pct)}</td>
                           <td className="px-3 py-2 tabular-nums">{fmtPct(row.crs_slope_pct)}</td>
                           <td className="px-3 py-2">{String((row.peer_trend as Row | undefined)?.bias ?? '—')}</td>
@@ -406,6 +506,8 @@ export function ComparativeStrengthPanel() {
                               {String(trade.action ?? (row.error ? 'ERR' : 'WAIT'))}
                             </span>
                           </td>
+                          <td className="px-3 py-2 tabular-nums">{sl != null ? `${fmtNum(sl, 2)}%` : '—'}</td>
+                          <td className="px-3 py-2 tabular-nums">{tp != null ? `${fmtNum(tp, 2)}%` : '—'}</td>
                           <td className="px-3 py-2 tabular-nums">{trade.confidence_pct != null ? `${fmtNum(trade.confidence_pct, 0)}%` : '—'}</td>
                         </tr>
                       )
