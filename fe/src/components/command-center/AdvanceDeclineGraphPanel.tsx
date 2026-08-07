@@ -203,7 +203,7 @@ export function AdvanceDeclineGraphPanel() {
         <p className="mb-3 text-sm leading-relaxed text-slate-300">
           Pick an NSE index and date range to plot <strong className="text-white">advances vs declines per day</strong>{' '}
           across constituents. Choose an intraday timeframe to also see breadth <strong className="text-white">within a
-          session</strong> — each bar until the optional as-of time.
+          session</strong> — each bar until the optional as-of time <strong className="text-white">(all times IST)</strong>.
         </p>
         <p className="mb-3 text-xs leading-relaxed text-slate-500">
           In plain English: the chart plots the <strong className="text-slate-400">Advance/Decline ratio</strong>{' '}
@@ -242,15 +242,15 @@ export function AdvanceDeclineGraphPanel() {
           </FormField>
           {isIntraday && (
             <>
-              <FormField label="Session date (intraday)">
+              <FormField label="Session date (intraday, IST)">
                 <Input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
               </FormField>
-              <FormField label="As of time (optional)">
+              <FormField label="As of time IST (optional)">
                 <Input
                   type="time"
                   value={asOfTime}
                   onChange={(e) => setAsOfTime(e.target.value)}
-                  placeholder="HH:MM"
+                  placeholder="HH:MM IST"
                 />
               </FormField>
             </>
@@ -337,7 +337,7 @@ export function AdvanceDeclineGraphPanel() {
               {isIntraday && (
                 <AdRatioChart
                   series={intraday}
-                  title={`Intraday A/D ratio (${timeframe}) — ${String(data.session_date ?? sessionDate)}${data.as_of_time ? ` until ${String(data.as_of_time)}` : ''}`}
+                  title={`Intraday A/D ratio (${timeframe}) — ${String(data.session_date ?? sessionDate)} IST${data.as_of_time ? ` until ${String(data.as_of_time)} IST` : ''}`}
                   xKey="label"
                 />
               )}

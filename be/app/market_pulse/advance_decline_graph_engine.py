@@ -69,8 +69,21 @@ def list_index_names() -> list[str]:
     return ordered
 
 
+IST = "Asia/Kolkata"
+
+
 def _parse_date(s: str) -> datetime:
     return datetime.strptime(s.strip()[:10], "%Y-%m-%d")
+
+
+def _to_ist_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Normalize bar times to Asia/Kolkata (IST), returned as tz-naive IST wall clock."""
+    if not isinstance(idx, pd.DatetimeIndex):
+        idx = pd.to_datetime(idx)
+    if getattr(idx, "tz", None) is not None:
+        return idx.tz_convert(IST).tz_localize(None)
+    # Naive India feed timestamps are already exchange-local (IST).
+    return idx
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -87,9 +100,7 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         else:
             out.index = pd.to_datetime(out.index)
     out = out.sort_index()
-    # Drop timezone for consistent date compares
-    if getattr(out.index, "tz", None) is not None:
-        out.index = out.index.tz_localize(None)
+    out.index = _to_ist_index(out.index)
     cols = {c.lower(): c for c in out.columns}
     if "close" not in cols and "Close" in out.columns:
         out = out.rename(columns={"Close": "close", "Open": "open", "High": "high", "Low": "low"})
@@ -241,10 +252,13 @@ def _intraday_series(
         net = adv - dec
         ad_line += net
         ratio = _ad_ratio(adv, dec)
+        hhmm = key[11:] if len(key) >= 16 else key
         series.append({
             "date": key,
-            "label": key[11:] if len(key) >= 16 else key,  # HH:MM for chart axis
+            "label": f"{hhmm} IST",
             "timestamp": key,
+            "timestamp_ist": key,
+            "timezone": "IST",
             "advances": adv,
             "declines": dec,
             "unchanged": unc,
@@ -257,9 +271,10 @@ def _intraday_series(
 
 
 def _parse_as_of(as_of_time: str | None) -> time | None:
+    """Parse HH:MM as IST wall-clock (NSE session time)."""
     if not as_of_time or not str(as_of_time).strip():
         return None
-    raw = str(as_of_time).strip()
+    raw = str(as_of_time).strip().replace(" IST", "").replace("ist", "").strip()
     for fmt in ("%H:%M", "%H:%M:%S"):
         try:
             return datetime.strptime(raw, fmt).time()
@@ -347,7 +362,7 @@ def _build_outcome_layman(
             int(last_i.get("declines") or 0),
             int(last_i.get("unchanged") or 0),
         )
-        until = f" until {as_of.strftime('%H:%M')}" if as_of else ""
+        until = f" until {as_of.strftime('%H:%M')} IST" if as_of else ""
         intra_line = (
             f"On {session_date} ({timeframe} bars{until}): {intra_line} "
             f"Last bar — {last_i.get('advances')} up / {last_i.get('declines')} down / "
@@ -394,7 +409,7 @@ def _build_outcome_layman(
             "Ratio below 1 (red) — more stocks fell than rose.",
             "Dashed line at 1.0 — even breadth (same number up and down).",
             "Daily chart — one ratio per trading day across your date range.",
-            "Intraday chart — ratio at each bar that day up to your as-of time.",
+            "Intraday chart — ratio at each bar that day (IST) up to your as-of time.",
         ],
     }
 
@@ -487,6 +502,7 @@ def compute_advance_decline_graph(
         "timeframe": tf,
         "session_date": sess_dt.date().isoformat() if is_intraday else None,
         "as_of_time": as_of.strftime("%H:%M") if as_of else None,
+        "timezone": "IST",
         "mode": "intraday" if is_intraday else "daily",
         "universe_size": len(symbols),
         "scanned_daily": len(daily_frames),
