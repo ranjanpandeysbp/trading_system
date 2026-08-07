@@ -103,6 +103,7 @@ from app.models.schemas import (
     ProTradeFibonacciProRequest,
     ProTradeBbMeanReversionRequest,
     ProTradeBtstRequest,
+    ProTradeTickerChartRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -4673,6 +4674,23 @@ async def pro_trade_btst(
             "check_oi_buildup": payload.check_oi_buildup,
             "further_analysis": payload.further_analysis,
         },
+    )
+
+
+@router.post("/pro-trade/ticker-chart")
+async def pro_trade_ticker_chart(
+    payload: ProTradeTickerChartRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).ticker_chart(
+        ticker=payload.ticker,
+        asset_class=payload.asset_class,
+        mode=payload.mode,
+        from_date=payload.from_date,
+        to_date=payload.to_date,
+        session_date=payload.session_date,
+        interval=payload.interval,
     )
 
 

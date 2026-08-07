@@ -40,6 +40,7 @@ import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { FibonacciProPanel } from '../components/pro-trade/FibonacciProPanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
 import { PaVpSmcPanel } from '../components/pro-trade/PaVpSmcPanel'
+import { TickerChartPage } from '../components/pro-trade/TickerChartPanel'
 import { VolumeProfileCePanel } from '../components/pro-trade/VolumeProfileCePanel'
 import { VolumeProfilePocPanel } from '../components/pro-trade/VolumeProfilePocPanel'
 import { VolumeSpreadNextCandlePanel } from '../components/pro-trade/VolumeSpreadNextCandlePanel'
@@ -2433,6 +2434,7 @@ export default function ProTrade() {
     { id: 'fibonacci-pro', label: 'Fibonacci Pro' },
     { id: 'bb-mean-reversion', label: 'BB Mean Reversion' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
+    { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
 
   if (!tab) return <Navigate to="/pro-trade/volume-profile-ce" replace />
@@ -2447,6 +2449,7 @@ export default function ProTrade() {
   else if (tab === 'fibonacci-pro') page = <FibonacciProPage />
   else if (tab === 'bb-mean-reversion') page = <BbMeanReversionPage />
   else if (tab === 'btst') page = <BtstPage />
+  else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />
 
   return (

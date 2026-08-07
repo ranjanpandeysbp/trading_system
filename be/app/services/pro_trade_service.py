@@ -89,6 +89,12 @@ class ProTradeService:
                     "path": "/pro-trade/btst",
                     "youtube": None,
                 },
+                {
+                    "id": "ticker_chart",
+                    "label": "Ticker Chart",
+                    "path": "/pro-trade/ticker-chart",
+                    "youtube": None,
+                },
             ],
         }
 
@@ -436,6 +442,35 @@ class ProTradeService:
             r["ai_context"] = build_btst_ai_prompt(r)
         payload["ai_system_prompt"] = BTST_AI_SYSTEM
         return json_safe(payload)
+
+    async def ticker_chart(
+        self,
+        *,
+        ticker: str,
+        asset_class: str = "india",
+        mode: str = "daily",
+        from_date: str | None = None,
+        to_date: str | None = None,
+        session_date: str | None = None,
+        interval: str = "1d",
+    ) -> dict[str, Any]:
+        from app.market_pulse.ticker_chart_engine import compute_ticker_chart
+
+        market, _ = await self._asset_ctx(asset_class)
+
+        def _run():
+            return compute_ticker_chart(
+                ticker=ticker,
+                asset_class=asset_class,
+                mode=mode,
+                from_date=from_date,
+                to_date=to_date,
+                session_date=session_date,
+                interval=interval,
+                market=market,
+            )
+
+        return json_safe(await asyncio.to_thread(_run))
 
     # ------------------------------------------------------------------
     # Saved BTST/STBT reports — shares the SavedBacktestReport table

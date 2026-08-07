@@ -1196,6 +1196,18 @@ class ProTradeBtstRequest(BaseModel):
     further_analysis: list[str] = Field(default_factory=list)
 
 
+class ProTradeTickerChartRequest(BaseModel):
+    """Pro Trade — Ticker Chart with support / resistance (daily range or same-day intraday)."""
+    ticker: str
+    asset_class: str = "india"
+    mode: str = "daily"  # daily | intraday
+    from_date: str | None = None
+    to_date: str | None = None
+    session_date: str | None = None
+    interval: str = "1d"  # 1d or 1m/5m/15m/30m/1h
+    exchange: str | None = None
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user

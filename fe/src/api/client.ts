@@ -2102,6 +2102,17 @@ export const runProTradeBtst = (payload: {
   further_analysis?: string[]
 }) => api.post('/pro-trade/btst', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeTickerChart = (payload: {
+  ticker: string
+  asset_class?: string
+  mode?: 'daily' | 'intraday'
+  from_date?: string
+  to_date?: string
+  session_date?: string
+  interval?: string
+  exchange?: string
+}) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const startBtstJob = (payload: {
   tickers: string[]
   asset_class?: string
