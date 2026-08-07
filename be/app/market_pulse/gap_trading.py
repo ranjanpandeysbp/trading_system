@@ -85,6 +85,8 @@ def fetch_ohlcv_yfinance(symbol: str, tf_key: str, is_crypto: bool = False, limi
 
 
 def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False, limit: int = 300, market: str = "") -> pd.DataFrame:
+    from app.market_pulse.data_source_ctx import mark_source
+
     try:
         import yfinance as yf
 
@@ -117,7 +119,7 @@ def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False,
                 "open": "first", "high": "max",
                 "low": "min", "close": "last", "volume": "sum"
             }).dropna()
-            return df.tail(limit)
+            return mark_source(df.tail(limit), "yfinance")
 
         symbols_to_try = [yf_sym]
         if not is_crypto:
@@ -148,7 +150,7 @@ def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False,
         df.dropna(inplace=True)
         df = df.tail(limit)
         logger.debug(f"Fetched {len(df)} bars for {yf_sym} [{tf_key}] via yfinance")
-        return df
+        return mark_source(df, "yfinance")
 
     except Exception as e:
         logger.error(f"yfinance fetch failed for {symbol} [{tf_key}]: {e}")
@@ -185,6 +187,8 @@ def _fetch_data_for_gap_scan_raw(
     exchange: str = "NSE",
     limit: int = 300,
 ) -> pd.DataFrame:
+    from app.market_pulse.data_source_ctx import mark_source
+
     is_crypto = "CoinDCX" in market or "crypto" in market.lower()
     from app.market_pulse.ticker_utils import is_us_market
     is_us = is_us_market(market)
@@ -204,7 +208,7 @@ def _fetch_data_for_gap_scan_raw(
                 from app.market_pulse.heatmap import fetch_groww_ohlcv
                 df = fetch_groww_ohlcv(symbol, exchange, timeframe, groww_token, limit=limit)
                 if not df.empty and len(df) >= MIN_BARS_REQUIRED:
-                    return df.tail(limit)
+                    return mark_source(df.tail(limit), "groww")
             except Exception as e:
                 logger.debug(f"Groww OHLCV fetch failed for {symbol}: {e}")
 
@@ -224,7 +228,7 @@ def _fetch_data_for_gap_scan_raw(
                         df["date"] = pd.to_datetime(df["time"], unit="s")
                         df.set_index("date", inplace=True)
                         df.drop(columns=["time"], errors="ignore", inplace=True)
-                    return df.tail(limit)
+                    return mark_source(df.tail(limit), "coindcx")
             except Exception as e:
                 logger.debug(f"CoinDCX OHLCV fetch failed for {symbol}: {e}")
 

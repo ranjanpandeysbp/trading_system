@@ -27,6 +27,13 @@ function StrategyDetail({ strategy, onClose }: { strategy: StrategyInfo; onClose
           </span>
           <h3 className="mt-2 text-xl font-semibold text-white">{strategy.name}</h3>
           <p className="mt-1 text-sm text-slate-400">{strategy.summary}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="font-medium uppercase tracking-wider text-slate-500">Data source</span>
+            <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-semibold text-emerald-300 ring-1 ring-emerald-500/30">Groww</span>
+            <span className="text-slate-600">India primary</span>
+            <span className="rounded-md bg-sky-500/15 px-2 py-0.5 font-semibold text-sky-300 ring-1 ring-sky-500/30">yfinance</span>
+            <span className="text-slate-600">US / fallback</span>
+          </div>
         </div>
         <button
           type="button"

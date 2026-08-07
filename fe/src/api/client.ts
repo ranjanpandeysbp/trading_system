@@ -207,7 +207,13 @@ export const runScan = (payload: {
   asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
   bars?: number
 }) =>
-  api.post<{ signals: ScanSignal[]; scanned_at: string }>('/scanner/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+  api.post<{
+    signals: ScanSignal[]
+    scanned_at: string
+    data_source?: string | null
+    data_sources_used?: string[] | null
+    data_source_label?: string | null
+  }>('/scanner/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 export const runBacktest = (payload: {
   ticker: string
   strategy: string

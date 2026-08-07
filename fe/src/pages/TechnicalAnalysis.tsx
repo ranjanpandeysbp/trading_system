@@ -28,6 +28,7 @@ import {
 import { TaScreenerResultsPanel } from '../components/technical-analysis/TaScreenerResultsPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Select, Textarea } from '../components/ui/Form'
@@ -339,6 +340,7 @@ export default function TechnicalAnalysis() {
               Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
             </p>
           )}
+          <StrategyDataSourceBar data={displayData as Record<string, unknown>} assetClass={assetClass} />
           {tab === 'ticker_investigation' && (
             <TickerInvestigationPanel data={displayData as Record<string, unknown>} />
           )}

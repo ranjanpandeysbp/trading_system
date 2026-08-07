@@ -23,6 +23,7 @@ import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 
@@ -533,6 +534,7 @@ export function AdvanceDeclineGraphPanel() {
 
           {!data.error && (
             <Card className="space-y-4">
+              <StrategyDataSourceBar data={data} assetClass={assetClass} />
               {(() => {
                 const outcome = (data.outcome_layman as Row | undefined) ?? null
                 const howTo = (outcome?.how_to_read as string[] | undefined) ?? []

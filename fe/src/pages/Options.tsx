@@ -22,6 +22,7 @@ import {
 import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input } from '../components/ui/Form'
@@ -577,6 +578,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(data ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <DoubleCalendarPanel
                 data={data!} stopLoss={-stopLossPct / 100} takeProfitStart={tpStart / 100} takeProfitMax={tpMax / 100}
               />
@@ -699,6 +701,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(dnData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <DeltaNeutralPanel data={dnData!} profitTargetPct={dnTpPct / 100} stopLossMultiple={slMultiple} />
             </Card>
           )}
@@ -824,6 +827,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(hgData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <HedgingPanel
                 data={hgData!} totalCapital={totalCapital}
                 profitTargetPctOfCapital={hgTpPct / 100} maxLossPctOfCapital={hgSlPct / 100}
@@ -914,6 +918,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(gkData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <GokulChhabraPanel data={gkData!} />
             </Card>
           )}
@@ -1010,6 +1015,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(zthData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <ZeroToHeroPanel data={zthData!} />
             </Card>
           )}
@@ -1188,6 +1194,7 @@ export default function Options() {
                   Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
                 </p>
               )}
+              <StrategyDataSourceBar data={(mpData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
               <MarketPredictionPanel data={mpData!} />
             </Card>
           )}

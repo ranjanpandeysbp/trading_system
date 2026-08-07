@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, track_data_sources
 from app.models.db_models import User
 from app.models.schemas import (
     AIConfigResponse,
@@ -175,7 +175,7 @@ from app.strategies.registry import (
     list_scanner_categories,
 )
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(track_data_sources)])
 
 
 @router.get("/health")
@@ -269,7 +269,17 @@ async def scan(
     settings = SettingsService(db)
     service = ScannerService(settings)
     signals = await service.scan(request)
-    return ScanResponse(signals=signals, scanned_at=datetime.now(timezone.utc).isoformat())
+    from app.market_pulse.data_source_ctx import summarize_sources
+
+    meta = summarize_sources()
+    return ScanResponse(
+        signals=signals,
+        scanned_at=datetime.now(timezone.utc).isoformat(),
+        data_source=meta.get("data_source"),
+        data_sources_used=meta.get("data_sources_used"),
+        data_source_label=meta.get("data_source_label"),
+        data_source_counts=meta.get("data_source_counts"),
+    )
 
 
 @router.post("/backtest/run", response_model=BacktestResponse)

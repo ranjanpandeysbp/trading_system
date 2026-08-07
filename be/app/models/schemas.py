@@ -98,6 +98,10 @@ class ScanSignal(BaseModel):
 class ScanResponse(BaseModel):
     signals: list[ScanSignal]
     scanned_at: str
+    data_source: str | None = None
+    data_sources_used: list[str] | None = None
+    data_source_label: str | None = None
+    data_source_counts: dict[str, int] | None = None
 
 
 class BacktestRequest(BaseModel):

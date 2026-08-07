@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, ChevronUp, TrendingDown, TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -38,6 +38,7 @@ import { TomorrowOutlookPanel } from '../market-pulse/MarketPulsePanels'
 import { TickerInvestigationPanel } from '../technical-analysis/TechnicalAnalysisPanels'
 import { Alert } from '../ui/Feedback'
 import { Button } from '../ui/Button'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
@@ -5040,71 +5041,103 @@ export function CommandCenterResults({
     return <Alert type="error">{String(data.error)}</Alert>
   }
 
+  let body: ReactNode
   switch (tab) {
     case 'tomorrow_outlook':
-      return <TomorrowOutlookPanel data={data} />
+      body = <TomorrowOutlookPanel data={data} />
+      break
     case 'mega_analyser':
-      return <MegaAnalyserPanel data={data} />
+      body = <MegaAnalyserPanel data={data} />
+      break
     case 'buy_sell':
-      return <BuySellPanel data={data} />
+      body = <BuySellPanel data={data} />
+      break
     case 'investigation':
-      return <TickerInvestigationPanel data={data} />
+      body = <TickerInvestigationPanel data={data} />
+      break
     case 'global_market_mood':
-      return <GlobalMarketMoodPanel data={data} />
+      body = <GlobalMarketMoodPanel data={data} />
+      break
     case 'mega_setup_advisor':
-      return <MegaSetupAdvisorPanel data={data} />
+      body = <MegaSetupAdvisorPanel data={data} />
+      break
     case 'option_chain':
-      return <OptionChainPanel data={data} />
+      body = <OptionChainPanel data={data} />
+      break
     case 'option_short_long':
-      return <OptionShortLongPanel data={data} />
+      body = <OptionShortLongPanel data={data} />
+      break
     case 'india_market_heatmap':
-      return <IndiaMarketHeatmapPanel data={data} assetClass={assetClass === 'us' || assetClass === 'crypto' ? assetClass : 'india'} />
+      body = <IndiaMarketHeatmapPanel data={data} assetClass={assetClass === 'us' || assetClass === 'crypto' ? assetClass : 'india'} />
+      break
     case 'nse_world_indices':
-      return <NseWorldIndicesPanel data={data} />
+      body = <NseWorldIndicesPanel data={data} />
+      break
     case 'coindcx_24h_volatility':
-      return <CoinDcx24hVolatilityPanel data={data} />
+      body = <CoinDcx24hVolatilityPanel data={data} />
+      break
     case 'quick_analyzer':
-      return <QuickAnalyzerPanel data={data} />
+      body = <QuickAnalyzerPanel data={data} />
+      break
     case 'momentum':
-      return <MomentumPanel data={data} />
+      body = <MomentumPanel data={data} />
+      break
     case 'divergences':
-      return <DivergencesPanel data={data} />
+      body = <DivergencesPanel data={data} />
+      break
     case 'candlestick_chart_patterns':
-      return <PatternsPanel data={data} />
+      body = <PatternsPanel data={data} />
+      break
     case 'stop_hunt':
-      return <StopHuntPanel data={data} />
+      body = <StopHuntPanel data={data} />
+      break
     case 'take_profit':
-      return <TakeProfitPanel data={data} />
+      body = <TakeProfitPanel data={data} />
+      break
     case 'real_bottom':
-      return <RealBottomPanel data={data} />
+      body = <RealBottomPanel data={data} />
+      break
     case 'weak_strong':
-      return <WeakStrongPanel data={data} />
+      body = <WeakStrongPanel data={data} />
+      break
     case 'copy_trade':
-      return <CopyTradePanel data={data} />
+      body = <CopyTradePanel data={data} />
+      break
     case 'sma_20_200':
-      return <Sma20200Panel data={data} assetClass={assetClass ?? 'india'} />
+      body = <Sma20200Panel data={data} assetClass={assetClass ?? 'india'} />
+      break
     case 'take_trade':
-      return <TakeTradePanel data={data} />
+      body = <TakeTradePanel data={data} />
+      break
     case 'ema_position':
-      return <EmaPositionPanel data={data} showCharts={showCharts} />
+      body = <EmaPositionPanel data={data} showCharts={showCharts} />
+      break
     case 'mtf_trend_strength':
-      return <MtfTrendStrengthPanel data={data} />
+      body = <MtfTrendStrengthPanel data={data} />
+      break
     case 'market_movers':
-      return <MarketMoversPanel data={data} />
+      body = <MarketMoversPanel data={data} />
+      break
     case 'trade_setup':
-      return <TradeSetupPanel data={data} assetClass={assetClass ?? 'india'} />
+      body = <TradeSetupPanel data={data} assetClass={assetClass ?? 'india'} />
+      break
     case 'fundamental_analysis':
-      return <FundamentalAnalysisPanel data={data} />
+      body = <FundamentalAnalysisPanel data={data} />
+      break
     case 'stock_upgrade_downgrade':
-      return <StockUpgradeDowngradePanel data={data} />
+      body = <StockUpgradeDowngradePanel data={data} />
+      break
     case 'one_click_intraday':
-      return <OneClickPanel data={data} style="intraday" />
+      body = <OneClickPanel data={data} style="intraday" />
+      break
     case 'one_click_scalping':
-      return <OneClickPanel data={data} style="scalping" />
+      body = <OneClickPanel data={data} style="scalping" />
+      break
     case 'one_click_swing':
-      return <OneClickPanel data={data} style="swing" />
+      body = <OneClickPanel data={data} style="swing" />
+      break
     case 'investigation_strategies':
-      return (
+      body = (
         <TickerInvestigationPanel
           data={data}
           renderExtra={(r) => {
@@ -5127,7 +5160,15 @@ export function CommandCenterResults({
           }}
         />
       )
+      break
     default:
-      return <p className="text-sm text-slate-500">Unknown section.</p>
+      body = <p className="text-sm text-slate-500">Unknown section.</p>
   }
+
+  return (
+    <div>
+      <StrategyDataSourceBar data={data} assetClass={assetClass} />
+      {body}
+    </div>
+  )
 }

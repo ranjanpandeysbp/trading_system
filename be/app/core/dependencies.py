@@ -10,6 +10,18 @@ from app.models.db_models import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+async def track_data_sources():
+    """Start OHLCV source tracking for this request so result payloads can
+    report Groww vs yfinance (or CoinDCX) after scans run in worker threads."""
+    from app.market_pulse.data_source_ctx import clear_tracking, start_tracking
+
+    start_tracking()
+    try:
+        yield
+    finally:
+        clear_tracking()
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),

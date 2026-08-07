@@ -31,6 +31,7 @@ import { Alert, Loading } from '../ui/Feedback'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 
@@ -381,6 +382,7 @@ export function ComparativeStrengthPanel() {
 
           {!data.error && (
             <Card className="space-y-4">
+              <StrategyDataSourceBar data={data} assetClass={assetClass} />
               <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 px-3 py-3 text-sm text-slate-300">
                 <p className="font-medium text-slate-100">Results in plain English</p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{String(data.summary ?? '')}</p>

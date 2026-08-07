@@ -26,6 +26,7 @@ import { Badge } from '../components/ui/Badge'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, ConfidenceBar, Loading } from '../components/ui/Feedback'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { DataTable, SortableTh, Th, Td } from '../components/ui/Table'
 
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d', '1wk', '1M']
@@ -84,6 +85,7 @@ export default function Scanner() {
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(['15m', '1d'])
   const [bars, setBars] = useState(350)
   const [signals, setSignals] = useState<ScanSignal[]>([])
+  const [scanMeta, setScanMeta] = useState<Record<string, unknown> | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('confidence_pct')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [error, setError] = useState('')
@@ -100,7 +102,12 @@ export default function Scanner() {
 
   const scanMutation = useMutation({
     mutationFn: runScan,
-    onSuccess: (data) => { setSignals(data.signals); setError(''); bg.setViewedReportId(null) },
+    onSuccess: (data) => {
+      setSignals(data.signals)
+      setScanMeta(data as unknown as Record<string, unknown>)
+      setError('')
+      bg.setViewedReportId(null)
+    },
     onError: (e: unknown) => setError(apiErrorMessage(e)),
   })
 
@@ -335,6 +342,10 @@ export default function Scanner() {
 
       {signals.length > 0 && (
         <Card className="mt-6">
+          <StrategyDataSourceBar
+            data={(bg.viewedPayload as Record<string, unknown> | undefined) ?? scanMeta}
+            assetClass={assetClass}
+          />
           <h3 className="mb-4 text-base font-semibold text-white sm:text-lg">Results</h3>
 
           <div className="space-y-3 md:hidden">

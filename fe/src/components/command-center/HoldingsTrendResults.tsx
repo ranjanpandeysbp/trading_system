@@ -14,6 +14,7 @@ import { Chip } from '../ui/Chip'
 import { FormField, Input } from '../ui/Form'
 import { DataTable, SortableTh, Td, Th, useSort } from '../ui/Table'
 import { StatCard } from '../ui/StatCard'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { CollapsibleScrollSection } from './CollapsibleScrollSection'
@@ -805,6 +806,7 @@ export function HoldingsTrendResults({
 
   return (
     <div className="space-y-6">
+      <StrategyDataSourceBar data={data as unknown as Record<string, unknown>} assetClass="india" />
       {data.snapshot_note && (
         <p className="rounded-lg border border-slate-700/80 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
           {data.snapshot_note}

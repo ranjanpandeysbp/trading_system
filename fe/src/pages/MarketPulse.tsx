@@ -55,6 +55,7 @@ import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 
 const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d', '1w', '1M']
 const SLOW_SECTIONS = new Set([
@@ -467,6 +468,7 @@ export default function MarketPulse() {
               Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
             </p>
           )}
+          <StrategyDataSourceBar data={activeData as Record<string, unknown>} />
           <SectionContent section={section} data={activeData as SectionData} />
         </Card>
       )}

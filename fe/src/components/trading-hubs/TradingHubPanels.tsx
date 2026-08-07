@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { DataTable, SortableTh, Td, Th } from '../ui/Table'
 import { Alert } from '../ui/Feedback'
 import { Card } from '../ui/Card'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import { type SRChartBar, type SRTrendline } from './SupportResistanceChart'
 import { SupportResistanceChartPanel } from './SupportResistanceChartPanel'
@@ -122,6 +123,7 @@ export function TradingHubResultsPanel({
 
   return (
     <div className="space-y-4">
+      <StrategyDataSourceBar data={data} assetClass={assetClass} />
       {calibrationNote && <p className="text-xs text-amber-500/80">{calibrationNote}</p>}
       <div className="flex flex-wrap gap-3 text-sm text-slate-400">
         {data.entry_count != null && (

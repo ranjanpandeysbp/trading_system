@@ -35,6 +35,7 @@ import {
 import { BbMeanReversionPanel } from '../components/pro-trade/BbMeanReversionPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { FibonacciProPanel } from '../components/pro-trade/FibonacciProPanel'
 import { PaVolumeProfilePanel } from '../components/pro-trade/PaVolumeProfilePanel'
@@ -322,6 +323,7 @@ function VolumeProfileCePage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <VolumeProfileCePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-profile-ce" />}
@@ -514,6 +516,7 @@ function VolumeProfilePocPage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <VolumeProfilePocPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-profile-poc" />}
@@ -719,6 +722,7 @@ function PaVolumeProfilePage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <PaVolumeProfilePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/pa-volume-profile" />}
@@ -917,6 +921,7 @@ function PaVpSmcPage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <PaVpSmcPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/pa-vp-smc" />}
@@ -1116,6 +1121,7 @@ function VolumeSpreadNextCandlePage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <VolumeSpreadNextCandlePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/volume-spread-next-candle" />}
@@ -1316,6 +1322,7 @@ function ElliottWavePage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <ElliottWavePanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/elliott-wave" />}
@@ -1568,6 +1575,7 @@ function FibonacciProPage() {
             </p>
           )}
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <FibonacciProPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/fibonacci-pro" />}
@@ -1820,6 +1828,7 @@ function BbMeanReversionPage() {
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
           <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <BbMeanReversionPanel data={data} showCharts={showCharts} />
           </Card>
           {askContext && <AskAIPanel context={askContext} section="pro-trade/bb-mean-reversion" />}
@@ -2375,6 +2384,7 @@ function BtstPage() {
                 </button>
               </p>
             )}
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <BtstPanel data={data} showCharts={showCharts} />
           </Card>
 

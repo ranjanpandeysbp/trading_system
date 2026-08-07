@@ -17,6 +17,7 @@ import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { FormField, Input, Select } from '../ui/Form'
 import { Alert, Loading } from '../ui/Feedback'
+import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 
 type Market = 'india' | 'us' | 'crypto'
 type Row = Record<string, unknown>
@@ -235,6 +236,7 @@ function MarketPanel({ market, label }: { market: Market; label: string }) {
               Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
             </p>
           )}
+          <StrategyDataSourceBar data={data} assetClass={market === 'us' ? 'us' : market === 'crypto' ? 'crypto' : 'india'} />
           {Boolean(data.error) && <Alert type="error">{String(data.error)}</Alert>}
           <p className="mb-3 text-sm text-slate-400">
             Benchmark: <strong className="text-white">{String(data.benchmark)}</strong> ·

@@ -13,6 +13,7 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { FormField, Input, Select, Textarea } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
+import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { StatCard } from '../components/ui/StatCard'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 import type { AssetClass } from '../components/command-center/AssetClassTickerPicker'
@@ -106,6 +107,10 @@ export default function Seasonality() {
       <AnalysisBackgroundJobsAndReports bg={bg} />
 
       {mutation.isPending && !bg.viewedPayload && <Loading message="Downloading history and computing monthly stats…" />}
+
+      {!mutation.isPending && results.length > 0 && (
+        <StrategyDataSourceBar data={data as Record<string, unknown> | undefined} assetClass={assetClass} />
+      )}
 
       {!mutation.isPending && results.map((item) => (
         <Card key={String(item.symbol)} className="mb-4">

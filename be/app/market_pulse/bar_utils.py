@@ -74,8 +74,19 @@ def last_closed_bar(df: pd.DataFrame, timeframe: str, *, now: datetime | None = 
     if timeframe not in _INTRADAY_MINUTES and timeframe not in _COARSE_TFS:
         return df
     try:
+        source = None
+        try:
+            source = df.attrs.get("data_source")
+        except Exception:
+            source = None
         if is_bar_closed(df.index[-1], timeframe, now=now):
             return df
-        return df.iloc[:-1]
+        out = df.iloc[:-1]
+        if source:
+            try:
+                out.attrs["data_source"] = source
+            except Exception:
+                pass
+        return out
     except Exception:
         return df

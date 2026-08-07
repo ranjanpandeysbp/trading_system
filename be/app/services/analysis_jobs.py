@@ -100,6 +100,28 @@ async def execute_analysis(
     user_id: int | None = None,
 ) -> dict[str, Any]:
     """Dispatch one analysis run. ``section`` is the tab/screener/strategy id."""
+    from app.market_pulse.data_source_ctx import attach_data_source, clear_tracking, start_tracking
+
+    start_tracking()
+    try:
+        result = await _execute_analysis_body(
+            domain, section, payload, settings=settings, db=db, user_id=user_id,
+        )
+        return attach_data_source(result) if isinstance(result, dict) else result
+    finally:
+        clear_tracking()
+
+
+async def _execute_analysis_body(
+    domain: str,
+    section: str,
+    payload: dict[str, Any],
+    *,
+    settings: Any,
+    db: Any,
+    user_id: int | None = None,
+) -> dict[str, Any]:
+    """Dispatch one analysis run. ``section`` is the tab/screener/strategy id."""
     if domain == "trading_hub":
         from app.services.trading_hub_service import TradingHubService
 
