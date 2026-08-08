@@ -32,7 +32,7 @@ export default function ResetPassword() {
     try {
       const data = await resetPassword(token, password)
       setSession(data.access_token, data.user)
-      navigate('/', { replace: true })
+      navigate('/trading-agent', { replace: true })
     } catch (err) {
       setError(apiErrorMessage(err))
     } finally {

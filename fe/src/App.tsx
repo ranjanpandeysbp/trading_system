@@ -11,6 +11,7 @@ import TodosPage from './pages/Todos'
 import BestMf from './pages/BestMf'
 import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
+import TradingAgent from './pages/TradingAgent'
 import Scanner from './pages/Scanner'
 import Backtester from './pages/Backtester'
 import Strategies from './pages/Strategies'
@@ -40,7 +41,7 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  if (isAuthenticated) return <Navigate to="/" replace />
+  if (isAuthenticated) return <Navigate to="/trading-agent" replace />
   return children
 }
 
@@ -79,7 +80,9 @@ export default function App() {
           <ProtectedRoute>
             <AppLayout>
               <Routes>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<Navigate to="/trading-agent" replace />} />
+                <Route path="/trading-agent" element={<TradingAgent />} />
+                <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/command-center" element={<CommandCenter />} />
                 <Route path="/strategies" element={<Strategies />} />
                 <Route path="/strategies/:id" element={<Strategies />} />

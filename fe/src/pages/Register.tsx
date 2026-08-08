@@ -31,7 +31,7 @@ export default function Register() {
     setLoading(true)
     try {
       await register(name, mobile, email, password)
-      navigate('/', { replace: true })
+      navigate('/trading-agent', { replace: true })
     } catch (err) {
       setError(apiErrorMessage(err))
     } finally {

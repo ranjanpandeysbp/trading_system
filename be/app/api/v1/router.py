@@ -399,6 +399,7 @@ async def dashboard_trading_chat(
         extra_checks=payload.extra_checks or None,
         top_n=payload.top_n,
         skip_ai=payload.skip_ai,
+        deep_mode=payload.deep_mode,
     )
 
 

@@ -311,6 +311,7 @@ export const runDashboardTradingChat = (payload: {
   extra_checks?: string[]
   top_n?: number
   skip_ai?: boolean
+  deep_mode?: boolean
 }) => api.post('/dashboard/trading-chat', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchYoutubeAnalysisPrefs = () =>

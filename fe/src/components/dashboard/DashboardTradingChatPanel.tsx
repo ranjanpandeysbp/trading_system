@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Bot, MessageSquare, Send, Sparkles } from 'lucide-react'
+import { Bot, BookOpen, MessageSquare, Send, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { apiErrorMessage, fetchAIConfig, runDashboardTradingChat } from '../../api/client'
 import { Badge } from '../ui/Badge'
@@ -17,6 +17,9 @@ type ChatMsg = {
   picks?: Row[]
   ai?: Row | null
   meta?: Row | null
+  ranking?: Row[]
+  selected?: Row[]
+  deepMode?: boolean
 }
 
 const ASSET_OPTIONS = [
@@ -55,11 +58,12 @@ export function DashboardTradingChatPanel() {
   const [message, setMessage] = useState('')
   const [assetClass, setAssetClass] = useState('')
   const [style, setStyle] = useState('')
+  const [deepMode, setDeepMode] = useState(false)
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell now — India / US / crypto / commodities — for scalping, intraday, swing, or investing. Name a ticker for a single read. I run BB Mean Reversion + all confluence checks, then conclude with your Manage → AI Settings model.',
+        'Ask what to buy or sell now — India / US / crypto / commodities — for scalping, intraday, swing, or investing. Name a ticker for a single read. Standard mode: BB Mean Reversion + confluence. Enable Deep mode to backtest-rank strategies for your question, pull encyclopedia how-tos, live-scan the winners, then conclude with Manage → AI.',
     },
   ])
 
@@ -71,17 +75,24 @@ export function DashboardTradingChatPanel() {
         message: q,
         asset_class: assetClass || undefined,
         style: style || undefined,
-        top_n: 10,
+        deep_mode: deepMode,
       }),
     onSuccess: (data, q) => {
       const picks = (data?.picks as Row[] | undefined) ?? []
       const ai = (data?.ai as Row | null | undefined) ?? null
+      const ranking = (data?.strategy_ranking as Row[] | undefined) ?? []
+      const selected = (data?.selected_strategies as Row[] | undefined) ?? []
+      const isDeep = Boolean(data?.deep_mode)
       const summary = String(data?.summary || '')
       const report = String(ai?.report || '')
       const err = data?.error ? String(data.error) : ''
       const text = err
         ? err
-        : [summary && `Engine top picks:\n${summary}`, report && `\nAI conclusion:\n${report}`]
+        : [
+            isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
+            summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
+            report && `\nAI conclusion:\n${report}`,
+          ]
             .filter(Boolean)
             .join('\n') || 'No picks returned.'
       setMessages((prev) => [
@@ -92,6 +103,9 @@ export function DashboardTradingChatPanel() {
           text,
           picks,
           ai,
+          ranking,
+          selected,
+          deepMode: isDeep,
           meta: {
             asset_class: data?.asset_class,
             style: data?.style,
@@ -99,6 +113,8 @@ export function DashboardTradingChatPanel() {
             mode: data?.mode,
             scanned: data?.scanned,
             disclaimer: data?.disclaimer,
+            deep_mode: isDeep,
+            backtest_period: data?.backtest_period,
           },
         },
       ])
@@ -135,14 +151,10 @@ export function DashboardTradingChatPanel() {
             Trading Chat
           </p>
           <p className="mt-1 text-sm leading-relaxed text-slate-300">
-            Top-10 buy/sell/wait ideas with %confidence, %SL, %TP — or analyze a named ticker / crypto /
-            commodity. Engine: <strong className="text-white">BB Mean Reversion</strong> + full confluence
-            (Fib, EMA, Stoch RSI, VWAP, Volume Profile, Smart Money, Reversal, MACD, S/R, ADX, MTF,
-            Candlestick). Conclusion uses your{' '}
-            <Link to="/settings" className="text-violet-300 underline-offset-2 hover:underline">
-              Manage → AI Settings
-            </Link>{' '}
-            model.
+            Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan (not capped at
+            10). Standard: <strong className="text-white">BB Mean Reversion</strong> + confluence. Deep mode:
+            pick strategies for the question → <strong className="text-white">backtest rank</strong> →
+            encyclopedia how-to → live scan → Manage AI conclusion.
           </p>
           <p className="mt-1 text-[11px] text-slate-500">{providerLabel}</p>
         </div>
@@ -170,6 +182,23 @@ export function DashboardTradingChatPanel() {
         </FormField>
       </div>
 
+      <label className="mb-3 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-700/70 bg-slate-900/40 px-3 py-2.5 text-sm text-slate-200">
+        <input
+          type="checkbox"
+          className="mt-0.5 rounded border-slate-600"
+          checked={deepMode}
+          onChange={(e) => setDeepMode(e.target.checked)}
+          disabled={chatMut.isPending}
+        />
+        <span>
+          <span className="font-semibold text-white">Deep mode</span>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-400">
+            Backtest strategies matched to your question, load encyclopedia guides, live-analyze the best ones,
+            then AI concludes. Slower (often several minutes).
+          </span>
+        </span>
+      </label>
+
       <div className="mb-3 flex flex-wrap gap-1.5">
         {EXAMPLES.map((ex) => (
           <button
@@ -184,7 +213,7 @@ export function DashboardTradingChatPanel() {
         ))}
       </div>
 
-      <div className="mb-3 max-h-[420px] space-y-3 overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
+      <div className="mb-3 max-h-[520px] space-y-3 overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
         {messages.map((m, i) => (
           <div
             key={`${m.role}-${i}`}
@@ -195,13 +224,85 @@ export function DashboardTradingChatPanel() {
             }`}
           >
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              {m.role === 'user' ? 'You' : 'Desk'}
+              {m.role === 'user' ? 'You' : m.deepMode ? 'Desk · Deep' : 'Desk'}
             </p>
             <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">{m.text}</pre>
 
+            {m.ranking && m.ranking.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-violet-300/90">
+                  Strategy ranking (backtest)
+                </p>
+                <table className="w-full min-w-[560px] text-left text-[11px]">
+                  <thead className="text-slate-500">
+                    <tr>
+                      <th className="py-1 pr-2">#</th>
+                      <th className="py-1 pr-2">Strategy</th>
+                      <th className="py-1 pr-2">Score</th>
+                      <th className="py-1 pr-2">Ret%</th>
+                      <th className="py-1 pr-2">Win%</th>
+                      <th className="py-1 pr-2">Sharpe</th>
+                      <th className="py-1">Trades</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {m.ranking.map((r) => (
+                      <tr key={`${r.rank}-${r.strategy_id}`} className="border-t border-slate-800/60">
+                        <td className="py-1.5 pr-2 tabular-nums text-slate-500">{String(r.rank ?? '')}</td>
+                        <td className="py-1.5 pr-2 font-medium text-white">{String(r.strategy_label ?? r.strategy_id)}</td>
+                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_rank_score != null ? Number(r.avg_rank_score).toFixed(2) : '—'}</td>
+                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_return_pct != null ? `${r.avg_return_pct}%` : '—'}</td>
+                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_win_rate_pct != null ? `${r.avg_win_rate_pct}%` : '—'}</td>
+                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_sharpe != null ? String(r.avg_sharpe) : '—'}</td>
+                        <td className="py-1.5 tabular-nums">{String(r.num_trades ?? '—')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {m.selected && m.selected.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300/90">
+                  <BookOpen size={11} /> Encyclopedia / how-to
+                </p>
+                {m.selected.map((s) => (
+                  <details
+                    key={String(s.strategy_id)}
+                    className="rounded-lg border border-slate-800/80 bg-slate-950/50 px-2.5 py-2"
+                  >
+                    <summary className="cursor-pointer text-[12px] font-medium text-white">
+                      {String(s.strategy_label ?? s.strategy_id)}
+                      {s.summary ? (
+                        <span className="ml-2 font-normal text-slate-500">— {String(s.summary).slice(0, 80)}</span>
+                      ) : null}
+                    </summary>
+                    {Array.isArray(s.entry_rules) && s.entry_rules.length > 0 && (
+                      <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] text-slate-400">
+                        {(s.entry_rules as unknown[]).slice(0, 4).map((rule, idx) => (
+                          <li key={idx}>{String(rule)}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {s.guide_excerpt ? (
+                      <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-slate-400">
+                        {String(s.guide_excerpt)}
+                      </pre>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-slate-600">No encyclopedia excerpt for this id.</p>
+                    )}
+                  </details>
+                ))}
+              </div>
+            )}
+
             {m.picks && m.picks.length > 0 && (
               <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left text-[11px]">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300/80">
+                  Live picks
+                </p>
+                <table className="w-full min-w-[720px] text-left text-[11px]">
                   <thead className="text-slate-500">
                     <tr>
                       <th className="py-1 pr-2">#</th>
@@ -211,12 +312,13 @@ export function DashboardTradingChatPanel() {
                       <th className="py-1 pr-2">Conf%</th>
                       <th className="py-1 pr-2">SL%</th>
                       <th className="py-1 pr-2">TP%</th>
+                      <th className="py-1 pr-2">Strategy</th>
                       <th className="py-1">Reason</th>
                     </tr>
                   </thead>
                   <tbody>
                     {m.picks.map((p) => (
-                      <tr key={`${p.rank}-${p.ticker}`} className="border-t border-slate-800/60">
+                      <tr key={`${p.rank}-${p.ticker}-${p.strategy_id ?? ''}`} className="border-t border-slate-800/60">
                         <td className="py-1.5 pr-2 tabular-nums text-slate-500">{String(p.rank ?? '')}</td>
                         <td className="py-1.5 pr-2 font-semibold text-white">{String(p.ticker ?? '')}</td>
                         <td className="py-1.5 pr-2">
@@ -234,7 +336,10 @@ export function DashboardTradingChatPanel() {
                         <td className="py-1.5 pr-2 tabular-nums">
                           {p.tp_pct != null ? `${Number(p.tp_pct)}%` : '—'}
                         </td>
-                        <td className="py-1.5 text-slate-400">{String(p.reason ?? '').slice(0, 140)}</td>
+                        <td className="py-1.5 pr-2 text-slate-400">
+                          {String(p.strategy_label ?? p.strategy_id ?? 'BB')}
+                        </td>
+                        <td className="py-1.5 text-slate-400">{String(p.reason ?? '').slice(0, 120)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -257,8 +362,10 @@ export function DashboardTradingChatPanel() {
 
             {m.meta && (
               <p className="mt-2 text-[10px] text-slate-600">
+                {m.deepMode ? 'deep · ' : ''}
                 {String(m.meta.mode ?? '')} · {String(m.meta.asset_class ?? '')} ·{' '}
-                {String(m.meta.style ?? '')} · TF {String(m.meta.timeframe ?? '')} · scanned{' '}
+                {String(m.meta.style ?? '')} · TF {String(m.meta.timeframe ?? '')}
+                {m.meta.backtest_period ? ` · BT ${String(m.meta.backtest_period)}` : ''} · scanned{' '}
                 {String(m.meta.scanned ?? '')}
               </p>
             )}
@@ -266,7 +373,13 @@ export function DashboardTradingChatPanel() {
         ))}
         {chatMut.isPending && (
           <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-3">
-            <Loading message="Scanning BB + confluence, then asking Manage AI… (may take a few minutes for top-10)" />
+            <Loading
+              message={
+                deepMode
+                  ? 'Deep mode: backtesting strategies → encyclopedia → live scan → Manage AI… (several minutes)'
+                  : 'Scanning BB + confluence for all eligible setups, then asking Manage AI…'
+              }
+            />
           </div>
         )}
       </div>
@@ -288,7 +401,7 @@ export function DashboardTradingChatPanel() {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button type="button" onClick={send} disabled={!message.trim() || chatMut.isPending}>
-          <Send size={14} /> Ask desk
+          <Send size={14} /> {deepMode ? 'Ask deep desk' : 'Ask desk'}
         </Button>
         {aiCfg.data && !(aiCfg.data as Row).ready && (
           <Alert type="error">
@@ -302,8 +415,8 @@ export function DashboardTradingChatPanel() {
       </div>
 
       <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
-        Research / education only — not financial advice. Top-10 scans a liquid universe (~20 names) on one
-        timeframe matched to your style.
+        Research / education only — not financial advice. Returns every eligible BUY/SELL from the scan universe
+        (standard ~50 names; Deep live-scans ~20). No artificial top-10 cut.
       </p>
     </Card>
   )

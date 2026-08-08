@@ -213,8 +213,9 @@ class DashboardTradingChatRequest(BaseModel):
     style: str | None = None  # scalping | intraday | swing | investing
     tickers: list[str] = Field(default_factory=list)
     extra_checks: list[str] = Field(default_factory=list)  # empty = all 13 confluence checks
-    top_n: int = Field(default=10, ge=1, le=20)
+    top_n: int | None = Field(default=None, ge=1, le=500)  # None = all eligible picks
     skip_ai: bool = False
+    deep_mode: bool = False  # backtest-rank strategies → encyclopedia → live → AI
 
 
 class AIConfigResponse(BaseModel):

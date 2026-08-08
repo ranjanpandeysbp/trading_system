@@ -13,7 +13,7 @@ export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as { from?: string })?.from ?? '/'
+  const from = (location.state as { from?: string })?.from ?? '/trading-agent'
 
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -8,7 +8,9 @@ type NavChild = { to: string; label: string }
 type NavEntry = { to: string; label: string; shortLabel: string; icon: typeof LayoutDashboard; children?: NavChild[] }
 
 const nav: NavEntry[] = [
-  { to: '/', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
+  { to: '/trading-agent', label: 'Trading Agent (TA)', shortLabel: 'TA', icon: MessageSquare },
+  { to: '/investing-agent', label: 'Investing Agent (FA)', shortLabel: 'FA', icon: Bot },
+  { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
   { to: '/auto-trade', label: 'Auto Trade', shortLabel: 'Auto', icon: Radar },
   { to: '/command-center', label: 'Command Center', shortLabel: 'Command', icon: Compass },
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
@@ -57,7 +59,6 @@ const nav: NavEntry[] = [
   { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
   { to: '/seasonality', label: 'Seasonality', shortLabel: 'Season', icon: CalendarRange },
   { to: '/youtube-analysis', label: 'Youtube Analysis', shortLabel: 'YT', icon: Clapperboard },
-  { to: '/investing-agent', label: 'Investing Agent', shortLabel: 'Agent', icon: Bot },
   { to: '/alerts', label: 'Alerts', shortLabel: 'Alerts', icon: Bell },
   { to: '/watchlist', label: 'Watchlist', shortLabel: 'Watch', icon: Eye },
   { to: '/todos', label: 'Todos', shortLabel: 'Todos', icon: ListTodo },
@@ -153,7 +154,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
           <NavLink
             key={to}
             to={to}
-            end={to === '/'}
+            end={to === '/trading-agent' || to === '/'}
             onClick={onNavigate}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${
@@ -300,7 +301,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 ₹
               </div>
               <span className="truncate font-semibold text-white">
-                {nav.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? 'QueryMe'}
+                {nav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`))?.label ?? 'QueryMe'}
               </span>
             </div>
             <div className="w-10" aria-hidden />
