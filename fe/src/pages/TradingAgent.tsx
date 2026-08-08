@@ -6,7 +6,7 @@ export default function TradingAgent() {
     <div>
       <PageHeader
         title="Trading Agent"
-        description="Ask what to buy or sell now — India, US, crypto, commodities — for scalping, intraday, swing, or investing. Standard BB + confluence, or Deep mode with backtest-ranked strategies and encyclopedia how-tos. Conclusions use Manage → AI Settings."
+        description="Ask what to buy or sell — or open questions like which stocks, crypto, commodities, gold or silver moved a lot in 24h, fallen most, or broke recent support/resistance. Standard BB + confluence, Deep mode with backtests + Strategies catalog how-tos, or market-mover / S&R screens. Conclusions use Manage → AI Settings."
       />
       <DashboardTradingChatPanel />
     </div>

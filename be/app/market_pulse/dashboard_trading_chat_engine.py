@@ -175,22 +175,89 @@ def parse_intent(
         else:
             detected_ac = "india"
 
+    # --- Open market questions (movers / broken S/R) — before BB top_picks ---
+    screen_mode: str | None = None
+    if any(
+        p in lower
+        for p in (
+            "broke support", "broken support", "support breakdown", "broke down support",
+            "support break", "breaking support", "broken recent support",
+        )
+    ):
+        screen_mode = "broken_support"
+    elif any(
+        p in lower
+        for p in (
+            "broke resistance", "broken resistance", "resistance breakout",
+            "broke out of resistance", "breaking resistance", "broken recent resistance",
+        )
+    ):
+        screen_mode = "broken_resistance"
+    elif any(
+        p in lower
+        for p in (
+            "fallen most", "fell most", "top loser", "top losers", "biggest drop",
+            "biggest losers", "worst performer", "worst performers", "declined most",
+            "down the most", "fallen a lot", "crashed",
+        )
+    ):
+        screen_mode = "fallen_most"
+    elif any(
+        p in lower
+        for p in (
+            "top gainer", "top gainers", "risen most", "rose most", "biggest winner",
+            "biggest winners", "rallied most", "up the most", "moved up most",
+        )
+    ):
+        screen_mode = "gainers"
+    elif any(
+        p in lower
+        for p in (
+            "moved a lot", "moved most", "biggest mover", "biggest movers",
+            "most volatile", "24h", "24 hr", "24 hour", "in the last day",
+            "today's mover", "todays mover", "session mover", "which moved",
+            "what moved", "moved sharply", "sharp move", "volatile",
+        )
+    ):
+        screen_mode = "movers_24h"
+
+    # Force commodity when asking about gold/silver/commodities movers without equity wording
+    if screen_mode and any(p in lower for p in ("gold", "silver", "crude", "commodity", "commodities", "oil")):
+        if not any(p in lower for p in ("stock", "stocks", "nifty", "equity", "crypto", "bitcoin")):
+            detected_ac = "commodity"
+
     mode = "single" if found else "top_picks"
     # Phrases that force universe scan even if a sector word matched as ticker
-    if any(p in lower for p in ("which stock", "which crypto", "what to buy", "what to sell", "top 10", "top ten", "suggest")):
-        if len(found) <= 1 and (not found or found[0] in ("NIFTY", "SENSEX")):
-            mode = "top_picks"
+    force_universe = any(
+        p in lower
+        for p in (
+            "which stock", "which crypto", "which commodity", "which commodities",
+            "what to buy", "what to sell", "top 10", "top ten", "suggest",
+            "which gold", "which silver", "what moved", "which moved",
+        )
+    )
+    analyze_named = any(p in lower for p in ("analyze", "analyse", "check "))
+    if screen_mode:
+        mode = screen_mode
+        if not analyze_named:
             found = []
+    elif force_universe and len(found) <= 1 and (not found or found[0] in ("NIFTY", "SENSEX", "GOLD", "SILVER")):
+        mode = "top_picks"
+        found = []
 
     action_bias = "both"
-    if re.search(r"\b(buy|long|go long)\b", lower) and not re.search(r"\b(sell|short)\b", lower):
+    if screen_mode == "fallen_most" or screen_mode == "broken_support":
+        action_bias = "sell"
+    elif screen_mode == "gainers" or screen_mode == "broken_resistance":
+        action_bias = "buy"
+    elif re.search(r"\b(buy|long|go long)\b", lower) and not re.search(r"\b(sell|short)\b", lower):
         action_bias = "buy"
     elif re.search(r"\b(sell|short|go short)\b", lower) and not re.search(r"\b(buy|long)\b", lower):
         action_bias = "sell"
 
     return {
         "raw_message": text,
-        "mode": mode,  # single | top_picks
+        "mode": mode,  # single | top_picks | movers_24h | gainers | fallen_most | broken_support | broken_resistance
         "asset_class": detected_ac,
         "style": detected_style,
         "style_label": STYLE_LABELS.get(detected_style, detected_style),
@@ -198,6 +265,7 @@ def parse_intent(
         "tickers": found[:8],
         "action_bias": action_bias,
         "extra_checks": all_extra_checks(),
+        "screen_mode": screen_mode,
     }
 
 
@@ -364,7 +432,7 @@ TRADING_CHAT_SYSTEM = (
 )
 
 # ---------------------------------------------------------------------------
-# Deep mode — multi-strategy backtest → encyclopedia → live analysis
+# Deep mode — multi-strategy backtest → Strategies catalog → live analysis
 # ---------------------------------------------------------------------------
 
 _PRO_TRADE_BY_STYLE: dict[str, list[str]] = {
@@ -519,27 +587,103 @@ def summarize_strategy_ranking(rows: list[dict[str, Any]], *, top_n: int | None 
 
 
 def load_strategy_guides(strategy_ids: list[str], *, excerpt_chars: int = 900) -> list[dict[str, Any]]:
-    """Encyclopedia / section guide excerpts + catalog meta for selected strategies."""
-    from app.market_pulse.section_strategy_guides import get_section_guide_body
+    """Load strategy details from the Strategies catalog API (not encyclopedia).
+
+    Source: STRATEGIES_CATALOG_BASE_URL (default http://31.97.237.200:2008)
+    — same host as the Strategies UI at /strategies; details from /api/v1/strategies[/{id}].
+    Falls back to local registry meta if remote is unreachable.
+    """
+    import logging
+
+    import requests
+
+    from app.core.config import settings
     from app.strategies.registry import get_strategy_meta
+
+    logger = logging.getLogger(__name__)
+    base = (settings.strategies_catalog_base_url or "http://31.97.237.200:2008").rstrip("/")
+    by_id: dict[str, dict[str, Any]] = {}
+
+    try:
+        resp = requests.get(f"{base}/api/v1/strategies", timeout=25)
+        resp.raise_for_status()
+        payload = resp.json()
+        rows = payload if isinstance(payload, list) else list(payload.get("strategies") or [])
+        for row in rows:
+            if isinstance(row, dict) and row.get("id"):
+                by_id[str(row["id"])] = row
+    except Exception as exc:
+        logger.warning("Strategies catalog list fetch failed (%s): %s", base, exc)
 
     out: list[dict[str, Any]] = []
     for sid in strategy_ids:
-        meta = get_strategy_meta(sid) or {}
-        # elliott_wave_pro guide may live under elliott_wave
-        body = get_section_guide_body(sid) or get_section_guide_body(sid.replace("_pro", ""))
-        excerpt = (body or "").strip()
+        meta = by_id.get(sid)
+        if meta is None:
+            # Per-id fetch (covers ids missing from list / aliases)
+            try:
+                r2 = requests.get(f"{base}/api/v1/strategies/{sid}", timeout=15)
+                if r2.status_code == 200:
+                    meta = r2.json() if isinstance(r2.json(), dict) else None
+                    if meta and meta.get("id"):
+                        by_id[str(meta["id"])] = meta
+                elif sid.endswith("_pro"):
+                    alt = sid.replace("_pro", "")
+                    r3 = requests.get(f"{base}/api/v1/strategies/{alt}", timeout=15)
+                    if r3.status_code == 200 and isinstance(r3.json(), dict):
+                        meta = r3.json()
+            except Exception as exc:
+                logger.debug("Strategies catalog detail fetch failed for %s: %s", sid, exc)
+
+        if not meta:
+            local = get_strategy_meta(sid) or get_strategy_meta(sid.replace("_pro", "")) or {}
+            meta = {
+                "id": sid,
+                "name": local.get("name") or sid.replace("_", " ").title(),
+                "category": local.get("category") or "",
+                "category_label": local.get("category_label") or "",
+                "summary": local.get("summary") or local.get("description") or "",
+                "description": local.get("description") or local.get("summary") or "",
+                "indicators": list(local.get("indicators") or []),
+                "entry_rules": list(local.get("entry_rules") or []),
+                "exit_rules": list(local.get("exit_rules") or []),
+                "source": "local_registry_fallback",
+            }
+        else:
+            meta = {**meta, "source": f"{base}/strategies"}
+
+        summary = str(meta.get("summary") or meta.get("description") or "")
+        desc = str(meta.get("description") or "")
+        # Build a how-to style excerpt from catalog fields (no encyclopedia)
+        parts: list[str] = []
+        if summary:
+            parts.append(summary)
+        if desc and desc != summary:
+            parts.append(desc)
+        indicators = meta.get("indicators") or []
+        if indicators:
+            parts.append("Indicators: " + ", ".join(str(x) for x in indicators[:8]))
+        entry_rules = list(meta.get("entry_rules") or [])
+        exit_rules = list(meta.get("exit_rules") or [])
+        if entry_rules:
+            parts.append("Entry: " + "; ".join(str(x) for x in entry_rules[:4]))
+        if exit_rules:
+            parts.append("Exit: " + "; ".join(str(x) for x in exit_rules[:3]))
+        excerpt = "\n".join(parts).strip()
         if excerpt and len(excerpt) > excerpt_chars:
             excerpt = excerpt[:excerpt_chars].rstrip() + "…"
+
         out.append({
             "strategy_id": sid,
             "strategy_label": meta.get("name") or sid.replace("_", " ").title(),
-            "category": meta.get("category") or meta.get("category_label") or "",
-            "summary": meta.get("summary") or meta.get("description") or "",
-            "entry_rules": list(meta.get("entry_rules") or [])[:4],
-            "exit_rules": list(meta.get("exit_rules") or [])[:3],
+            "category": meta.get("category_label") or meta.get("category") or "",
+            "summary": summary,
+            "entry_rules": entry_rules[:4],
+            "exit_rules": exit_rules[:3],
+            "indicators": list(indicators)[:8],
             "guide_excerpt": excerpt or None,
-            "has_full_guide": bool(body),
+            "has_full_guide": bool(excerpt),
+            "source": meta.get("source") or f"{base}/strategies",
+            "timeframes": list(meta.get("timeframes") or []),
         })
     return out
 
@@ -640,8 +784,8 @@ def build_deep_ai_context(
 ) -> str:
     lines = [
         "Dashboard Trading Chat — DEEP MODE.",
-        "Pipeline: (1) choose strategies for the question (2) backtest rank (3) encyclopedia how-to "
-        "(4) live analysis on winners (5) your conclusion.",
+        "Pipeline: (1) choose strategies for the question (2) backtest rank (3) Strategies catalog "
+        "how-to from /strategies (4) live analysis on winners (5) your conclusion.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         "",
@@ -654,13 +798,15 @@ def build_deep_ai_context(
             f"win%={r.get('avg_win_rate_pct')} · sharpe={r.get('avg_sharpe')} · trades={r.get('num_trades')}"
         )
     lines.append("")
-    lines.append("Encyclopedia / how-to for selected strategies:")
+    lines.append("Strategies catalog details (from Strategies page / API) for selected strategies:")
     for s in selected:
         lines.append(f"— {s.get('strategy_label')}: {s.get('summary') or ''}")
         if s.get("entry_rules"):
             lines.append(f"  Entry: {'; '.join(str(x) for x in s['entry_rules'][:2])}")
         if s.get("guide_excerpt"):
-            lines.append(f"  Guide: {str(s['guide_excerpt'])[:400]}")
+            lines.append(f"  How-to: {str(s['guide_excerpt'])[:400]}")
+        if s.get("source"):
+            lines.append(f"  Source: {s.get('source')}")
     lines.append("")
     lines.append("Live picks after analysis:")
     for p in picks:
@@ -672,15 +818,186 @@ def build_deep_ai_context(
     lines.append("")
     lines.append(
         "Conclude which strategies fit the question, then BUY/SELL/WAIT per ticker with "
-        "%confidence %SL %TP and a short reason grounded in backtest + live numbers."
+        "%confidence %SL %TP and a short reason grounded in backtest + Strategies catalog + live numbers."
     )
     return "\n".join(lines)
 
 
 DEEP_CHAT_SYSTEM = (
     "You are the Dashboard Trading Chat Deep Mode desk. You receive (1) backtest-ranked strategies "
-    "chosen for the user's question, (2) encyclopedia/how-to excerpts, (3) live analysis picks. "
-    "First name the best strategies and why they fit. Then give BUY/SELL/WAIT per ticker with "
-    "%confidence, %SL, %TP and a short reason. Research/education only — not financial advice. "
-    "End with: VERDICT: BUY|SELL|WAIT."
+    "chosen for the user's question, (2) strategy details from the Strategies catalog "
+    "(http host /strategies → /api/v1/strategies), (3) live analysis picks. "
+    "First name the best strategies and why they fit using the catalog how-to. Then give BUY/SELL/WAIT "
+    "per ticker with %confidence, %SL, %TP and a short reason. Research/education only — not financial "
+    "advice. End with: VERDICT: BUY|SELL|WAIT."
+)
+
+# ---------------------------------------------------------------------------
+# Open screens — movers / broken support-resistance
+# ---------------------------------------------------------------------------
+
+SCREEN_MODES = frozenset({
+    "movers_24h", "gainers", "fallen_most", "broken_support", "broken_resistance",
+})
+
+_DEFAULT_MOVER_INDEX: dict[str, str] = {
+    "india": "NIFTY 50",
+    "us": "sp500",
+    "crypto": "All CoinDCX USDT",
+    "commodity": "All Commodities",
+}
+
+
+def default_mover_index(asset_class: str) -> str:
+    return _DEFAULT_MOVER_INDEX.get((asset_class or "india").lower(), "NIFTY 50")
+
+
+def is_screen_mode(mode: str | None) -> bool:
+    return (mode or "") in SCREEN_MODES
+
+
+def compact_mover_pick(
+    row: dict[str, Any],
+    *,
+    rank: int | None = None,
+    side: str = "WATCH",
+    source: str = "market_movers",
+) -> dict[str, Any]:
+    """Normalize a gainer/loser row into a chat pick."""
+    pct = row.get("pct")
+    try:
+        pct_f = float(pct) if pct is not None else None
+    except (TypeError, ValueError):
+        pct_f = None
+    if side == "BUY" or (side == "WATCH" and pct_f is not None and pct_f >= 0):
+        action, side_out = "BUY", "LONG"
+    elif side == "SELL" or (side == "WATCH" and pct_f is not None and pct_f < 0):
+        action, side_out = "SELL", "SHORT"
+    else:
+        action, side_out = "WAIT", "WAIT"
+
+    conf = None
+    if pct_f is not None:
+        conf = round(min(95.0, max(35.0, abs(pct_f) * 8.0)), 1)
+
+    sym = row.get("symbol") or row.get("ticker") or row.get("pair")
+    last = row.get("last") or row.get("price")
+    reason = f"{pct_f:+.2f}% move ({source})" if pct_f is not None else f"Mover via {source}"
+
+    return {
+        "rank": rank,
+        "ticker": sym,
+        "timeframe": "1d",
+        "action": action,
+        "side": side_out,
+        "confidence_pct": conf,
+        "sl_pct": None,
+        "tp_pct": None,
+        "entry_price": last,
+        "stop_price": None,
+        "target_price": None,
+        "rr": None,
+        "grade": None,
+        "take_trade": action in ("BUY", "SELL"),
+        "signal": action,
+        "reason": reason,
+        "reasons": [reason],
+        "pct_change": pct_f,
+        "strategy_id": "market_movers",
+        "strategy_label": "Market Movers",
+        "error": None,
+    }
+
+
+def compact_break_pick(result: dict[str, Any], *, rank: int | None = None) -> dict[str, Any] | None:
+    """Normalize trade-setup S/R breakout result into a chat pick."""
+    if result.get("error"):
+        return None
+    bo = result.get("breakout") or {}
+    event = str(bo.get("event") or "NONE").upper()
+    if event not in ("RESISTANCE_BREAKOUT", "SUPPORT_BREAKDOWN"):
+        return None
+
+    if event == "SUPPORT_BREAKDOWN":
+        action, side = "SELL", "SHORT"
+        label = "Support breakdown"
+    else:
+        action, side = "BUY", "LONG"
+        label = "Resistance breakout"
+
+    level = bo.get("level")
+    vol_ok = bo.get("volume_confirmed")
+    price = result.get("price")
+    reason_bits = [label]
+    if level is not None:
+        reason_bits.append(f"level {level}")
+    if vol_ok is not None:
+        reason_bits.append("volume confirmed" if vol_ok else "volume weak")
+    reason = " · ".join(reason_bits)
+
+    conf = 72.0 if vol_ok else 55.0
+    return {
+        "rank": rank,
+        "ticker": result.get("ticker"),
+        "timeframe": result.get("timeframe"),
+        "action": action,
+        "side": side,
+        "confidence_pct": conf,
+        "sl_pct": None,
+        "tp_pct": None,
+        "entry_price": price,
+        "stop_price": None,
+        "target_price": None,
+        "rr": None,
+        "grade": None,
+        "take_trade": True,
+        "signal": event,
+        "reason": reason,
+        "reasons": [reason],
+        "break_event": event,
+        "break_level": level,
+        "strategy_id": "support_resistance_break",
+        "strategy_label": "S/R Break",
+        "error": None,
+    }
+
+
+def build_screen_ai_context(intent: dict[str, Any], picks: list[dict[str, Any]], *, source: str = "") -> str:
+    mode = str(intent.get("mode") or "")
+    lines = [
+        "Trading Agent — open market screen (not BB mean-reversion).",
+        f"User question: {intent.get('raw_message')}",
+        f"Screen mode: {mode} · Asset class: {intent.get('asset_class')} · Source: {source}",
+        "",
+        "Screen results:",
+    ]
+    for p in picks:
+        extra = ""
+        if p.get("pct_change") is not None:
+            extra = f" · move={p.get('pct_change')}%"
+        if p.get("break_event"):
+            extra = f" · {p.get('break_event')} @ {p.get('break_level')}"
+        lines.append(
+            f"{p.get('rank')}. {p.get('ticker')} | {p.get('action')}/{p.get('side')} | "
+            f"conf={p.get('confidence_pct')}%{extra} | {p.get('reason')}"
+        )
+    lines.append("")
+    if mode in ("movers_24h", "gainers", "fallen_most"):
+        lines.append(
+            "Rank by absolute % move. Separate gainers vs losers. Do NOT invent SL/TP. "
+            "Suggest 1–3 names worth a follow-up analyze; do not auto-BUY every gainer."
+        )
+    else:
+        lines.append(
+            "Only cite names with confirmed break events. Mention level + volume. "
+            "Breakdown → SELL bias; breakout → BUY bias; WAIT if volume weak. Do not invent SL/TP."
+        )
+    lines.append("End with: VERDICT: BUY|SELL|WAIT")
+    return "\n".join(lines)
+
+
+SCREEN_CHAT_SYSTEM = (
+    "You are the Trading Agent desk answering open market questions (movers, gainers/losers, "
+    "broken support/resistance). Use only the screen numbers provided. Be concise. "
+    "Research/education only — not financial advice. End with: VERDICT: BUY|SELL|WAIT."
 )

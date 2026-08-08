@@ -23,6 +23,7 @@ export type AnalysisDomain =
   | 'market_pulse'
   | 'scanner'
   | 'seasonality'
+  | 'trading_agent'
 
 interface BgJobStatus {
   job_id: string

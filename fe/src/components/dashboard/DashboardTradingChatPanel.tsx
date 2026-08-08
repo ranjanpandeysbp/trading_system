@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Bot, BookOpen, MessageSquare, Send, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { apiErrorMessage, fetchAIConfig, runDashboardTradingChat } from '../../api/client'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../analysis/AnalysisBackground'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -43,6 +48,11 @@ const EXAMPLES = [
   'Top crypto to scalp today',
   'What US stocks for swing trade?',
   'Which commodities can I buy for investing?',
+  'Which crypto moved a lot in 24h?',
+  'Which stocks fallen most today?',
+  'Which commodities / gold / silver moved sharply?',
+  'Which stocks broke recent support?',
+  'Which names broke resistance today?',
   'Analyze RELIANCE for swing — buy sell or wait?',
   'Should I long Bitcoin for intraday?',
 ]
@@ -54,6 +64,46 @@ function actionTone(action: string): string {
   return 'text-amber-200'
 }
 
+function assistantFromData(data: Row, q: string): ChatMsg {
+  const picks = (data?.picks as Row[] | undefined) ?? []
+  const ai = (data?.ai as Row | null | undefined) ?? null
+  const ranking = (data?.strategy_ranking as Row[] | undefined) ?? []
+  const selected = (data?.selected_strategies as Row[] | undefined) ?? []
+  const isDeep = Boolean(data?.deep_mode)
+  const summary = String(data?.summary || '')
+  const report = String(ai?.report || '')
+  const err = data?.error ? String(data.error) : ''
+  const text = err
+    ? err
+    : [
+        isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
+        summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
+        report && `\nAI conclusion:\n${report}`,
+      ]
+        .filter(Boolean)
+        .join('\n') || 'No picks returned.'
+  return {
+    role: 'assistant',
+    text,
+    picks,
+    ai,
+    ranking,
+    selected,
+    deepMode: isDeep,
+    meta: {
+      question: q,
+      asset_class: data?.asset_class,
+      style: data?.style,
+      timeframe: data?.timeframe,
+      mode: data?.mode,
+      scanned: data?.scanned,
+      disclaimer: data?.disclaimer,
+      deep_mode: isDeep,
+      backtest_period: data?.backtest_period,
+    },
+  }
+}
+
 export function DashboardTradingChatPanel() {
   const [message, setMessage] = useState('')
   const [assetClass, setAssetClass] = useState('')
@@ -63,62 +113,28 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell now — India / US / crypto / commodities — for scalping, intraday, swing, or investing. Name a ticker for a single read. Standard mode: BB Mean Reversion + confluence. Enable Deep mode to backtest-rank strategies for your question, pull encyclopedia how-tos, live-scan the winners, then conclude with Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Use Run in background for long Deep scans. Conclusions use Manage → AI.',
     },
   ])
 
+  const bg = useAnalysisBackground('trading_agent', 'trading_chat')
   const aiCfg = useQuery({ queryKey: ['ai-config'], queryFn: fetchAIConfig })
+  const lastOpenedReportRef = useRef<number | null>(null)
+
+  const chatPayload = (q: string) => ({
+    message: q,
+    asset_class: assetClass || undefined,
+    style: style || undefined,
+    deep_mode: deepMode,
+  })
 
   const chatMut = useMutation({
-    mutationFn: (q: string) =>
-      runDashboardTradingChat({
-        message: q,
-        asset_class: assetClass || undefined,
-        style: style || undefined,
-        deep_mode: deepMode,
-      }),
+    mutationFn: (q: string) => runDashboardTradingChat(chatPayload(q)),
     onSuccess: (data, q) => {
-      const picks = (data?.picks as Row[] | undefined) ?? []
-      const ai = (data?.ai as Row | null | undefined) ?? null
-      const ranking = (data?.strategy_ranking as Row[] | undefined) ?? []
-      const selected = (data?.selected_strategies as Row[] | undefined) ?? []
-      const isDeep = Boolean(data?.deep_mode)
-      const summary = String(data?.summary || '')
-      const report = String(ai?.report || '')
-      const err = data?.error ? String(data.error) : ''
-      const text = err
-        ? err
-        : [
-            isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
-            summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
-            report && `\nAI conclusion:\n${report}`,
-          ]
-            .filter(Boolean)
-            .join('\n') || 'No picks returned.'
-      setMessages((prev) => [
-        ...prev,
-        { role: 'user', text: q },
-        {
-          role: 'assistant',
-          text,
-          picks,
-          ai,
-          ranking,
-          selected,
-          deepMode: isDeep,
-          meta: {
-            asset_class: data?.asset_class,
-            style: data?.style,
-            timeframe: data?.timeframe,
-            mode: data?.mode,
-            scanned: data?.scanned,
-            disclaimer: data?.disclaimer,
-            deep_mode: isDeep,
-            backtest_period: data?.backtest_period,
-          },
-        },
-      ])
+      setMessages((prev) => [...prev, { role: 'user', text: q }, assistantFromData(data as Row, q)])
       setMessage('')
+      bg.setViewedReportId(null)
+      lastOpenedReportRef.current = null
     },
     onError: (e, q) => {
       setMessages((prev) => [
@@ -129,6 +145,25 @@ export function DashboardTradingChatPanel() {
     },
   })
 
+  // When a saved background report is opened, show it in the chat transcript
+  useEffect(() => {
+    const payload = bg.viewedPayload as Row | undefined
+    const rid = bg.viewedReportId
+    if (!payload || rid == null || lastOpenedReportRef.current === rid) return
+    lastOpenedReportRef.current = rid
+    const q = String(
+      payload.intent && (payload.intent as Row).raw_message
+        ? (payload.intent as Row).raw_message
+        : bg.viewedReportMeta?.name || 'Background report',
+    )
+    setMessages((prev) => [
+      ...prev,
+      { role: 'assistant', text: `Opened saved report${bg.viewedReportMeta?.name ? `: ${bg.viewedReportMeta.name}` : ''}` },
+      { role: 'user', text: q },
+      assistantFromData(payload, q),
+    ])
+  }, [bg.viewedReportId, bg.viewedPayload, bg.viewedReportMeta?.name])
+
   const providerLabel = useMemo(() => {
     const c = aiCfg.data as Row | undefined
     if (!c) return 'AI: …'
@@ -138,7 +173,25 @@ export function DashboardTradingChatPanel() {
 
   const send = () => {
     const q = message.trim()
-    if (!q || chatMut.isPending) return
+    if (!q || chatMut.isPending || bg.startPending) return
+    if (bg.runInBackground) {
+      if (!bg.bgReportName.trim()) {
+        bg.startBackground(chatPayload(q), () => (q ? null : 'Enter a question'))
+        return
+      }
+      const reportName = bg.bgReportName.trim()
+      bg.startBackground(chatPayload(q), () => (q ? null : 'Enter a question'))
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', text: q },
+        {
+          role: 'assistant',
+          text: `Background run started (“${reportName}”). You can leave this page — open the saved report below when it finishes.`,
+        },
+      ])
+      setMessage('')
+      return
+    }
     chatMut.mutate(q)
   }
 
@@ -151,10 +204,13 @@ export function DashboardTradingChatPanel() {
             Trading Chat
           </p>
           <p className="mt-1 text-sm leading-relaxed text-slate-300">
-            Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan (not capped at
-            10). Standard: <strong className="text-white">BB Mean Reversion</strong> + confluence. Deep mode:
-            pick strategies for the question → <strong className="text-white">backtest rank</strong> →
-            encyclopedia how-to → live scan → Manage AI conclusion.
+            Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan. Also
+            understands open questions: biggest 24h movers, top gainers/losers, gold/silver/commodity
+            moves, broken support or resistance. Standard:{' '}
+            <strong className="text-white">BB Mean Reversion</strong> + confluence (or movers/S&R screens).
+            Deep mode: pick strategies → <strong className="text-white">backtest rank</strong> → Strategies
+            catalog how-to → live scan → Manage AI (Deep also enriches mover/break screens with BB SL/TP when
+            possible).
           </p>
           <p className="mt-1 text-[11px] text-slate-500">{providerLabel}</p>
         </div>
@@ -188,13 +244,14 @@ export function DashboardTradingChatPanel() {
           className="mt-0.5 rounded border-slate-600"
           checked={deepMode}
           onChange={(e) => setDeepMode(e.target.checked)}
-          disabled={chatMut.isPending}
+          disabled={chatMut.isPending || bg.startPending}
         />
         <span>
           <span className="font-semibold text-white">Deep mode</span>
           <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-400">
-            Backtest strategies matched to your question, load encyclopedia guides, live-analyze the best ones,
-            then AI concludes. Slower (often several minutes).
+            Backtest strategies matched to your question, load Strategies catalog how-tos
+            (from /strategies), live-analyze the best ones, then AI concludes. Slower (often several
+            minutes).
           </span>
         </span>
       </label>
@@ -206,12 +263,26 @@ export function DashboardTradingChatPanel() {
             type="button"
             className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-2 py-1 text-[10px] text-slate-400 hover:border-violet-500/40 hover:text-violet-200"
             onClick={() => setMessage(ex)}
-            disabled={chatMut.isPending}
+            disabled={chatMut.isPending || bg.startPending}
           >
             {ex}
           </button>
         ))}
       </div>
+
+      <AnalysisBackgroundControls
+        bg={bg}
+        placeholder={`Trading Agent · ${new Date().toLocaleDateString()}`}
+        onStart={() => {
+          const q = message.trim()
+          if (!q) {
+            bg.startBackground(chatPayload(''), () => 'Enter a question first')
+            return
+          }
+          send()
+        }}
+      />
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
       <div className="mb-3 max-h-[520px] space-y-3 overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
         {messages.map((m, i) => (
@@ -265,7 +336,7 @@ export function DashboardTradingChatPanel() {
             {m.selected && m.selected.length > 0 && (
               <div className="mt-3 space-y-2">
                 <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300/90">
-                  <BookOpen size={11} /> Encyclopedia / how-to
+                  <BookOpen size={11} /> Strategies catalog / how-to
                 </p>
                 {m.selected.map((s) => (
                   <details
@@ -290,7 +361,7 @@ export function DashboardTradingChatPanel() {
                         {String(s.guide_excerpt)}
                       </pre>
                     ) : (
-                      <p className="mt-2 text-[11px] text-slate-600">No encyclopedia excerpt for this id.</p>
+                      <p className="mt-2 text-[11px] text-slate-600">No Strategies catalog excerpt for this id.</p>
                     )}
                   </details>
                 ))}
@@ -376,7 +447,7 @@ export function DashboardTradingChatPanel() {
             <Loading
               message={
                 deepMode
-                  ? 'Deep mode: backtesting strategies → encyclopedia → live scan → Manage AI… (several minutes)'
+                  ? 'Deep mode: backtesting strategies → Strategies catalog → live scan → Manage AI… (several minutes)'
                   : 'Scanning BB + confluence for all eligible setups, then asking Manage AI…'
               }
             />
@@ -390,6 +461,7 @@ export function DashboardTradingChatPanel() {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="e.g. Which crypto to buy for scalping? or Analyze NVDA swing"
+          disabled={chatMut.isPending || bg.startPending}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -400,8 +472,18 @@ export function DashboardTradingChatPanel() {
       </FormField>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={send} disabled={!message.trim() || chatMut.isPending}>
-          <Send size={14} /> {deepMode ? 'Ask deep desk' : 'Ask desk'}
+        <Button
+          type="button"
+          onClick={send}
+          disabled={
+            !message.trim()
+            || chatMut.isPending
+            || bg.startPending
+            || (bg.runInBackground && !bg.bgReportName.trim())
+          }
+        >
+          <Send size={14} />{' '}
+          {bg.runInBackground ? 'Start background' : deepMode ? 'Ask deep desk' : 'Ask desk'}
         </Button>
         {aiCfg.data && !(aiCfg.data as Row).ready && (
           <Alert type="error">
@@ -416,7 +498,8 @@ export function DashboardTradingChatPanel() {
 
       <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
         Research / education only — not financial advice. Returns every eligible BUY/SELL from the scan universe
-        (standard ~50 names; Deep live-scans ~20). No artificial top-10 cut.
+        (standard ~50 names; Deep live-scans ~20). Use <span className="text-slate-400">Run in background</span> for
+        long Deep / movers scans — results auto-save under Saved reports.
       </p>
     </Card>
   )

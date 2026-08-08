@@ -1,4 +1,4 @@
-"""Dashboard Trading Chat — BB + confluence; optional Deep mode (backtest → encyclopedia → live)."""
+"""Dashboard Trading Chat — BB + confluence; optional Deep mode (backtest → Strategies catalog → live)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,19 @@ from typing import Any
 from app.market_pulse.dashboard_trading_chat_engine import (
     DEEP_CHAT_SYSTEM,
     PRO_TRADE_LIVE_IDS,
+    SCREEN_CHAT_SYSTEM,
     TRADING_CHAT_SYSTEM,
     all_extra_checks,
     build_chat_ai_context,
     build_deep_ai_context,
+    build_screen_ai_context,
+    compact_break_pick,
+    compact_mover_pick,
     compact_pick,
     compact_scan_signal,
+    default_mover_index,
     default_universe,
+    is_screen_mode,
     load_strategy_guides,
     merge_live_picks,
     parse_intent,
@@ -57,6 +63,18 @@ class DashboardTradingChatService:
         skip_ai: bool = False,
         deep_mode: bool = False,
     ) -> dict[str, Any]:
+        # Peek intent — open screens (movers / S&R breaks) bypass BB / deep backtest
+        peek = parse_intent(message, asset_class=asset_class, style=style, tickers=tickers)
+        if is_screen_mode(str(peek.get("mode") or "")):
+            return await self._chat_screen(
+                message=message,
+                asset_class=asset_class,
+                style=style,
+                tickers=tickers,
+                top_n=top_n,
+                skip_ai=skip_ai,
+                deep_mode=deep_mode,
+            )
         if deep_mode:
             return await self._chat_deep(
                 message=message,
@@ -76,6 +94,250 @@ class DashboardTradingChatService:
             top_n=top_n,
             skip_ai=skip_ai,
         )
+
+    async def _chat_screen(
+        self,
+        *,
+        message: str,
+        asset_class: str | None,
+        style: str | None,
+        tickers: list[str] | None,
+        top_n: int | None,
+        skip_ai: bool,
+        deep_mode: bool,
+    ) -> dict[str, Any]:
+        """Answer movers / broken S/R open questions via Command Center screens."""
+        from app.services.command_center_service import CommandCenterService
+
+        intent = parse_intent(message, asset_class=asset_class, style=style, tickers=tickers)
+        mode = str(intent["mode"])
+        ac = str(intent["asset_class"])
+        tf = str(intent["timeframe"])
+        cc = CommandCenterService(self.settings, db=self.db)
+
+        picks: list[dict[str, Any]] = []
+        source = ""
+        scan_tickers: list[str] = []
+
+        try:
+            if mode in ("movers_24h", "gainers", "fallen_most"):
+                picks, source, scan_tickers = await self._screen_movers(cc, intent, top_n=top_n)
+            else:
+                picks, source, scan_tickers = await self._screen_breaks(cc, intent, top_n=top_n)
+        except Exception as exc:
+            logger.exception("Trading Agent screen failed")
+            return {
+                "error": f"Screen failed: {exc}",
+                "intent": intent,
+                "mode": mode,
+                "picks": [],
+                "ai": None,
+                "deep_mode": deep_mode,
+            }
+
+        # Optional deep enrich: BB on top movers only (small set)
+        if deep_mode and picks:
+            try:
+                enrich_syms = [str(p.get("ticker")) for p in picks[:5] if p.get("ticker")]
+                if enrich_syms:
+                    bb = await self.pro.bb_mean_reversion(
+                        enrich_syms,
+                        asset_class=ac,
+                        timeframes=[tf],
+                        cfg_overrides={"extra_checks": all_extra_checks()},
+                    )
+                    by_t = {
+                        str(r.get("ticker")): r
+                        for r in (bb.get("results") or [])
+                        if isinstance(r, dict) and r.get("ticker")
+                    }
+                    for p in picks:
+                        r = by_t.get(str(p.get("ticker")))
+                        if not r:
+                            continue
+                        if r.get("sl_pct") is not None:
+                            p["sl_pct"] = r.get("sl_pct")
+                        if r.get("tp_pct") is not None:
+                            p["tp_pct"] = r.get("tp_pct")
+                        if r.get("plain_english"):
+                            p["reasons"] = list(p.get("reasons") or []) + [str(r.get("plain_english"))[:180]]
+            except Exception:
+                logger.exception("Deep enrich on screen picks failed")
+
+        ai_payload = None
+        if not skip_ai:
+            ctx = build_screen_ai_context(intent, picks, source=source)
+            try:
+                ai_payload = await self.ai.ask(
+                    context=ctx,
+                    question=f"Answer the user's open market question. User asked: {message}",
+                    system_prompt=SCREEN_CHAT_SYSTEM,
+                    section="dashboard/trading-chat-screen",
+                    max_tokens=3500,
+                    mode="ask",
+                )
+            except Exception as exc:
+                logger.exception("Screen AI failed")
+                ai_payload = {
+                    "report": f"AI conclusion unavailable: {exc}. Screen results below still apply.",
+                    "verdict": None,
+                    "confidence_pct": None,
+                    "provider": None,
+                    "model": None,
+                    "error": True,
+                }
+
+        summary_lines = [f"Screen ({mode}) · {source} · {len(picks)} eligible:"]
+        for p in picks:
+            summary_lines.append(
+                f"{p.get('rank')}. {p.get('ticker')} — {p.get('action')} ({p.get('side')}) · "
+                f"{p.get('confidence_pct') or '—'}% · {p.get('reason')}"
+            )
+
+        payload = self._pack_response(
+            intent=intent,
+            mode=mode,
+            ac=ac,
+            tf=tf,
+            scan_tickers=scan_tickers,
+            checks=[],
+            picks=picks,
+            ai_payload=ai_payload,
+            bb_entry_count=len(picks),
+            disclaimer="Research / education only — not financial advice. Movers/breaks are screens, not auto-trades.",
+            scanned=len(scan_tickers) or len(picks),
+            deep_mode=deep_mode,
+        )
+        payload["summary"] = "\n".join(summary_lines)
+        payload["screen_source"] = source
+        payload["how_to_read"] = [
+            "Open question screen: market movers (24h / session) or recent support/resistance breaks.",
+            "BUY/SELL here tags direction of the move or break — not a full BB trade plan unless Deep enrich added SL/TP.",
+            "AI conclusion uses Manage → AI Settings.",
+            "Research / education only — not financial advice.",
+        ]
+        return json_safe(payload)
+
+    async def _screen_movers(
+        self,
+        cc: Any,
+        intent: dict[str, Any],
+        *,
+        top_n: int | None,
+    ) -> tuple[list[dict[str, Any]], str, list[str]]:
+        mode = str(intent["mode"])
+        ac = str(intent["asset_class"])
+        picks: list[dict[str, Any]] = []
+        source = "market_movers"
+        scan_tickers: list[str] = []
+
+        if ac == "crypto":
+            data = await cc.coindcx_24h_volatility()
+            rows = list(data.get("rows") or [])
+            source = "CoinDCX 24h"
+            norm: list[dict[str, Any]] = []
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                pct = r.get("percent_change")
+                try:
+                    pct_f = float(pct) if pct is not None else None
+                except (TypeError, ValueError):
+                    pct_f = None
+                if pct_f is None:
+                    continue
+                norm.append({
+                    "symbol": r.get("ticker") or r.get("pair"),
+                    "pct": pct_f,
+                    "last": r.get("price"),
+                })
+            gainers = sorted([x for x in norm if x["pct"] >= 0], key=lambda x: -x["pct"])
+            losers = sorted([x for x in norm if x["pct"] < 0], key=lambda x: x["pct"])
+        else:
+            index = default_mover_index(ac)
+            # Gold/silver-specific questions can narrow commodity index when available
+            raw = str(intent.get("raw_message") or "").lower()
+            if ac == "commodity" and "gold" in raw and "silver" not in raw:
+                index = "Gold Spot"
+            elif ac == "commodity" and "silver" in raw and "gold" not in raw:
+                index = "Silver Spot"
+            data = await cc.market_movers(ac, index, "1d")
+            source = str(data.get("source") or f"market_movers:{index}:1d")
+            gainers = [x for x in (data.get("gainers") or []) if isinstance(x, dict)]
+            losers = [x for x in (data.get("losers") or []) if isinstance(x, dict)]
+
+        if mode == "gainers":
+            ordered = [(g, "BUY") for g in gainers]
+        elif mode == "fallen_most":
+            ordered = [(g, "SELL") for g in losers]
+        else:
+            # movers_24h — merge by abs pct
+            merged = [(g, "BUY") for g in gainers] + [(g, "SELL") for g in losers]
+            merged.sort(key=lambda pair: -abs(float(pair[0].get("pct") or 0)))
+            ordered = merged
+
+        if top_n is not None:
+            ordered = ordered[:top_n]
+
+        for i, (row, side) in enumerate(ordered):
+            picks.append(compact_mover_pick(row, rank=i + 1, side=side, source=source))
+            if row.get("symbol"):
+                scan_tickers.append(str(row["symbol"]))
+
+        return picks, source, scan_tickers
+
+    async def _screen_breaks(
+        self,
+        cc: Any,
+        intent: dict[str, Any],
+        *,
+        top_n: int | None,
+    ) -> tuple[list[dict[str, Any]], str, list[str]]:
+        import asyncio
+
+        mode = str(intent["mode"])
+        ac = str(intent["asset_class"])
+        tf = str(intent.get("timeframe") or "15m")
+        want = "SUPPORT_BREAKDOWN" if mode == "broken_support" else "RESISTANCE_BREAKOUT"
+
+        named = list(intent.get("tickers") or [])
+        if named:
+            universe = self._resolve_named_tickers(ac, named)
+        else:
+            universe = default_universe(ac, limit=20)
+
+        async def _one(sym: str) -> dict[str, Any]:
+            try:
+                return await cc.trade_setup_support_resistance(sym, asset_class=ac, timeframe=tf)
+            except Exception as exc:
+                return {"ticker": sym, "error": str(exc)[:200]}
+
+        results = await asyncio.gather(*[_one(s) for s in universe])
+        picks: list[dict[str, Any]] = []
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            bo = r.get("breakout") or {}
+            if str(bo.get("event") or "").upper() != want:
+                continue
+            cp = compact_break_pick(r)
+            if cp:
+                picks.append(cp)
+
+        # Prefer volume-confirmed first
+        picks.sort(
+            key=lambda p: (
+                0 if "volume confirmed" in str(p.get("reason") or "") else 1,
+                -(p.get("confidence_pct") or 0),
+            )
+        )
+        if top_n is not None:
+            picks = picks[:top_n]
+        for i, p in enumerate(picks):
+            p["rank"] = i + 1
+
+        source = f"trade_setup_support_resistance:{tf}"
+        return picks, source, universe
 
     async def _chat_standard(
         self,
@@ -234,8 +496,10 @@ class DashboardTradingChatService:
 
         top_strategy_ids = [str(r["strategy_id"]) for r in ranking[:3]] or candidates[:3]
 
-        # --- 2) Encyclopedia ---
-        selected = load_strategy_guides(top_strategy_ids)
+        # --- 2) Strategies catalog details (http://…/strategies → /api/v1/strategies) ---
+        import asyncio
+
+        selected = await asyncio.to_thread(load_strategy_guides, top_strategy_ids)
 
         # --- 3) Live analysis on winners ---
         pick_lists: list[list[dict[str, Any]]] = []
@@ -401,7 +665,8 @@ class DashboardTradingChatService:
             "backtest_error": bt_error,
             "how_to_read": [
                 "Deep mode: (1) pick strategies for your question (2) backtest-rank them "
-                "(3) load encyclopedia how-to (4) live-scan winners (5) Manage AI conclusion.",
+                "(3) load Strategies catalog how-to from /strategies (4) live-scan winners "
+                "(5) Manage AI conclusion.",
                 "Strategy ranking uses Backtester leaderboard rank_score (return × sample factor).",
                 "Live picks merge BB Mean Reversion + winning rule/hub/pro engines.",
                 "Research / education only — not financial advice.",
@@ -499,7 +764,7 @@ class DashboardTradingChatService:
             ctx = build_deep_ai_context(intent, ranking=ranking or [], selected=selected or [], picks=picks)
             sys = DEEP_CHAT_SYSTEM
             q = (
-                "Deep mode: name best strategies from the backtest, cite encyclopedia briefly, "
+                "Deep mode: name best strategies from the backtest, cite Strategies catalog briefly, "
                 f"then BUY/SELL/WAIT per ticker with %confidence %SL %TP. User asked: {message}"
             )
             mode = "ask"
@@ -568,8 +833,8 @@ class DashboardTradingChatService:
         ]
         if deep_mode:
             how = [
-                "Deep mode: backtest-ranked strategies → encyclopedia → live analysis → AI.",
-                "Live picks list every eligible BUY/SELL from the scan (not capped at 10).",
+                "Deep mode: backtest-ranked strategies → Strategies catalog (/strategies) → live analysis → AI.",
+                "See strategy_ranking and selected_strategies (catalog how-to) in the response.",
                 "AI conclusion uses Manage → AI Settings.",
                 "Research / education only — not financial advice.",
             ]

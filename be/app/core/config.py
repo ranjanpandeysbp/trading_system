@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 30
     password_reset_expire_hours: int = 24
+    # Deep-mode strategy details (Strategies page / API host). UI: /strategies → API: /api/v1/strategies
+    strategies_catalog_base_url: str = "http://31.97.237.200:2008"
 
     def _build_mysql_url(self) -> str:
         user = quote_plus(self.mysql_user or "")

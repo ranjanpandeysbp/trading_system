@@ -1,6 +1,6 @@
 """Generic background-job runner for analysis surfaces across the app
 (Trading Hubs, Pro Trade, Command Center, Technical Analysis, Market Pulse,
-Scanner, Seasonality).
+Scanner, Seasonality, Trading Agent).
 
 Source keys are ``analysis:{domain}:{section}`` so reports stay scoped per
 screen. Reuses the shared job store in ``strategy_leaderboard_jobs``.
@@ -39,6 +39,7 @@ ANALYSIS_DOMAINS = frozenset({
     "market_pulse",
     "scanner",
     "seasonality",
+    "trading_agent",
 })
 
 
@@ -222,7 +223,42 @@ async def _execute_analysis_body(
             asset_class=_asset_class(payload),
         )
 
+    if domain == "trading_agent":
+        return await _execute_trading_agent(section, payload, settings=settings, db=db)
+
     raise ValueError(f"Unknown analysis domain: {domain}")
+
+
+async def _execute_trading_agent(
+    section: str,
+    payload: dict[str, Any],
+    *,
+    settings: Any,
+    db: Any,
+) -> dict[str, Any]:
+    from app.services.dashboard_trading_chat_service import DashboardTradingChatService
+
+    if section not in ("trading_chat", "chat", "ask"):
+        raise ValueError(f"Unknown Trading Agent section: {section}")
+
+    message = str(payload.get("message") or "").strip()
+    if not message:
+        raise ValueError("message is required for Trading Agent")
+
+    top_n = payload.get("top_n")
+    top_n_i = int(top_n) if top_n is not None else None
+    extra = payload.get("extra_checks")
+    tickers = payload.get("tickers")
+    return await DashboardTradingChatService(settings, db=db).chat(
+        message=message,
+        asset_class=payload.get("asset_class") or None,
+        style=payload.get("style") or None,
+        tickers=list(tickers) if isinstance(tickers, list) else None,
+        extra_checks=list(extra) if isinstance(extra, list) else None,
+        top_n=top_n_i,
+        skip_ai=bool(payload.get("skip_ai") or False),
+        deep_mode=bool(payload.get("deep_mode") or False),
+    )
 
 
 async def _execute_command_center(section: str, payload: dict[str, Any], *, settings: Any, db: Any) -> dict[str, Any]:
