@@ -73,6 +73,11 @@ export const forgotPassword = (email: string) =>
 export const resetPassword = (token: string, new_password: string) =>
   api.post<TokenResponse>('/auth/reset-password', { token, new_password }).then((r) => r.data)
 
+export const changePassword = (old_password: string, new_password: string) =>
+  api
+    .post<{ message: string }>('/auth/change-password', { old_password, new_password })
+    .then((r) => r.data)
+
 export const fetchMe = () => api.get<UserInfo>('/auth/me').then((r) => r.data)
 
 export const logoutUser = () => api.post('/auth/logout').then((r) => r.data)

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Database, Settings2, Wifi } from 'lucide-react'
-import { getSettings, refreshGrowwToken, refreshIndMoneyToken, testProvider, updateSettings } from '../api/client'
+import { Bot, Database, KeyRound, Settings2, Wifi } from 'lucide-react'
+import {
+  apiErrorMessage,
+  changePassword,
+  getSettings,
+  refreshGrowwToken,
+  refreshIndMoneyToken,
+  testProvider,
+  updateSettings,
+} from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -57,7 +66,14 @@ const MARKETS = [
 
 export default function ManageSettings() {
   const qc = useQueryClient()
+  const { user } = useAuth()
   const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordMsg, setPasswordMsg] = useState('')
+  const [passwordError, setPasswordError] = useState('')
 
   const [provider, setProvider] = useState('yfinance')
   const [growwToken, setGrowwToken] = useState('')
@@ -134,6 +150,40 @@ export default function ManageSettings() {
     onError: (e: Error) => setTestResult({ ok: false, error: e.message }),
   })
 
+  const passwordMutation = useMutation({
+    mutationFn: () => changePassword(oldPassword, newPassword),
+    onSuccess: (data) => {
+      setPasswordMsg(data.message || 'Password updated successfully')
+      setPasswordError('')
+      setOldPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    },
+    onError: (e: unknown) => {
+      setPasswordMsg('')
+      setPasswordError(apiErrorMessage(e))
+    },
+  })
+
+  const submitPasswordChange = (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordMsg('')
+    setPasswordError('')
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match')
+      return
+    }
+    if (oldPassword === newPassword) {
+      setPasswordError('New password must be different from the current password')
+      return
+    }
+    passwordMutation.mutate()
+  }
+
   const savePayload = () => ({
     data_provider: provider,
     ...(growwToken ? { groww_api_token: growwToken } : {}),
@@ -169,8 +219,62 @@ export default function ManageSettings() {
     <div>
       <PageHeader
         title="Manage Settings"
-        description="Data provider · IndMoney · Groww · Gemini · Groq · Claude · OpenAI · Investing Agent · paper trading defaults"
+        description="Account · Data provider · IndMoney · Groww · Gemini · Groq · Claude · OpenAI · Investing Agent · paper trading defaults"
       />
+
+      <div className="mb-6">
+        <Card>
+          <div className="mb-4 flex items-center gap-2">
+            <KeyRound className="text-violet-400" size={20} />
+            <h3 className="font-semibold text-white">Change password</h3>
+          </div>
+          {user && (
+            <p className="mb-4 text-sm text-slate-400">
+              Signed in as <span className="text-slate-200">{user.email}</span>
+            </p>
+          )}
+          <form onSubmit={submitPasswordChange} className="grid max-w-xl gap-4 sm:grid-cols-1">
+            <FormField label="Current password">
+              <Input
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="Enter current password"
+                autoComplete="current-password"
+                required
+              />
+            </FormField>
+            <FormField label="New password">
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Min. 6 characters"
+                autoComplete="new-password"
+                required
+              />
+            </FormField>
+            <FormField label="Confirm new password">
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Repeat new password"
+                autoComplete="new-password"
+                required
+              />
+            </FormField>
+            {passwordError && <Alert type="error">{passwordError}</Alert>}
+            {passwordMsg && <Alert type="success">{passwordMsg}</Alert>}
+            <div>
+              <Button type="submit" disabled={passwordMutation.isPending}>
+                <KeyRound size={16} />
+                {passwordMutation.isPending ? 'Updating…' : 'Update password'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

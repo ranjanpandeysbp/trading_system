@@ -125,3 +125,17 @@ class AuthService:
             "token_type": "bearer",
             "user": self._user_out(user),
         }
+
+    async def change_password(self, user: User, old_password: str, new_password: str) -> dict:
+        if len(new_password) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        if old_password == new_password:
+            raise ValueError("New password must be different from the current password")
+        if not verify_password(old_password, user.hashed_password):
+            raise ValueError("Current password is incorrect")
+
+        user.hashed_password = hash_password(new_password)
+        user.reset_token = None
+        user.reset_token_expires = None
+        await self.db.commit()
+        return {"message": "Password updated successfully"}

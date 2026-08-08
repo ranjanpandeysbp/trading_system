@@ -440,10 +440,12 @@ TRADING_CHAT_SYSTEM = (
     "You are the Dashboard Trading Chat desk analyst. Conclude primarily from BB Mean "
     "Reversion + confluence engine numbers, and weigh suitability enrichments "
     "(Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, "
-    "Oil-Dollar-Bond macro, Options Market Prediction) when provided. For each name give: "
-    "action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, %SL, %TP, and a short reason. "
-    "Be concise and practical. This is research/education only — not financial advice. "
-    "End with: VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
+    "Oil-Dollar-Bond macro, Options Market Prediction, Trading Hub Intra-Hedging pairs) "
+    "when provided. For hedge pairs cite LONG/SHORT legs, spread, and confidence. "
+    "For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, "
+    "%SL, %TP, and a short reason. Be concise and practical. This is research/education "
+    "only — not financial advice. End with: VERDICT: BUY|SELL|WAIT "
+    "(overall bias for the user's question)."
 )
 
 # ---------------------------------------------------------------------------
@@ -457,6 +459,7 @@ NORMAL_ENRICHMENT_LABELS: dict[str, str] = {
     "comparative_strength": "Comparative Strength",
     "oil_dollar_bond": "Oil · Dollar · Bond macro",
     "options_market_prediction": "Options Market Prediction",
+    "intra_hedging": "Trading Hub · Intra-Hedging",
 }
 
 _DEFAULT_AD_INDEX: dict[str, str] = {
@@ -473,7 +476,142 @@ _ENRICH_KEYWORD_BOOSTS: list[tuple[list[str], str, int]] = [
     (["comparative strength", "relative strength", "stronger than", "weaker than", "outperform", "underperform", "rotation", " vs ", "versus"], "comparative_strength", 6),
     (["oil", "dollar", "dxy", "bond yield", "bonds", "macro", "risk on", "risk-off", "risk off", "gold", "silver", "crude"], "oil_dollar_bond", 5),
     (["option", "options", "pcr", "open interest", "max pain", "vix", "market prediction", "oi buildup"], "options_market_prediction", 6),
+    (["hedge", "hedging", "long short", "long/short", "long-short", "pairs trade", "pair trade", "sector pair", "beta neutral", "market neutral", "intra hedge", "intra-hedging"], "intra_hedging", 7),
 ]
+
+_IH_STOCK_INDEX_HINTS: list[tuple[list[str], str]] = [
+    (["bank nifty", "nifty bank", "banking", "bank stock"], "NIFTY BANK"),
+    (["private bank"], "NIFTY PRIVATE BANK"),
+    (["psu bank"], "NIFTY PSU BANK"),
+    (["nifty it", " it stock", "software", "tech stock"], "NIFTY IT"),
+    (["pharma", "healthcare"], "NIFTY PHARMA"),
+    (["auto ", "automobile"], "NIFTY AUTO"),
+    (["fmcg"], "NIFTY FMCG"),
+    (["metal", "steel"], "NIFTY METAL"),
+    (["realty", "real estate", "housing"], "NIFTY REALTY"),
+    (["energy", "oil & gas", "oil and gas"], "NIFTY ENERGY"),
+    (["financial service", "fin service", "fin nifty"], "NIFTY FINANCIAL SERVICES"),
+    (["midcap"], "NIFTY MIDCAP 150"),
+    (["smallcap"], "NIFTY SMALLCAP 250"),
+    (["nifty 50", "nifty50", "large cap"], "NIFTY 50"),
+    (["next 50"], "NIFTY NEXT 50"),
+    (["cement"], "NIFTY CEMENT"),
+    (["chemical"], "NIFTY CHEMICALS"),
+]
+
+
+def adapt_intra_hedging_config(
+    style: str,
+    message: str,
+    timeframe: str,
+) -> dict[str, Any]:
+    """Map chat intent → Intra-Hedging Trading Hub config (query-adapted)."""
+    from app.trading_hubs.intra_hedging_engine import (
+        FURTHER_ANALYSIS_OPTIONS,
+        MOMENTUM_TIMEFRAME_OPTIONS,
+        STOCK_MODE_INDEX_OPTIONS,
+    )
+
+    style_key = style if style in ("scalping", "intraday", "swing", "investing") else "intraday"
+    lower = f" {(message or '').lower()} "
+    fa_ids = {o["id"] for o in FURTHER_ANALYSIS_OPTIONS}
+
+    # Momentum TF
+    tf = (timeframe or "").strip()
+    if tf == "1w":
+        tf = "1wk"
+    if tf not in MOMENTUM_TIMEFRAME_OPTIONS:
+        if style_key == "scalping":
+            tf = "5m"
+        elif style_key == "swing":
+            tf = "1d"
+        elif style_key == "investing":
+            tf = "1wk"
+        else:
+            tf = "15m"
+    # Explicit TF words in question override
+    for cand in ("5m", "15m", "30m", "1h", "4h", "1d", "1wk", "1w"):
+        if cand in lower.replace(" ", "") or f" {cand} " in lower or f" {cand}." in lower:
+            mapped = "1wk" if cand == "1w" else cand
+            if mapped in MOMENTUM_TIMEFRAME_OPTIONS:
+                tf = mapped
+                break
+    if "daily" in lower or "1 day" in lower:
+        tf = "1d"
+    if "weekly" in lower:
+        tf = "1wk"
+
+    # Universe: sector (default) vs stock constituents
+    universe_mode = "sector"
+    stock_index = "NIFTY BANK"
+    stock_hint = False
+    for keys, idx in _IH_STOCK_INDEX_HINTS:
+        if any(k in lower for k in keys):
+            stock_hint = True
+            stock_index = idx if idx in STOCK_MODE_INDEX_OPTIONS else "NIFTY BANK"
+            break
+    force_stock = any(
+        k in lower
+        for k in ["constituent", "individual stock", "stock mode", "by stock", "stock hedge", "stock pair"]
+    )
+    force_sector = any(
+        k in lower
+        for k in [
+            "sector mode",
+            "sector index",
+            "all sectors",
+            "nifty sector",
+            "sector pair",
+            "sector pairs",
+            "sector rotation",
+            "sector hedge",
+            "across sectors",
+            "between sectors",
+        ]
+    )
+    if force_stock or (stock_hint and not force_sector):
+        universe_mode = "stock"
+    if force_sector and not force_stock:
+        universe_mode = "sector"
+
+    max_pairs = 3
+    if any(k in lower for k in ["one pair", "single pair", "best pair", "top pair"]):
+        max_pairs = 1
+    elif any(k in lower for k in ["two pair", "2 pair"]):
+        max_pairs = 2
+    elif any(k in lower for k in ["five pair", "5 pair", "all pairs"]):
+        max_pairs = 5
+    elif any(k in lower for k in ["four pair", "4 pair"]):
+        max_pairs = 4
+
+    further: list[str] = []
+    fa_hints = [
+        (["smc", "smart money", "order block", "pa-vp", "pa vp"], "pa_vp_smc"),
+        (["volume spread", "vsa", "next candle"], "volume_spread_next_candle"),
+        (["elliott", "wave"], "elliott_wave"),
+        (["bollinger", "mean reversion", "bb "], "bb_mean_reversion"),
+        (["support", "resistance", "s/r"], "support_resistance"),
+        (["mtf", "trend strength", "adx"], "mtf_trend_strength"),
+    ]
+    for keys, fid in fa_hints:
+        if fid in fa_ids and any(k in lower for k in keys):
+            further.append(fid)
+    if not further:
+        if style_key in ("scalping", "intraday"):
+            further = [f for f in ("bb_mean_reversion", "support_resistance", "volume_spread_next_candle") if f in fa_ids]
+        elif style_key == "swing":
+            further = [f for f in ("elliott_wave", "mtf_trend_strength", "support_resistance") if f in fa_ids]
+        else:
+            further = [f for f in ("mtf_trend_strength", "bb_mean_reversion") if f in fa_ids]
+
+    return {
+        "momentum_timeframe": tf,
+        "universe_mode": universe_mode,
+        "stock_index": stock_index if stock_index in STOCK_MODE_INDEX_OPTIONS else "NIFTY BANK",
+        "max_pairs": max(1, min(5, max_pairs)),
+        "further_analysis": further[:4],
+        "total_capital": 500_000.0,
+    }
 
 
 def select_normal_enrichments(
@@ -482,6 +620,7 @@ def select_normal_enrichments(
     message: str,
     *,
     mode: str = "top_picks",
+    timeframe: str = "15m",
     limit: int = 3,
 ) -> list[dict[str, Any]]:
     """Pick complementary desks by style / asset / keywords (max `limit`)."""
@@ -498,15 +637,20 @@ def select_normal_enrichments(
     # Style defaults
     if style_key == "scalping":
         _bump("volume_spread_next_candle", 3.5, "scalping style")
+        if ac == "india":
+            _bump("intra_hedging", 3.0, "Trading Hub Intra-Hedging (default)")
     elif style_key == "intraday":
         _bump("volume_spread_next_candle", 3.0, "intraday style")
         _bump("advance_decline", 1.5, "intraday market breadth")
         if ac == "india":
             _bump("options_market_prediction", 2.0, "India intraday options tape")
+            _bump("intra_hedging", 4.0, "Trading Hub Intra-Hedging default")
     elif style_key == "swing":
         _bump("elliott_wave", 3.5, "swing style")
         _bump("advance_decline", 2.0, "swing market breadth")
         _bump("comparative_strength", 1.5, "swing relative strength")
+        if ac == "india":
+            _bump("intra_hedging", 3.0, "Intra-Hedging swing rotation")
     else:  # investing
         _bump("elliott_wave", 3.0, "investing style")
         _bump("comparative_strength", 3.0, "investing relative strength")
@@ -526,27 +670,44 @@ def select_normal_enrichments(
     for keys, eid, pts in _ENRICH_KEYWORD_BOOSTS:
         if eid == "options_market_prediction" and ac != "india":
             continue
+        if eid == "intra_hedging" and ac != "india":
+            continue
         if any(k in lower for k in keys):
             _bump(eid, float(pts), f"question mentions {keys[0]}")
 
-    # Options Market Prediction is India / NSE only
+    # Options Market Prediction + Intra-Hedging are India-only
     if ac != "india":
         scores.pop("options_market_prediction", None)
         why.pop("options_market_prediction", None)
+        scores.pop("intra_hedging", None)
+        why.pop("intra_hedging", None)
+
+    # Allow one extra slot when Intra-Hedging is in play (default desk)
+    eff_limit = limit + 1 if "intra_hedging" in scores and scores["intra_hedging"] >= 1.5 else limit
 
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
-    chosen = [eid for eid, sc in ranked if sc >= 1.5][: max(1, limit)]
+    chosen = [eid for eid, sc in ranked if sc >= 1.5][: max(1, eff_limit)]
     if not chosen and ranked:
         chosen = [ranked[0][0]]
 
+    # Always keep Intra-Hedging when it scored (India trading default)
+    if "intra_hedging" in scores and scores["intra_hedging"] >= 2.5 and "intra_hedging" not in chosen:
+        if len(chosen) >= eff_limit and chosen:
+            chosen[-1] = "intra_hedging"
+        else:
+            chosen.append("intra_hedging")
+
     out: list[dict[str, Any]] = []
     for eid in chosen:
-        out.append({
+        item: dict[str, Any] = {
             "id": eid,
             "label": NORMAL_ENRICHMENT_LABELS.get(eid, eid),
             "score": round(scores.get(eid, 0), 2),
             "why": "; ".join(why.get(eid, [])[:3]) or "suitability",
-        })
+        }
+        if eid == "intra_hedging":
+            item["config"] = adapt_intra_hedging_config(style_key, message, timeframe)
+        out.append(item)
     return out
 
 
@@ -628,6 +789,43 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
             summary = (summary + f" · Stronger: {', '.join(stronger)}").strip(" ·")
         if weaker:
             summary = (summary + f" · Weaker: {', '.join(weaker)}").strip(" ·")
+
+    elif eid == "intra_hedging":
+        pairs = list(payload.get("pair_recommendations") or [])
+        bits: list[str] = []
+        mode = payload.get("universe_mode") or ""
+        desc = payload.get("universe_desc") or ""
+        for p in pairs[:5]:
+            if not isinstance(p, dict):
+                continue
+            long_t = p.get("long_label") or p.get("long_ticker")
+            short_t = p.get("short_label") or p.get("short_ticker")
+            conf = p.get("confidence_pct")
+            spread = p.get("spread_pct")
+            bits.append(
+                f"#{p.get('pair_rank') or '?'} LONG {long_t} / SHORT {short_t}"
+                + (f" · {conf}%" if conf is not None else "")
+                + (f" · spread {spread}%" if spread is not None else "")
+            )
+            if p.get("long_ticker"):
+                ticker_signals.append({
+                    "ticker": p.get("long_ticker"),
+                    "side": "LONG",
+                    "take_trade": True,
+                    "confidence_pct": conf,
+                    "note": f"Intra-hedge LONG vs {short_t}",
+                })
+            if p.get("short_ticker"):
+                ticker_signals.append({
+                    "ticker": p.get("short_ticker"),
+                    "side": "SHORT",
+                    "take_trade": True,
+                    "confidence_pct": conf,
+                    "note": f"Intra-hedge SHORT vs {long_t}",
+                })
+        head = f"{mode} {desc}".strip()
+        summary = (head + " · " if head else "") + ("; ".join(bits) if bits else "No hedge pairs")
+        summary = summary[:400]
 
     elif eid == "oil_dollar_bond":
         summary = str(payload.get("plain_english") or payload.get("summary") or "")[:300]
@@ -734,8 +932,8 @@ _PRO_TRADE_BY_STYLE: dict[str, list[str]] = {
 
 _HUB_BY_STYLE: dict[str, list[str]] = {
     "scalping": ["scalp_rectangle", "scalp_multi_indicator", "scalp_sr_mss"],
-    "intraday": ["intraday_london_breakout", "support_resistance", "intraday_vwap_fade", "intraday_fib_945"],
-    "swing": ["support_resistance", "reversal_strategy", "swing_trading_st", "swing_bb_vwap_reversal"],
+    "intraday": ["intra_hedging", "intraday_london_breakout", "support_resistance", "intraday_vwap_fade", "intraday_fib_945"],
+    "swing": ["intra_hedging", "support_resistance", "reversal_strategy", "swing_trading_st", "swing_bb_vwap_reversal"],
     "investing": ["swing_trend_velocity", "support_resistance", "reversal_strategy"],
 }
 
@@ -777,6 +975,7 @@ _KEYWORD_STRATEGY_BOOSTS: list[tuple[list[str], list[str]]] = [
     (["breakout"], ["consolidation_breakout_swing", "sr_breakout_pullback_intraday", "intraday_london_breakout"]),
     (["ema"], ["ema_crossover_scalp"]),
     (["rsi"], ["rsi_divergence_intraday", "weekly_rsi_pullback_swing"]),
+    (["hedge", "hedging", "long short", "pairs", "beta neutral", "sector rotation"], ["intra_hedging"]),
 ]
 
 # Hub ids that cannot use the generic backtester

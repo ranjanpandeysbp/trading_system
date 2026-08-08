@@ -399,8 +399,10 @@ class DashboardTradingChatService:
         else:
             picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
 
-        # Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options)
-        planned = select_normal_enrichments(style_key, ac, message, mode=mode, limit=3)
+        # Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options / Intra-Hedging)
+        planned = select_normal_enrichments(
+            style_key, ac, message, mode=mode, timeframe=tf, limit=3,
+        )
         enrich_tickers = [str(p.get("ticker")) for p in picks if p.get("ticker")][:8]
         if not enrich_tickers:
             enrich_tickers = list(scan_tickers[:6])
@@ -410,6 +412,7 @@ class DashboardTradingChatService:
             timeframe=tf,
             style=style_key,
             tickers=enrich_tickers,
+            message=message,
         )
         picks = apply_enrichments_to_picks(picks, enrichments)
         for i, p in enumerate(picks):
@@ -549,12 +552,26 @@ class DashboardTradingChatService:
             disclaimer = None
             bt_error = (bt_error or "") + f" | BB live: {exc}"
 
-        rule_ids = [sid for sid in top_strategy_ids if sid in ALL_STRATEGIES]
+        from app.trading_hubs.registry import get_section
+
+        # Prefer Trading Hub for registered hub sections (e.g. Intra-Hedging),
+        # even when the same id also appears in engine strategy meta.
+        hub_force = {sid for sid in top_strategy_ids if get_section(sid)}
+        rule_ids = [
+            sid for sid in top_strategy_ids
+            if sid in ALL_STRATEGIES and sid not in hub_force
+        ]
         hub_ids = [
             sid for sid in top_strategy_ids
-            if sid not in ALL_STRATEGIES and sid not in PRO_TRADE_LIVE_IDS and sid != "elliott_wave_pro"
+            if sid in hub_force
+            or (
+                sid not in ALL_STRATEGIES
+                and sid not in PRO_TRADE_LIVE_IDS
+                and sid != "elliott_wave_pro"
+            )
         ]
         pro_ids = [sid for sid in top_strategy_ids if sid in PRO_TRADE_LIVE_IDS or sid == "elliott_wave_pro"]
+        deep_hedge_pairs: list[dict[str, Any]] = []
 
         if rule_ids:
             try:
@@ -575,12 +592,22 @@ class DashboardTradingChatService:
 
         if hub_ids:
             try:
+                from app.market_pulse.dashboard_trading_chat_engine import adapt_intra_hedging_config
                 from app.services.trading_hub_service import TradingHubService
 
                 hubs = TradingHubService(self.settings, db=self.db)
                 for sid in hub_ids[:2]:
                     try:
-                        payload = await hubs.scan(sid, live_tickers, asset_class=ac)
+                        hub_cfg = (
+                            adapt_intra_hedging_config(style_key, message, tf)
+                            if sid == "intra_hedging"
+                            else None
+                        )
+                        payload = await hubs.scan(
+                            sid, live_tickers, asset_class=ac, config=hub_cfg,
+                        )
+                        if sid == "intra_hedging" and isinstance(payload, dict):
+                            deep_hedge_pairs = list(payload.get("pair_recommendations") or [])
                         entries = list(payload.get("entries") or payload.get("results") or [])
                         hub_picks = []
                         for e in entries:
@@ -686,12 +713,14 @@ class DashboardTradingChatService:
             "selected_strategies": selected,
             "backtest_period": period,
             "backtest_error": bt_error,
+            "hedge_pairs": deep_hedge_pairs,
             "how_to_read": [
                 "Deep mode: (1) pick strategies for your question (2) backtest-rank them "
                 "(3) load Strategies catalog how-to from /strategies (4) live-scan winners "
                 "(5) Manage AI conclusion.",
                 "Strategy ranking uses Backtester leaderboard rank_score (return × sample factor).",
-                "Live picks merge BB Mean Reversion + winning rule/hub/pro engines.",
+                "Live picks merge BB Mean Reversion + winning rule/hub/pro engines "
+                "(Trading Hub Intra-Hedging when ranked — query-adapted params).",
                 "Research / education only — not financial advice.",
             ],
         })
@@ -705,6 +734,7 @@ class DashboardTradingChatService:
         timeframe: str,
         style: str,
         tickers: list[str],
+        message: str = "",
     ) -> list[dict[str, Any]]:
         import asyncio
 
@@ -720,8 +750,13 @@ class DashboardTradingChatService:
                     timeframe=timeframe,
                     style=style,
                     tickers=tickers,
+                    message=message,
+                    plan_config=plan.get("config") if isinstance(plan.get("config"), dict) else None,
                 )
                 compact = summarize_enrichment_payload(eid, payload if isinstance(payload, dict) else None)
+                if eid == "intra_hedging" and isinstance(payload, dict):
+                    compact["pair_recommendations"] = payload.get("pair_recommendations") or []
+                    compact["config_used"] = plan.get("config")
             except Exception as exc:
                 logger.exception("Normal enrichment %s failed", eid)
                 compact = {
@@ -745,8 +780,25 @@ class DashboardTradingChatService:
         timeframe: str,
         style: str,
         tickers: list[str],
+        message: str = "",
+        plan_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from datetime import date, timedelta
+
+        if eid == "intra_hedging":
+            from app.market_pulse.dashboard_trading_chat_engine import adapt_intra_hedging_config
+            from app.services.trading_hub_service import TradingHubService
+
+            cfg = plan_config or adapt_intra_hedging_config(style, message, timeframe)
+            hub = TradingHubService(self.settings, db=self.db)
+            # Sector mode uses fixed universe; tickers arg is ignored. Stock mode ignores tickers too.
+            seed = tickers[:1] or ["NIFTY BANK"]
+            return await hub.scan(
+                "intra_hedging",
+                seed,
+                asset_class="india",
+                config=cfg,
+            )
 
         if eid == "elliott_wave":
             tf = timeframe if timeframe in ("1d", "1wk", "4h", "1h") else ("1d" if style in ("swing", "investing") else "1h")
@@ -991,7 +1043,8 @@ class DashboardTradingChatService:
         how = [
             "Engine: BB Mean Reversion core + all confluence checks.",
             "Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
-            "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction.",
+            "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction, "
+            "and Trading Hub Intra-Hedging (India — query-adapted TF / sector-vs-stock / max pairs).",
             "BUY/SELL = eligible actionable setups (all of them — no top-10 cut).",
             "AI conclusion uses the provider saved in Manage → AI Settings.",
             "SL%/TP% come from the engine trade plan (band edge → mean).",
@@ -1015,6 +1068,14 @@ class DashboardTradingChatService:
             "scan_tickers": scan_tickers,
             "extra_checks": checks,
             "enrichments": enrichments or [],
+            "hedge_pairs": next(
+                (
+                    e.get("pair_recommendations") or []
+                    for e in (enrichments or [])
+                    if e.get("id") == "intra_hedging"
+                ),
+                [],
+            ),
             "picks": picks,
             "summary": "\n".join(summary_lines),
             "ai": ai_payload,

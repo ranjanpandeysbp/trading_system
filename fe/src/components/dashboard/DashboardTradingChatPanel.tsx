@@ -70,6 +70,7 @@ function assistantFromData(data: Row, q: string): ChatMsg {
   const ranking = (data?.strategy_ranking as Row[] | undefined) ?? []
   const selected = (data?.selected_strategies as Row[] | undefined) ?? []
   const enrichments = (data?.enrichments as Row[] | undefined) ?? []
+  const hedgePairs = (data?.hedge_pairs as Row[] | undefined) ?? []
   const isDeep = Boolean(data?.deep_mode)
   const summary = String(data?.summary || '')
   const report = String(ai?.report || '')
@@ -86,12 +87,26 @@ function assistantFromData(data: Row, q: string): ChatMsg {
           }),
         ].join('\n')
       : ''
+  const hedgeLines =
+    hedgePairs.length
+      ? [
+          'Intra-Hedging pairs (Trading Hub → Intraday):',
+          ...hedgePairs.slice(0, 5).map((p) => {
+            const longT = String(p.long_label || p.long_ticker || '—')
+            const shortT = String(p.short_label || p.short_ticker || '—')
+            const conf = p.confidence_pct != null ? `${p.confidence_pct}%` : '—'
+            const spread = p.spread_pct != null ? `${p.spread_pct}%` : '—'
+            return `· #${p.pair_rank ?? '?'} LONG ${longT} / SHORT ${shortT} · conf ${conf} · spread ${spread}`
+          }),
+        ].join('\n')
+      : ''
   const text = err
     ? err
     : [
         isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
         summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
         enrichLines,
+        hedgeLines,
         report && `\nAI conclusion:\n${report}`,
       ]
         .filter(Boolean)
@@ -128,7 +143,7 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence, plus suitability desks (Elliott, Volume Spread, A/D, Comparative Strength, Oil·Dollar·Bond, Options prediction). Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Use Run in background for long Deep scans. Conclusions use Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence, suitability desks, and India Intra-Hedging (Trading Hub — query-adapted). Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Use Run in background for long Deep scans. Conclusions use Manage → AI.',
     },
   ])
 
@@ -224,7 +239,9 @@ export function DashboardTradingChatPanel() {
             moves, broken support or resistance. Standard:{' '}
             <strong className="text-white">BB Mean Reversion</strong> + confluence, then suitability desks
             as needed (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength,
-            Oil·Dollar·Bond, Options Market Prediction). Deep mode: pick strategies →{' '}
+            Oil·Dollar·Bond, Options Market Prediction) plus India{' '}
+            <strong className="text-white">Trading Hub Intra-Hedging</strong> with params adapted from your
+            question (TF, sector vs stock universe, max pairs, further-analysis). Deep mode: pick strategies →{' '}
             <strong className="text-white">backtest rank</strong> → Strategies catalog how-to → live scan →
             Manage AI (Deep also enriches mover/break screens with BB SL/TP when possible).
           </p>

@@ -25,6 +25,7 @@ from app.models.schemas import (
     EtfShopConfigUpdateRequest,
     EtfTaRecommendRequest,
     EtfTaScanRequest,
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     AutoTradeSetupCreateRequest,
     AutoTradeSetupUpdateRequest,
@@ -221,6 +222,20 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
             user=UserOut(**result["user"]),
         )
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/auth/change-password", response_model=MessageResponse)
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AuthService(db)
+    try:
+        return await service.change_password(current_user, payload.old_password, payload.new_password)
+    except ValueError as exc:
+        # Always 400 — 401 would clear the session via the FE auth interceptor.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
