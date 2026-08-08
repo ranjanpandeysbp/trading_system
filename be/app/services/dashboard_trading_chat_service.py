@@ -1,4 +1,4 @@
-"""Dashboard Trading Chat — BB + confluence; optional Deep mode (backtest → Strategies catalog → live)."""
+"""Dashboard Trading Chat — BB + confluence; suitability enrichments; optional Deep mode."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     SCREEN_CHAT_SYSTEM,
     TRADING_CHAT_SYSTEM,
     all_extra_checks,
+    apply_enrichments_to_picks,
     build_chat_ai_context,
     build_deep_ai_context,
     build_screen_ai_context,
@@ -18,6 +19,7 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     compact_mover_pick,
     compact_pick,
     compact_scan_signal,
+    default_ad_index,
     default_mover_index,
     default_universe,
     is_screen_mode,
@@ -26,6 +28,8 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     parse_intent,
     rank_picks,
     select_deep_candidates,
+    select_normal_enrichments,
+    summarize_enrichment_payload,
     summarize_strategy_ranking,
 )
 from app.market_pulse.serialize import json_safe
@@ -357,6 +361,7 @@ class DashboardTradingChatService:
         ac = str(intent["asset_class"])
         tf = str(intent["timeframe"])
         mode = str(intent["mode"])
+        style_key = str(intent.get("style") or "intraday")
 
         if mode == "single" and intent.get("tickers"):
             scan_tickers = self._resolve_named_tickers(ac, list(intent["tickers"]))
@@ -394,6 +399,22 @@ class DashboardTradingChatService:
         else:
             picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
 
+        # Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options)
+        planned = select_normal_enrichments(style_key, ac, message, mode=mode, limit=3)
+        enrich_tickers = [str(p.get("ticker")) for p in picks if p.get("ticker")][:8]
+        if not enrich_tickers:
+            enrich_tickers = list(scan_tickers[:6])
+        enrichments = await self._run_normal_enrichments(
+            planned,
+            asset_class=ac,
+            timeframe=tf,
+            style=style_key,
+            tickers=enrich_tickers,
+        )
+        picks = apply_enrichments_to_picks(picks, enrichments)
+        for i, p in enumerate(picks):
+            p["rank"] = i + 1
+
         ai_payload = await self._conclude_ai(
             intent=intent,
             picks=picks,
@@ -402,6 +423,7 @@ class DashboardTradingChatService:
             deep=False,
             ranking=None,
             selected=None,
+            enrichments=enrichments,
         )
 
         return json_safe(self._pack_response(
@@ -417,6 +439,7 @@ class DashboardTradingChatService:
             disclaimer=bb.get("disclaimer"),
             scanned=len(results),
             deep_mode=False,
+            enrichments=enrichments,
         ))
 
     async def _chat_deep(
@@ -674,6 +697,143 @@ class DashboardTradingChatService:
         })
         return json_safe(payload)
 
+    async def _run_normal_enrichments(
+        self,
+        planned: list[dict[str, Any]],
+        *,
+        asset_class: str,
+        timeframe: str,
+        style: str,
+        tickers: list[str],
+    ) -> list[dict[str, Any]]:
+        import asyncio
+
+        if not planned:
+            return []
+
+        async def _one(plan: dict[str, Any]) -> dict[str, Any]:
+            eid = str(plan.get("id") or "")
+            try:
+                payload = await self._run_one_normal_enrichment(
+                    eid,
+                    asset_class=asset_class,
+                    timeframe=timeframe,
+                    style=style,
+                    tickers=tickers,
+                )
+                compact = summarize_enrichment_payload(eid, payload if isinstance(payload, dict) else None)
+            except Exception as exc:
+                logger.exception("Normal enrichment %s failed", eid)
+                compact = {
+                    "id": eid,
+                    "label": plan.get("label") or eid,
+                    "summary": f"Failed: {exc}"[:240],
+                    "error": str(exc)[:240],
+                    "ticker_signals": [],
+                }
+            compact["why"] = plan.get("why")
+            compact["score"] = plan.get("score")
+            return compact
+
+        return list(await asyncio.gather(*[_one(p) for p in planned]))
+
+    async def _run_one_normal_enrichment(
+        self,
+        eid: str,
+        *,
+        asset_class: str,
+        timeframe: str,
+        style: str,
+        tickers: list[str],
+    ) -> dict[str, Any]:
+        from datetime import date, timedelta
+
+        if eid == "elliott_wave":
+            tf = timeframe if timeframe in ("1d", "1wk", "4h", "1h") else ("1d" if style in ("swing", "investing") else "1h")
+            return await self.pro.elliott_wave(
+                tickers[:6],
+                asset_class=asset_class,
+                cfg_overrides={"timeframe": tf},
+            )
+
+        if eid == "volume_spread_next_candle":
+            tf = timeframe if timeframe in ("5m", "15m", "30m", "1h") else ("5m" if style == "scalping" else "15m")
+            return await self.pro.volume_spread_next_candle(
+                tickers[:6],
+                asset_class=asset_class,
+                cfg_overrides={"timeframe": tf},
+            )
+
+        if eid == "advance_decline":
+            from app.services.command_center_service import CommandCenterService
+
+            cc = CommandCenterService(self.settings, self.db)
+            today = date.today()
+            return await cc.advance_decline_graph(
+                default_ad_index(asset_class),
+                asset_class=asset_class,
+                from_date=(today - timedelta(days=30)).isoformat(),
+                to_date=today.isoformat(),
+                timeframe="1d",
+            )
+
+        if eid == "comparative_strength":
+            from app.market_pulse.comparative_strength_engine import list_base_presets
+            from app.services.command_center_service import CommandCenterService
+
+            presets = list_base_presets(asset_class)
+            base = str((presets[0] or {}).get("symbol") if presets else "")
+            if not base:
+                return {"error": "No comparative-strength base preset for this asset class", "rows": []}
+            peers = [t for t in tickers if t and t.upper() != base.upper()][:8]
+            if not peers:
+                return {"error": "Need peer tickers for comparative strength", "rows": []}
+            cs_tf = timeframe if timeframe in ("5m", "15m", "30m", "1h", "4h", "1d", "1w") else "1d"
+            if timeframe in ("1wk", "1w"):
+                cs_tf = "1w"
+            elif style in ("swing", "investing") and cs_tf in ("5m", "15m", "30m"):
+                cs_tf = "1d"
+            cc = CommandCenterService(self.settings, self.db)
+            return await cc.comparative_strength(
+                asset_class=asset_class,
+                base_symbol=base,
+                compare_symbols=peers,
+                timeframe=cs_tf,
+                lookback_bars=20 if style in ("swing", "investing") else 12,
+            )
+
+        if eid == "oil_dollar_bond":
+            from app.services.command_center_service import CommandCenterService
+
+            cc = CommandCenterService(self.settings, self.db)
+            mode = "intraday" if style in ("scalping", "intraday") else "daily"
+            return await cc.oil_dollar_bond(
+                mode=mode,
+                interval="1h" if mode == "intraday" else "1d",
+                session_date=date.today().isoformat() if mode == "intraday" else None,
+            )
+
+        if eid == "options_market_prediction":
+            from app.services.options_service import OptionsService
+
+            # Prefer NIFTY for India market prediction unless a named index pick
+            symbol = "NIFTY"
+            upper_set = {str(t).upper() for t in tickers}
+            for cand, sym in (
+                ("BANKNIFTY", "BANKNIFTY"),
+                ("NIFTY BANK", "BANKNIFTY"),
+                ("FINNIFTY", "FINNIFTY"),
+                ("NIFTY", "NIFTY"),
+                ("NIFTY 50", "NIFTY"),
+            ):
+                if cand in upper_set:
+                    symbol = sym
+                    break
+            opt = OptionsService(self.settings, self.db)
+            return await opt.market_prediction(symbol, is_index=True)
+
+        return {"error": f"Unknown enrichment: {eid}"}
+
     async def _run_pro_live(
         self,
         sid: str,
@@ -746,6 +906,7 @@ class DashboardTradingChatService:
         deep: bool,
         ranking: list[dict[str, Any]] | None,
         selected: list[dict[str, Any]] | None,
+        enrichments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         if skip_ai:
             return None
@@ -769,10 +930,11 @@ class DashboardTradingChatService:
             )
             mode = "ask"
         else:
-            ctx = build_chat_ai_context(intent, picks)
+            ctx = build_chat_ai_context(intent, picks, enrichments=enrichments)
             sys = TRADING_CHAT_SYSTEM
             q = (
                 "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason. "
+                "Weigh suitability enrichments when they confirm or conflict. "
                 f"User asked: {message}"
             )
             mode = "ask" if intent.get("mode") == "top_picks" else "next_move"
@@ -812,6 +974,7 @@ class DashboardTradingChatService:
         disclaimer: Any,
         scanned: int,
         deep_mode: bool,
+        enrichments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if ai_payload is None:
             # Caller may skip AI; FE still shows engine / deep ranking.
@@ -827,6 +990,8 @@ class DashboardTradingChatService:
 
         how = [
             "Engine: BB Mean Reversion core + all confluence checks.",
+            "Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
+            "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction.",
             "BUY/SELL = eligible actionable setups (all of them — no top-10 cut).",
             "AI conclusion uses the provider saved in Manage → AI Settings.",
             "SL%/TP% come from the engine trade plan (band edge → mean).",
@@ -849,6 +1014,7 @@ class DashboardTradingChatService:
             "scanned": scanned,
             "scan_tickers": scan_tickers,
             "extra_checks": checks,
+            "enrichments": enrichments or [],
             "picks": picks,
             "summary": "\n".join(summary_lines),
             "ai": ai_payload,

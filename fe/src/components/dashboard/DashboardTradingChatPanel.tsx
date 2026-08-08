@@ -69,15 +69,29 @@ function assistantFromData(data: Row, q: string): ChatMsg {
   const ai = (data?.ai as Row | null | undefined) ?? null
   const ranking = (data?.strategy_ranking as Row[] | undefined) ?? []
   const selected = (data?.selected_strategies as Row[] | undefined) ?? []
+  const enrichments = (data?.enrichments as Row[] | undefined) ?? []
   const isDeep = Boolean(data?.deep_mode)
   const summary = String(data?.summary || '')
   const report = String(ai?.report || '')
   const err = data?.error ? String(data.error) : ''
+  const enrichLines =
+    !isDeep && enrichments.length
+      ? [
+          'Suitability enrichments:',
+          ...enrichments.map((e) => {
+            const label = String(e.label || e.id || 'desk')
+            const why = e.why ? ` (${String(e.why)})` : ''
+            const body = String(e.summary || e.error || '—')
+            return `· ${label}${why}: ${body}`
+          }),
+        ].join('\n')
+      : ''
   const text = err
     ? err
     : [
         isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
         summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
+        enrichLines,
         report && `\nAI conclusion:\n${report}`,
       ]
         .filter(Boolean)
@@ -100,6 +114,7 @@ function assistantFromData(data: Row, q: string): ChatMsg {
       disclaimer: data?.disclaimer,
       deep_mode: isDeep,
       backtest_period: data?.backtest_period,
+      enrichments: enrichments.map((e) => e.label || e.id).filter(Boolean),
     },
   }
 }
@@ -113,7 +128,7 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Use Run in background for long Deep scans. Conclusions use Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence, plus suitability desks (Elliott, Volume Spread, A/D, Comparative Strength, Oil·Dollar·Bond, Options prediction). Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Use Run in background for long Deep scans. Conclusions use Manage → AI.',
     },
   ])
 
@@ -207,10 +222,11 @@ export function DashboardTradingChatPanel() {
             Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan. Also
             understands open questions: biggest 24h movers, top gainers/losers, gold/silver/commodity
             moves, broken support or resistance. Standard:{' '}
-            <strong className="text-white">BB Mean Reversion</strong> + confluence (or movers/S&R screens).
-            Deep mode: pick strategies → <strong className="text-white">backtest rank</strong> → Strategies
-            catalog how-to → live scan → Manage AI (Deep also enriches mover/break screens with BB SL/TP when
-            possible).
+            <strong className="text-white">BB Mean Reversion</strong> + confluence, then suitability desks
+            as needed (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength,
+            Oil·Dollar·Bond, Options Market Prediction). Deep mode: pick strategies →{' '}
+            <strong className="text-white">backtest rank</strong> → Strategies catalog how-to → live scan →
+            Manage AI (Deep also enriches mover/break screens with BB SL/TP when possible).
           </p>
           <p className="mt-1 text-[11px] text-slate-500">{providerLabel}</p>
         </div>
@@ -448,7 +464,7 @@ export function DashboardTradingChatPanel() {
               message={
                 deepMode
                   ? 'Deep mode: backtesting strategies → Strategies catalog → live scan → Manage AI… (several minutes)'
-                  : 'Scanning BB + confluence for all eligible setups, then asking Manage AI…'
+                  : 'Scanning BB + confluence + suitability desks, then asking Manage AI…'
               }
             />
           </div>

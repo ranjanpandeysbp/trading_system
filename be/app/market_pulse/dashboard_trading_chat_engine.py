@@ -398,9 +398,13 @@ def rank_picks(
     return [compact_pick(r, rank=i + 1) for i, r in enumerate(ordered)]
 
 
-def build_chat_ai_context(intent: dict[str, Any], picks: list[dict[str, Any]]) -> str:
+def build_chat_ai_context(
+    intent: dict[str, Any],
+    picks: list[dict[str, Any]],
+    enrichments: list[dict[str, Any]] | None = None,
+) -> str:
     lines = [
-        "Dashboard Trading Chat — BB Mean Reversion + full confluence suite.",
+        "Dashboard Trading Chat — BB Mean Reversion + confluence, plus suitability enrichments.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         f"Mode: {intent.get('mode')} · Action bias: {intent.get('action_bias')}",
@@ -415,21 +419,307 @@ def build_chat_ai_context(intent: dict[str, Any], picks: list[dict[str, Any]]) -
             f"entry={p.get('entry_price')} stop={p.get('stop_price')} tp={p.get('target_price')} | "
             f"{p.get('reason')}"
         )
+    if enrichments:
+        lines.append("")
+        lines.append("Suitability enrichments (use as context; do not invent levels from them):")
+        for enr in enrichments:
+            label = enr.get("label") or enr.get("id")
+            why = enr.get("why") or ""
+            summary = enr.get("summary") or enr.get("error") or "—"
+            lines.append(f"- {label}" + (f" [{why}]" if why else "") + f": {summary}")
     lines.append("")
     lines.append(
         "Respond with a clear ranking, BUY/SELL/WAIT per name, %confidence, %SL, %TP, "
-        "and a one-line reason. Prefer engine numbers; flag risk if confluence is thin."
+        "and a one-line reason. Prefer BB engine numbers for SL/TP; cite enrichments when they "
+        "confirm or conflict. Flag risk if confluence is thin."
     )
     return "\n".join(lines)
 
 
 TRADING_CHAT_SYSTEM = (
-    "You are the Dashboard Trading Chat desk analyst. You only conclude from the BB Mean "
-    "Reversion + confluence engine numbers provided. For each name give: action (BUY/SELL/WAIT), "
-    "side (LONG/SHORT/WAIT), %confidence, %SL, %TP, and a short reason. Be concise and practical. "
-    "This is research/education only — not financial advice. End with: VERDICT: BUY|SELL|WAIT "
-    "(overall bias for the user's question)."
+    "You are the Dashboard Trading Chat desk analyst. Conclude primarily from BB Mean "
+    "Reversion + confluence engine numbers, and weigh suitability enrichments "
+    "(Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, "
+    "Oil-Dollar-Bond macro, Options Market Prediction) when provided. For each name give: "
+    "action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, %SL, %TP, and a short reason. "
+    "Be concise and practical. This is research/education only — not financial advice. "
+    "End with: VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
 )
+
+# ---------------------------------------------------------------------------
+# Normal mode — suitability enrichments (outside BB extra_checks)
+# ---------------------------------------------------------------------------
+
+NORMAL_ENRICHMENT_LABELS: dict[str, str] = {
+    "elliott_wave": "Elliott Wave",
+    "volume_spread_next_candle": "Volume Spread (next candle)",
+    "advance_decline": "Advance / Decline breadth",
+    "comparative_strength": "Comparative Strength",
+    "oil_dollar_bond": "Oil · Dollar · Bond macro",
+    "options_market_prediction": "Options Market Prediction",
+}
+
+_DEFAULT_AD_INDEX: dict[str, str] = {
+    "india": "NIFTY 50",
+    "us": "Dow 30",
+    "crypto": "Top 30 Crypto",
+    "commodity": "All Commodities",
+}
+
+_ENRICH_KEYWORD_BOOSTS: list[tuple[list[str], str, int]] = [
+    (["elliott", "wave", "impulse", "corrective"], "elliott_wave", 6),
+    (["volume spread", "vsa", "next candle", "no supply", "no demand", "upthrust", "downthrust"], "volume_spread_next_candle", 6),
+    (["breadth", "advance decline", "advance/decline", "a/d line", "market breadth", "advancers", "decliners"], "advance_decline", 6),
+    (["comparative strength", "relative strength", "stronger than", "weaker than", "outperform", "underperform", "rotation", " vs ", "versus"], "comparative_strength", 6),
+    (["oil", "dollar", "dxy", "bond yield", "bonds", "macro", "risk on", "risk-off", "risk off", "gold", "silver", "crude"], "oil_dollar_bond", 5),
+    (["option", "options", "pcr", "open interest", "max pain", "vix", "market prediction", "oi buildup"], "options_market_prediction", 6),
+]
+
+
+def select_normal_enrichments(
+    style: str,
+    asset_class: str,
+    message: str,
+    *,
+    mode: str = "top_picks",
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """Pick complementary desks by style / asset / keywords (max `limit`)."""
+    style_key = style if style in ("scalping", "intraday", "swing", "investing") else "intraday"
+    ac = (asset_class or "india").strip().lower()
+    lower = f" {(message or '').lower()} "
+    scores: dict[str, float] = {}
+    why: dict[str, list[str]] = {}
+
+    def _bump(eid: str, pts: float, reason: str) -> None:
+        scores[eid] = scores.get(eid, 0.0) + pts
+        why.setdefault(eid, []).append(reason)
+
+    # Style defaults
+    if style_key == "scalping":
+        _bump("volume_spread_next_candle", 3.5, "scalping style")
+    elif style_key == "intraday":
+        _bump("volume_spread_next_candle", 3.0, "intraday style")
+        _bump("advance_decline", 1.5, "intraday market breadth")
+        if ac == "india":
+            _bump("options_market_prediction", 2.0, "India intraday options tape")
+    elif style_key == "swing":
+        _bump("elliott_wave", 3.5, "swing style")
+        _bump("advance_decline", 2.0, "swing market breadth")
+        _bump("comparative_strength", 1.5, "swing relative strength")
+    else:  # investing
+        _bump("elliott_wave", 3.0, "investing style")
+        _bump("comparative_strength", 3.0, "investing relative strength")
+        _bump("advance_decline", 2.0, "investing breadth")
+
+    # Asset suitability
+    if ac in ("commodity", "us", "crypto"):
+        _bump("oil_dollar_bond", 2.5 if ac == "commodity" else 1.5, f"{ac} macro tape")
+    if ac == "india" and "options_market_prediction" not in scores:
+        _bump("options_market_prediction", 1.0, "India options desk available")
+
+    if mode == "top_picks":
+        _bump("comparative_strength", 1.0, "top-picks ranking")
+        if ac in ("india", "us", "crypto"):
+            _bump("advance_decline", 0.8, "universe breadth check")
+
+    for keys, eid, pts in _ENRICH_KEYWORD_BOOSTS:
+        if eid == "options_market_prediction" and ac != "india":
+            continue
+        if any(k in lower for k in keys):
+            _bump(eid, float(pts), f"question mentions {keys[0]}")
+
+    # Options Market Prediction is India / NSE only
+    if ac != "india":
+        scores.pop("options_market_prediction", None)
+        why.pop("options_market_prediction", None)
+
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    chosen = [eid for eid, sc in ranked if sc >= 1.5][: max(1, limit)]
+    if not chosen and ranked:
+        chosen = [ranked[0][0]]
+
+    out: list[dict[str, Any]] = []
+    for eid in chosen:
+        out.append({
+            "id": eid,
+            "label": NORMAL_ENRICHMENT_LABELS.get(eid, eid),
+            "score": round(scores.get(eid, 0), 2),
+            "why": "; ".join(why.get(eid, [])[:3]) or "suitability",
+        })
+    return out
+
+
+def default_ad_index(asset_class: str) -> str:
+    return _DEFAULT_AD_INDEX.get((asset_class or "india").lower(), "NIFTY 50")
+
+
+def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Compact one enrichment for AI context + FE."""
+    label = NORMAL_ENRICHMENT_LABELS.get(eid, eid)
+    if not payload or not isinstance(payload, dict):
+        return {"id": eid, "label": label, "summary": "Unavailable", "error": "empty payload", "ticker_signals": []}
+    if payload.get("error"):
+        return {
+            "id": eid,
+            "label": label,
+            "summary": str(payload.get("error"))[:240],
+            "error": str(payload.get("error"))[:240],
+            "ticker_signals": [],
+        }
+
+    ticker_signals: list[dict[str, Any]] = []
+    summary = ""
+
+    if eid in ("elliott_wave", "volume_spread_next_candle"):
+        rows = list(payload.get("results") or payload.get("entries") or [])
+        bits: list[str] = []
+        for r in rows[:8]:
+            if not isinstance(r, dict) or r.get("error"):
+                continue
+            t = r.get("ticker")
+            direction = str(r.get("direction") or "").upper()
+            take = bool(r.get("take_trade"))
+            conf = r.get("confidence_pct")
+            pe = str(r.get("plain_english") or r.get("verdict") or r.get("signal") or "")[:140]
+            if take or direction in ("LONG", "SHORT"):
+                ticker_signals.append({
+                    "ticker": t,
+                    "side": "LONG" if direction == "LONG" else "SHORT" if direction == "SHORT" else "WAIT",
+                    "take_trade": take,
+                    "confidence_pct": conf,
+                    "note": pe,
+                })
+            if t:
+                bits.append(
+                    f"{t} {direction or '—'}"
+                    + (f" {conf}%" if conf is not None else "")
+                    + (" ✓" if take else "")
+                )
+        summary = "; ".join(bits) if bits else (str(payload.get("disclaimer") or "No live setups")[:200])
+
+    elif eid == "advance_decline":
+        pe = payload.get("plain_english") or payload.get("outcome_layman") or payload.get("summary")
+        latest = payload.get("latest") if isinstance(payload.get("latest"), dict) else {}
+        ratio = latest.get("ad_ratio") or latest.get("advance_decline_ratio")
+        summary = str(pe or "")[:280]
+        if ratio is not None and "ratio" not in summary.lower():
+            summary = (summary + f" · A/D ratio {ratio}").strip(" ·")
+
+    elif eid == "comparative_strength":
+        pe = payload.get("summary") or payload.get("plain_english")
+        stronger = [str(x.get("symbol") if isinstance(x, dict) else x) for x in (payload.get("stronger") or [])[:5]]
+        weaker = [str(x.get("symbol") if isinstance(x, dict) else x) for x in (payload.get("weaker") or [])[:5]]
+        ideas = payload.get("trade_ideas") or []
+        for idea in ideas[:6]:
+            if not isinstance(idea, dict):
+                continue
+            action = str(idea.get("action") or idea.get("side") or idea.get("bias") or "WAIT").upper()
+            side = "LONG" if "LONG" in action else "SHORT" if "SHORT" in action else "WAIT"
+            ticker_signals.append({
+                "ticker": idea.get("symbol") or idea.get("ticker"),
+                "side": side,
+                "take_trade": side in ("LONG", "SHORT") and "WATCH" not in action,
+                "confidence_pct": idea.get("confidence_pct"),
+                "note": str(idea.get("reason") or idea.get("summary") or "")[:140],
+            })
+        summary = str(pe or "")[:160]
+        if stronger:
+            summary = (summary + f" · Stronger: {', '.join(stronger)}").strip(" ·")
+        if weaker:
+            summary = (summary + f" · Weaker: {', '.join(weaker)}").strip(" ·")
+
+    elif eid == "oil_dollar_bond":
+        summary = str(payload.get("plain_english") or payload.get("summary") or "")[:300]
+
+    elif eid == "options_market_prediction":
+        synth = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else payload
+        pe = (synth or {}).get("plain_english") or payload.get("plain_english")
+        view = (synth or {}).get("market_view") or payload.get("market_view")
+        stance = (synth or {}).get("risk_stance") or payload.get("risk_stance")
+        score = (synth or {}).get("composite_score") or payload.get("composite_score")
+        outlook = payload.get("outlook") if isinstance(payload.get("outlook"), dict) else {}
+        bits = [str(pe or "")[:200]]
+        if view:
+            bits.append(f"view={view}")
+        if stance:
+            bits.append(f"stance={stance}")
+        if score is not None:
+            bits.append(f"score={score}")
+        if outlook.get("plain_english"):
+            bits.append(str(outlook.get("plain_english"))[:120])
+        trade = payload.get("trade_suggestion")
+        if isinstance(trade, dict) and trade.get("summary"):
+            bits.append(str(trade.get("summary"))[:120])
+        summary = " · ".join(b for b in bits if b)
+
+    else:
+        summary = str(payload.get("plain_english") or payload.get("summary") or "ok")[:240]
+
+    return {
+        "id": eid,
+        "label": label,
+        "summary": summary or "No summary",
+        "ticker_signals": ticker_signals,
+        "error": None,
+    }
+
+
+def apply_enrichments_to_picks(
+    picks: list[dict[str, Any]],
+    enrichments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """When a ticker-level enrichment agrees with pick side, nudge confidence + note."""
+    if not picks or not enrichments:
+        return picks
+
+    agree_boost = 4.0
+    by_t: dict[str, list[dict[str, Any]]] = {}
+    for enr in enrichments:
+        label = str(enr.get("label") or enr.get("id") or "enrichment")
+        for sig in enr.get("ticker_signals") or []:
+            if not isinstance(sig, dict):
+                continue
+            t = str(sig.get("ticker") or "").strip().upper()
+            if not t:
+                continue
+            by_t.setdefault(t, []).append({**sig, "_label": label})
+
+    out: list[dict[str, Any]] = []
+    for p in picks:
+        row = dict(p)
+        t = str(row.get("ticker") or "").strip().upper()
+        side = str(row.get("side") or "").upper()
+        reasons = list(row.get("reasons") or [])
+        conf = row.get("confidence_pct")
+        try:
+            conf_f = float(conf) if conf is not None else None
+        except (TypeError, ValueError):
+            conf_f = None
+
+        for sig in by_t.get(t, []):
+            sig_side = str(sig.get("side") or "").upper()
+            note = str(sig.get("note") or "")[:120]
+            label = sig.get("_label")
+            if sig_side in ("LONG", "SHORT") and side in ("LONG", "SHORT"):
+                if sig_side == side and sig.get("take_trade"):
+                    if conf_f is not None:
+                        conf_f = min(96.0, conf_f + agree_boost)
+                    reasons.append(f"{label} agrees ({sig_side})" + (f": {note}" if note else ""))
+                elif sig_side != side and sig.get("take_trade"):
+                    reasons.append(f"{label} conflicts ({sig_side})" + (f": {note}" if note else ""))
+                    if conf_f is not None:
+                        conf_f = max(20.0, conf_f - 3.0)
+            elif note:
+                reasons.append(f"{label}: {note}")
+
+        if conf_f is not None:
+            row["confidence_pct"] = round(conf_f, 1)
+        if reasons:
+            row["reasons"] = reasons[:8]
+            row["reason"] = reasons[0]
+        out.append(row)
+    return out
 
 # ---------------------------------------------------------------------------
 # Deep mode — multi-strategy backtest → Strategies catalog → live analysis
