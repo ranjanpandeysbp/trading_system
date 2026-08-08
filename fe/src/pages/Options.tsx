@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchTickerSuggestions,
@@ -28,6 +27,7 @@ import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
+import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
 
 const SECTIONS = [
   { id: 'double_calendar', label: '📅 Double Calendar' },
@@ -220,23 +220,6 @@ does not track your own open position, so use the reasons/exit rule shown as you
 checklist for the 1:1 partial-book and re-entry rules above.
 
 Research / education only — not financial advice.`
-
-function CollapsibleSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800/30"
-      >
-        {open ? <ChevronDown size={14} className="shrink-0 text-slate-500" /> : <ChevronRight size={14} className="shrink-0 text-slate-500" />}
-        {title}
-      </button>
-      {open && <div className="border-t border-slate-800/60 px-3 py-3">{children}</div>}
-    </div>
-  )
-}
 
 export default function Options() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -500,7 +483,7 @@ export default function Options() {
             theta-positive, range-bound income spread. Low-IV entry gate, 20-40% take-profit, 30% mental stop.
           </p>
 
-          <CollapsibleSection title="📖 How the Double Calendar works">
+          <CollapsibleSection title="📖 How the Double Calendar works" copyText={STRATEGY_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{STRATEGY_EXPLANATION}</p>
           </CollapsibleSection>
 
@@ -629,7 +612,7 @@ export default function Options() {
             of max credit.
           </p>
 
-          <CollapsibleSection title="📖 How Delta-Neutral (Iron Condor / Iron Fly) works">
+          <CollapsibleSection title="📖 How Delta-Neutral (Iron Condor / Iron Fly) works" copyText={DELTA_NEUTRAL_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{DELTA_NEUTRAL_EXPLANATION}</p>
           </CollapsibleSection>
 
@@ -750,7 +733,7 @@ export default function Options() {
             beyond a zone. Hard stop at 2-3% of total capital, take profit ~1-1.5%.
           </p>
 
-          <CollapsibleSection title="📖 How the Hedging strategy works">
+          <CollapsibleSection title="📖 How the Hedging strategy works" copyText={HEDGING_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{HEDGING_EXPLANATION}</p>
           </CollapsibleSection>
 
@@ -878,7 +861,7 @@ export default function Options() {
             (delta 0.60–0.75) after 09:45 IST. Flat by 15:15. No BTST.
           </p>
 
-          <CollapsibleSection title="📖 How Gokul Chhabra option buying works">
+          <CollapsibleSection title="📖 How Gokul Chhabra option buying works" copyText={GOKUL_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{GOKUL_EXPLANATION}</p>
           </CollapsibleSection>
 
@@ -967,7 +950,7 @@ export default function Options() {
             1:1, let the rest ride uncapped to 15:15 IST.
           </p>
 
-          <CollapsibleSection title="📖 How Zero to Hero works">
+          <CollapsibleSection title="📖 How Zero to Hero works" copyText={ZERO_TO_HERO_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{ZERO_TO_HERO_EXPLANATION}</p>
           </CollapsibleSection>
 
@@ -1064,7 +1047,7 @@ export default function Options() {
             FII/DII flow into one divergence read.
           </p>
 
-          <CollapsibleSection title="📖 How Market Prediction works">
+          <CollapsibleSection title="📖 How Market Prediction works" copyText={MARKET_PREDICTION_EXPLANATION}>
             <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{MARKET_PREDICTION_EXPLANATION}</p>
           </CollapsibleSection>
 

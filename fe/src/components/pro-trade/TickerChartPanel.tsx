@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  Bar,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,6 +20,8 @@ import { FormField, Select } from '../ui/Form'
 import { PageHeader } from '../ui/PageHeader'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { TickerAutosuggest } from '../ui/TickerAutosuggest'
+import { CopyAllButton } from '../ui/CopyAllButton'
+import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
 type Row = Record<string, unknown>
@@ -71,10 +74,12 @@ function PriceChart({
   points,
   supportResistance,
   title,
+  volumeSrSummary,
 }: {
   points: Row[]
   supportResistance?: SupportResistance | null
   title: string
+  volumeSrSummary?: VolumeSrSummary | null
 }) {
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -94,6 +99,11 @@ function PriceChart({
     if (supportResistance?.r2 != null) fallback.push({ label: 'R2', kind: 'resistance', price: Number(supportResistance.r2) })
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
+
+  const hasVolume = useMemo(
+    () => points.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
+    [points],
+  )
 
   const yDomain = useMemo((): [number | string, number | string] => {
     if (!points.length) return ['auto', 'auto']
@@ -121,23 +131,44 @@ function PriceChart({
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className="text-[10px] text-slate-500">green = support · red = resistance</span>
+        <span className="text-[10px] text-slate-500">green = support · red = resistance · grey = volume</span>
       </div>
-      <div className="h-80 w-full">
+      <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+          <ComposedChart data={points} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={32} />
             <YAxis
+              yAxisId="price"
               domain={yDomain}
               tick={{ fill: '#94a3b8', fontSize: 10 }}
               width={56}
               tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
             />
+            {hasVolume && (
+              <YAxis
+                yAxisId="vol"
+                orientation="right"
+                tick={{ fill: '#64748b', fontSize: 9 }}
+                width={44}
+                tickFormatter={(v) => {
+                  const n = Number(v)
+                  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
+                  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`
+                  return String(Math.round(n))
+                }}
+              />
+            )}
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number) => [Number(value).toFixed(3), 'Close']}
+              formatter={(value: number, name: string) => {
+                if (name === 'volume') {
+                  return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
+                }
+                return [Number(value).toFixed(3), 'Close']
+              }}
             />
             {levels.map((lv) => {
               const isSupport = lv.kind === 'support'
@@ -145,6 +176,7 @@ function PriceChart({
               return (
                 <ReferenceLine
                   key={`${lv.label}-${lv.price}`}
+                  yAxisId="price"
                   y={lv.price}
                   stroke={stroke}
                   strokeWidth={1.5}
@@ -159,8 +191,9 @@ function PriceChart({
                 />
               )
             })}
-            <Line type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={false} />
-          </LineChart>
+            {hasVolume && <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />}
+            <Line yAxisId="price" type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={false} name="price" />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
       {levels.length > 0 && (
@@ -175,6 +208,7 @@ function PriceChart({
           ))}
         </div>
       )}
+      <VolumeSrSummaryCard data={volumeSrSummary} />
     </div>
   )
 }
@@ -223,6 +257,7 @@ export function TickerChartPage() {
   const data = runMut.data as Row | undefined
   const points = (data?.points as Row[] | undefined) ?? []
   const sr = (data?.support_resistance as SupportResistance | null | undefined) ?? null
+  const volSr = (data?.volume_sr_summary as VolumeSrSummary | null | undefined) ?? null
   const howTo = (data?.how_to_read as string[] | undefined) ?? []
   const askContext = data ? buildAskContext('Ticker Chart', data) : ''
 
@@ -370,18 +405,24 @@ export function TickerChartPage() {
             <p className="mb-3 text-xs leading-relaxed text-slate-400">{String(data.plain_english)}</p>
           )}
           {howTo.length > 0 && (
-            <ul className="mb-3 space-y-0.5 border-b border-slate-800/60 pb-3">
-              {howTo.map((line) => (
-                <li key={line} className="text-xs text-slate-500">
-                  · {line}
-                </li>
-              ))}
-            </ul>
+            <div className="mb-3 border-b border-slate-800/60 pb-3">
+              <div className="mb-1 flex justify-end">
+                <CopyAllButton text={howTo.map((line) => `· ${line}`).join('\n')} />
+              </div>
+              <ul className="space-y-0.5">
+                {howTo.map((line) => (
+                  <li key={line} className="text-xs text-slate-500">
+                    · {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <PriceChart
             points={points}
             supportResistance={sr}
             title={`${String(data.ticker ?? ticker)} · ${mode === 'intraday' ? interval : '1d'}`}
+            volumeSrSummary={volSr}
           />
         </Card>
       )}

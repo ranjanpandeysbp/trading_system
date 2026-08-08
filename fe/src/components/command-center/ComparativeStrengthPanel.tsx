@@ -34,8 +34,40 @@ import { Chip } from '../ui/Chip'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
+import { HowToBox } from '../ui/CopyAllButton'
 
 type Row = Record<string, unknown>
+
+const CS_HOW_TO = `Comparative Strength — How to
+
+How to run
+1. Select asset class (India / US / Crypto / Commodity).
+2. Pick a base from presets or type a symbol (NIFTY 50, SPY, BTC…).
+3. Add one or more compare tickers in the picker.
+4. Choose timeframe (1m→1w) and lookback bars (how many bars of relative return).
+5. Click Run comparative strength (or queue in background).
+6. Click a peer row to see the cumulative return chart vs the base; use AI View for the best relative long/short.
+
+What “compare ticker” means
+- Base = the benchmark (e.g. NIFTY 50).
+- Compare ticker = each stock you picked to rank against the base (e.g. TECHM).
+- LONG TECHM vs NIFTY 50 means TECHM beat the base on a relative basis — prefer buying/holding TECHM, not longing the index itself.
+
+How to read the table
+- STRONGER — compare ticker beat the base (positive RS %). Lean LONG that ticker.
+- WEAKER — compare ticker lagged the base. Lean SHORT that ticker (or overweight the base).
+- INLINE — roughly matched the base; no strong relative edge.
+- %SL / %TP — ATR-based educational stop and target on the compare ticker (~2:1 R:R).
+- Confidence % — higher when RS is large, horizons agree, CRS / EMA / volume support the lean.
+
+Playbook tips
+- Prefer LONG leaders only when Advance Decline shows a healthy tape on the base universe.
+- Prefer SHORT laggards when breadth is weak (A/D < 1, downtrend) and the peer is even weaker.
+- Use daily/weekly for swing pairs; 15m–1h for intraday relative scalps.
+- Educational lean only — not a broker order ticket.
+
+Pair with
+Advance Decline · Weak / Strong · Detect Sector Rotation · Take Trade / One-Click for timing.`
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'] as const
 const LOOKBACKS = [5, 10, 20, 40, 60] as const
@@ -190,7 +222,7 @@ export function ComparativeStrengthPanel() {
         </div>
 
         {showHow && (
-          <div className="mb-4 space-y-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+          <HowToBox copyText={CS_HOW_TO} className="space-y-3">
             <div>
               <p className="mb-1.5 font-medium text-slate-200">How to run</p>
               <ol className="list-decimal space-y-1 pl-4">
@@ -244,7 +276,7 @@ export function ComparativeStrengthPanel() {
                 <span className="text-slate-300">Take Trade / One-Click</span> for timing.
               </p>
             </div>
-          </div>
+          </HowToBox>
         )}
 
         <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">

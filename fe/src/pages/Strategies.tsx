@@ -23,6 +23,7 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { Loading } from '../components/ui/Feedback'
+import { CopyAllButton } from '../components/ui/CopyAllButton'
 
 const CATEGORY_STYLES: Record<string, { icon: typeof Zap; accent: string; chip: string }> = {
   scalping: { icon: Zap, accent: 'text-amber-400', chip: 'bg-amber-500/15 text-amber-300' },
@@ -83,6 +84,21 @@ const RESEARCH_LINKS = [
 
 function StrategyDetail({ strategy, onClose }: { strategy: StrategyInfo; onClose: () => void }) {
   const style = CATEGORY_STYLES[strategy.category] ?? CATEGORY_STYLES.intraday
+  const copyAll = [
+    `${strategy.name} (${strategy.category_label})`,
+    strategy.summary,
+    '',
+    strategy.description,
+    '',
+    `Timeframes: ${strategy.timeframes.join(', ')}`,
+    strategy.needs_benchmark ? 'Requires benchmark index' : '',
+    `Min bars: ${strategy.min_bars}`,
+    strategy.indicators.length ? `\nIndicators:\n- ${strategy.indicators.join('\n- ')}` : '',
+    strategy.entry_rules.length ? `\nEntry rules:\n- ${strategy.entry_rules.join('\n- ')}` : '',
+    strategy.exit_rules.length ? `\nExit rules:\n- ${strategy.exit_rules.join('\n- ')}` : '',
+  ]
+    .filter((line) => line !== '')
+    .join('\n')
 
   return (
     <Card className="lg:sticky lg:top-6">
@@ -101,14 +117,17 @@ function StrategyDetail({ strategy, onClose }: { strategy: StrategyInfo; onClose
             <span className="text-slate-600">US / fallback</span>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-800 hover:text-white lg:hidden"
-          aria-label="Close details"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex shrink-0 items-start gap-1">
+          <CopyAllButton text={copyAll} size="md" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-800 hover:text-white lg:hidden"
+            aria-label="Close details"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       <p className="text-sm leading-relaxed text-slate-300">{strategy.description}</p>

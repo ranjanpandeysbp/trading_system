@@ -12,6 +12,7 @@ import { Card } from '../components/ui/Card'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Select } from '../components/ui/Form'
 import { Loading } from '../components/ui/Feedback'
+import { CopyAllButton, CopyableDetails } from '../components/ui/CopyAllButton'
 
 const TABS = [
   { id: 'leaderboard', label: 'Strategy Leaderboard', icon: Trophy },
@@ -138,34 +139,49 @@ function PresetsPanel({ data }: { data: Record<string, unknown> }) {
       }
     | undefined
 
+  const encyclopediaCopyAll = (() => {
+    if (!encyclopedia) return ''
+    const parts: string[] = []
+    if (encyclopedia.overview) parts.push(`# App overview\n\n${encyclopedia.overview}`)
+    if (encyclopedia.workflows) parts.push(`# Workflows\n\n${encyclopedia.workflows}`)
+    if (encyclopedia.when_to_use) parts.push(`# When to use what\n\n${encyclopedia.when_to_use}`)
+    for (const hub of encyclopedia.hubs ?? []) {
+      parts.push(`# ${hub.hub}`)
+      for (const section of hub.sections) {
+        const body = [section.guide, section.extra].filter(Boolean).join('\n\n')
+        parts.push(`## ${section.title}\n(${section.id})\n\n${body || 'No guide available yet.'}`)
+      }
+    }
+    if (encyclopedia.strategy_lab_detail) {
+      parts.push(`# Strategy Lab & tools detail\n\n${encyclopedia.strategy_lab_detail}`)
+    }
+    return parts.join('\n\n---\n\n')
+  })()
+
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-400">
-        {encyclopedia?.section_count ?? 0} hub sections across {encyclopedia?.hub_count ?? 0} hubs
-        {' · '}
-        {Object.keys(presets).length} builder presets for {String(data.market)} ({String(data.asset_class ?? '')})
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-400">
+          {encyclopedia?.section_count ?? 0} hub sections across {encyclopedia?.hub_count ?? 0} hubs
+          {' · '}
+          {Object.keys(presets).length} builder presets for {String(data.market)} ({String(data.asset_class ?? '')})
+        </p>
+        {encyclopediaCopyAll.trim() ? (
+          <CopyAllButton text={encyclopediaCopyAll} label="Copy all encyclopedia" size="md" />
+        ) : null}
+      </div>
 
       {encyclopedia?.hubs?.length ? (
         <div className="space-y-4">
           <h4 className="font-medium text-white">All hubs & strategies</h4>
           {encyclopedia.overview && (
-            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
-              <summary className="cursor-pointer text-sm font-medium text-slate-200">App overview</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.overview}</pre>
-            </details>
+            <CopyableDetails summary="App overview" text={encyclopedia.overview} />
           )}
           {encyclopedia.workflows && (
-            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
-              <summary className="cursor-pointer text-sm font-medium text-slate-200">Workflows</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.workflows}</pre>
-            </details>
+            <CopyableDetails summary="Workflows" text={encyclopedia.workflows} />
           )}
           {encyclopedia.when_to_use && (
-            <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
-              <summary className="cursor-pointer text-sm font-medium text-slate-200">When to use what</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">{encyclopedia.when_to_use}</pre>
-            </details>
+            <CopyableDetails summary="When to use what" text={encyclopedia.when_to_use} />
           )}
           {encyclopedia.hubs.map((hub) => (
             <div key={hub.hub}>
@@ -174,29 +190,30 @@ function PresetsPanel({ data }: { data: Record<string, unknown> }) {
                 <span className="font-normal text-slate-500">({hub.count})</span>
               </h5>
               <div className="space-y-2">
-                {hub.sections.map((section) => (
-                  <details
-                    key={section.id}
-                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2"
-                  >
-                    <summary className="cursor-pointer text-sm font-medium text-slate-200">
-                      {section.title}
-                    </summary>
-                    <p className="mt-1 text-[11px] text-slate-600">{section.id}</p>
-                    {section.guide ? (
-                      <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">
-                        {section.guide}
-                      </pre>
-                    ) : (
-                      <p className="mt-2 text-xs text-slate-500">No guide available yet.</p>
-                    )}
-                    {section.extra && (
-                      <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-500">
-                        {section.extra}
-                      </pre>
-                    )}
-                  </details>
-                ))}
+                {hub.sections.map((section) => {
+                  const text = [section.guide, section.extra].filter(Boolean).join('\n\n')
+                  return (
+                    <CopyableDetails
+                      key={section.id}
+                      summary={section.title}
+                      text={text || `No guide available yet.\n(${section.id})`}
+                    >
+                      <p className="mt-1 text-[11px] text-slate-600">{section.id}</p>
+                      {section.guide ? (
+                        <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">
+                          {section.guide}
+                        </pre>
+                      ) : (
+                        <p className="mt-2 text-xs text-slate-500">No guide available yet.</p>
+                      )}
+                      {section.extra && (
+                        <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-500">
+                          {section.extra}
+                        </pre>
+                      )}
+                    </CopyableDetails>
+                  )
+                })}
               </div>
             </div>
           ))}
@@ -204,34 +221,59 @@ function PresetsPanel({ data }: { data: Record<string, unknown> }) {
       ) : null}
 
       {encyclopedia?.strategy_lab_detail && (
-        <details className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-medium text-slate-200">Strategy Lab & tools detail</summary>
-          <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-400">
-            {encyclopedia.strategy_lab_detail}
-          </pre>
-        </details>
+        <CopyableDetails summary="Strategy Lab & tools detail" text={encyclopedia.strategy_lab_detail} />
       )}
 
-      {Object.entries(categories).map(([cat, names]) => (
-        <div key={cat}>
-          <h4 className="mb-2 font-medium capitalize text-white">
-            Builder presets — {cat.replace(/_/g, ' ')}
-          </h4>
-          <ul className="space-y-2">
-            {names.map((name) => (
-              <li key={name} className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 text-sm">
-                <span className="font-medium text-slate-200">{name}</span>
-                {presets[name]?.description && (
-                  <p className="mt-1 text-slate-500">{presets[name].description}</p>
-                )}
-                {presets[name]?.recommended_timeframe && (
-                  <p className="text-xs text-slate-600">TF: {presets[name].recommended_timeframe}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      {Object.entries(categories).map(([cat, names]) => {
+        const catCopy = names
+          .map((name) => {
+            const p = presets[name]
+            return [
+              name,
+              p?.description ? p.description : '',
+              p?.recommended_timeframe ? `TF: ${p.recommended_timeframe}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n')
+          })
+          .join('\n\n')
+        return (
+          <div key={cat}>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-medium capitalize text-white">
+                Builder presets — {cat.replace(/_/g, ' ')}
+              </h4>
+              <CopyAllButton text={catCopy} />
+            </div>
+            <ul className="space-y-2">
+              {names.map((name) => (
+                <li key={name} className="rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium text-slate-200">{name}</span>
+                    <CopyAllButton
+                      text={[
+                        name,
+                        presets[name]?.description ?? '',
+                        presets[name]?.recommended_timeframe
+                          ? `TF: ${presets[name]?.recommended_timeframe}`
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join('\n')}
+                    />
+                  </div>
+                  {presets[name]?.description && (
+                    <p className="mt-1 text-slate-500">{presets[name].description}</p>
+                  )}
+                  {presets[name]?.recommended_timeframe && (
+                    <p className="text-xs text-slate-600">TF: {presets[name].recommended_timeframe}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -24,6 +24,17 @@ import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { FormField, Input } from '../ui/Form'
 import { DataTable, Td, Th } from '../ui/Table'
+import { HowToBox } from '../ui/CopyAllButton'
+
+const MF_HOW_TO = `Mutual Fund Holdings — How this works
+
+1. Load All AMCs — Indian mutual fund houses with AUM and scheme counts (StockEdge).
+2. Pick AMC(s) → Get MF funds — equity schemes (NAV, trailing return, AUM) in a selectable table per AMC.
+3. Select funds + date range → Analyze — fetches domestic equity holdings (% of portfolio) at each month-end in the range (disclosures are monthly), then tracks each stock's holding % from first to last snapshot.
+
+Output: Stock-wise and Sector-wise tabs — trend tables and charts across selected funds.
+
+Research / education only — not financial advice.`
 
 interface MfSavedReportSummary {
   id: number
@@ -389,7 +400,7 @@ export function MutualFundHoldingsPanel() {
           {showHow ? 'Hide' : 'How this works'}
         </button>
         {showHow && (
-          <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-xs text-slate-400">
+          <HowToBox copyText={MF_HOW_TO} className="mt-2 mb-0">
             <p>
               <strong className="text-slate-300">1. Load All AMCs</strong> — Indian mutual fund houses
               with AUM and scheme counts (StockEdge).
@@ -407,7 +418,7 @@ export function MutualFundHoldingsPanel() {
               Output: Stock-wise and Sector-wise tabs — trend tables and charts across selected funds.
             </p>
             <p className="text-amber-400/90">Research / education only — not financial advice.</p>
-          </div>
+          </HowToBox>
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">

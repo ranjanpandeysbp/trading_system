@@ -26,8 +26,37 @@ import { Chip } from '../ui/Chip'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
+import { HowToBox } from '../ui/CopyAllButton'
 
 type Row = Record<string, unknown>
+
+const AD_HOW_TO = `Advance Decline — How to
+
+How to run
+1. Pick asset class: India, US, Crypto, or Commodity.
+2. Choose an index / universe (e.g. NIFTY 50, Dow 30, Top 30 Crypto, All Commodities / Energy complex).
+3. Set From / To for the daily breadth chart.
+4. Leave timeframe on Daily, or pick an intraday TF + session date (optional as-of time).
+5. Click Plot Advance / Decline. Wait for constituent candles + (India F&O) options snapshot.
+6. Optional: open AI View for a healthy-vs-hollow verdict.
+
+How to read the chart
+- A/D ratio > 1 — more stocks rose than fell (green bars). Below 1 = decline-led (red).
+- Volume ratio > 1 — more names got busier; below 1 = quiet / thin participation.
+- UPTREND + rising strength — breadth improving and decisive.
+- RSI — internals hot (>60) or washed out (<40). Mid ~50 is neutral.
+- Dashed line at 1.0 = even for A/D and volume ratios; RSI mid = 50.
+
+Healthy vs hollow
+- Healthy advance — A/D > 1 and volume ratio > 1 and uptrend (optionally PCR > 1 on India F&O).
+- Hollow rally — A/D > 1 but volume ratio < 1 (price up without participation).
+- Confirmed selloff — A/D < 1 with volume expanding and downtrend.
+
+Options block (India F&O only)
+On Nifty / Bank Nifty / Fin Nifty / Midcap / Next 50 the panel adds PCR (OI & Vol), Call/Put OI, max pain, and OI support/resistance. PCR > 1 with A/D > 1 often confirms a healthier bullish tape; PCR < 0.8 with rising A/D can mean a short-covering / hollow rally. US, Crypto, and Commodity show breadth only.
+
+Pair with
+Comparative Strength (who leads the base) · Option Chain (full PCR deep dive) · Market Heatmap (visual constituents).`
 type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
 
 const INTRADAY_TFS = ['5m', '10m', '15m', '30m', '1h'] as const
@@ -395,7 +424,7 @@ export function AdvanceDeclineGraphPanel() {
         </div>
 
         {showHow && (
-          <div className="mb-4 space-y-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+          <HowToBox copyText={AD_HOW_TO} className="space-y-3">
             <div>
               <p className="mb-1.5 font-medium text-slate-200">How to run</p>
               <ol className="list-decimal space-y-1 pl-4">
@@ -441,7 +470,7 @@ export function AdvanceDeclineGraphPanel() {
                 <span className="text-slate-300">Market Heatmap</span> (visual constituents).
               </p>
             </div>
-          </div>
+          </HowToBox>
         )}
 
         <div className="mb-4 flex flex-wrap gap-2">

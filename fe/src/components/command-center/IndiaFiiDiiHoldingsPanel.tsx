@@ -33,6 +33,16 @@ import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { FormField, Input } from '../ui/Form'
 import { DataTable, Td, Th } from '../ui/Table'
+import { HowToBox } from '../ui/CopyAllButton'
+
+const FII_DII_HOW_TO = `India FII-DII Holdings — How to read
+
+Trade bias from ownership:
+- YES — FII/DII accumulating + supportive fundamentals → long bias
+- NO — institutions reducing / rich valuation → avoid or short bias
+- WAIT — mixed ownership or valuation not aligned
+
+Daily cash-market FII/DII flows (net ₹ Cr) live under Market Pulse → News Scanner, not this tab.`
 
 type Row = Record<string, unknown>
 
@@ -401,7 +411,7 @@ export function IndiaFiiDiiHoldingsPanel() {
           </button>
         </div>
         {showHow && (
-          <div className="mb-4 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+          <HowToBox copyText={FII_DII_HOW_TO}>
             <p className="mb-2 text-slate-300">Trade bias from ownership:</p>
             <ul className="list-disc space-y-1 pl-4">
               <li><span className="text-emerald-400">YES</span> — FII/DII accumulating + supportive fundamentals → long bias</li>
@@ -409,7 +419,7 @@ export function IndiaFiiDiiHoldingsPanel() {
               <li><span className="text-amber-400">WAIT</span> — mixed ownership or valuation not aligned</li>
             </ul>
             <p className="mt-2">Daily cash-market FII/DII flows (net ₹ Cr) live under Market Pulse → News Scanner, not this tab.</p>
-          </div>
+          </HowToBox>
         )}
 
         <AssetClassTickerPicker

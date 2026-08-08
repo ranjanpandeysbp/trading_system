@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  Bar,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -27,9 +29,33 @@ import { Chip } from '../ui/Chip'
 import { FormField, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
+import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
+import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
 
 type Row = Record<string, unknown>
 type ChartMode = 'daily' | 'intraday'
+
+const OIL_DOLLAR_HOW_TO = `Oil · Dollar · Bond — How to
+
+How to run
+1. Choose Daily (date range) or Intraday (one session).
+2. For intraday, pick session date + bar size (1m–1h). Yahoo only keeps a limited window of intraday history.
+3. Click Load charts.
+
+Symbols
+- DXY → DX-Y.NYB
+- Brent → BZ=F
+- US 2Y → ^UST2Y / 2YY=F / ZT=F
+- US 10Y → ^TNX
+- Gold → GC=F
+- Silver → SI=F
+- Nifty 50 → ^NSEI
+- Dow 30 → ^DJI
+- Nasdaq → ^IXIC
+- Bitcoin → BTC-USD
+- Ethereum → ETH-USD
+
+Each panel shows S1/S2 support (green), R1/R2 resistance (red), volume bars, and a break-probability summary from volume + S/R proximity.`
 
 const INTRADAY_INTERVALS = [
   { value: '1m', label: '1m' },
@@ -67,6 +93,7 @@ function SeriesChart({
   color,
   unit,
   supportResistance,
+  volumeSrSummary,
 }: {
   title: string
   subtitle?: string
@@ -74,6 +101,7 @@ function SeriesChart({
   color: string
   unit?: string
   supportResistance?: SupportResistance | null
+  volumeSrSummary?: VolumeSrSummary | null
 }) {
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -93,6 +121,11 @@ function SeriesChart({
     if (supportResistance?.r2 != null) fallback.push({ label: 'R2', kind: 'resistance', price: Number(supportResistance.r2) })
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
+
+  const hasVolume = useMemo(
+    () => points.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
+    [points],
+  )
 
   const yDomain = useMemo((): [number | string, number | string] => {
     if (!points.length) return ['auto', 'auto']
@@ -125,21 +158,42 @@ function SeriesChart({
         </div>
         {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
       </div>
-      <div className="h-52 w-full">
+      <div className={`${hasVolume ? 'h-60' : 'h-52'} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+          <ComposedChart data={points} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={28} />
             <YAxis
+              yAxisId="price"
               domain={yDomain}
               tick={{ fill: '#94a3b8', fontSize: 9 }}
               width={52}
               tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
             />
+            {hasVolume && (
+              <YAxis
+                yAxisId="vol"
+                orientation="right"
+                tick={{ fill: '#64748b', fontSize: 8 }}
+                width={40}
+                tickFormatter={(v) => {
+                  const n = Number(v)
+                  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
+                  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`
+                  return String(Math.round(n))
+                }}
+              />
+            )}
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number) => [Number(value).toFixed(3), title]}
+              formatter={(value: number, name: string) => {
+                if (name === 'volume') {
+                  return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
+                }
+                return [Number(value).toFixed(3), title]
+              }}
             />
             {levels.map((lv) => {
               const isSupport = lv.kind === 'support'
@@ -147,6 +201,7 @@ function SeriesChart({
               return (
                 <ReferenceLine
                   key={`${lv.label}-${lv.price}`}
+                  yAxisId="price"
                   y={lv.price}
                   stroke={stroke}
                   strokeWidth={1.5}
@@ -161,8 +216,19 @@ function SeriesChart({
                 />
               )
             })}
-            <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
-          </LineChart>
+            {hasVolume && (
+              <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />
+            )}
+            <Line
+              yAxisId="price"
+              type="monotone"
+              dataKey="value"
+              stroke={color}
+              strokeWidth={2}
+              dot={false}
+              name="price"
+            />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
       {levels.length > 0 && (
@@ -175,9 +241,11 @@ function SeriesChart({
               {lv.label} {fmtNum(lv.price, lv.price >= 100 ? 1 : 3)}
             </span>
           ))}
+          {hasVolume && <span className="text-slate-600">· grey bars = volume</span>}
           <span className="text-slate-600">· green = support · red = resistance</span>
         </div>
       )}
+      <VolumeSrSummaryCard data={volumeSrSummary} />
     </div>
   )
 }
@@ -308,7 +376,7 @@ export function OilDollarBondPanel() {
         </div>
 
         {showHow && (
-          <div className="mb-4 space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-relaxed text-slate-400">
+          <HowToBox copyText={OIL_DOLLAR_HOW_TO}>
             <p className="font-medium text-slate-200">How to run</p>
             <ol className="list-decimal space-y-1 pl-4">
               <li>Choose <span className="text-slate-300">Daily</span> (date range) or <span className="text-slate-300">Intraday</span> (one session).</li>
@@ -329,7 +397,7 @@ export function OilDollarBondPanel() {
               <li>Bitcoin → <span className="text-slate-300">BTC-USD</span></li>
               <li>Ethereum → <span className="text-slate-300">ETH-USD</span></li>
             </ul>
-          </div>
+          </HowToBox>
         )}
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -458,11 +526,16 @@ export function OilDollarBondPanel() {
                     {String(data.plain_english ?? data.summary ?? '')}
                   </p>
                   {howTo.length > 0 && (
-                    <ul className="mt-2 space-y-0.5 border-t border-slate-800/60 pt-2">
-                      {howTo.map((line) => (
-                        <li key={line} className="text-xs text-slate-500">· {line}</li>
-                      ))}
-                    </ul>
+                    <div className="mt-2 border-t border-slate-800/60 pt-2">
+                      <div className="mb-1 flex justify-end">
+                        <CopyAllButton text={howTo.map((line) => `· ${line}`).join('\n')} />
+                      </div>
+                      <ul className="space-y-0.5">
+                        {howTo.map((line) => (
+                          <li key={line} className="text-xs text-slate-500">· {line}</li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </div>
 
@@ -494,6 +567,7 @@ export function OilDollarBondPanel() {
                       color={String(s.color ?? '#94a3b8')}
                       unit={String(s.unit ?? '')}
                       supportResistance={(s.support_resistance as SupportResistance | null | undefined) ?? null}
+                      volumeSrSummary={(s.volume_sr_summary as VolumeSrSummary | null | undefined) ?? null}
                     />
                   ))}
                 </div>

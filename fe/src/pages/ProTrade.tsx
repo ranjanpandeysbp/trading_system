@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
+import { ExternalLink, Trash2 } from 'lucide-react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   apiErrorMessage,
@@ -50,6 +50,7 @@ import { Button } from '../components/ui/Button'
 import { Chip } from '../components/ui/Chip'
 import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
+import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
 
 const YOUTUBE = 'https://youtu.be/67u8mdQ8f08'
 const CE_TFS = ['5m', '15m', '30m', '1h', '4h', '1d', '1wk'] as const
@@ -82,39 +83,6 @@ const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
 ]
 
 const DEFAULT_PICKER: TickerPickerValue = { tickers: [], durations: ['15m'] }
-
-function CollapsibleSection({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: string
-  defaultOpen?: boolean
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800/30"
-      >
-        {open ? (
-          <ChevronDown size={14} className="shrink-0 text-slate-500" />
-        ) : (
-          <ChevronRight size={14} className="shrink-0 text-slate-500" />
-        )}
-        {title}
-      </button>
-      {open && (
-        <div className="border-t border-slate-800/60 px-3 py-3 text-sm leading-relaxed text-slate-300 whitespace-pre-wrap">
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
 
 const OVERVIEW = `How Professional Traders Make Crores Using Volume Profiles — Abhishek Kar masterclass
 ${YOUTUBE}

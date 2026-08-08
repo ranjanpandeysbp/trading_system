@@ -192,12 +192,22 @@ def _download_ohlc(
         return pd.DataFrame()
     high = _col("High")
     low = _col("Low")
+    open_ = _col("Open")
+    vol = _col("Volume")
     if high is None:
         high = close
     if low is None:
         low = close
+    if open_ is None:
+        open_ = close
 
-    out = pd.DataFrame({"high": high, "low": low, "close": close}).dropna(subset=["close"])
+    out = pd.DataFrame({
+        "open": open_,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": vol if vol is not None else 0.0,
+    }).dropna(subset=["close"])
     if out.empty:
         return pd.DataFrame()
     out.index = _strip_tz(pd.to_datetime(out.index))
@@ -462,7 +472,9 @@ def compute_oil_dollar_bond(
             clipped = ohlc
 
         close = clipped["close"]
-        points = _series_to_points(close, intraday=intraday)
+        from app.market_pulse.sr_volume_summary import build_sr_volume_summary, ohlc_to_chart_points
+
+        points = ohlc_to_chart_points(clipped, intraday=intraday)
         if len(points) < 2:
             errors[str(spec["id"])] = f"Insufficient {iv} bars for {spec['label']} on this session."
             series_out.append({
@@ -477,6 +489,7 @@ def compute_oil_dollar_bond(
                 "last": round(float(close.iloc[-1]), 4) if len(close) else None,
                 "change_pct": None,
                 "support_resistance": None,
+                "volume_sr_summary": None,
             })
             continue
 
@@ -484,6 +497,7 @@ def compute_oil_dollar_bond(
         last = float(close.iloc[-1])
         change_pct = ((last / first) - 1.0) * 100.0 if first else None
         sr = _support_resistance(clipped, window=3 if intraday else 5)
+        vol_sr = build_sr_volume_summary(clipped, sr, name=str(spec["short"]))
         aligned[str(spec["id"])] = close
         series_out.append({
             "id": spec["id"],
@@ -499,6 +513,7 @@ def compute_oil_dollar_bond(
             "to": points[-1]["t"] if points else None,
             "bars": len(points),
             "support_resistance": sr,
+            "volume_sr_summary": vol_sr,
         })
 
     chart = _build_overlay(aligned, intraday=intraday)
@@ -546,8 +561,10 @@ def compute_oil_dollar_bond(
             "US 2Y and US 10Y track rate expectations — watch 2s10s for risk appetite.",
             "Nifty 50 (^NSEI), Dow 30 (^DJI), Nasdaq (^IXIC) show equity risk appetite across regions.",
             "Bitcoin / Ethereum (BTC-USD / ETH-USD) track crypto risk-on; often move with Nasdaq in risk regimes.",
-            "Each panel uses native units with clear S1/S2 support and R1/R2 resistance lines.",
+            "Each panel uses native units with S1/S2 · R1/R2 and volume bars under price.",
             "Green dashed = support · Red dashed = resistance · Period high/low used as deeper levels when needed.",
+            "Per-chart summary: approaching S/R + rising volume → higher break odds; fading volume → hold/rejection more likely; flat volume → consolidation.",
+            "Break % is an educational heuristic — not a trade signal.",
             "The overlay is % change from the first bar (no S/R — scales differ).",
             "Educational macro context only — not a trade signal.",
         ],

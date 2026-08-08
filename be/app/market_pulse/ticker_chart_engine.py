@@ -353,9 +353,12 @@ def compute_ticker_chart(
             clipped = ohlc
 
         close = clipped["close"]
-        points = _series_to_points(close, intraday=intraday)
+        from app.market_pulse.sr_volume_summary import build_sr_volume_summary, ohlc_to_chart_points
+
+        points = ohlc_to_chart_points(clipped, intraday=intraday)
         candles = _ohlc_to_candles(clipped, intraday=intraday)
         sr = _support_resistance(clipped, window=3 if intraday else 5)
+        vol_sr = build_sr_volume_summary(clipped, sr, name=resolved)
 
         first = float(close.iloc[0]) if len(close) else None
         last = float(close.iloc[-1]) if len(close) else None
@@ -381,16 +384,18 @@ def compute_ticker_chart(
             "points": points,
             "candles": candles,
             "support_resistance": sr,
+            "volume_sr_summary": vol_sr,
             "summary": f"{resolved} ({yf_sym}) · {range_txt} · Δ {change_pct:+.2f}%" if change_pct is not None else f"{resolved} · {range_txt}",
             "plain_english": (
                 f"Ticker chart for {resolved} over {range_txt}. "
-                f"Green S1/S2 = support · Red R1/R2 = resistance from swing pivots in this window."
+                f"{vol_sr.get('plain_english') or 'Green S1/S2 = support · Red R1/R2 = resistance.'}"
             ),
             "how_to_read": [
                 "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
                 "Intraday: pick session date + bar size (1m–1h). Yahoo keeps a limited intraday history window.",
                 "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
-                "Educational chart only — not a trade signal.",
+                "Volume bars sit under price. Rising volume into R1 raises breakout odds; rising volume into S1 raises breakdown odds; fading volume favors a hold/rejection.",
+                "Break % is an educational heuristic — not a trade signal.",
             ],
         })
     finally:
