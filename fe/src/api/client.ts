@@ -303,6 +303,16 @@ export const askAI = (payload: {
   error: boolean
 }>('/ai/ask', payload, { timeout: 180_000 }).then((r) => r.data)
 
+export const runDashboardTradingChat = (payload: {
+  message: string
+  asset_class?: string
+  style?: string
+  tickers?: string[]
+  extra_checks?: string[]
+  top_n?: number
+  skip_ai?: boolean
+}) => api.post('/dashboard/trading-chat', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const fetchYoutubeAnalysisPrefs = () =>
   api
     .get<{

@@ -206,6 +206,17 @@ class AskAIResponse(BaseModel):
     error: bool = False
 
 
+class DashboardTradingChatRequest(BaseModel):
+    """Dashboard chatbot — BB Mean Reversion + all confluence + Manage AI conclusion."""
+    message: str = Field(..., min_length=2, max_length=2000)
+    asset_class: str | None = None  # india | us | crypto | commodity (optional override)
+    style: str | None = None  # scalping | intraday | swing | investing
+    tickers: list[str] = Field(default_factory=list)
+    extra_checks: list[str] = Field(default_factory=list)  # empty = all 13 confluence checks
+    top_n: int = Field(default=10, ge=1, le=20)
+    skip_ai: bool = False
+
+
 class AIConfigResponse(BaseModel):
     provider: str
     model: str

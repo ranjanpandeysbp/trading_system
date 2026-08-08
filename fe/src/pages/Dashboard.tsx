@@ -26,6 +26,7 @@ import { Card } from '../components/ui/Card'
 import { Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 import { OilDollarBondPanel } from '../components/command-center/OilDollarBondPanel'
+import { DashboardTradingChatPanel } from '../components/dashboard/DashboardTradingChatPanel'
 
 const quickLinks = [
   {
@@ -202,6 +203,10 @@ export default function Dashboard() {
           />
         </div>
       ) : null}
+
+      <div className="mt-8">
+        <DashboardTradingChatPanel />
+      </div>
 
       <div className="mt-8">
         <OilDollarBondPanel />

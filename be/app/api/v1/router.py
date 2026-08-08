@@ -104,6 +104,7 @@ from app.models.schemas import (
     ProTradeBbMeanReversionRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
+    DashboardTradingChatRequest,
     PlaceOrderRequest,
     ResetPasswordRequest,
     ScanRequest,
@@ -378,6 +379,27 @@ async def ai_ask(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return AskAIResponse(**result)
+
+
+@router.post("/dashboard/trading-chat")
+async def dashboard_trading_chat(
+    payload: DashboardTradingChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ask what to buy/sell (top picks or single ticker) via BB + confluence + Manage AI."""
+    from app.services.dashboard_trading_chat_service import DashboardTradingChatService
+
+    service = DashboardTradingChatService(SettingsService(db), db=db)
+    return await service.chat(
+        message=payload.message,
+        asset_class=payload.asset_class,
+        style=payload.style,
+        tickers=payload.tickers,
+        extra_checks=payload.extra_checks or None,
+        top_n=payload.top_n,
+        skip_ai=payload.skip_ai,
+    )
 
 
 @router.get("/investing-agent/status")
