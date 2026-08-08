@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, Database, Settings2, Wifi } from 'lucide-react'
-import { getSettings, testProvider, updateSettings } from '../api/client'
+import { getSettings, refreshGrowwToken, refreshIndMoneyToken, testProvider, updateSettings } from '../api/client'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -62,6 +62,12 @@ export default function ManageSettings() {
   const [provider, setProvider] = useState('yfinance')
   const [growwToken, setGrowwToken] = useState('')
   const [growwExchange, setGrowwExchange] = useState('NSE')
+  const [growwApiKey, setGrowwApiKey] = useState('')
+  const [growwTotpSecret, setGrowwTotpSecret] = useState('')
+  const [indmoneyClientId, setIndmoneyClientId] = useState('')
+  const [indmoneyMpin, setIndmoneyMpin] = useState('')
+  const [indmoneyTotpSecret, setIndmoneyTotpSecret] = useState('')
+  const [indmoneyAccessToken, setIndmoneyAccessToken] = useState('')
   const [geminiKey, setGeminiKey] = useState('')
   const [groqKey, setGroqKey] = useState('')
   const [claudeKey, setClaudeKey] = useState('')
@@ -107,6 +113,12 @@ export default function ManageSettings() {
       qc.invalidateQueries({ queryKey: ['investing-agent-status'] })
       setMsg('Settings saved')
       setGrowwToken('')
+      setGrowwApiKey('')
+      setGrowwTotpSecret('')
+      setIndmoneyClientId('')
+      setIndmoneyMpin('')
+      setIndmoneyTotpSecret('')
+      setIndmoneyAccessToken('')
       setGeminiKey('')
       setGroqKey('')
       setClaudeKey('')
@@ -126,6 +138,12 @@ export default function ManageSettings() {
     data_provider: provider,
     ...(growwToken ? { groww_api_token: growwToken } : {}),
     groww_exchange: growwExchange,
+    ...(growwApiKey ? { groww_api_key: growwApiKey } : {}),
+    ...(growwTotpSecret ? { groww_totp_secret: growwTotpSecret } : {}),
+    ...(indmoneyClientId ? { indmoney_client_id: indmoneyClientId } : {}),
+    ...(indmoneyMpin ? { indmoney_mpin: indmoneyMpin } : {}),
+    ...(indmoneyTotpSecret ? { indmoney_totp_secret: indmoneyTotpSecret } : {}),
+    ...(indmoneyAccessToken ? { indmoney_access_token: indmoneyAccessToken } : {}),
     ...(geminiKey ? { gemini_api_key: geminiKey } : {}),
     ...(groqKey ? { groq_api_key: groqKey } : {}),
     ...(claudeKey ? { claude_api_key: claudeKey } : {}),
@@ -151,7 +169,7 @@ export default function ManageSettings() {
     <div>
       <PageHeader
         title="Manage Settings"
-        description="Data provider · Groww · Gemini · Groq · Claude · OpenAI · Investing Agent · paper trading defaults"
+        description="Data provider · IndMoney · Groww · Gemini · Groq · Claude · OpenAI · Investing Agent · paper trading defaults"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -163,8 +181,9 @@ export default function ManageSettings() {
 
           <FormField label="Provider">
             <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="yfinance">yfinance (default, free)</option>
-              <option value="groww">Groww (REST + charting, token optional)</option>
+              <option value="yfinance">yfinance (default fallback)</option>
+              <option value="groww">Groww (India REST + charting)</option>
+              <option value="indmoney">IndMoney / INDstocks (TOTP auth)</option>
             </Select>
           </FormField>
 
@@ -176,18 +195,154 @@ export default function ManageSettings() {
             </Select>
           </FormField>
 
+          {(provider === 'groww' || provider === 'indmoney') && (
+            <FormField label="India exchange">
+              <Select value={growwExchange} onChange={(e) => setGrowwExchange(e.target.value)}>
+                <option value="NSE">NSE</option>
+                <option value="BSE">BSE</option>
+              </Select>
+            </FormField>
+          )}
+
           {provider === 'groww' && (
-            <>
-              <FormField label={`Groww Bearer Token ${settings?.groww_token_set ? '(saved — enter new to replace)' : '(optional)'}`}>
-                <Input type="password" value={growwToken} onChange={(e) => setGrowwToken(e.target.value)} placeholder="Paste Groww API bearer token" />
+            <div className="space-y-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <p className="text-xs leading-relaxed text-slate-400">
+                Setup TOTP at Groww → Trading APIs →{' '}
+                <a
+                  className="text-emerald-300 underline"
+                  href="https://groww.in/trade-api"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Generate TOTP token
+                </a>
+                . Store the TOTP API key and secret (or scan QR). Access tokens expire ~06:00 IST and
+                auto-refresh. You can still paste a manual access token below.
+              </p>
+              <FormField label={`TOTP API key ${settings?.groww_api_key_set ? '(saved)' : ''}`}>
+                <Input
+                  type="password"
+                  value={growwApiKey}
+                  onChange={(e) => setGrowwApiKey(e.target.value)}
+                  placeholder="Groww TOTP API key"
+                />
               </FormField>
-              <FormField label="Exchange">
-                <Select value={growwExchange} onChange={(e) => setGrowwExchange(e.target.value)}>
-                  <option value="NSE">NSE</option>
-                  <option value="BSE">BSE</option>
-                </Select>
+              <FormField label={`TOTP secret ${settings?.groww_totp_secret_set ? '(saved)' : ''}`}>
+                <Input
+                  type="password"
+                  value={growwTotpSecret}
+                  onChange={(e) => setGrowwTotpSecret(e.target.value)}
+                  placeholder="Base32 TOTP secret from Groww"
+                />
               </FormField>
-            </>
+              <FormField
+                label={`Optional access token paste ${settings?.groww_token_set ? '(saved)' : ''} — manual dashboard token`}
+              >
+                <Input
+                  type="password"
+                  value={growwToken}
+                  onChange={(e) => setGrowwToken(e.target.value)}
+                  placeholder="Paste Groww access token (optional)"
+                />
+              </FormField>
+              {settings?.groww_token_expires_at && (
+                <p className="text-[11px] text-slate-500">
+                  Cached token expires ~ {new Date(settings.groww_token_expires_at).toLocaleString()}
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={async () => {
+                  try {
+                    await updateSettings(savePayload())
+                    const res = await refreshGrowwToken()
+                    qc.invalidateQueries({ queryKey: ['settings'] })
+                    setMsg(res.ok ? 'Groww token refreshed via TOTP' : (res.error || 'Token refresh failed'))
+                  } catch (e) {
+                    setMsg(e instanceof Error ? e.message : 'Token refresh failed')
+                  }
+                }}
+              >
+                Refresh Groww token (TOTP)
+              </Button>
+            </div>
+          )}
+
+          {provider === 'indmoney' && (
+            <div className="space-y-3 rounded-xl border border-teal-500/20 bg-teal-500/5 p-3">
+              <p className="text-xs leading-relaxed text-slate-400">
+                Setup TOTP at{' '}
+                <a
+                  className="text-teal-300 underline"
+                  href="https://indstocks.com/app/api-trading/access-tokens"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  indstocks.com → API Trading → Access Tokens
+                </a>
+                . Store Client ID (x-api-key), MPIN, and the one-time TOTP secret.
+                Tokens last 24h and auto-refresh. India stocks/options use IndMoney;
+                US / crypto fall back to yfinance. Options OC falls back to NSE if IndMoney OC is unavailable.
+              </p>
+              <FormField label={`Client ID (x-api-key) ${settings?.indmoney_client_id_set ? '(saved)' : ''}`}>
+                <Input
+                  type="password"
+                  value={indmoneyClientId}
+                  onChange={(e) => setIndmoneyClientId(e.target.value)}
+                  placeholder="Client ID from TOTP setup"
+                />
+              </FormField>
+              <FormField label={`MPIN ${settings?.indmoney_mpin_set ? '(saved)' : ''}`}>
+                <Input
+                  type="password"
+                  value={indmoneyMpin}
+                  onChange={(e) => setIndmoneyMpin(e.target.value)}
+                  placeholder="INDstocks account MPIN"
+                />
+              </FormField>
+              <FormField label={`TOTP secret ${settings?.indmoney_totp_secret_set ? '(saved)' : ''}`}>
+                <Input
+                  type="password"
+                  value={indmoneyTotpSecret}
+                  onChange={(e) => setIndmoneyTotpSecret(e.target.value)}
+                  placeholder="Base32 secret shown once during Setup TOTP"
+                />
+              </FormField>
+              <FormField
+                label={`Optional access token paste ${settings?.indmoney_access_token_set ? '(saved)' : ''} — dashboard token if you prefer manual`}
+              >
+                <Input
+                  type="password"
+                  value={indmoneyAccessToken}
+                  onChange={(e) => setIndmoneyAccessToken(e.target.value)}
+                  placeholder="Paste dashboard access token (optional)"
+                />
+              </FormField>
+              {settings?.indmoney_token_expires_at && (
+                <p className="text-[11px] text-slate-500">
+                  Cached token expires ~ {new Date(settings.indmoney_token_expires_at).toLocaleString()}
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={async () => {
+                  try {
+                    await updateSettings(savePayload())
+                    const res = await refreshIndMoneyToken()
+                    qc.invalidateQueries({ queryKey: ['settings'] })
+                    setMsg(res.ok ? 'IndMoney token refreshed via TOTP' : (res.error || 'Token refresh failed'))
+                  } catch (e) {
+                    setMsg(e instanceof Error ? e.message : 'Token refresh failed')
+                  }
+                }}
+              >
+                Refresh IndMoney token (TOTP)
+              </Button>
+            </div>
           )}
 
           <FormField label="Benchmark Ticker">

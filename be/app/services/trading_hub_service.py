@@ -19,7 +19,8 @@ class TradingHubService:
         self.db = db
 
     async def _groww_token(self) -> str:
-        return await self.settings.get_groww_token() or ""
+        token, _ = await self.settings.prepare_market_data()
+        return token
 
     async def _asset_ctx(self, asset_class: str) -> tuple[str, str]:
         from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG

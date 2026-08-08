@@ -32,14 +32,208 @@ class SettingsService:
         await self.db.commit()
 
     async def get_data_provider(self) -> str:
-        return await self._get("data_provider", settings.default_data_provider)
+        from app.data.provider_ctx import normalize_provider
+
+        return normalize_provider(await self._get("data_provider", settings.default_data_provider))
 
     async def get_groww_token(self) -> str | None:
+        """Live Groww access token (TOTP-refreshed when credentials are set)."""
+        return await self.get_groww_access_token()
+
+    async def get_groww_stored_access_token(self) -> str | None:
         token = await self._get("groww_api_token", "")
         return token or None
 
     async def get_groww_exchange(self) -> str:
         return await self._get("groww_exchange", "NSE")
+
+    async def get_groww_api_key(self) -> str | None:
+        val = await self._get("groww_api_key", "")
+        if not val:
+            import os
+            val = (os.getenv("GROWW_API_KEY") or os.getenv("GROWW_TOTP_API_KEY") or "").strip()
+        return val or None
+
+    async def get_groww_totp_secret(self) -> str | None:
+        val = await self._get("groww_totp_secret", "")
+        if not val:
+            import os
+            val = (os.getenv("GROWW_TOTP_SECRET") or "").strip()
+        return val or None
+
+    async def get_groww_token_expires_at(self) -> str | None:
+        val = await self._get("groww_token_expires_at", "")
+        return val or None
+
+    async def get_groww_access_token(self, *, force_refresh: bool = False) -> str | None:
+        """
+        Return a live Groww access token.
+        Prefer cached token; else generate via TOTP (api_key + totp_secret).
+        Tokens typically expire daily ~06:00 IST.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        if not force_refresh:
+            cached = await self.get_groww_stored_access_token()
+            exp = await self.get_groww_token_expires_at()
+            if cached and exp:
+                try:
+                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                    if exp_dt.tzinfo is None:
+                        exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                    if exp_dt > datetime.now(timezone.utc) + timedelta(minutes=10):
+                        return cached
+                except Exception:
+                    if cached:
+                        return cached
+            elif cached:
+                return cached
+
+        api_key = await self.get_groww_api_key()
+        secret = await self.get_groww_totp_secret()
+        if not (api_key and secret):
+            return await self.get_groww_stored_access_token()
+
+        from app.data.groww_client import generate_access_token_totp, generate_totp_code
+
+        logger = __import__("logging").getLogger(__name__)
+        try:
+            totp = generate_totp_code(secret)
+        except Exception as exc:
+            logger.warning("Groww TOTP generate failed: %s", exc)
+            return await self.get_groww_stored_access_token()
+
+        result = generate_access_token_totp(api_key=api_key, totp=totp)
+        token = result.get("token")
+        if not token:
+            logger.warning("Groww /token/api/access failed: %s", result.get("error"))
+            return await self.get_groww_stored_access_token()
+
+        expiry_raw = result.get("expiry")
+        expires = None
+        if expiry_raw:
+            try:
+                exp_dt = datetime.fromisoformat(str(expiry_raw).replace("Z", "+00:00"))
+                if exp_dt.tzinfo is None:
+                    # Groww expiry is typically IST-naive — treat as IST (+05:30)
+                    from datetime import timezone as _tz
+                    exp_dt = exp_dt.replace(tzinfo=_tz(timedelta(hours=5, minutes=30))).astimezone(timezone.utc)
+                expires = exp_dt.isoformat()
+            except Exception:
+                expires = None
+        if not expires:
+            # Fallback: next 06:00 IST or +20h
+            expires = (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat()
+
+        await self._set("groww_api_token", token)
+        await self._set("groww_token_expires_at", expires)
+        return token
+
+    async def get_indmoney_client_id(self) -> str | None:
+        val = await self._get("indmoney_client_id", "")
+        if not val:
+            import os
+            val = (os.getenv("INDMONEY_CLIENT_ID") or os.getenv("INDSTOCKS_CLIENT_ID") or "").strip()
+        return val or None
+
+    async def get_indmoney_mpin(self) -> str | None:
+        val = await self._get("indmoney_mpin", "")
+        if not val:
+            import os
+            val = (os.getenv("INDMONEY_MPIN") or "").strip()
+        return val or None
+
+    async def get_indmoney_totp_secret(self) -> str | None:
+        val = await self._get("indmoney_totp_secret", "")
+        if not val:
+            import os
+            val = (os.getenv("INDMONEY_TOTP_SECRET") or "").strip()
+        return val or None
+
+    async def get_indmoney_stored_access_token(self) -> str | None:
+        val = await self._get("indmoney_access_token", "")
+        return val or None
+
+    async def get_indmoney_token_expires_at(self) -> str | None:
+        val = await self._get("indmoney_token_expires_at", "")
+        return val or None
+
+    async def get_indmoney_access_token(self, *, force_refresh: bool = False) -> str | None:
+        """
+        Return a live IndMoney access token.
+        Prefer cached token (< ~23h); else generate via TOTP (client_id + mpin + totp_secret).
+        """
+        from datetime import datetime, timedelta, timezone
+
+        if not force_refresh:
+            cached = await self.get_indmoney_stored_access_token()
+            exp = await self.get_indmoney_token_expires_at()
+            if cached and exp:
+                try:
+                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                    if exp_dt.tzinfo is None:
+                        exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                    if exp_dt > datetime.now(timezone.utc) + timedelta(minutes=10):
+                        return cached
+                except Exception:
+                    if cached:
+                        return cached
+            elif cached:
+                return cached
+
+        client_id = await self.get_indmoney_client_id()
+        mpin = await self.get_indmoney_mpin()
+        secret = await self.get_indmoney_totp_secret()
+        if not (client_id and mpin and secret):
+            return await self.get_indmoney_stored_access_token()
+
+        from app.data.indmoney_client import generate_access_token, generate_totp_code
+
+        try:
+            totp = generate_totp_code(secret)
+        except Exception as exc:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning("IndMoney TOTP generate failed: %s", exc)
+            return await self.get_indmoney_stored_access_token()
+
+        result = generate_access_token(client_id=client_id, mpin=mpin, totp=totp)
+        token = result.get("token")
+        if not token:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning("IndMoney /generate/token failed: %s", result.get("error"))
+            return await self.get_indmoney_stored_access_token()
+
+        expires = (datetime.now(timezone.utc) + timedelta(hours=23)).isoformat()
+        await self._set("indmoney_access_token", token)
+        await self._set("indmoney_token_expires_at", expires)
+        return token
+
+    async def prepare_market_data(self) -> tuple[str, str]:
+        """
+        Bind provider ContextVars for this request.
+        Returns (groww_token, exchange) for legacy callers.
+        """
+        from app.data.provider_ctx import set_data_provider, set_indmoney_token
+        from app.market_pulse.groww_auth import set_groww_token
+
+        provider = await self.get_data_provider()
+        set_data_provider(provider)
+        exchange = await self.get_groww_exchange()
+
+        groww = ""
+        if provider == "groww":
+            groww = await self.get_groww_access_token() or ""
+        else:
+            # Still expose stored Groww token for optional OC fallbacks
+            groww = await self.get_groww_stored_access_token() or ""
+        set_groww_token(groww)
+
+        if provider == "indmoney":
+            im = await self.get_indmoney_access_token() or ""
+            set_indmoney_token(im)
+        else:
+            set_indmoney_token("")
+        return groww, exchange
 
     async def get_initial_capital(self) -> float:
         return float(await self._get("initial_capital", str(settings.default_initial_capital)))
@@ -217,11 +411,19 @@ class SettingsService:
             )
 
     async def get_all(self, user_id: int | None = None) -> dict:
-        token = await self.get_groww_token()
+        token = await self.get_groww_stored_access_token()
         return {
             "data_provider": await self.get_data_provider(),
             "groww_token_set": bool(token),
             "groww_exchange": await self.get_groww_exchange(),
+            "groww_api_key_set": bool(await self.get_groww_api_key()),
+            "groww_totp_secret_set": bool(await self.get_groww_totp_secret()),
+            "groww_token_expires_at": await self.get_groww_token_expires_at(),
+            "indmoney_client_id_set": bool(await self.get_indmoney_client_id()),
+            "indmoney_mpin_set": bool(await self.get_indmoney_mpin()),
+            "indmoney_totp_secret_set": bool(await self.get_indmoney_totp_secret()),
+            "indmoney_access_token_set": bool(await self.get_indmoney_stored_access_token()),
+            "indmoney_token_expires_at": await self.get_indmoney_token_expires_at(),
             "initial_capital": await self.get_initial_capital(),
             "costs_pct": await self.get_costs_pct(),
             "benchmark_ticker": await self.get_benchmark_ticker(),
@@ -244,11 +446,36 @@ class SettingsService:
 
     async def update(self, payload: dict, user_id: int | None = None) -> dict:
         if payload.get("data_provider") is not None:
-            await self._set("data_provider", payload["data_provider"])
+            from app.data.provider_ctx import normalize_provider
+            await self._set("data_provider", normalize_provider(payload["data_provider"]))
         if payload.get("groww_api_token") is not None:
-            await self._set("groww_api_token", payload["groww_api_token"])
+            from datetime import datetime, timedelta, timezone
+            tok = str(payload["groww_api_token"]).strip()
+            if tok:
+                await self._set("groww_api_token", tok)
+                await self._set(
+                    "groww_token_expires_at",
+                    (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat(),
+                )
         if payload.get("groww_exchange") is not None:
             await self._set("groww_exchange", payload["groww_exchange"])
+        if payload.get("groww_api_key") is not None and str(payload["groww_api_key"]).strip():
+            await self._set("groww_api_key", str(payload["groww_api_key"]).strip())
+        if payload.get("groww_totp_secret") is not None and str(payload["groww_totp_secret"]).strip():
+            await self._set("groww_totp_secret", str(payload["groww_totp_secret"]).strip().replace(" ", ""))
+        if payload.get("indmoney_client_id") is not None and str(payload["indmoney_client_id"]).strip():
+            await self._set("indmoney_client_id", str(payload["indmoney_client_id"]).strip())
+        if payload.get("indmoney_mpin") is not None and str(payload["indmoney_mpin"]).strip():
+            await self._set("indmoney_mpin", str(payload["indmoney_mpin"]).strip())
+        if payload.get("indmoney_totp_secret") is not None and str(payload["indmoney_totp_secret"]).strip():
+            await self._set("indmoney_totp_secret", str(payload["indmoney_totp_secret"]).strip().replace(" ", ""))
+        if payload.get("indmoney_access_token") is not None and str(payload["indmoney_access_token"]).strip():
+            from datetime import datetime, timedelta, timezone
+            await self._set("indmoney_access_token", str(payload["indmoney_access_token"]).strip())
+            await self._set(
+                "indmoney_token_expires_at",
+                (datetime.now(timezone.utc) + timedelta(hours=23)).isoformat(),
+            )
         if payload.get("initial_capital") is not None:
             await self._set("initial_capital", str(payload["initial_capital"]))
         if payload.get("costs_pct") is not None:

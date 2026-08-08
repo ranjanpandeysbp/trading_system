@@ -318,12 +318,12 @@ class EngineBacktestService:
 
         cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
         market = str(cfg["market"])
+        token, exchange_default = await self.settings.prepare_market_data()
         if asset_class == "india":
-            exchange = await self.settings.get_groww_exchange()
-            token = await self.settings.get_groww_token() or ""
+            exchange = exchange_default
         else:
             exchange = str(cfg.get("exchange") or "NSE")
-            token = ""
+            # Non-India: IndMoney/Groww tokens unused for primary path
         return market, exchange, token
 
     async def run(self, request: BacktestRequest) -> dict[str, Any]:

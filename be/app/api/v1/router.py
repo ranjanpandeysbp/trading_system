@@ -328,8 +328,51 @@ async def test_provider(
     from app.data.factory import DataProviderFactory
 
     settings = SettingsService(db)
+    await settings.prepare_market_data()
     provider = await DataProviderFactory.get_provider(settings)
     return await provider.health_check()
+
+
+@router.post("/settings/indmoney/refresh-token")
+async def refresh_indmoney_token(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Force TOTP → access token refresh for IndMoney / INDstocks."""
+    settings = SettingsService(db)
+    token = await settings.get_indmoney_access_token(force_refresh=True)
+    if not token:
+        return {
+            "ok": False,
+            "error": "Could not refresh token. Save Client ID, MPIN, and TOTP secret first "
+            "(from indstocks.com → API Trading → Setup TOTP).",
+        }
+    return {
+        "ok": True,
+        "indmoney_access_token_set": True,
+        "indmoney_token_expires_at": await settings.get_indmoney_token_expires_at(),
+    }
+
+
+@router.post("/settings/groww/refresh-token")
+async def refresh_groww_token(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Force TOTP → access token refresh for Groww Trading API."""
+    settings = SettingsService(db)
+    token = await settings.get_groww_access_token(force_refresh=True)
+    if not token:
+        return {
+            "ok": False,
+            "error": "Could not refresh Groww token. Save Groww TOTP API key + TOTP secret "
+            "(Groww → Trading APIs → Generate TOTP token), or paste an access token.",
+        }
+    return {
+        "ok": True,
+        "groww_token_set": True,
+        "groww_token_expires_at": await settings.get_groww_token_expires_at(),
+    }
 
 
 @router.get("/markets")
@@ -347,7 +390,7 @@ async def market_marquee(
     from app.services.marquee_quotes_service import fetch_marquee_quotes
 
     settings = SettingsService(db)
-    token = await settings.get_groww_token() or ""
+    token, _ = await settings.prepare_market_data()
     return await fetch_marquee_quotes(groww_token=token)
 
 

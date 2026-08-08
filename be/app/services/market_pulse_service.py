@@ -18,7 +18,8 @@ class MarketPulseService:
         self.settings = settings
 
     async def _groww_token(self) -> str:
-        return await self.settings.get_groww_token() or ""
+        token, _ = await self.settings.prepare_market_data()
+        return token
 
     async def _exchange(self) -> str:
         return await self.settings.get_groww_exchange()

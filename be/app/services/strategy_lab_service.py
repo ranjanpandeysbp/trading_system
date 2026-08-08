@@ -82,7 +82,7 @@ class StrategyLabService:
 
     async def _asset_ctx(self, asset_class: str | None = None, market: str | None = None) -> tuple[str, str, str]:
         """Return (market, groww_token, exchange). Prefer explicit market, else asset_class, else settings."""
-        token = await self.settings.get_groww_token() or ""
+        token, _ = await self.settings.prepare_market_data()
         if market:
             resolved_market = market
             ac = "india"

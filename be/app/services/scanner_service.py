@@ -84,9 +84,9 @@ class ScannerService:
         bars_override = getattr(request, "bars", None)
         cfg = ASSET_CLASS_CONFIG.get(asset_class) or ASSET_CLASS_CONFIG["india"]
         market = str(cfg["market"])
-        groww_token = await self.settings.get_groww_token() or ""
+        groww_token, groww_exchange_default = await self.settings.prepare_market_data()
         groww_exchange = (
-            await self.settings.get_groww_exchange()
+            groww_exchange_default
             if asset_class == "india"
             else str(cfg.get("exchange") or "NSE")
         )

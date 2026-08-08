@@ -20,9 +20,7 @@ class ProTradeService:
         self.db = db
 
     async def _ctx(self) -> tuple[str, str]:
-        token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
-        return token, exchange
+        return await self.settings.prepare_market_data()
 
     async def _asset_ctx(self, asset_class: str) -> tuple[str, str]:
         from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG

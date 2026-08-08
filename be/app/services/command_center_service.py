@@ -53,8 +53,7 @@ class CommandCenterService:
         self.db = db
 
     async def _ctx(self) -> tuple[str, str, str]:
-        token = await self.settings.get_groww_token() or ""
-        exchange = await self.settings.get_groww_exchange()
+        token, exchange = await self.settings.prepare_market_data()
         market = await self.settings.get_default_market()
         return market, token, exchange
 

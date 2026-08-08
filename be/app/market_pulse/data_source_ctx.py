@@ -17,6 +17,7 @@ _bucket: ContextVar[list[str] | None] = ContextVar("ohlcv_data_sources", default
 
 SOURCE_LABELS = {
     "groww": "Groww",
+    "indmoney": "IndMoney",
     "yfinance": "yfinance",
     "coindcx": "CoinDCX",
 }

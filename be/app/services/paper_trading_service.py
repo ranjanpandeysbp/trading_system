@@ -39,10 +39,11 @@ class PaperTradingService:
         return account
 
     async def _get_market_price(self, ticker: str, asset_class: str = "india") -> float:
+        token, exchange = await self.settings.prepare_market_data()
         return await fetch_market_price(
             ticker,
-            groww_token=await self.settings.get_groww_token() or "",
-            exchange=await self.settings.get_groww_exchange(),
+            groww_token=token,
+            exchange=exchange,
             asset_class=asset_class,
         )
 

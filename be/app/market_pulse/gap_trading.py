@@ -194,15 +194,37 @@ def _fetch_data_for_gap_scan_raw(
     is_us = is_us_market(market)
     is_india = not is_crypto and not is_us
 
-    # ── US stocks (Yahoo only) ────────────────────────────────────────────
+    # ── US stocks ─────────────────────────────────────────────────────────
+    # IndMoney Trading API is India (NSE/BSE) focused — US always uses yfinance.
     if is_us:
         df = fetch_ohlcv_yfinance(symbol, timeframe, is_crypto=False, limit=limit, market=market)
         return df
 
     # ── India stocks ──────────────────────────────────────────────────────
     if is_india:
-        # Groww API or public charting service for intraday; yfinance fallback
-        if timeframe not in ("1w", "1M"):
+        from app.data.provider_ctx import get_active_data_provider, get_active_indmoney_token
+
+        provider = get_active_data_provider()
+
+        # IndMoney when selected in Manage Settings
+        if provider == "indmoney" and timeframe not in ("1w", "1M"):
+            try:
+                from app.data.indmoney_client import fetch_indmoney_ohlcv
+
+                im_token = get_active_indmoney_token()
+                if im_token:
+                    df = fetch_indmoney_ohlcv(
+                        symbol, timeframe, im_token, exchange=exchange, limit=limit,
+                    )
+                    if not df.empty and len(df) >= MIN_BARS_REQUIRED:
+                        return mark_source(df.tail(limit), "indmoney")
+            except Exception as e:
+                logger.debug(f"IndMoney OHLCV fetch failed for {symbol}: {e}")
+
+        # Groww when selected (or legacy callers that only pass a groww token
+        # while provider ContextVar was never set — treat as groww if token present
+        # and provider is groww)
+        if provider == "groww" and timeframe not in ("1w", "1M"):
             try:
                 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 from app.market_pulse.heatmap import fetch_groww_ohlcv
@@ -212,7 +234,7 @@ def _fetch_data_for_gap_scan_raw(
             except Exception as e:
                 logger.debug(f"Groww OHLCV fetch failed for {symbol}: {e}")
 
-        # yfinance fallback (always works for 1d/1w/1M)
+        # Default / fallback: yfinance
         df = fetch_ohlcv_yfinance(symbol, timeframe, is_crypto=False, limit=limit, market=market)
         return df
 

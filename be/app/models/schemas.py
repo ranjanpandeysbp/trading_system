@@ -131,6 +131,14 @@ class SettingsResponse(BaseModel):
     data_provider: str
     groww_token_set: bool
     groww_exchange: str = "NSE"
+    groww_api_key_set: bool = False
+    groww_totp_secret_set: bool = False
+    groww_token_expires_at: str | None = None
+    indmoney_client_id_set: bool = False
+    indmoney_mpin_set: bool = False
+    indmoney_totp_secret_set: bool = False
+    indmoney_access_token_set: bool = False
+    indmoney_token_expires_at: str | None = None
     initial_capital: float
     costs_pct: float
     benchmark_ticker: str
@@ -155,6 +163,12 @@ class SettingsUpdate(BaseModel):
     data_provider: str | None = None
     groww_api_token: str | None = None
     groww_exchange: str | None = None
+    groww_api_key: str | None = None
+    groww_totp_secret: str | None = None
+    indmoney_client_id: str | None = None
+    indmoney_mpin: str | None = None
+    indmoney_totp_secret: str | None = None
+    indmoney_access_token: str | None = None
     initial_capital: float | None = None
     costs_pct: float | None = None
     benchmark_ticker: str | None = None

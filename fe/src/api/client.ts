@@ -261,6 +261,14 @@ export const getSettings = () => api.get<{
   data_provider: string
   groww_token_set: boolean
   groww_exchange: string
+  groww_api_key_set: boolean
+  groww_totp_secret_set: boolean
+  groww_token_expires_at: string | null
+  indmoney_client_id_set: boolean
+  indmoney_mpin_set: boolean
+  indmoney_totp_secret_set: boolean
+  indmoney_access_token_set: boolean
+  indmoney_token_expires_at: string | null
   initial_capital: number
   costs_pct: number
   benchmark_ticker: string
@@ -282,6 +290,14 @@ export const getSettings = () => api.get<{
 }>('/settings').then((r) => r.data)
 export const updateSettings = (payload: Record<string, unknown>) => api.put('/settings', payload).then((r) => r.data)
 export const testProvider = () => api.post('/settings/test-provider').then((r) => r.data)
+export const refreshIndMoneyToken = () =>
+  api.post<{ ok: boolean; error?: string; indmoney_token_expires_at?: string }>(
+    '/settings/indmoney/refresh-token',
+  ).then((r) => r.data)
+export const refreshGrowwToken = () =>
+  api.post<{ ok: boolean; error?: string; groww_token_expires_at?: string }>(
+    '/settings/groww/refresh-token',
+  ).then((r) => r.data)
 
 export const fetchMarkets = () => api.get<{ markets: string[] }>('/markets').then((r) => r.data)
 

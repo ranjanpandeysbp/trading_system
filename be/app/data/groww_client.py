@@ -17,6 +17,68 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 GROWW_BASE = "https://api.groww.in"
+GROWW_TOKEN_URL = f"{GROWW_BASE}/v1/token/api/access"
+
+
+def generate_totp_code(totp_secret: str) -> str:
+    """Generate current 6-digit TOTP from base32 secret."""
+    import pyotp
+
+    secret = (totp_secret or "").strip().replace(" ", "")
+    if not secret:
+        raise ValueError("TOTP secret is empty")
+    return pyotp.TOTP(secret).now()
+
+
+def generate_access_token_totp(*, api_key: str, totp: str, timeout: float = 20.0) -> dict:
+    """
+    POST /v1/token/api/access with key_type=totp.
+    Authorization: Bearer <API_KEY> (TOTP API key from Groww Cloud).
+    Returns {token, expiry, raw, error?}.
+    """
+    api_key = (api_key or "").strip()
+    totp = (totp or "").strip()
+    if not api_key or not totp:
+        return {"token": None, "error": "api_key and totp are required"}
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(
+                GROWW_TOKEN_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-API-VERSION": "1.0",
+                },
+                json={"key_type": "totp", "totp": totp},
+            )
+        data = resp.json() if resp.content else {}
+        if resp.status_code >= 400:
+            err = data.get("error") if isinstance(data, dict) else None
+            msg = ""
+            if isinstance(err, dict):
+                msg = err.get("message") or err.get("code") or ""
+            msg = msg or data.get("message") or resp.text[:200]
+            return {"token": None, "error": f"HTTP {resp.status_code}: {msg}", "raw": data}
+
+        token = None
+        expiry = None
+        if isinstance(data, dict):
+            token = data.get("token")
+            expiry = data.get("expiry")
+            payload = data.get("payload")
+            if isinstance(payload, dict):
+                token = token or payload.get("token")
+                expiry = expiry or payload.get("expiry")
+        token = (token or "").strip() or None
+        if not token:
+            return {"token": None, "error": "No token in Groww response", "raw": data}
+        return {"token": token, "expiry": expiry, "raw": data}
+    except Exception as exc:
+        logger.exception("Groww TOTP token generation failed")
+        return {"token": None, "error": str(exc)}
+
 
 # tf_key -> (interval_minutes, max_calendar_days)
 TF_INDIA: dict[str, tuple[int, int]] = {

@@ -93,14 +93,32 @@ def _historical_yfinance(yf_sym: str, timeframe: str) -> pd.DataFrame:
 
 
 def _historical_india(symbol: str, exchange: str, timeframe: str, groww_token: str, limit: int) -> pd.DataFrame:
+    from app.data.provider_ctx import get_active_data_provider, get_active_indmoney_token
+
     tf_key = interval_to_tf_key(timeframe)
-    try:
-        df = fetch_groww_ohlcv(symbol, exchange or "NSE", tf_key, api_token=groww_token, limit=limit)
-    except Exception:
-        logger.debug("Groww OHLCV fetch failed for %s", symbol, exc_info=True)
-        df = pd.DataFrame()
-    if df is not None and not df.empty:
-        return df
+    provider = get_active_data_provider()
+
+    if provider == "indmoney":
+        try:
+            from app.data.indmoney_client import fetch_indmoney_ohlcv
+
+            im = get_active_indmoney_token()
+            if im:
+                df = fetch_indmoney_ohlcv(symbol, tf_key, im, exchange=exchange or "NSE", limit=limit)
+                if df is not None and not df.empty:
+                    return df
+        except Exception:
+            logger.debug("IndMoney OHLCV fetch failed for %s", symbol, exc_info=True)
+
+    if provider == "groww":
+        try:
+            df = fetch_groww_ohlcv(symbol, exchange or "NSE", tf_key, api_token=groww_token, limit=limit)
+        except Exception:
+            logger.debug("Groww OHLCV fetch failed for %s", symbol, exc_info=True)
+            df = pd.DataFrame()
+        if df is not None and not df.empty:
+            return df
+
     return _historical_yfinance(stock_symbol_to_yf(symbol), timeframe)
 
 
@@ -214,30 +232,56 @@ def _live_quote_yfinance(yf_sym: str) -> dict:
 
 
 def _live_quote_india(symbol: str, exchange: str) -> dict:
-    quote = fetch_groww_live_quote(symbol, exchange)
-    if quote and quote.get("price"):
-        ltp = float(quote["price"])
-        prev_close = quote.get("prev_close")
-        if prev_close is None:
-            try:
-                import yfinance as yf
+    from app.data.provider_ctx import get_active_data_provider, get_active_indmoney_token
 
-                fast = yf.Ticker(stock_symbol_to_yf(symbol)).fast_info
-                try:
-                    prev_close = fast["previousClose"]
-                except Exception:
-                    prev_close = getattr(fast, "previous_close", None)
+    provider = get_active_data_provider()
+    if provider == "indmoney":
+        im = get_active_indmoney_token()
+        if im:
+            try:
+                from app.data.indmoney_client import fetch_indmoney_quote
+
+                q = fetch_indmoney_quote(symbol, im, exchange=exchange)
+                if q and q.get("ltp"):
+                    return {
+                        "ltp": float(q["ltp"]),
+                        "change_pct": q.get("change_pct"),
+                        "day_high": q.get("day_high"),
+                        "day_low": q.get("day_low"),
+                        "open": None,
+                        "prev_close": None,
+                        "volume": q.get("volume"),
+                        "avg_volume": None,
+                    }
             except Exception:
-                logger.debug("prevClose lookup failed for %s", symbol, exc_info=True)
-        change_pct = (ltp - float(prev_close)) / float(prev_close) * 100 if prev_close else None
-        return {
-            "ltp": ltp, "change_pct": change_pct,
-            "day_high": quote.get("day_high"), "day_low": quote.get("day_low"),
-            "open": quote.get("open"), "prev_close": prev_close,
-            "volume": quote.get("volume"), "avg_volume": None,
-            "buy_qty": quote.get("buy_qty"), "sell_qty": quote.get("sell_qty"),
-            "circuit_high": quote.get("circuit_high"), "circuit_low": quote.get("circuit_low"),
-        }
+                logger.debug("IndMoney live quote failed for %s", symbol, exc_info=True)
+
+    if provider == "groww":
+        quote = fetch_groww_live_quote(symbol, exchange)
+        if quote and quote.get("price"):
+            ltp = float(quote["price"])
+            prev_close = quote.get("prev_close")
+            if prev_close is None:
+                try:
+                    import yfinance as yf
+
+                    fast = yf.Ticker(stock_symbol_to_yf(symbol)).fast_info
+                    try:
+                        prev_close = fast["previousClose"]
+                    except Exception:
+                        prev_close = getattr(fast, "previous_close", None)
+                except Exception:
+                    logger.debug("prevClose lookup failed for %s", symbol, exc_info=True)
+            change_pct = (ltp - float(prev_close)) / float(prev_close) * 100 if prev_close else None
+            return {
+                "ltp": ltp, "change_pct": change_pct,
+                "day_high": quote.get("day_high"), "day_low": quote.get("day_low"),
+                "open": quote.get("open"), "prev_close": prev_close,
+                "volume": quote.get("volume"), "avg_volume": None,
+                "buy_qty": quote.get("buy_qty"), "sell_qty": quote.get("sell_qty"),
+                "circuit_high": quote.get("circuit_high"), "circuit_low": quote.get("circuit_low"),
+            }
+
     return _live_quote_yfinance(stock_symbol_to_yf(symbol))
 
 

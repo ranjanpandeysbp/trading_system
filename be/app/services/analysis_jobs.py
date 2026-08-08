@@ -105,6 +105,11 @@ async def execute_analysis(
 
     start_tracking()
     try:
+        if hasattr(settings, "prepare_market_data"):
+            try:
+                await settings.prepare_market_data()
+            except Exception:
+                logger.debug("prepare_market_data failed", exc_info=True)
         result = await _execute_analysis_body(
             domain, section, payload, settings=settings, db=db, user_id=user_id,
         )

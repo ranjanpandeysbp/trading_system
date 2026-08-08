@@ -79,10 +79,28 @@ def fetch_option_chain(symbol: str, is_index: bool, groww_token: str = "") -> di
     Returns the same normalized shape as news_scanner.fetch_nse_option_chain:
     underlying, expiry_dates, current_expiry, total_call_oi/put_oi, pcr_oi, pcr_vol,
     max_pain, strikes, top_call_oi/top_put_oi/top_call_chg_oi/top_put_chg_oi, source.
+
+    When data provider is IndMoney, try IndMoney OC first (API may still be
+    rolling out), then fall back to NSE / Groww.
     """
     symbol = (symbol or "").strip().upper()
     if not symbol:
         return None
+
+    try:
+        from app.data.provider_ctx import get_active_data_provider, get_active_indmoney_token
+
+        if get_active_data_provider() == "indmoney":
+            im = get_active_indmoney_token()
+            if im:
+                from app.data.indmoney_client import fetch_indmoney_option_chain
+
+                im_chain = fetch_indmoney_option_chain(symbol, im)
+                if im_chain and (im_chain.get("strikes") or im_chain.get("strikes_raw")):
+                    return im_chain
+    except Exception as exc:
+        logger.debug("IndMoney option-chain skip: %s", exc)
+
     if is_index:
         return fetch_index_option_chain(symbol, groww_token)
 
