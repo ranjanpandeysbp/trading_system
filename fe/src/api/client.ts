@@ -2087,6 +2087,18 @@ export const runPredictionPatternAnalogue = (payload: {
   min_similarity?: number
 }) => api.post('/prediction/pattern-analogue', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runPredictionAstroFinance = (payload: {
+  strategy: string
+  tickers?: string[]
+  asset_class?: string
+  exchange?: string
+  lookback_days?: number
+  forward_days?: number
+  event_window_days?: number
+  strong_moon_signs?: string[]
+  timezone_name?: string
+}) => api.post('/prediction/astro-finance', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeElliottWave = (payload: {
   tickers: string[]
   asset_class?: string

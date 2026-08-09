@@ -62,6 +62,8 @@ const nav: NavEntry[] = [
     icon: Sparkles,
     children: [
       { to: '/prediction/pattern-analogue', label: 'Pattern Analogue' },
+      { to: '/prediction/astro-finance', label: 'Astro Finance' },
+      { to: '/options?section=market_prediction', label: 'Market Prediction' },
     ],
   },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
@@ -101,6 +103,14 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
     if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
     if (entry.to === '/prediction' && location.pathname.startsWith('/prediction')) return true
+    // Prediction also deep-links Options → Market Prediction.
+    if (
+      entry.to === '/prediction'
+      && location.pathname === '/options'
+      && new URLSearchParams(location.search).get('section') === 'market_prediction'
+    ) {
+      return true
+    }
     return false
   }
 

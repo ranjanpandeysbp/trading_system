@@ -108,6 +108,7 @@ from app.models.schemas import (
     DashboardTradingChatRequest,
     PlaceOrderRequest,
     PredictionPatternAnalogueRequest,
+    PredictionAstroFinanceRequest,
     ResetPasswordRequest,
     ScanRequest,
     ScanResponse,
@@ -4797,6 +4798,29 @@ async def prediction_pattern_analogue(
             "search_to_date": payload.search_to_date or "",
             "top_n": payload.top_n,
             "min_similarity": payload.min_similarity,
+        },
+    )
+
+
+@router.post("/prediction/astro-finance")
+async def prediction_astro_finance(
+    payload: PredictionAstroFinanceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.prediction_service import PredictionService
+
+    return await PredictionService(SettingsService(db)).astro_finance(
+        strategy=payload.strategy,
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "lookback_days": payload.lookback_days,
+            "forward_days": payload.forward_days,
+            "event_window_days": payload.event_window_days,
+            "strong_moon_signs": payload.strong_moon_signs or [],
+            "timezone_name": payload.timezone_name or "",
         },
     )
 

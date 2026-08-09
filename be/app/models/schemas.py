@@ -1254,6 +1254,22 @@ class PredictionPatternAnalogueRequest(BaseModel):
     min_similarity: float = Field(default=0.82, ge=0.5, le=0.99)
 
 
+class PredictionAstroFinanceRequest(BaseModel):
+    """Financial astrology desks — lunar cycle, Amavasya S/R, Bhadra, transit gaps, trading calendar."""
+    strategy: str = Field(
+        default="lunar_cycle",
+        description="lunar_cycle | amavasya_sr | bhadra_timing | transit_gaps | trading_calendar",
+    )
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    lookback_days: int = Field(default=730, ge=120, le=2500)
+    forward_days: int = Field(default=3, ge=1, le=10)
+    event_window_days: int = Field(default=1, ge=0, le=3)
+    strong_moon_signs: list[str] = Field(default_factory=list)
+    timezone_name: str | None = None
+
+
 class YoutubeAnalysisScanRequest(BaseModel):
     """Fetch listed YouTube videos and Gemini transcripts."""
     youtube_api_key: str | None = None  # optional if saved for this user

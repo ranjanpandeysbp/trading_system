@@ -1549,6 +1549,23 @@ Conf / SL% / TP% / hold on every row.
 Suggested: `GC=F`, `XAUUSD=X`, `GLD`, `GOLDBEES`, … Conf / SL% / TP% / hold on every row.
 """,
 
+    "astro_finance": """
+### Prediction — Astro Finance
+Financial astrology timing desks (Harshubh Shah · Rahul Bhatnagar):
+
+| Desk | Rule |
+|------|------|
+| **Lunar Cycle** | Amavasya / Poornima windows + historical forward stats |
+| **Amavasya S/R** | Permanent S/R from New-Moon session highs/lows |
+| **Bhadra Timing** | Vishti Karana windows overlapping cash session |
+| **Transit Gaps** | Mars/Venus Gochar ingress ±1d vs overnight gaps |
+| **Trading Calendar** | Ashtakvarga-lite Moon days + Muhurat + commodity↔planet map |
+
+Videos: https://www.youtube.com/watch?v=xP-rt9tU79U · https://www.youtube.com/watch?v=xZ84XDFInEI · https://www.youtube.com/watch?v=G1WYa0VgA7A
+
+Always double-confirm with technical analysis. Research / education only.
+""",
+
     "scalp_multi_indicator": """
 ### Scalp — Multi Indicator (UT Bot · QQE · VAE · EMA · Volume Delta)
 [Video reference](https://www.youtube.com/watch?v=L3Zn_3ONytI&t=7s) — **1m** five-indicator stack:

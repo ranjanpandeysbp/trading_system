@@ -203,6 +203,22 @@ async def _execute_analysis_body(
             return await svc.pattern_analogue(
                 tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None,
             )
+        if section.startswith("astro_finance") or section in {
+            "lunar_cycle", "amavasya_sr", "bhadra_timing", "transit_gaps", "trading_calendar",
+            "astro_finance",
+        }:
+            strategy = str(payload.get("strategy") or section)
+            if strategy in ("astro_finance", "astro_finance_lunar_cycle"):
+                strategy = "lunar_cycle"
+            if section.startswith("astro_finance_") and section != "astro_finance":
+                strategy = section.replace("astro_finance_", "", 1)
+            return await svc.astro_finance(
+                strategy=strategy,
+                tickers=tickers,
+                asset_class=ac,
+                exchange=exchange,
+                cfg_overrides=cfg or None,
+            )
         raise ValueError(f"Unknown Prediction section: {section}")
 
     if domain == "command_center":
