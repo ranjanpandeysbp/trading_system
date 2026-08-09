@@ -317,6 +317,159 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
                 </div>
               )}
 
+              {Array.isArray(result.upcoming_stations) && (result.upcoming_stations as Row[]).length > 0 && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-400">Upcoming Mercury stations</p>
+                  <DataTable title="mercury-stations">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Lon°</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(result.upcoming_stations as Row[]).map((e) => (
+                        <tr key={`${e.date}-${e.type}`}>
+                          <td>{String(e.date)}</td>
+                          <td>{String(e.type)}</td>
+                          <td>{String(e.longitude_deg ?? '—')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </DataTable>
+                </div>
+              )}
+
+              {result.stats_near_stations ? (
+                <div className="rounded-lg bg-slate-900/50 p-3 text-xs">
+                  <p className="font-medium text-slate-200">Near-station stats</p>
+                  <p>n={String((result.stats_near_stations as Row).samples ?? 0)}</p>
+                  <p>Avg range {String((result.stats_near_stations as Row).avg_range_pct ?? '—')}%</p>
+                  <p>Avg fwd {String((result.stats_near_stations as Row).avg_forward_return_pct ?? '—')}%</p>
+                  <p>Up rate {String((result.stats_near_stations as Row).up_rate_pct ?? '—')}%</p>
+                </div>
+              ) : null}
+
+              {Array.isArray(result.upcoming_nakshatras) && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-400">Upcoming Nakshatras</p>
+                  <DataTable title="nakshatras">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Nakshatra</th>
+                        <th>Pada</th>
+                        <th>Tone</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {((result.upcoming_nakshatras as Row[]) || []).slice(0, 14).map((d) => (
+                        <tr key={String(d.date)}>
+                          <td>{String(d.date)}</td>
+                          <td>{String(d.nakshatra)}</td>
+                          <td>{String(d.pada)}</td>
+                          <td>{String(d.tone)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </DataTable>
+                </div>
+              )}
+
+              {Array.isArray(result.upcoming_panchang) && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-400">Upcoming Tithi / weekday</p>
+                  <DataTable title="panchang">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Tithi</th>
+                        <th>Weekday</th>
+                        <th>Vibration</th>
+                        <th>Tone</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {((result.upcoming_panchang as Row[]) || []).slice(0, 14).map((d) => (
+                        <tr key={String(d.date)}>
+                          <td>{String(d.date)}</td>
+                          <td className="text-xs">{String(d.tithi_name)}</td>
+                          <td className="text-xs">
+                            {String(d.weekday)} / {String(d.weekday_planet)}
+                          </td>
+                          <td>{String(d.date_vibration)}</td>
+                          <td>{String(d.tone)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </DataTable>
+                </div>
+              )}
+
+              {Array.isArray(result.square9_levels) && (result.square9_levels as Row[]).length > 0 && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-400">
+                    Gann Square-of-9 levels
+                    {result.date_vibration
+                      ? ` · day vibration ${String((result.date_vibration as Row).vibration)}`
+                      : ''}
+                  </p>
+                  <DataTable title="gann-levels">
+                    <thead>
+                      <tr>
+                        <th>Label</th>
+                        <th>Price</th>
+                        <th>Dist %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {((result.square9_levels as Row[]) || []).map((l) => (
+                        <tr key={`${l.label}-${l.price}`}>
+                          <td className="text-xs">{String(l.label)}</td>
+                          <td>{String(l.price)}</td>
+                          <td>{String(l.distance_pct)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </DataTable>
+                </div>
+              )}
+
+              {Array.isArray(result.upcoming_eclipse_proxies) &&
+                (result.upcoming_eclipse_proxies as Row[]).length > 0 && (
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-slate-400">Upcoming eclipse / node proxies</p>
+                    <DataTable title="eclipse-proxies">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Node orb°</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(result.upcoming_eclipse_proxies as Row[]).map((e) => (
+                          <tr key={`${e.date}-${e.type}`}>
+                            <td>{String(e.date)}</td>
+                            <td className="text-xs">{String(e.type)}</td>
+                            <td>{String(e.node_orb_deg ?? '—')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </DataTable>
+                  </div>
+                )}
+
+              {result.stats_eclipse_windows ? (
+                <div className="rounded-lg bg-slate-900/50 p-3 text-xs">
+                  <p className="font-medium text-slate-200">Eclipse-window stats</p>
+                  <p>n={String((result.stats_eclipse_windows as Row).samples ?? 0)}</p>
+                  <p>Avg range {String((result.stats_eclipse_windows as Row).avg_range_pct ?? '—')}%</p>
+                  <p>Avg fwd {String((result.stats_eclipse_windows as Row).avg_forward_return_pct ?? '—')}%</p>
+                </div>
+              ) : null}
+
               {Array.isArray(result.commodity_planet_map) && (
                 <div>
                   <p className="mb-1 text-xs font-medium text-slate-400">Commodity ↔ planet map</p>

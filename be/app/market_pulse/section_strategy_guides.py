@@ -1551,7 +1551,7 @@ Suggested: `GC=F`, `XAUUSD=X`, `GLD`, `GOLDBEES`, … Conf / SL% / TP% / hold on
 
     "astro_finance": """
 ### Prediction — Astro Finance
-Financial astrology timing desks (Harshubh Shah · Rahul Bhatnagar):
+Financial astrology + numerology timing desks (Harshubh Shah · Rahul Bhatnagar + classic overlays):
 
 | Desk | Rule |
 |------|------|
@@ -1560,6 +1560,11 @@ Financial astrology timing desks (Harshubh Shah · Rahul Bhatnagar):
 | **Bhadra Timing** | Vishti Karana windows overlapping cash session |
 | **Transit Gaps** | Mars/Venus Gochar ingress ±1d vs overnight gaps |
 | **Trading Calendar** | Ashtakvarga-lite Moon days + Muhurat + commodity↔planet map |
+| **Mercury Retrograde** | Stations / Rx noise — range & forward stats near turns |
+| **Nakshatra Timing** | 27 lunar mansions — favorable vs volatile execution tone |
+| **Tithi · Panchang** | Lunar day + weekday planet + date vibration numerology |
+| **Gann Numerology** | Square-of-9 magnets from LTP + day number |
+| **Eclipse / Nodes** | New/Full near Rahu–Ketu axis — eclipse-season proxy |
 
 Videos: https://www.youtube.com/watch?v=xP-rt9tU79U · https://www.youtube.com/watch?v=xZ84XDFInEI · https://www.youtube.com/watch?v=G1WYa0VgA7A
 

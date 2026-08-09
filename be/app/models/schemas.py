@@ -1265,14 +1265,18 @@ class PredictionPatternAnalogueRequest(BaseModel):
 
 
 class PredictionAstroFinanceRequest(BaseModel):
-    """Financial astrology desks — lunar cycle, Amavasya S/R, Bhadra, transit gaps, trading calendar.
+    """Financial astrology + numerology desks (lunar, Bhadra, Mercury Rx, Nakshatra, Gann, eclipse…).
 
     Pass ``strategies`` to run several desks in one call (preferred). Legacy ``strategy``
     still works for a single desk; if both empty, all desks run.
     """
     strategy: str | None = Field(
         default=None,
-        description="Legacy single desk: lunar_cycle | amavasya_sr | bhadra_timing | transit_gaps | trading_calendar",
+        description=(
+            "Legacy single desk: lunar_cycle | amavasya_sr | bhadra_timing | transit_gaps | "
+            "trading_calendar | mercury_retrograde | nakshatra_timing | tithi_panchang | "
+            "gann_numerology | eclipse_nodes"
+        ),
     )
     strategies: list[str] = Field(
         default_factory=list,

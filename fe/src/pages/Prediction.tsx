@@ -242,7 +242,14 @@ const ASTRO_STRATEGIES: { id: string; label: string }[] = [
   { id: 'bhadra_timing', label: 'Bhadra Timing' },
   { id: 'transit_gaps', label: 'Transit Gaps' },
   { id: 'trading_calendar', label: 'Trading Calendar' },
+  { id: 'mercury_retrograde', label: 'Mercury Retrograde' },
+  { id: 'nakshatra_timing', label: 'Nakshatra' },
+  { id: 'tithi_panchang', label: 'Tithi · Numerology' },
+  { id: 'gann_numerology', label: 'Gann Square-9' },
+  { id: 'eclipse_nodes', label: 'Eclipse / Nodes' },
 ]
+
+const CALENDAR_ONLY = new Set(['trading_calendar', 'nakshatra_timing', 'tithi_panchang'])
 
 const ZODIAC_SIGNS = [
   'Aries',
@@ -259,21 +266,31 @@ const ZODIAC_SIGNS = [
   'Pisces',
 ]
 
-const ASTRO_OVERVIEW = `Astro Finance overlays lunar cycles, Amavasya S/R, Bhadra timing, Mars/Venus gap bias,
-and a Muhurat / Ashtakvarga-lite trading calendar on India · US · Crypto · Commodities.
+const ASTRO_OVERVIEW = `Astro Finance overlays lunar cycles, Amavasya S/R, Bhadra, Mars/Venus gaps, Muhurat calendar,
+plus advanced Mercury Retrograde, Nakshatra mansions, Tithi/Panchang, Gann Square-of-9 numerology,
+and Eclipse / Rahu–Ketu axis windows — on India · US · Crypto · Commodities.
 
-Sources: Harshubh Shah (Vijay Thakkar + Vikas Gupta) and Astrologer Rahul Bhatnagar.
+Sources: Harshubh Shah (Vijay Thakkar + Vikas Gupta), Astrologer Rahul Bhatnagar, and classic
+financial-astrology / Gann numerology overlays.
 Use as timing confirmation with technical analysis — never as a standalone signal.
 Harshubh: Samay Balwan Che (Time is Powerful); master TA first.`
 
-const ASTRO_HOWTO = `How-to (from the videos)
+const ASTRO_HOWTO = `How-to
 
-1. Lunar Cycle — Momentum / reversals cluster near Amavasya (New Moon) & Poornima (Full Moon).
+Classic desks
+1. Lunar Cycle — Momentum / reversals near Amavasya (New Moon) & Poornima (Full Moon).
 2. Amavasya S/R — Mark New-Moon session high/low as permanent S/R; update when broken.
 3. Bhadra Timing — Vishti Karana windows during market hours for intraday tops/bottoms.
 4. Transit Gaps — Mars/Venus sign ingress ±1 day vs overnight gaps (Gochar).
 5. Trading Calendar — Moon-sign favorable days (set your 4+ Ashtakvarga signs), Char/Shubh/Amrit/Labh Muhurat,
    commodity↔planet map (Gold=Sun/Jupiter, Copper=Sun, Crude=Saturn, Silver=Moon).
+
+Advanced astrology & numerology
+6. Mercury Retrograde — Flag Rx / stations; expect noise, gap fills, false breaks — shrink size.
+7. Nakshatra — 27 lunar mansions; favorable = smoother execution, volatile = wider ranges.
+8. Tithi · Numerology — Lunar day + weekday planet + date vibration (1–9) for risk timing.
+9. Gann Square-9 — Spiral S/R from last price + day number; trade reactions at magnets.
+10. Eclipse / Nodes — New/Full near Rahu–Ketu axis ≈ eclipse season; size down, demand confirmation.
 
 Pillars: Moon · Rahu · Jupiter · Mercury. 5th house < 28 bindus → trade cautiously.`
 
@@ -288,9 +305,13 @@ function AstroFinancePage() {
   const bg = useAnalysisBackground('prediction', 'astro_finance')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
-  const needsTickers = strategies.some((s) => s !== 'trading_calendar')
-  const showLookback = strategies.some((s) => s === 'lunar_cycle' || s === 'amavasya_sr' || s === 'transit_gaps')
-  const showForward = strategies.includes('lunar_cycle')
+  const needsTickers = strategies.some((s) => !CALENDAR_ONLY.has(s))
+  const showLookback = strategies.some((s) =>
+    ['lunar_cycle', 'amavasya_sr', 'transit_gaps', 'mercury_retrograde', 'eclipse_nodes', 'gann_numerology'].includes(s),
+  )
+  const showForward = strategies.some((s) =>
+    ['lunar_cycle', 'mercury_retrograde', 'eclipse_nodes'].includes(s),
+  )
   const showCalendarSigns = strategies.includes('trading_calendar')
 
   const toggleStrategy = (id: string) => {
@@ -344,7 +365,7 @@ function AstroFinancePage() {
     <div>
       <PageHeader
         title="Astro Finance"
-        description="Lunar cycles · Amavasya S/R · Bhadra · Transit gaps · Muhurat calendar — India / US / Crypto / Commodities"
+        description="Lunar · Amavasya S/R · Bhadra · Transits · Muhurat · Mercury Rx · Nakshatra · Tithi · Gann · Eclipse/Nodes"
       />
 
       <div className="mb-4 space-y-2">
