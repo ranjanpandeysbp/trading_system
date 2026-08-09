@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { LineChart, Search, Radar } from 'lucide-react'
 import {
   apiErrorMessage,
@@ -63,7 +64,9 @@ function isEngineScreener(s: ScreenerMeta) {
 }
 
 export default function TechnicalAnalysis() {
-  const [tab, setTab] = useState('ticker_investigation')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabFromUrl = searchParams.get('tab')
+  const [tab, setTab] = useState(tabFromUrl || 'ticker_investigation')
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
   const [tickers, setTickers] = useState('RELIANCE, TCS, INFY, HDFCBANK')
@@ -80,6 +83,15 @@ export default function TechnicalAnalysis() {
     const list = (catalog as { screeners?: ScreenerMeta[] })?.screeners ?? []
     return list
   }, [catalog])
+
+  useEffect(() => {
+    const next = searchParams.get('tab')
+    if (next && next !== tab && screeners.some((s) => s.id === next)) {
+      setTab(next)
+      const meta = screeners.find((s) => s.id === next)
+      if (meta?.default_tf) setEngineTf(meta.default_tf)
+    }
+  }, [searchParams, screeners, tab])
 
   const active = screeners.find((s) => s.id === tab)
   const isEngine = active ? isEngineScreener(active) : false
@@ -162,6 +174,11 @@ export default function TechnicalAnalysis() {
     setError('')
     const meta = screeners.find((s) => s.id === id)
     if (meta?.default_tf) setEngineTf(meta.default_tf)
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.set('tab', id)
+      return p
+    }, { replace: true })
   }
 
   const coreScreeners = screeners.filter((s) => !isEngineScreener(s))

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Activity, RefreshCw } from 'lucide-react'
 import {
   apiErrorMessage,
@@ -136,7 +137,9 @@ function SectionContent({ section, data }: { section: string; data: SectionData 
 }
 
 export default function MarketPulse() {
-  const [section, setSection] = useState('tomorrow_outlook')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const sectionFromUrl = searchParams.get('section')
+  const [section, setSectionState] = useState(sectionFromUrl || 'tomorrow_outlook')
   const [indexName, setIndexName] = useState('NIFTY 50')
   const [tfKey, setTfKey] = useState('1d')
   const [lookback, setLookback] = useState(5)
@@ -147,6 +150,21 @@ export default function MarketPulse() {
   const [error, setError] = useState('')
   const needsAction = ACTION_SECTIONS.has(section)
   const bg = useAnalysisBackground('market_pulse', section, needsAction)
+
+  const setSection = (id: string) => {
+    setSectionState(id)
+    setError('')
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.set('section', id)
+      return p
+    }, { replace: true })
+  }
+
+  useEffect(() => {
+    const next = searchParams.get('section')
+    if (next && next !== section) setSectionState(next)
+  }, [searchParams, section])
 
   const stockRotationMarket = STOCK_ROTATION_MARKETS[section]
   const universesQ = useQuery({
@@ -375,7 +393,7 @@ export default function MarketPulse() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {(sections?.sections ?? []).map((s) => (
-          <Chip key={s.id} selected={section === s.id} onClick={() => { setSection(s.id); setError('') }}>
+          <Chip key={s.id} selected={section === s.id} onClick={() => setSection(s.id)}>
             {s.label}
           </Chip>
         ))}

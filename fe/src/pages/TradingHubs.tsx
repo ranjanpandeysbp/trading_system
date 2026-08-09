@@ -158,7 +158,7 @@ function sectionHasFixedUniverse(section: TradingHubSection | undefined): boolea
 }
 
 export default function TradingHubs() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [hubId, setHubId] = useState(searchParams.get('hub') || 'swing')
   const [sectionId, setSectionId] = useState(searchParams.get('section') || '')
@@ -169,6 +169,23 @@ export default function TradingHubs() {
   const queryClient = useQueryClient()
   const isIntraHedging = sectionId === 'intra_hedging'
   const analysisBg = useAnalysisBackground('trading_hub', sectionId || '', !!sectionId && !isIntraHedging)
+
+  useEffect(() => {
+    const nextHub = searchParams.get('hub')
+    const nextSection = searchParams.get('section')
+    if (nextHub && nextHub !== hubId) setHubId(nextHub)
+    if (nextSection != null && nextSection !== sectionId) setSectionId(nextSection)
+  }, [searchParams, hubId, sectionId])
+
+  const syncHubUrl = (hub: string, section?: string) => {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.set('hub', hub)
+      if (section) p.set('section', section)
+      else p.delete('section')
+      return p
+    }, { replace: true })
+  }
   const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
   const [runInBackground, setRunInBackground] = useState(false)
   const [bgReportName, setBgReportName] = useState('')
@@ -428,7 +445,7 @@ export default function TradingHubs() {
         {(hubsQ.data?.hubs ?? []).map((hub) => {
           const Icon = HUB_ICONS[hub.id] ?? TrendingUp
           return (
-            <Chip key={hub.id} selected={hubId === hub.id} onClick={() => { setHubId(hub.id); setError('') }}>
+            <Chip key={hub.id} selected={hubId === hub.id} onClick={() => { setHubId(hub.id); setError(''); syncHubUrl(hub.id) }}>
               <span className="inline-flex items-center gap-1.5">
                 <Icon size={14} />
                 {hub.label}
@@ -444,7 +461,7 @@ export default function TradingHubs() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {activeHub?.sections?.map((s) => (
-          <Chip key={s.id} selected={sectionId === s.id} onClick={() => { setSectionId(s.id); setError('') }}>
+          <Chip key={s.id} selected={sectionId === s.id} onClick={() => { setSectionId(s.id); setError(''); syncHubUrl(hubId, s.id) }}>
             {s.label}
           </Chip>
         ))}

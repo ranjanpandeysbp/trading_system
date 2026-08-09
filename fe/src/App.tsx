@@ -24,6 +24,9 @@ import TradeCandidate from './pages/TradeCandidate'
 import Options from './pages/Options'
 import ProTrade from './pages/ProTrade'
 import Prediction from './pages/Prediction'
+import Workflow from './pages/Workflow'
+import BestStrategies from './pages/BestStrategies'
+import InstitutionalAccuracy from './pages/InstitutionalAccuracy'
 import PaperTrading from './pages/PaperTrading'
 import ManageSettings from './pages/ManageSettings'
 import Login from './pages/Login'
@@ -93,6 +96,12 @@ export default function App() {
                 <Route path="/seasonality" element={<Seasonality />} />
                 <Route path="/youtube-analysis" element={<YoutubeAnalysis />} />
                 <Route path="/investing-agent" element={<InvestingAgent />} />
+                <Route path="/workflow" element={<Navigate to="/workflow/india" replace />} />
+                <Route path="/workflow/:market" element={<Workflow />} />
+                <Route path="/best-strategies" element={<Navigate to="/best-strategies/india" replace />} />
+                <Route path="/best-strategies/:market" element={<BestStrategies />} />
+                <Route path="/institutional-accuracy" element={<Navigate to="/institutional-accuracy/india" replace />} />
+                <Route path="/institutional-accuracy/:market" element={<InstitutionalAccuracy />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/todos" element={<TodosPage />} />

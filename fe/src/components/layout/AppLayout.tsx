@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles, GitBranch, Medal, Building2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -10,6 +10,42 @@ type NavEntry = { to: string; label: string; shortLabel: string; icon: typeof La
 const nav: NavEntry[] = [
   { to: '/trading-agent', label: 'Trading Agent (TA)', shortLabel: 'TA', icon: MessageSquare },
   { to: '/investing-agent', label: 'Investing Agent (FA)', shortLabel: 'FA', icon: Bot },
+  {
+    to: '/workflow',
+    label: 'Workflow',
+    shortLabel: 'Flow',
+    icon: GitBranch,
+    children: [
+      { to: '/workflow/india', label: 'India (F&O / Intraday)' },
+      { to: '/workflow/us', label: 'US (Swing / Pairs)' },
+      { to: '/workflow/crypto', label: 'Crypto (Scalp / Intraday)' },
+      { to: '/workflow/commodities', label: 'Commodities (Gold / Oil)' },
+    ],
+  },
+  {
+    to: '/best-strategies',
+    label: 'Best Strategies',
+    shortLabel: 'Best',
+    icon: Medal,
+    children: [
+      { to: '/best-strategies/india', label: 'India (Equities & F&O)' },
+      { to: '/best-strategies/us', label: 'US Equities' },
+      { to: '/best-strategies/crypto', label: 'Crypto' },
+      { to: '/best-strategies/commodities', label: 'Commodities' },
+    ],
+  },
+  {
+    to: '/institutional-accuracy',
+    label: 'Institutional Accuracy',
+    shortLabel: 'Inst',
+    icon: Building2,
+    children: [
+      { to: '/institutional-accuracy/india', label: 'India' },
+      { to: '/institutional-accuracy/us', label: 'US' },
+      { to: '/institutional-accuracy/crypto', label: 'Crypto' },
+      { to: '/institutional-accuracy/commodities', label: 'Commodities' },
+    ],
+  },
   { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
   { to: '/auto-trade', label: 'Auto Trade', shortLabel: 'Auto', icon: Radar },
   {
@@ -127,6 +163,9 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
     if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
     if (entry.to === '/prediction' && location.pathname.startsWith('/prediction')) return true
+    if (entry.to === '/workflow' && location.pathname.startsWith('/workflow')) return true
+    if (entry.to === '/best-strategies' && location.pathname.startsWith('/best-strategies')) return true
+    if (entry.to === '/institutional-accuracy' && location.pathname.startsWith('/institutional-accuracy')) return true
     if (entry.to === '/command-center' && location.pathname.startsWith('/command-center')) return true
     // Prediction also deep-links Options → Market Prediction / Call Put Writing.
     if (
