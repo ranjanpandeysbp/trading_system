@@ -2108,6 +2108,12 @@ export const runPredictionAstroFinance = (payload: {
   timezone_name?: string
 }) => api.post('/prediction/astro-finance', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runWorkflowEvaluate = (payload: {
+  market: 'india' | 'us' | 'crypto' | 'commodities'
+  mode: 'index' | 'stock'
+  tickers?: string[]
+}) => api.post('/workflow/evaluate', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeElliottWave = (payload: {
   tickers: string[]
   asset_class?: string

@@ -140,6 +140,7 @@ from app.models.schemas import (
     UserRegister,
     SaveYoutubeAiViewRequest,
     UpdateYoutubeAiViewRequest,
+    WorkflowEvaluateRequest,
     YoutubeAnalysisAiViewRequest,
     YoutubeAnalysisScanRequest,
 )
@@ -4839,6 +4840,22 @@ async def prediction_astro_finance(
             "strong_moon_signs": payload.strong_moon_signs or [],
             "timezone_name": payload.timezone_name or "",
         },
+    )
+
+
+@router.post("/workflow/evaluate")
+async def workflow_evaluate(
+    payload: WorkflowEvaluateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Run all desks for a Workflow market (India/US/Crypto/Commodities) in index or stock mode."""
+    from app.services.workflow_evaluate_service import WorkflowEvaluateService
+
+    return await WorkflowEvaluateService(SettingsService(db), db).evaluate(
+        payload.market,
+        payload.mode,
+        tickers=payload.tickers or None,
     )
 
 

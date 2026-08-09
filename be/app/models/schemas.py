@@ -1326,3 +1326,10 @@ class UpdateYoutubeAiViewRequest(BaseModel):
     """Rename and/or edit the report text of a saved AI View."""
     name: str | None = None
     report: str | None = None
+
+
+class WorkflowEvaluateRequest(BaseModel):
+    """Run all desks in a Workflow playbook for index or stock mode."""
+    market: Literal["india", "us", "crypto", "commodities"] = "india"
+    mode: Literal["index", "stock"] = "index"
+    tickers: list[str] = Field(default_factory=list)
