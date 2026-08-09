@@ -2073,6 +2073,20 @@ export const runProTradeVolumeSpreadNextCandle = (payload: {
   rr_ratio?: number
 }) => api.post('/pro-trade/volume-spread-next-candle', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runPredictionPatternAnalogue = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  pattern_bars?: number
+  forward_bars?: number
+  search_lookback_bars?: number
+  search_from_date?: string
+  search_to_date?: string
+  top_n?: number
+  min_similarity?: number
+}) => api.post('/prediction/pattern-analogue', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeElliottWave = (payload: {
   tickers: string[]
   asset_class?: string

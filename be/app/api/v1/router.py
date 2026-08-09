@@ -107,6 +107,7 @@ from app.models.schemas import (
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
     PlaceOrderRequest,
+    PredictionPatternAnalogueRequest,
     ResetPasswordRequest,
     ScanRequest,
     ScanResponse,
@@ -4772,6 +4773,31 @@ async def pro_trade_ticker_chart(
         to_date=payload.to_date,
         session_date=payload.session_date,
         interval=payload.interval,
+    )
+
+
+@router.post("/prediction/pattern-analogue")
+async def prediction_pattern_analogue(
+    payload: PredictionPatternAnalogueRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.prediction_service import PredictionService
+
+    return await PredictionService(SettingsService(db)).pattern_analogue(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "pattern_bars": payload.pattern_bars,
+            "forward_bars": payload.forward_bars,
+            "search_lookback_bars": payload.search_lookback_bars,
+            "search_from_date": payload.search_from_date or "",
+            "search_to_date": payload.search_to_date or "",
+            "top_n": payload.top_n,
+            "min_similarity": payload.min_similarity,
+        },
     )
 
 

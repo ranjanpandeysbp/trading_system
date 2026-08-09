@@ -40,6 +40,7 @@ ANALYSIS_DOMAINS = frozenset({
     "scanner",
     "seasonality",
     "trading_agent",
+    "prediction",
 })
 
 
@@ -183,6 +184,26 @@ async def _execute_analysis_body(
         if section == "btst":
             return await svc.btst(tickers, asset_class=ac, cfg_overrides=cfg or None)
         raise ValueError(f"Unknown Pro Trade section: {section}")
+
+    if domain == "prediction":
+        from app.services.prediction_service import PredictionService
+
+        svc = PredictionService(settings, db)
+        tickers = _tickers(payload)
+        ac = _asset_class(payload)
+        exchange = payload.get("exchange")
+        cfg = {
+            k: v for k, v in payload.items()
+            if k not in {
+                "tickers", "asset_class", "exchange", "report_name",
+                "run_in_background", "domain", "section", "section_id",
+            }
+        }
+        if section == "pattern_analogue":
+            return await svc.pattern_analogue(
+                tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None,
+            )
+        raise ValueError(f"Unknown Prediction section: {section}")
 
     if domain == "command_center":
         return await _execute_command_center(section, payload, settings=settings, db=db)

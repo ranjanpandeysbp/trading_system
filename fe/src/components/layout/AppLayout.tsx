@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -55,6 +55,15 @@ const nav: NavEntry[] = [
       { to: '/pro-trade/ticker-chart', label: 'Ticker Chart' },
     ],
   },
+  {
+    to: '/prediction',
+    label: 'Prediction',
+    shortLabel: 'Predict',
+    icon: Sparkles,
+    children: [
+      { to: '/prediction/pattern-analogue', label: 'Pattern Analogue' },
+    ],
+  },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },
   { to: '/strategy-lab', label: 'Strategy Lab', shortLabel: 'Lab', icon: Beaker },
   { to: '/seasonality', label: 'Seasonality', shortLabel: 'Season', icon: CalendarRange },
@@ -91,6 +100,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     if (entry.children?.some((c) => childMatches(c.to))) return true
     // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
     if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
+    if (entry.to === '/prediction' && location.pathname.startsWith('/prediction')) return true
     return false
   }
 
