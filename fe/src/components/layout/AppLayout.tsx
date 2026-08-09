@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles, GitBranch, Medal, Building2 } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles, GitBranch, Medal, Building2, Flame } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -69,6 +69,8 @@ const nav: NavEntry[] = [
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
   { to: '/market-pulse', label: 'Market Pulse', shortLabel: 'Pulse', icon: Activity },
   { to: '/etf-ta-in', label: 'ETF TA IN', shortLabel: 'ETF', icon: Landmark },
+  { to: '/etf-28-sma', label: 'ETF 28 SMA', shortLabel: '28 SMA', icon: TrendingUp },
+  { to: '/etf-top-down', label: 'ETF Top Down', shortLabel: 'Top Down', icon: ArrowUp },
   { to: '/trading-hubs', label: 'Trading Hubs', shortLabel: 'Hubs', icon: Layers },
   {
     to: '/trade-candidate',
@@ -103,6 +105,11 @@ const nav: NavEntry[] = [
       { to: '/pro-trade/elliott-wave', label: 'Elliott Wave' },
       { to: '/pro-trade/fibonacci-pro', label: 'Fibonacci Pro' },
       { to: '/pro-trade/bb-mean-reversion', label: 'BB Mean Reversion' },
+      { to: '/pro-trade/traffic-light-indicator', label: 'Traffic Light Indicator' },
+      { to: '/pro-trade/buy-low-sell-high', label: 'Buy Low Sell High' },
+      { to: '/pro-trade/rlb-breakout', label: 'RLB - Breakout' },
+      { to: '/pro-trade/3-in-1-trade-system', label: '3-in-1 Trade System' },
+      { to: '/pro-trade/simple-effective', label: 'Simple Effective' },
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
       { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },
       { to: '/pro-trade/ticker-chart', label: 'Ticker Chart' },
@@ -128,6 +135,7 @@ const nav: NavEntry[] = [
   { to: '/watchlist', label: 'Watchlist', shortLabel: 'Watch', icon: Eye },
   { to: '/todos', label: 'Todos', shortLabel: 'Todos', icon: ListTodo },
   { to: '/best-mf', label: 'Best MF', shortLabel: 'Best MF', icon: Trophy },
+  { to: '/mf-fire', label: 'MF FIRE', shortLabel: 'FIRE', icon: Flame },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },

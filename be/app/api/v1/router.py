@@ -20,6 +20,8 @@ from app.models.schemas import (
     CommandCenterMegaRequest,
     BacktestRequest,
     BacktestResponse,
+    Etf28SmaScanRequest,
+    EtfTopDownScanRequest,
     EtfShopAddLotRequest,
     EtfShopCloseLotRequest,
     EtfShopConfigUpdateRequest,
@@ -49,6 +51,7 @@ from app.models.schemas import (
     SaveMfHoldingsReportRequest,
     CommandCenterBestMfRequest,
     SaveBestMfReportRequest,
+    MfFirePlanRequest,
     TradingHubBackgroundScanRequest,
     SaveTradingHubReportRequest,
     CommandCenterEtfIndiaHoldingsRequest,
@@ -104,6 +107,11 @@ from app.models.schemas import (
     ProTradeElliottWaveRequest,
     ProTradeFibonacciProRequest,
     ProTradeBbMeanReversionRequest,
+    ProTradeTrafficLightRequest,
+    ProTradeBuyLowSellHighRequest,
+    ProTradeRlbBreakoutRequest,
+    ProTradeThreeInOneRequest,
+    ProTradeSimpleEffectiveRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
@@ -1897,6 +1905,51 @@ async def best_mf_delete_report(
 ):
     service = CommandCenterService(SettingsService(db), db)
     return await service.delete_best_mf_report(report_id, user_id=current_user.id)
+
+
+@router.get("/mf-fire/guide")
+async def mf_fire_guide(
+    current_user: User = Depends(get_current_user),
+):
+    from app.market_pulse.mf_fire_engine import HOW_IT_WORKS, PRINCIPLES, STRATEGY_NAME, YOUTUBE_URL
+
+    return {
+        "strategy": "mf_fire",
+        "strategy_label": STRATEGY_NAME,
+        "youtube": YOUTUBE_URL,
+        "how_it_works": HOW_IT_WORKS,
+        "principles": PRINCIPLES,
+    }
+
+
+@router.post("/mf-fire/plan")
+async def mf_fire_plan(
+    payload: MfFirePlanRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from app.market_pulse.mf_fire_engine import MfFireConfig, build_mf_fire_ai_prompt, plan_mf_fire
+    from app.market_pulse.serialize import json_safe
+
+    cfg = MfFireConfig(
+        annual_expenses=payload.annual_expenses,
+        monthly_salary=payload.monthly_salary,
+        current_corpus=payload.current_corpus,
+        monthly_sip=payload.monthly_sip,
+        expected_equity_return_pct=payload.expected_equity_return_pct,
+        inflation_pct=payload.inflation_pct,
+        fire_multiple=payload.fire_multiple,
+        long_runway_multiple=payload.long_runway_multiple,
+        equity_only_until_cr=payload.equity_only_until_cr,
+        age=payload.age,
+        home_loan_balance=payload.home_loan_balance,
+        home_loan_rate_pct=payload.home_loan_rate_pct,
+        extra_emi_toward_loan=payload.extra_emi_toward_loan,
+        dual_income=payload.dual_income,
+        principles_checklist=list(payload.principles_checklist or []),
+    )
+    result = plan_mf_fire(cfg)
+    result["ai_context"] = build_mf_fire_ai_prompt(result)
+    return json_safe(result)
 
 
 @router.get("/command-center/etf/amcs")
@@ -3785,6 +3838,72 @@ async def etf_ta_universe(
     return service.universe(asset_class)
 
 
+@router.get("/etf-28-sma/universe")
+async def etf_28_sma_universe(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """FIRE 28 SMA + ETF Shop presets and curated ticker lists."""
+    return EtfTaService(SettingsService(db), db).etf_28_sma_universe()
+
+
+@router.get("/etf-28-sma/guide")
+async def etf_28_sma_guide(
+    current_user: User = Depends(get_current_user),
+):
+    from app.etf_ta.etf_28_sma_engine import HOW_IT_WORKS, RULES, STRATEGY_NAME
+
+    return {
+        "strategy": "etf_28_sma",
+        "strategy_label": STRATEGY_NAME,
+        "how_it_works": HOW_IT_WORKS,
+        "rules": RULES,
+    }
+
+
+@router.post("/etf-28-sma/scan")
+async def etf_28_sma_scan(
+    payload: Etf28SmaScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db), db)
+    return await service.etf_28_sma_scan(payload.model_dump())
+
+
+@router.get("/etf-top-down/universe")
+async def etf_top_down_universe(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return EtfTaService(SettingsService(db), db).etf_top_down_universe()
+
+
+@router.get("/etf-top-down/guide")
+async def etf_top_down_guide(
+    current_user: User = Depends(get_current_user),
+):
+    from app.etf_ta.etf_top_down_engine import HOW_IT_WORKS, RULES, STRATEGY_NAME, YOUTUBE_URL
+
+    return {
+        "strategy": "etf_top_down",
+        "strategy_label": STRATEGY_NAME,
+        "youtube": YOUTUBE_URL,
+        "how_it_works": HOW_IT_WORKS,
+        "rules": RULES,
+    }
+
+
+@router.post("/etf-top-down/scan")
+async def etf_top_down_scan(
+    payload: EtfTopDownScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = EtfTaService(SettingsService(db), db)
+    return await service.etf_top_down_scan(payload.model_dump())
+
+
 @router.post("/etf-ta/stf-shop/scan")
 async def etf_ta_stf_scan(
     payload: EtfTaScanRequest,
@@ -4747,6 +4866,115 @@ async def pro_trade_bb_mean_reversion(
             "zone_tolerance_pct": payload.zone_tolerance_pct,
             "min_rr": payload.min_rr,
             "extra_checks": payload.extra_checks,
+        },
+    )
+
+
+@router.post("/pro-trade/traffic-light-indicator")
+async def pro_trade_traffic_light_indicator(
+    payload: ProTradeTrafficLightRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).traffic_light_indicator(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "further_analysis": payload.further_analysis,
+            "rr_min": payload.rr_min,
+            "sl_atr_mult": payload.sl_atr_mult,
+            "tp_atr_mult": payload.tp_atr_mult,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+        },
+    )
+
+
+@router.post("/pro-trade/buy-low-sell-high")
+async def pro_trade_buy_low_sell_high(
+    payload: ProTradeBuyLowSellHighRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).buy_low_sell_high(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "low_lookback": payload.low_lookback,
+            "buy_buffer_pct": payload.buy_buffer_pct,
+            "sell_target_pct": payload.sell_target_pct,
+            "add_on_drop_pct": payload.add_on_drop_pct,
+        },
+    )
+
+
+@router.post("/pro-trade/rlb-breakout")
+async def pro_trade_rlb_breakout(
+    payload: ProTradeRlbBreakoutRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).rlb_breakout(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "rsi_min": payload.rsi_min,
+            "rsi_prefer": payload.rsi_prefer,
+            "min_day_chg_pct": payload.min_day_chg_pct,
+            "volume_sma_period": payload.volume_sma_period,
+            "require_all_seven": payload.require_all_seven,
+        },
+    )
+
+
+@router.post("/pro-trade/3-in-1-trade-system")
+async def pro_trade_three_in_one(
+    payload: ProTradeThreeInOneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).three_in_one_trade_system(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "lookback_bars": payload.lookback_bars,
+            "car_rising_days": payload.car_rising_days,
+            "max_pct_above_200": payload.max_pct_above_200,
+            "require_volume_breakout": payload.require_volume_breakout,
+            "sip_gap_days": payload.sip_gap_days,
+            "max_holdings": payload.max_holdings,
+        },
+    )
+
+
+@router.post("/pro-trade/simple-effective")
+async def pro_trade_simple_effective(
+    payload: ProTradeSimpleEffectiveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).simple_effective(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "ma_fast": payload.ma_fast,
+            "ma_slow": payload.ma_slow,
+            "use_ema": payload.use_ema,
+            "rr_multiple": payload.rr_multiple,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },
     )
 

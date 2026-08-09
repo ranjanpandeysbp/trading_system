@@ -120,6 +120,8 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     ],
     "🇮🇳 ETF TA IN": [
         ("stf_shop", "ETF Shop 4.0 — 20 DMA · dynamic SIP · FIFO · 39 distinct ETFs"),
+        ("etf_28_sma", "ETF 28 SMA Momentum — FIRE · 3.14% · averaging · FIFO/LIFO"),
+        ("etf_top_down", "ETF Top Down — macro RS · P&F · Renko + D-Smart 10 · weekly"),
     ],
     "⚡ Strategy Lab": [
         ("strategy_builder", "Strategy Builder & Tester"),
@@ -185,8 +187,16 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("elliott_wave_pro", "Elliott Wave — impulse / corrective Pro Trade scanner"),
         ("fibonacci_pro", "Fibonacci Pro — golden-zone pullback · multi-strategy Fib"),
         ("bb_mean_reversion", "BB Mean Reversion — %B stretch · squeeze · S/R confluence"),
+        ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
+        ("buy_low_sell_high", "Buy Low Sell High — 25 DL GTT ladder · avg+5% exit · no SL"),
+        ("rlb_breakout", "RLB - Breakout — Rocket Launcher · 7 confirmations"),
+        ("three_in_one_trade_system", "3-in-1 Trade System — DMA + CAR + Volume · +6.28%"),
+        ("simple_effective", "Simple Effective — MA band + MACD hist-zone · 1:1–1.5 RRR"),
         ("btst", "Buy Today Sell Tomorrow — closing-strength BTST / STBT"),
         ("ticker_chart", "Ticker Chart — daily / intraday with S1/S2 · R1/R2"),
+    ],
+    "🔥 MF FIRE": [
+        ("mf_fire", "MF FIRE — 25× FI · 1% rule · equity MF accumulation"),
     ],
     "📉 Options": [
         ("double_calendar", "Double Calendar — dual-expiry premium capture"),
@@ -884,6 +894,30 @@ Also available on the **Dashboard**.
 """,
     "bb_mean_reversion": """
 **When to use:** Mean-reversion when %B stretches and S/R + RSI + volume climax agree — avoid strong-trend (high ER) regimes.
+""",
+    "traffic_light_indicator": """
+**When to use:** Swing buy when SMA200>50>20 and daily close is under all three; sell when stack flips and close is above all three. Prefer large-caps; optional MTF Trend & Strength.
+""",
+    "buy_low_sell_high": """
+**When to use:** Dip-buy liquid names with a GTT at 25-day low + 5%; update on new lows; add only after −10% vs average; sell all at average + 5%; no stop-loss.
+""",
+    "rlb_breakout": """
+**When to use:** Screen for rocket-launcher breakouts — prior-high break + green candle + EMA20/50 + RSI>60 + >2% day + volume > 5-day SMA.
+""",
+    "three_in_one_trade_system": """
+**When to use:** DMA 50/100/200 + CAR rising from 52w high; buy closest to 200 DMA; exit +6.28% avg; SIP only after −20% with CAR re-trigger and 30d gap.
+""",
+    "simple_effective": """
+**When to use:** MA-band full close outside + MACD crossover inside matching histogram; enter on signal high/low break; SL opposite band; TP 1:1–1.5 RRR.
+""",
+    "etf_28_sma": """
+**When to use:** India ETF momentum with 28 SMA two-close entry/exit, 3.14% profit floor, 5% cheaper re-breakout averaging, and FIFO/LIFO lot booking. Scan near the close.
+""",
+    "etf_top_down": """
+**When to use:** Top-down ETF swing — rank macros with P&F RS, shortlist Top 20 ETFs with score > 0, enter/exit on Renko × D-Smart 10, rebalance weekly (Fridays).
+""",
+    "mf_fire": """
+**When to use:** Size your FI number (25×/35× expenses), 1% salary-confidence portfolio, and SIP runway — then pick equity MFs on Best MF. Education only.
 """,
     "btst": """
 **When to use:** Overnight BTST / STBT when closing strength (CLV), volume, RS, VWAP, and optional OI buildup align.

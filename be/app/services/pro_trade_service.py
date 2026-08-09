@@ -82,6 +82,36 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "traffic_light_indicator",
+                    "label": "Traffic Light Indicator",
+                    "path": "/pro-trade/traffic-light-indicator",
+                    "youtube": "https://www.youtube.com/watch?v=xIKoYISD6mY&t=29s",
+                },
+                {
+                    "id": "buy_low_sell_high",
+                    "label": "Buy Low Sell High",
+                    "path": "/pro-trade/buy-low-sell-high",
+                    "youtube": None,
+                },
+                {
+                    "id": "rlb_breakout",
+                    "label": "RLB - Breakout",
+                    "path": "/pro-trade/rlb-breakout",
+                    "youtube": "https://www.youtube.com/watch?v=pBQ1oVDVe3M",
+                },
+                {
+                    "id": "three_in_one_trade_system",
+                    "label": "3-in-1 Trade System",
+                    "path": "/pro-trade/3-in-1-trade-system",
+                    "youtube": None,
+                },
+                {
+                    "id": "simple_effective",
+                    "label": "Simple Effective",
+                    "path": "/pro-trade/simple-effective",
+                    "youtube": None,
+                },
+                {
                     "id": "btst",
                     "label": "Buy Today Sell Tomorrow",
                     "path": "/pro-trade/btst",
@@ -402,6 +432,255 @@ class ProTradeService:
         for r in payload.get("results", []):
             r["ai_context"] = build_bb_mean_reversion_ai_prompt(r)
         payload["ai_system_prompt"] = BB_MEAN_REVERSION_AI_SYSTEM
+        return json_safe(payload)
+
+    async def traffic_light_indicator(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.traffic_light_indicator_engine import (
+            TRAFFIC_LIGHT_AI_SYSTEM,
+            TrafficLightConfig,
+            build_traffic_light_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        if "further_analysis" in ov and ov["further_analysis"] is None:
+            ov["further_analysis"] = []
+        cfg = TrafficLightConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "sma_green", "sma_yellow", "sma_red",
+                "min_bars", "rr_min", "sl_atr_mult", "tp_atr_mult",
+                "take_confidence_threshold", "further_analysis", "chart_bars",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_traffic_light_ai_prompt(r)
+        payload["ai_system_prompt"] = TRAFFIC_LIGHT_AI_SYSTEM
+        return json_safe(payload)
+
+    async def buy_low_sell_high(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.buy_low_sell_high_engine import (
+            BUY_LOW_SELL_HIGH_AI_SYSTEM,
+            BuyLowSellHighConfig,
+            build_buy_low_sell_high_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = BuyLowSellHighConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "low_lookback", "buy_buffer_pct",
+                "sell_target_pct", "add_on_drop_pct", "min_bars", "chart_bars",
+                "near_trigger_pct",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_buy_low_sell_high_ai_prompt(r)
+        payload["ai_system_prompt"] = BUY_LOW_SELL_HIGH_AI_SYSTEM
+        return json_safe(payload)
+
+    async def rlb_breakout(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.rlb_breakout_engine import (
+            RLB_AI_SYSTEM,
+            RlbBreakoutConfig,
+            build_rlb_breakout_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = RlbBreakoutConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "ema_fast", "ema_slow", "rsi_period",
+                "rsi_min", "rsi_prefer", "min_day_chg_pct", "volume_sma_period",
+                "min_bars", "chart_bars", "sl_atr_mult", "tp_atr_mult",
+                "take_confidence_threshold", "require_all_seven",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_rlb_breakout_ai_prompt(r)
+        payload["ai_system_prompt"] = RLB_AI_SYSTEM
+        return json_safe(payload)
+
+    async def three_in_one_trade_system(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.three_in_one_trade_system_engine import (
+            THREE_IN_ONE_AI_SYSTEM,
+            ThreeInOneConfig,
+            build_three_in_one_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = ThreeInOneConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "sma_fast", "sma_mid", "sma_slow",
+                "max_pct_above_200", "car_rising_days", "week52_bars",
+                "volume_sma_period", "require_volume_breakout", "profit_target_pct",
+                "sip_drawdown_pct", "sip_gap_days", "new_buy_capital_pct",
+                "reserve_capital_pct", "max_holdings", "min_bars", "chart_bars",
+                "take_confidence_threshold",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_three_in_one_ai_prompt(r)
+        payload["ai_system_prompt"] = THREE_IN_ONE_AI_SYSTEM
+        return json_safe(payload)
+
+    async def simple_effective(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        timeframes: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.simple_effective_engine import (
+            SIMPLE_EFFECTIVE_AI_SYSTEM,
+            SimpleEffectiveConfig,
+            build_simple_effective_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = SimpleEffectiveConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "ma_fast", "ma_slow", "use_ema",
+                "macd_fast", "macd_slow", "macd_signal", "rr_multiple",
+                "signal_lookback", "open_low_eps_pct", "min_bars", "chart_bars",
+                "take_confidence_threshold",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+        tfs = timeframes or ([cfg.timeframe] if cfg.timeframe else ["15m"])
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange, timeframes=tfs,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_simple_effective_ai_prompt(r)
+        payload["ai_system_prompt"] = SIMPLE_EFFECTIVE_AI_SYSTEM
         return json_safe(payload)
 
     async def btst(

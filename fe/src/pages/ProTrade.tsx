@@ -10,6 +10,11 @@ import {
   fetchBtstReport,
   fetchBtstReports,
   runProTradeBbMeanReversion,
+  runProTradeTrafficLight,
+  runProTradeBuyLowSellHigh,
+  runProTradeRlbBreakout,
+  runProTradeThreeInOne,
+  runProTradeSimpleEffective,
   runProTradeBtst,
   runProTradeElliottWave,
   runProTradeFibonacciPro,
@@ -33,6 +38,11 @@ import {
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
 import { BbMeanReversionPanel } from '../components/pro-trade/BbMeanReversionPanel'
+import { TrafficLightIndicatorPanel } from '../components/pro-trade/TrafficLightIndicatorPanel'
+import { BuyLowSellHighPanel } from '../components/pro-trade/BuyLowSellHighPanel'
+import { RlbBreakoutPanel } from '../components/pro-trade/RlbBreakoutPanel'
+import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTradeSystemPanel'
+import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
@@ -1807,6 +1817,972 @@ function BbMeanReversionPage() {
   )
 }
 
+const TL_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'mtf_trend_strength', label: 'Trend & Strength (MTF)' },
+]
+
+const TL_OVERVIEW = `Traffic Light Indicator — SMA 20 (Green) / 50 (Yellow) / 200 (Red) on a daily chart.
+
+Source video: https://www.youtube.com/watch?v=xIKoYISD6mY&t=29s
+
+Think of the three moving averages as a traffic light stack. The video's swing rules:
+
+- **BUY:** Red on top, Yellow middle, Green bottom (SMA200 > SMA50 > SMA20) and the daily candle
+  closes **below all three**. Buy the **next morning**.
+- **SELL:** Stack flips so Green is on top, Yellow middle, Red bottom (SMA20 > SMA50 > SMA200) and
+  price closes **above all three**. Sell the **next morning** to book profits.
+
+Prefer large-cap / blue-chip names — weak small-caps can dip under the light and never recover.
+Setups may take a month to over a year. Ideal for swing traders; long-term investors can use closes
+under the 200 SMA as accumulate zones on quality names.
+
+Optional **Trend & Strength (MTF)** further analysis adds an independent higher-timeframe vote.
+
+Research / education only — not financial advice.`
+
+const TL_RULES = `How signals are scored
+
+1. **Traffic-light stack** — Red/Yellow/Green order must match BUY or SELL geometry.
+2. **Close vs stack** — BUY needs close below all three; SELL needs close above all three.
+3. **Next-morning action** — the trade plan targets the following session open (video rule).
+4. **ATR risk plan** — suggested SL/TP when confidence clears the take threshold.
+5. **Optional Trend & Strength (MTF)** — same institutional MTF dispatcher used elsewhere in the app.
+
+Patience is part of the edge: missing the stack or forcing a mid-range close is a WAIT, not a weak signal.`
+
+const TL_LAYMAN = `In plain English
+
+Three average prices (20-day, 50-day, 200-day) are painted like a traffic light. When the slow red line
+sits above yellow and green, and the stock closes under all of them, the video treats that as a washed-out
+quality name you can buy patiently the next day. When the stack flips green-on-top and price closes above
+everything, book the swing the next morning.
+
+Use Charts (candles or line) to see the three SMA overlays. Turn on Trend & Strength if you want a second
+opinion from the bigger picture before sizing.`
+
+function TrafficLightIndicatorPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(400)
+  const [showCharts, setShowCharts] = useState(true)
+  const [furtherAnalysis, setFurtherAnalysis] = useState<string[]>([])
+  const bg = useAnalysisBackground('pro_trade', 'traffic_light_indicator')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+  const toggleFurther = (value: string) =>
+    setFurtherAnalysis((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe: '1d',
+    lookback_bars: lookback,
+    further_analysis: furtherAnalysis,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeTrafficLight(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Traffic Light Indicator', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="Traffic Light Indicator"
+        description="SMA 20 / 50 / 200 traffic-light stack — buy under all three, sell above the flip (daily)"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="In plain English — how to interpret your results" defaultOpen>
+          {TL_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="Overview — how it works" defaultOpen>
+          {TL_OVERVIEW}
+        </CollapsibleSection>
+        <CollapsibleSection title="How signals are scored">{TL_RULES}</CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: [] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-md gap-3 sm:grid-cols-1">
+          <FormField label="Candle history (daily bars)">
+            <Input
+              type="number"
+              min={220}
+              max={1200}
+              value={lookback}
+              onChange={(e) => setLookback(Number(e.target.value) || 400)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+              Further analysis (optional)
+            </p>
+            <button
+              type="button"
+              className="text-[11px] text-slate-500 hover:text-slate-300"
+              onClick={() => setFurtherAnalysis([])}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {TL_FURTHER_ANALYSIS_OPTIONS.map((opt) => (
+              <Chip
+                key={opt.value}
+                selected={furtherAnalysis.includes(opt.value)}
+                onClick={() => toggleFurther(opt.value)}
+              >
+                {opt.label}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Trend & Strength reuses the app&apos;s MTF trend/strength engine as an independent confirmation vote.
+          </p>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending ? 'Scanning…' : `Scan Traffic Light (${picker.tickers.length})`}
+          </Button>
+          <a
+            href="https://www.youtube.com/watch?v=xIKoYISD6mY&t=29s"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 self-center text-sm text-sky-400 hover:text-sky-300"
+          >
+            Watch strategy video <ExternalLink size={14} />
+          </a>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Traffic Light · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Computing SMA 20/50/200 traffic-light stack…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <TrafficLightIndicatorPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/traffic-light-indicator" />}
+        </>
+      )}
+    </div>
+  )
+}
+
+const BLSH_OVERVIEW = `Buy Low Sell High — 25-day low (25 DL) GTT ladder for all asset classes.
+
+Originally framed on liquid Nifty 50 / Bank Nifty names; use the same rules on India · US · Crypto · Commodities.
+
+1. Track the 25-day low.
+2. Place a buy GTT at 25 DL + 5%. When price trades through it, you are bought.
+3. If a new 25 DL prints before fill, update the GTT to 5% above the new low.
+4. After a fill, arm the next buy only when price is 10% below your average — again at latest 25 DL + 5%.
+5. Sell all units at average + 5%.
+6. No stop-loss — you buy weakness via the ladder; the exit is the +5% average target.
+
+This screen simulates GTT state from daily OHLC. Place real GTTs on your broker. Research only.`
+
+const BLSH_RULES = `How the scanner decides status
+
+- WATCH / PLACE GTT — flat; keep buy GTT at current 25 DL + buffer.
+- NEAR TRIGGER / BUY FILL ZONE — price is close to or through the buy GTT.
+- HOLD FOR SELL — simulated position on; wait for average + sell target.
+- ARM ADD GTT — price ≤ average − 10%; place the next buy GTT at latest 25 DL + 5%.
+- SELL ALL / SELL ZONE — book all units near average + 5%.
+
+Charts overlay 25 DL + buy GTT (candles or line). No stop-loss line by design.`
+
+const BLSH_LAYMAN = `In plain English
+
+Wait for a stock to make a fresh 25-day low, then set a buy order a little above that low (5%). If it makes an even lower low before you get filled, move the order down with it. Once you own shares, only buy more after the price has fallen about 10% below your average cost — again using a 5%-above-25-day-low order. When price is 5% above your average, sell everything. There is no stop-loss: the plan is to buy dips and exit on a small gain from average.`
+
+const BLSH_HOW_TO = `How to trade this from the app
+
+1. Pick asset class (India tip: start with Nifty 50 / Bank Nifty liquid names).
+2. Select tickers → Scan Buy Low Sell High.
+3. For each card, copy the Buy GTT level into your broker GTT.
+4. If status says UPDATE / new 25 DL, move the GTT.
+5. If status says ARM ADD GTT, place the next tranche GTT.
+6. If status says SELL ALL, exit the full position near average + 5%.
+7. Do not add a stop-loss for this method — size positions you can hold through further dips.`
+
+function BuyLowSellHighPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(320)
+  const [lowLookback, setLowLookback] = useState(25)
+  const [buyBuffer, setBuyBuffer] = useState(5)
+  const [sellTarget, setSellTarget] = useState(5)
+  const [addDrop, setAddDrop] = useState(10)
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'buy_low_sell_high')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe: '1d',
+    lookback_bars: lookback,
+    low_lookback: lowLookback,
+    buy_buffer_pct: buyBuffer,
+    sell_target_pct: sellTarget,
+    add_on_drop_pct: addDrop,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeBuyLowSellHigh(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Buy Low Sell High', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="Buy Low Sell High"
+        description="25-day low GTT ladder — buy at 25DL+5%, sell all at avg+5%, no stop-loss (all asset classes)"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={BLSH_HOW_TO}>
+          {BLSH_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {BLSH_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="Overview — method" defaultOpen>
+          {BLSH_OVERVIEW}
+        </CollapsibleSection>
+        <CollapsibleSection title="How statuses are decided">{BLSH_RULES}</CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: [] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <FormField label="History (daily bars)">
+            <Input type="number" min={60} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 320)} />
+          </FormField>
+          <FormField label="Low lookback (days)">
+            <Input type="number" min={10} max={60} value={lowLookback} onChange={(e) => setLowLookback(Number(e.target.value) || 25)} />
+          </FormField>
+          <FormField label="Buy GTT buffer %">
+            <Input type="number" step="0.5" min={1} max={15} value={buyBuffer} onChange={(e) => setBuyBuffer(Number(e.target.value) || 5)} />
+          </FormField>
+          <FormField label="Sell target % (of avg)">
+            <Input type="number" step="0.5" min={1} max={20} value={sellTarget} onChange={(e) => setSellTarget(Number(e.target.value) || 5)} />
+          </FormField>
+          <FormField label="Add-on drop %">
+            <Input type="number" step="0.5" min={3} max={30} value={addDrop} onChange={(e) => setAddDrop(Number(e.target.value) || 10)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending ? 'Scanning…' : `Scan Buy Low Sell High (${picker.tickers.length})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Buy Low Sell High · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Computing 25-day lows and GTT ladder state…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <BuyLowSellHighPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/buy-low-sell-high" />}
+        </>
+      )}
+    </div>
+  )
+}
+
+const RLB_YOUTUBE = 'https://www.youtube.com/watch?v=pBQ1oVDVe3M'
+
+const RLB_HOW_TO = `How to use RLB - Breakout
+
+Source: ${RLB_YOUTUBE}
+
+1. Pick an asset class and liquid tickers.
+2. Scan on the daily chart (default).
+3. Focus on RLB pass (all 7 confirmations) — optional near-miss ≥5/7 filter for watchlist.
+4. Prefer RSI ≥ 65 and clear volume expansion for higher conviction.
+5. Use ATR stop/target as a risk frame; invalidate if price closes back under prior high / EMA20.
+
+Research / education only — not financial advice.`
+
+const RLB_OVERVIEW = `RLB — Rocket Launcher Breakout
+
+Seven confirmations for strong bullish momentum / explosive breakout potential:
+
+1. Close > previous day's high
+2. Green candle (close > open)
+3. Close > EMA20
+4. Close > EMA50
+5. RSI > 60 (prefer ≥ 65)
+6. Daily gain > 2%
+7. Volume > 5-day SMA of volume
+
+Combining trend, momentum, price action, and volume filters false breakouts.
+Works on India · US · Crypto · Commodities.`
+
+const RLB_LAYMAN = `In plain English
+
+RLB looks for a stock that is already strong today: it closes above yesterday's high on a green candle,
+stays above its 20- and 50-day average prices, shows RSI momentum (ideally 65+), gains more than 2% on the day,
+and trades with above-average volume. When all seven line up, the video treats that as a "rocket launcher" breakout candidate.`
+
+function RlbBreakoutPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(250)
+  const [rsiMin, setRsiMin] = useState(60)
+  const [rsiPrefer, setRsiPrefer] = useState(65)
+  const [minDayChg, setMinDayChg] = useState(2)
+  const [volSma, setVolSma] = useState(5)
+  const [requireAll, setRequireAll] = useState(true)
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'rlb_breakout')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe: '1d',
+    lookback_bars: lookback,
+    rsi_min: rsiMin,
+    rsi_prefer: rsiPrefer,
+    min_day_chg_pct: minDayChg,
+    volume_sma_period: volSma,
+    require_all_seven: requireAll,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeRlbBreakout(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('RLB - Breakout', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="RLB - Breakout"
+        description="Rocket Launcher Breakout — 7 confirmations for explosive bullish momentum"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={RLB_HOW_TO}>
+          <ol className="list-decimal space-y-1.5 pl-4 text-sm text-slate-300">
+            <li>Pick asset class + liquid tickers, then scan (daily).</li>
+            <li>Prioritise <strong className="text-slate-100">RLB pass (7/7)</strong>; use near-miss ≥5/7 as a watchlist.</li>
+            <li>Prefer <strong className="text-slate-100">RSI ≥ 65</strong> and clear volume expansion.</li>
+            <li>Risk-frame with ATR SL/TP; invalidate on a close back under prior high / EMA20.</li>
+          </ol>
+          <a href={RLB_YOUTUBE} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm text-sky-400 hover:text-sky-300">
+            Watch strategy video <ExternalLink size={14} />
+          </a>
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>{RLB_LAYMAN}</CollapsibleSection>
+        <CollapsibleSection title="Overview — 7 confirmations" defaultOpen>{RLB_OVERVIEW}</CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: [] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <FormField label="History (daily bars)">
+            <Input type="number" min={60} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 250)} />
+          </FormField>
+          <FormField label="RSI minimum">
+            <Input type="number" min={50} max={80} value={rsiMin} onChange={(e) => setRsiMin(Number(e.target.value) || 60)} />
+          </FormField>
+          <FormField label="RSI prefer (≥)">
+            <Input type="number" min={55} max={85} value={rsiPrefer} onChange={(e) => setRsiPrefer(Number(e.target.value) || 65)} />
+          </FormField>
+          <FormField label="Min day gain %">
+            <Input type="number" step="0.1" min={0.5} max={10} value={minDayChg} onChange={(e) => setMinDayChg(Number(e.target.value) || 2)} />
+          </FormField>
+          <FormField label="Volume SMA days">
+            <Input type="number" min={3} max={20} value={volSma} onChange={(e) => setVolSma(Number(e.target.value) || 5)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={requireAll} onClick={() => setRequireAll(true)}>Require all 7 for BUY</Chip>
+          <Chip selected={!requireAll} onClick={() => setRequireAll(false)}>Allow 6/7 near-pass</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending ? 'Scanning…' : `Scan RLB Breakout (${picker.tickers.length})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`RLB Breakout · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking prior-high break, EMAs, RSI, volume…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <RlbBreakoutPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/rlb-breakout" />}
+        </>
+      )}
+    </div>
+  )
+}
+
+const TIO_HOW_TO = `How to use 3-in-1 Trade System
+
+1. Use a quality / liquid watchlist (prefer strong names — you may average −20% dips).
+2. Set CAR days: 10 (safer) or 5–7 (earlier entry).
+3. Scan — BUY rows pass DMA stack + CAR; ranked closest to 200 DMA first.
+4. Size new buys from the 75% bucket; keep 25% reserve for SIP.
+5. Exit all at average + 6.28%.
+6. If −20%: wait CAR rising again + 30-day gap; add ~1/3 original from reserve.
+7. FIRE compounding: recycle profits; size from remaining slots so capital lasts to max holdings.
+
+Research / education only — not financial advice.`
+
+const TIO_OVERVIEW = `3-in-1 = DMA + CAR + Volume (Mahesh Kaushik / FIRE in India refinements)
+
+Capital: 75% new buying · 25% reserve · max holdings (e.g. 15) · FIRE compounding.
+
+Selection: above SMA50/100/200 · ≤10% above 200 DMA · prefer closest to 200 · turnover over raw volume.
+
+Entry: CAR (expanding average of closes from 52-week high) rising N consecutive days.
+
+Exit: sell all at +6.28% of average purchase price.
+
+SIP defense: after −20%, re-trigger CAR + prefer 30 calendar day gap · deploy ~1/3 original from reserve.`
+
+const TIO_LAYMAN = `In plain English
+
+Only buy when the stock is above its 50-, 100-, and 200-day averages, not stretched more than ~10% above the 200,
+and its “CAR” line (a running average measured from the 52-week high) has been climbing for several days in a row.
+Among those, pick the ones sitting closest to the 200-day average. Take profit when you’re up 6.28% from your average
+cost. If a name drops 20%, don’t panic-average — wait for CAR to climb again and for enough days to pass, then use the
+reserve money for a smaller top-up.`
+
+const TIO_OPTIMIZED = `Optimized tweaks built into defaults
+
+• FIRE compounding (slot-based sizing) over aggressive “raise buy every 3 wins”.
+• Rank BUY signals by closeness to 200 DMA.
+• CAR days tunable 5–7 for impatient entries (default 10).
+• SIP gap default 30 days.
+• Prefer custom quality watchlists when averaging dips.`
+
+function ThreeInOneTradeSystemPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(400)
+  const [carDays, setCarDays] = useState(10)
+  const [maxAbove200, setMaxAbove200] = useState(10)
+  const [sipGap, setSipGap] = useState(30)
+  const [maxHoldings, setMaxHoldings] = useState(15)
+  const [requireVol, setRequireVol] = useState(false)
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'three_in_one_trade_system')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframe: '1d',
+    lookback_bars: lookback,
+    car_rising_days: carDays,
+    max_pct_above_200: maxAbove200,
+    require_volume_breakout: requireVol,
+    sip_gap_days: sipGap,
+    max_holdings: maxHoldings,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeThreeInOne(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('3-in-1 Trade System', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="3-in-1 Trade System"
+        description="DMA 50/100/200 + CAR rising + volume — exit +6.28% · SIP after −20% (FIRE / Mahesh style)"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={TIO_HOW_TO}>
+          {TIO_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {TIO_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — core + optimized" defaultOpen>
+          {TIO_OVERVIEW}
+          {'\n\n'}
+          {TIO_OPTIMIZED}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: [] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <FormField label="History (daily bars)">
+            <Input type="number" min={220} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 400)} />
+          </FormField>
+          <FormField label="CAR rising days (10 / 5–7)">
+            <Input type="number" min={5} max={20} value={carDays} onChange={(e) => setCarDays(Number(e.target.value) || 10)} />
+          </FormField>
+          <FormField label="Max % above 200 DMA">
+            <Input type="number" step="0.5" min={2} max={25} value={maxAbove200} onChange={(e) => setMaxAbove200(Number(e.target.value) || 10)} />
+          </FormField>
+          <FormField label="SIP gap (days)">
+            <Input type="number" min={7} max={60} value={sipGap} onChange={(e) => setSipGap(Number(e.target.value) || 30)} />
+          </FormField>
+          <FormField label="Max holdings (playbook)">
+            <Input type="number" min={5} max={40} value={maxHoldings} onChange={(e) => setMaxHoldings(Number(e.target.value) || 15)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={carDays === 10} onClick={() => setCarDays(10)}>CAR 10 (classic)</Chip>
+          <Chip selected={carDays === 7} onClick={() => setCarDays(7)}>CAR 7</Chip>
+          <Chip selected={carDays === 5} onClick={() => setCarDays(5)}>CAR 5 (early)</Chip>
+          <Chip selected={requireVol} onClick={() => setRequireVol((v) => !v)}>
+            Require volume breakout
+          </Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending ? 'Scanning…' : `Scan 3-in-1 (${picker.tickers.length})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`3-in-1 · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Computing DMA stack, CAR from 52w high, volume…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <ThreeInOneTradeSystemPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/3-in-1-trade-system" />}
+        </>
+      )}
+    </div>
+  )
+}
+
+const SE_HOW_TO = `How to use Simple Effective
+
+1. Pick asset class + timeframe(s) — works on 1m, 15m, and higher TFs.
+2. Scan for closes fully outside the MA band with a MACD crossover inside the matching histogram.
+3. BUY only after the signal candle High breaks; SELL only after the Low breaks.
+4. Place SL on the opposite edge of the MA band.
+5. Book at 1:1 or 1:1.5 RRR (trail toward 1:3 only if momentum continues).
+6. Skip Sell setups where Open = Low on the signal candle.
+7. Never take an MA-band break without MACD-in-histogram confirmation.
+
+Research / education only — not financial advice.`
+
+const SE_OVERVIEW = `Simple Effective — MA band + MACD
+
+• Two MAs form a band/channel + MACD.
+• Signal candle must close fully outside the band.
+• Enter on break of signal High (Buy) or Low (Sell).
+• Stop-loss at the opposite band edge.
+• Target 1:1 or 1:1.5 RRR for high accuracy.
+• MACD crossover required inside green hist (Buy) or red hist (Sell).
+• Avoid Open=Low sell traps (especially gap-downs).
+
+Versatile across Stocks, Indices, Forex, Crypto, Commodities.`
+
+const SE_LAYMAN = `In plain English
+
+Wait for a candle to finish completely above or below a two-moving-average channel, with MACD crossing in the same direction and inside the matching histogram colour (green for buys, red for sells). Only enter once the next price action breaks that candle’s high (buy) or low (sell). Put your stop on the far side of the channel and take a modest 1:1 or 1:1.5 profit — accuracy first.`
+
+function SimpleEffectivePage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(300)
+  const [maFast, setMaFast] = useState(9)
+  const [maSlow, setMaSlow] = useState(21)
+  const [useEma, setUseEma] = useState(true)
+  const [rr, setRr] = useState(1.5)
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'simple_effective')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations.length ? picker.durations : ['15m'],
+    lookback_bars: lookback,
+    ma_fast: maFast,
+    ma_slow: maSlow,
+    use_ema: useEma,
+    rr_multiple: rr,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      return runProTradeSimpleEffective(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Simple Effective', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="Simple Effective"
+        description="MA band close-outside + MACD hist-zone cross — enter on High/Low break · SL opposite band · 1:1–1.5 RRR"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={SE_HOW_TO}>
+          {SE_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {SE_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {SE_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          </FormField>
+          <FormField label="MA fast">
+            <Input type="number" min={3} max={50} value={maFast} onChange={(e) => setMaFast(Number(e.target.value) || 9)} />
+          </FormField>
+          <FormField label="MA slow">
+            <Input type="number" min={5} max={100} value={maSlow} onChange={(e) => setMaSlow(Number(e.target.value) || 21)} />
+          </FormField>
+          <FormField label="RRR (1 = 1:1)">
+            <Input type="number" step="0.1" min={1} max={3} value={rr} onChange={(e) => setRr(Number(e.target.value) || 1.5)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={useEma} onClick={() => setUseEma(true)}>EMA band</Chip>
+          <Chip selected={!useEma} onClick={() => setUseEma(false)}>SMA band</Chip>
+          <Chip selected={rr === 1} onClick={() => setRr(1)}>1:1 RRR</Chip>
+          <Chip selected={rr === 1.5} onClick={() => setRr(1.5)}>1:1.5 RRR</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? 'Scanning…'
+              : `Scan Simple Effective (${picker.tickers.length} × ${picker.durations.length || 1})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Simple Effective · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking MA-band closes, MACD hist-zone crosses, triggers…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <SimpleEffectivePanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/simple-effective" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
   { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
   { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
@@ -2401,6 +3377,11 @@ export default function ProTrade() {
     { id: 'elliott-wave', label: 'Elliott Wave' },
     { id: 'fibonacci-pro', label: 'Fibonacci Pro' },
     { id: 'bb-mean-reversion', label: 'BB Mean Reversion' },
+    { id: 'traffic-light-indicator', label: 'Traffic Light Indicator' },
+    { id: 'buy-low-sell-high', label: 'Buy Low Sell High' },
+    { id: 'rlb-breakout', label: 'RLB - Breakout' },
+    { id: '3-in-1-trade-system', label: '3-in-1 Trade System' },
+    { id: 'simple-effective', label: 'Simple Effective' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
@@ -2416,6 +3397,11 @@ export default function ProTrade() {
   else if (tab === 'elliott-wave') page = <ElliottWavePage />
   else if (tab === 'fibonacci-pro') page = <FibonacciProPage />
   else if (tab === 'bb-mean-reversion') page = <BbMeanReversionPage />
+  else if (tab === 'traffic-light-indicator') page = <TrafficLightIndicatorPage />
+  else if (tab === 'buy-low-sell-high') page = <BuyLowSellHighPage />
+  else if (tab === 'rlb-breakout') page = <RlbBreakoutPage />
+  else if (tab === '3-in-1-trade-system') page = <ThreeInOneTradeSystemPage />
+  else if (tab === 'simple-effective') page = <SimpleEffectivePage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />

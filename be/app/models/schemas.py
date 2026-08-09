@@ -424,6 +424,28 @@ class SaveBestMfReportRequest(BaseModel):
     payload: dict[str, Any]
 
 
+class MfFirePlanRequest(BaseModel):
+    """MF FIRE planner — 25×/35× FI, 1% rule, crore milestones, SIP runway.
+
+    Source: https://www.youtube.com/watch?v=HmW6T6i2Okc&t=6s
+    """
+    annual_expenses: float = Field(default=600_000, ge=0, le=1e9)
+    monthly_salary: float = Field(default=100_000, ge=0, le=1e8)
+    current_corpus: float = Field(default=0, ge=0, le=1e11)
+    monthly_sip: float = Field(default=25_000, ge=0, le=1e8)
+    expected_equity_return_pct: float = Field(default=12.0, ge=0, le=30)
+    inflation_pct: float = Field(default=6.5, ge=0, le=20)
+    fire_multiple: float = Field(default=25.0, ge=10, le=50)
+    long_runway_multiple: float = Field(default=35.0, ge=15, le=60)
+    equity_only_until_cr: float = Field(default=3.0, ge=0.5, le=20)
+    age: int | None = Field(default=35, ge=18, le=80)
+    home_loan_balance: float = Field(default=0, ge=0, le=1e10)
+    home_loan_rate_pct: float = Field(default=8.5, ge=0, le=25)
+    extra_emi_toward_loan: float = Field(default=0, ge=0, le=1e7)
+    dual_income: bool = False
+    principles_checklist: list[str] = Field(default_factory=list)
+
+
 class CommandCenterEtfIndiaHoldingsRequest(BaseModel):
     scheme_ids: list[int] = Field(..., min_length=1)
     scheme_names: dict[int, str] = Field(default_factory=dict)
@@ -626,6 +648,46 @@ class Swing5ScanRequest(BaseModel):
     strategies: list[str] = Field(..., min_length=1)
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     config: dict[str, Any] | None = None
+
+
+class EtfTopDownScanRequest(BaseModel):
+    """ETF Top Down — macro RS filter + P&F scoring + Renko/D-Smart 10 (weekly Friday rebalance)."""
+    tickers: list[str] = Field(default_factory=list)
+    preset: str | None = None
+    exchange: str = "NSE"
+    top_n: int = Field(default=20, ge=5, le=40)
+    renko_box_pct: float = Field(default=1.0, ge=0.25, le=5.0)
+    pn_f_box_pct: float = Field(default=0.25, ge=0.1, le=2.0)
+    d_smart_period: int = Field(default=10, ge=5, le=20)
+    lookback_bars: int = Field(default=400, ge=120, le=800)
+    max_etfs_hold: int = Field(default=10, ge=1, le=20)
+
+
+class Etf28SmaLotInput(BaseModel):
+    symbol: str
+    price: float = Field(gt=0)
+    amount: float = Field(default=0, ge=0)
+    units: float | None = None
+    purchase_date: str | None = None
+    lot_id: str | None = None
+
+
+class Etf28SmaScanRequest(BaseModel):
+    """ETF 28 SMA Momentum — FIRE in India rules (2 closes above/below SMA28, 3.14%, averaging)."""
+    tickers: list[str] = Field(default_factory=list)
+    preset: str | None = None
+    exchange: str = "NSE"
+    total_capital: float = Field(default=500_000.0, ge=10_000, le=100_000_000)
+    averaging_reserve_pct: float = Field(default=30.0, ge=0, le=90)
+    max_etfs: int = Field(default=20, ge=1, le=80)
+    max_new_buys_per_day: int = Field(default=4, ge=1, le=10)
+    sell_mode: Literal["FIFO", "LIFO"] = "FIFO"
+    capital_exhausted: bool = False
+    profit_target_pct: float = Field(default=3.14, ge=1.0, le=20.0)
+    avg_min_drop_pct: float = Field(default=5.0, ge=1.0, le=25.0)
+    fast_momentum_pct: float = Field(default=18.0, ge=5.0, le=50.0)
+    lookback_bars: int = Field(default=400, ge=260, le=800)
+    holdings: list[Etf28SmaLotInput] = Field(default_factory=list)
 
 
 class EtfTaScanRequest(BaseModel):
@@ -1215,6 +1277,96 @@ class ProTradeBbMeanReversionRequest(BaseModel):
     zone_tolerance_pct: float = Field(default=1.2, ge=0.1, le=5.0)
     min_rr: float = Field(default=1.3, ge=0.5, le=5.0)
     extra_checks: list[str] = Field(default_factory=list)
+
+
+class ProTradeTrafficLightRequest(BaseModel):
+    """Traffic Light Indicator — SMA20 (Green) / SMA50 (Yellow) / SMA200 (Red).
+
+    BUY: Red>Yellow>Green and close below all three → buy next morning.
+    SELL: Green>Yellow>Red and close above all three → sell next morning.
+    Optional further_analysis includes ``mtf_trend_strength``.
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=400, ge=220, le=1200)
+    further_analysis: list[str] = Field(default_factory=list)
+    rr_min: float = Field(default=1.5, ge=0.5, le=5.0)
+    sl_atr_mult: float = Field(default=1.5, ge=0.5, le=4.0)
+    tp_atr_mult: float = Field(default=3.0, ge=1.0, le=8.0)
+    take_confidence_threshold: float = Field(default=55.0, ge=30.0, le=90.0)
+
+
+class ProTradeBuyLowSellHighRequest(BaseModel):
+    """Buy Low Sell High — 25-day low GTT ladder.
+
+    Buy GTT at 25DL+5%; update on new lows before fill; next add when price is
+    10% below average; sell all at average+5%; no stop-loss. All asset classes.
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=320, ge=60, le=1200)
+    low_lookback: int = Field(default=25, ge=10, le=60)
+    buy_buffer_pct: float = Field(default=5.0, ge=1.0, le=15.0)
+    sell_target_pct: float = Field(default=5.0, ge=1.0, le=20.0)
+    add_on_drop_pct: float = Field(default=10.0, ge=3.0, le=30.0)
+
+
+class ProTradeRlbBreakoutRequest(BaseModel):
+    """RLB — Rocket Launcher Breakout (7 confirmations).
+
+    Prior-high break, green candle, EMA20, EMA50, RSI>60 (prefer ≥65),
+    day gain >2%, volume > 5-day SMA. Source: https://www.youtube.com/watch?v=pBQ1oVDVe3M
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=250, ge=60, le=1200)
+    rsi_min: float = Field(default=60.0, ge=50.0, le=80.0)
+    rsi_prefer: float = Field(default=65.0, ge=55.0, le=85.0)
+    min_day_chg_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    volume_sma_period: int = Field(default=5, ge=3, le=20)
+    require_all_seven: bool = True
+
+
+class ProTradeThreeInOneRequest(BaseModel):
+    """3-in-1 Trade System — DMA 50/100/200 + CAR rising + volume/turnover.
+
+    Mahesh Kaushik / FIRE in India style: buy when above all DMAs, within max %
+    of 200 DMA, CAR rising N days; exit +6.28% of average; SIP after −20% with
+    CAR re-trigger. Ranked closest-to-200-DMA first.
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframe: str = "1d"
+    lookback_bars: int = Field(default=400, ge=220, le=1200)
+    car_rising_days: int = Field(default=10, ge=5, le=20)
+    max_pct_above_200: float = Field(default=10.0, ge=2.0, le=25.0)
+    require_volume_breakout: bool = False
+    sip_gap_days: int = Field(default=30, ge=7, le=60)
+    max_holdings: int = Field(default=15, ge=5, le=40)
+
+
+class ProTradeSimpleEffectiveRequest(BaseModel):
+    """Simple Effective — MA band close-outside + MACD hist-zone cross + trigger break.
+
+    SL at opposite band edge; TP at 1:1 or 1:1.5 RRR. Avoid Open=Low sell traps.
+    Multi-asset / multi-timeframe.
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframes: list[str] = Field(default_factory=lambda: ["15m"])
+    lookback_bars: int = Field(default=300, ge=80, le=1200)
+    ma_fast: int = Field(default=9, ge=3, le=50)
+    ma_slow: int = Field(default=21, ge=5, le=100)
+    use_ema: bool = True
+    rr_multiple: float = Field(default=1.5, ge=1.0, le=3.0)
 
 
 class ProTradeBtstRequest(BaseModel):

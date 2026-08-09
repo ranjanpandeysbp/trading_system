@@ -1083,6 +1083,74 @@ export const fetchEtfTaUniverse = (assetClass = 'india') =>
     { params: { asset_class: assetClass }, timeout: MP_TIMEOUT },
   ).then((r) => r.data)
 
+export const fetchEtf28SmaUniverse = () =>
+  api.get<{
+    strategy: string
+    strategy_label: string
+    presets: Record<string, string[]>
+    default_preset: string
+    default_symbols: string[]
+    fire_list: string[]
+    combined: string[]
+    how_it_works: string
+    rules: string[]
+  }>('/etf-28-sma/universe', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchEtf28SmaGuide = () =>
+  api.get('/etf-28-sma/guide').then((r) => r.data)
+
+export const runEtf28SmaScan = (payload: {
+  tickers?: string[]
+  preset?: string | null
+  exchange?: string
+  total_capital?: number
+  averaging_reserve_pct?: number
+  max_etfs?: number
+  max_new_buys_per_day?: number
+  sell_mode?: 'FIFO' | 'LIFO'
+  capital_exhausted?: boolean
+  profit_target_pct?: number
+  avg_min_drop_pct?: number
+  fast_momentum_pct?: number
+  lookback_bars?: number
+  holdings?: Array<{
+    symbol: string
+    price: number
+    amount?: number
+    units?: number | null
+    purchase_date?: string | null
+    lot_id?: string | null
+  }>
+}) => api.post('/etf-28-sma/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchEtfTopDownUniverse = () =>
+  api.get<{
+    strategy: string
+    strategy_label: string
+    youtube: string
+    presets: Record<string, string[]>
+    default_preset: string
+    default_symbols: string[]
+    how_it_works: string
+    rules: string[]
+    macro_assets: Array<{ id: string; label: string; symbol: string }>
+  }>('/etf-top-down/universe', { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchEtfTopDownGuide = () =>
+  api.get('/etf-top-down/guide').then((r) => r.data)
+
+export const runEtfTopDownScan = (payload: {
+  tickers?: string[]
+  preset?: string | null
+  exchange?: string
+  top_n?: number
+  renko_box_pct?: number
+  pn_f_box_pct?: number
+  d_smart_period?: number
+  lookback_bars?: number
+  max_etfs_hold?: number
+}) => api.post('/etf-top-down/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const scanEtfTaStf = (payload: { symbols?: string[]; exchange?: string; asset_class?: string }) =>
   api.post('/etf-ta/stf-shop/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
@@ -1663,8 +1731,30 @@ export const fetchBestMfReports = () =>
 export const fetchBestMfReport = (reportId: number) =>
   api.get(`/best-mf/reports/${reportId}`).then((r) => r.data)
 
+export const fetchMfFireGuide = () =>
+  api.get('/mf-fire/guide').then((r) => r.data)
+
+export const runMfFirePlan = (payload: {
+  annual_expenses?: number
+  monthly_salary?: number
+  current_corpus?: number
+  monthly_sip?: number
+  expected_equity_return_pct?: number
+  inflation_pct?: number
+  fire_multiple?: number
+  long_runway_multiple?: number
+  equity_only_until_cr?: number
+  age?: number | null
+  home_loan_balance?: number
+  home_loan_rate_pct?: number
+  extra_emi_toward_loan?: number
+  dual_income?: boolean
+  principles_checklist?: string[]
+}) => api.post('/mf-fire/plan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const deleteBestMfReport = (reportId: number) =>
   api.delete(`/best-mf/reports/${reportId}`).then((r) => r.data)
+
 
 export type EtfCatalogItem = {
   symbol: string
@@ -2157,6 +2247,69 @@ export const runProTradeBbMeanReversion = (payload: {
   min_rr?: number
   extra_checks?: string[]
 }) => api.post('/pro-trade/bb-mean-reversion', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeTrafficLight = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  further_analysis?: string[]
+  rr_min?: number
+  sl_atr_mult?: number
+  tp_atr_mult?: number
+  take_confidence_threshold?: number
+}) => api.post('/pro-trade/traffic-light-indicator', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeBuyLowSellHigh = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  low_lookback?: number
+  buy_buffer_pct?: number
+  sell_target_pct?: number
+  add_on_drop_pct?: number
+}) => api.post('/pro-trade/buy-low-sell-high', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeRlbBreakout = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  rsi_min?: number
+  rsi_prefer?: number
+  min_day_chg_pct?: number
+  volume_sma_period?: number
+  require_all_seven?: boolean
+}) => api.post('/pro-trade/rlb-breakout', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeThreeInOne = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframe?: string
+  lookback_bars?: number
+  car_rising_days?: number
+  max_pct_above_200?: number
+  require_volume_breakout?: boolean
+  sip_gap_days?: number
+  max_holdings?: number
+}) => api.post('/pro-trade/3-in-1-trade-system', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeSimpleEffective = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  ma_fast?: number
+  ma_slow?: number
+  use_ema?: boolean
+  rr_multiple?: number
+}) => api.post('/pro-trade/simple-effective', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runProTradeBtst = (payload: {
   tickers: string[]

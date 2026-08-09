@@ -2631,6 +2631,144 @@ volume climax, and Support/Resistance confluence.
 **When to use:** Range / mean-reversion days — skip when ER shows a strong trend (hard block).
 """,
 
+    "traffic_light_indicator": """
+### Traffic Light Indicator
+
+[Video](https://www.youtube.com/watch?v=xIKoYISD6mY&t=29s) — SMA **20 (Green) / 50 (Yellow) / 200 (Red)**
+on a daily chart (“traffic light” stack).
+
+| Setup | Stack | Price | Action |
+|-------|-------|-------|--------|
+| **BUY** | Red > Yellow > Green | Close **below all three** | Buy **next morning** |
+| **SELL** | Green > Yellow > Red | Close **above all three** | Sell **next morning** |
+
+Prefer **large-cap / blue-chip** names. Optional **Trend & Strength (MTF)** further analysis.
+Charts: candlestick + line with SMA overlays. Research / education only.
+
+**When to use:** Swing holds (weeks–months) on quality names after a washed-out close under the stack,
+or to book profits when the stack flips and price closes above all three.
+""",
+
+    "buy_low_sell_high": """
+### Buy Low Sell High — 25-day low GTT ladder
+
+Works on **all asset classes** (India · US · Crypto · Commodities). Originally framed on liquid
+Nifty 50 / Bank Nifty names.
+
+| Step | Rule |
+|------|------|
+| 1 | Track **25-day low (25 DL)** |
+| 2 | Buy **GTT at 25 DL + 5%** |
+| 3 | If a **new 25 DL** before fill → **update GTT** |
+| 4 | Next buy only when price is **10% below average** → GTT again at latest 25 DL + 5% |
+| 5 | **Sell all** at **average + 5%** |
+| 6 | **No stop-loss** |
+
+Scanner simulates GTT state from OHLC — place real GTTs on your broker.
+
+**When to use:** Patient dip-buy ladders on liquid names; exit is +5% on average, not a hard SL.
+""",
+
+    "rlb_breakout": """
+### RLB — Rocket Launcher Breakout
+
+[Video](https://www.youtube.com/watch?v=pBQ1oVDVe3M) — seven confirmations for explosive bullish momentum.
+
+| # | Check |
+|---|-------|
+| 1 | Close > previous day's high |
+| 2 | Green candle (close > open) |
+| 3 | Close > EMA20 |
+| 4 | Close > EMA50 |
+| 5 | RSI > 60 (prefer ≥ 65) |
+| 6 | Daily gain > 2% |
+| 7 | Volume > 5-day volume SMA |
+
+**When to use:** Momentum breakout scans across India · US · Crypto · Commodities. Prefer liquid names.
+""",
+
+    "three_in_one_trade_system": """
+### 3-in-1 Trade System (DMA + CAR + Volume)
+
+Mahesh Kaushik / FIRE in India style swing system.
+
+| Pillar | Rule |
+|--------|------|
+| **DMA** | Above SMA 50 / 100 / 200; ≤10% above 200 DMA; prefer closest to 200 |
+| **CAR** | Cumulative avg from 52w high rising N days (10 classic · 5–7 impatient) |
+| **Exit** | Sell all at **+6.28%** of average |
+| **SIP** | After −20%: CAR again + **30d** gap; ~1/3 size from **25% reserve** |
+| **Capital** | 75% new / 25% reserve · FIRE compounding · max holdings (e.g. 15) |
+
+**When to use:** Quality liquid watchlists where you can hold and average dips to the +6.28% target.
+""",
+
+    "simple_effective": """
+### Simple Effective — MA band + MACD
+
+High-accuracy price-action setup:
+
+1. Close **fully outside** the two-MA band
+2. Enter on break of signal **High (Buy)** / **Low (Sell)**
+3. **SL** at opposite band edge · **TP** at 1:1 or 1:1.5 RRR
+4. **MACD crossover** required **inside** green hist (Buy) / red hist (Sell)
+5. Skip Sell if **Open = Low** (trap)
+
+Works across timeframes and asset classes. Prefer accuracy over stretching RRR to 1:3.
+
+**When to use:** Clean band breakouts with MACD-in-histogram confirmation — Stocks, Indices, Crypto, Commodities.
+""",
+
+    "etf_28_sma": """
+### ETF 28 SMA Momentum (FIRE in India)
+
+Diversified ETF momentum with a **28-day SMA**, 30% averaging reserve, and Pi **3.14%** profit floor.
+
+1. **Entry** — two consecutive closes above 28 SMA (buy on day 2); max **4** new ETFs/day; ≥1y history
+2. **Exit** — two closes below 28 SMA **and** profit ≥ 3.14%; else hold (golden rule)
+3. **Fast exit** — if >18% in ~1 month, sell on first red candle
+4. **Average** — fresh 2-day breakout ≥5% below last buy; amount = (fall%/2)×(initial/10)
+5. **FIFO** sell-all vs **LIFO** lot booking (free capital when exhausted)
+
+Universe: FIRE curated list + ETF Shop presets. Execute near close (~after 3:15 PM IST).
+
+**When to use:** Systematic India ETF trend-following with disciplined averaging — not intraday.
+""",
+
+    "etf_top_down": """
+### ETF Top Down — RS + Renko / D-Smart (Finding H)
+
+[Video](https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s) — Jay’s low-drawdown ETF swing.
+
+1. **Top-down macros** — Gold, Silver, Nifty 50/500, GS Composite/bonds, India VIX
+2. **P&F RS** −3…+3 (Double Top Buy above MA = +3)
+3. Screen ~55 ETFs → **Top 20 with score > 0**
+4. **Entry** Renko close above **D-Smart 10**; **exit** below (trailing SL)
+5. **Weekly rebalance** (prefer Fridays)
+
+Universe shared with ETF Shop / ETF 28 SMA. D-Smart approximated as EMA on Renko closes.
+
+**When to use:** Capture ETF momentum with controlled drawdowns; rotate into the dominating asset class.
+""",
+
+    "mf_fire": """
+### MF FIRE — Mutual Funds Financial Independence
+
+[Video](https://www.youtube.com/watch?v=HmW6T6i2Okc&t=6s) — financially free at 38 via equity mutual funds.
+
+**Core math**
+- **25× annual expenses** = FI benchmark; **~35×** for a longer inflation-aware runway
+- **1% rule** — portfolio where a 1% up-move ≈ monthly salary
+- SIP runway to first ₹1 Cr / ₹2 Cr / FIRE number
+
+**Behaviour**
+- Prefer MFs over direct stocks / trading; 100% equity while accumulating (~₹2–5 Cr)
+- Don’t starve SIPs to prepay cheap home loans; retirement before kids’ education corpus
+- Maximise peak earning years (~35–40) and dual income into SIPs
+
+**When to use:** Personal FI planning before picking schemes on Best MF. Education only.
+""",
+
     "btst": """
 ### Buy Today Sell Tomorrow (BTST / STBT)
 

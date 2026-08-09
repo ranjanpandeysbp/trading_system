@@ -25,6 +25,7 @@ export type VpChartBar = {
 
 export type VpLevel = { label: string; price: number; color: string }
 export type VpHistBin = { price: number; volume: number }
+export type VpSeries = { key: string; label: string; color: string }
 export type VpWaveSegment = {
   label: string
   startTime: string
@@ -153,12 +154,15 @@ export function VolumeProfileChart({
   levels = [],
   histogram = [],
   waves = [],
+  series = [],
   readingGuide,
 }: {
   chartData: VpChartBar[]
   levels?: VpLevel[]
   histogram?: VpHistBin[]
   waves?: VpWaveSegment[]
+  /** Optional overlay series whose keys already exist on each chartData row (e.g. SMAs). */
+  series?: VpSeries[]
   /** Short laymen "how to read this chart" caption, shown below it. */
   readingGuide?: string
 }) {
@@ -236,15 +240,21 @@ export function VolumeProfileChart({
 
   const visibleLevels = levels.filter((l) => !hidden.has(`level:${l.label}`))
   const visibleWaves = waves.filter((_, i) => !hidden.has(`wave:${i}`))
-  const anyHideable = levels.length > 0 || waves.length > 0
+  const visibleSeries = series.filter((s) => !hidden.has(`series:${s.key}`))
+  const anyHideable = levels.length > 0 || waves.length > 0 || series.length > 0
 
   const lows = view.map((b) => b.low)
   const highs = view.map((b) => b.high)
   const levelPrices = visibleLevels.map((l) => l.price)
   const wavePrices = visibleWaves.flatMap((w) => [w.startPrice, w.endPrice])
+  const seriesPrices = visibleSeries.flatMap((s) =>
+    view
+      .map((b) => Number((b as Record<string, unknown>)[s.key]))
+      .filter((n) => Number.isFinite(n)),
+  )
   const pad = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices) - pad
-  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices) + pad
+  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices, ...seriesPrices) - pad
+  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices, ...seriesPrices) + pad
 
   const histSorted = useMemo(
     () => [...histogram].sort((a, b) => a.price - b.price),
@@ -281,6 +291,7 @@ export function VolumeProfileChart({
                 const all = new Set<string>()
                 waves.forEach((_, i) => all.add(`wave:${i}`))
                 levels.forEach((l) => all.add(`level:${l.label}`))
+                series.forEach((s) => all.add(`series:${s.key}`))
                 setHidden(all)
               }}
               className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
@@ -290,6 +301,24 @@ export function VolumeProfileChart({
           </>
         )}
         <div className="ml-auto flex flex-wrap gap-2 text-[11px]">
+          {series.map((s) => {
+            const key = `series:${s.key}`
+            const isHidden = hidden.has(key)
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => toggleHidden(key)}
+                title="Click to toggle this series"
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                }`}
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : s.color }} />
+                {s.label}
+              </button>
+            )
+          })}
           {waves.map((w, i) => {
             const key = `wave:${i}`
             const isHidden = hidden.has(key)
@@ -395,6 +424,19 @@ export function VolumeProfileChart({
                   name="Close"
                 />
               )}
+              {visibleSeries.map((s) => (
+                <Line
+                  key={s.key}
+                  type="monotone"
+                  dataKey={s.key}
+                  stroke={s.color}
+                  strokeWidth={1.75}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                  name={s.label}
+                />
+              ))}
               {visibleWaves.map((w) => {
                 const i = waves.indexOf(w)
                 const key = `__wave_${i}`

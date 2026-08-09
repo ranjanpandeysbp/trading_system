@@ -9,6 +9,7 @@ import Alerts from './pages/Alerts'
 import WatchlistPage from './pages/Watchlist'
 import TodosPage from './pages/Todos'
 import BestMf from './pages/BestMf'
+import MfFire from './pages/MfFire'
 import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import TradingAgent from './pages/TradingAgent'
@@ -18,6 +19,8 @@ import Strategies from './pages/Strategies'
 import MarketPulse from './pages/MarketPulse'
 import TechnicalAnalysis from './pages/TechnicalAnalysis'
 import EtfTaIn from './pages/EtfTaIn'
+import Etf28Sma from './pages/Etf28Sma'
+import EtfTopDown from './pages/EtfTopDown'
 import AutoTrade from './pages/AutoTrade'
 import TradingHubs from './pages/TradingHubs'
 import TradeCandidate from './pages/TradeCandidate'
@@ -106,6 +109,7 @@ export default function App() {
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/todos" element={<TodosPage />} />
                 <Route path="/best-mf" element={<BestMf />} />
+                <Route path="/mf-fire" element={<MfFire />} />
                 <Route path="/trading-hubs" element={<TradingHubs />} />
                 <Route path="/trade-candidate" element={<Navigate to="/trade-candidate/configure" replace />} />
                 <Route path="/trade-candidate/:tab" element={<TradeCandidate />} />
@@ -115,6 +119,8 @@ export default function App() {
                 <Route path="/prediction" element={<Navigate to="/prediction/pattern-analogue" replace />} />
                 <Route path="/prediction/:tab" element={<Prediction />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />
+                <Route path="/etf-28-sma" element={<Etf28Sma />} />
+                <Route path="/etf-top-down" element={<EtfTopDown />} />
                 <Route path="/auto-trade" element={<AutoTrade />} />
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/backtester" element={<Backtester />} />

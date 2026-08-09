@@ -181,6 +181,21 @@ async def _execute_analysis_body(
             return await svc.fibonacci_pro(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
         if section == "bb_mean_reversion":
             return await svc.bb_mean_reversion(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "traffic_light_indicator":
+            return await svc.traffic_light_indicator(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "buy_low_sell_high":
+            return await svc.buy_low_sell_high(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "rlb_breakout":
+            return await svc.rlb_breakout(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "three_in_one_trade_system":
+            return await svc.three_in_one_trade_system(tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None)
+        if section == "simple_effective":
+            tfs = None
+            if isinstance(cfg, dict):
+                tfs = cfg.get("timeframes")
+            return await svc.simple_effective(
+                tickers=tickers, asset_class=ac, exchange=exchange, timeframes=tfs, cfg_overrides=cfg or None,
+            )
         if section == "btst":
             return await svc.btst(tickers, asset_class=ac, cfg_overrides=cfg or None)
         raise ValueError(f"Unknown Pro Trade section: {section}")

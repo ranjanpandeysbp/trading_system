@@ -559,3 +559,112 @@ class EtfTaService:
             await self.db.commit()
 
         return rec
+
+    def etf_28_sma_universe(self) -> dict[str, Any]:
+        from app.etf_ta.etf_28_sma_engine import universe_payload
+
+        return universe_payload()
+
+    async def etf_28_sma_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from app.etf_ta.etf_28_sma_engine import (
+            ETF_28_SMA_AI_SYSTEM,
+            Etf28SmaConfig,
+            build_etf_28_sma_ai_prompt,
+            parse_holdings,
+            scan_universe,
+        )
+        from app.etf_ta.etf_28_sma_universe import ETF_28_SMA_PRESETS, fire_28_sma_symbols
+
+        token = await self._groww_token()
+        exchange = str(payload.get("exchange") or await self._exchange() or "NSE")
+        preset = payload.get("preset")
+        tickers = list(payload.get("tickers") or [])
+        if not tickers and preset and preset in ETF_28_SMA_PRESETS:
+            tickers = list(ETF_28_SMA_PRESETS[preset])
+        if not tickers:
+            tickers = fire_28_sma_symbols()
+
+        cfg = Etf28SmaConfig(
+            total_capital=float(payload.get("total_capital") or 500_000),
+            averaging_reserve_pct=float(payload.get("averaging_reserve_pct") or 30),
+            max_etfs=int(payload.get("max_etfs") or 20),
+            max_new_buys_per_day=int(payload.get("max_new_buys_per_day") or 4),
+            sell_mode=payload.get("sell_mode") or "FIFO",  # type: ignore[arg-type]
+            capital_exhausted=bool(payload.get("capital_exhausted")),
+            profit_target_pct=float(payload.get("profit_target_pct") or 3.14),
+            avg_min_drop_pct=float(payload.get("avg_min_drop_pct") or 5.0),
+            fast_momentum_pct=float(payload.get("fast_momentum_pct") or 18.0),
+            lookback_bars=int(payload.get("lookback_bars") or 400),
+        )
+        holdings = parse_holdings(payload.get("holdings"))
+
+        def _run():
+            set_groww_token(token)
+            return scan_universe(
+                tickers,
+                cfg=cfg,
+                groww_token=token,
+                exchange=exchange,
+                market=GROWW_INDIA_MARKET,
+                holdings=holdings,
+            )
+
+        out = json_safe(await asyncio.to_thread(_run))
+        for r in out.get("results") or []:
+            if isinstance(r, dict) and not r.get("error"):
+                r["ai_context"] = build_etf_28_sma_ai_prompt(r)
+        out["ai_system_prompt"] = ETF_28_SMA_AI_SYSTEM
+        out["preset"] = preset
+        return out
+
+    def etf_top_down_universe(self) -> dict[str, Any]:
+        from app.etf_ta.etf_top_down_engine import universe_payload
+
+        return universe_payload()
+
+    async def etf_top_down_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from app.etf_ta.etf_top_down_engine import (
+            ETF_TOP_DOWN_AI_SYSTEM,
+            EtfTopDownConfig,
+            build_etf_top_down_ai_prompt,
+            scan_universe,
+            universe_payload,
+        )
+
+        token = await self._groww_token()
+        exchange = str(payload.get("exchange") or await self._exchange() or "NSE")
+        preset = payload.get("preset")
+        tickers = list(payload.get("tickers") or [])
+        uni = universe_payload()
+        presets = uni.get("presets") or {}
+        if not tickers and preset and preset in presets:
+            tickers = list(presets[preset])
+        if not tickers:
+            tickers = list(uni.get("default_symbols") or [])
+
+        cfg = EtfTopDownConfig(
+            top_n=int(payload.get("top_n") or 20),
+            renko_box_pct=float(payload.get("renko_box_pct") or 1.0),
+            pn_f_box_pct=float(payload.get("pn_f_box_pct") or 0.25),
+            d_smart_period=int(payload.get("d_smart_period") or 10),
+            lookback_bars=int(payload.get("lookback_bars") or 400),
+            max_etfs_hold=int(payload.get("max_etfs_hold") or 10),
+        )
+
+        def _run():
+            set_groww_token(token)
+            return scan_universe(
+                tickers,
+                cfg=cfg,
+                groww_token=token,
+                exchange=exchange,
+                market=GROWW_INDIA_MARKET,
+            )
+
+        out = json_safe(await asyncio.to_thread(_run))
+        for r in out.get("results") or []:
+            if isinstance(r, dict) and not r.get("error"):
+                r["ai_context"] = build_etf_top_down_ai_prompt(r)
+        out["ai_system_prompt"] = ETF_TOP_DOWN_AI_SYSTEM
+        out["preset"] = preset
+        return out
