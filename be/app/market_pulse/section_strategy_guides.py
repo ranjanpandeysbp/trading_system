@@ -1502,6 +1502,53 @@ Groww · CoinDCX · US. Conf / SL% / TP% / hold on every row.
 Conf / SL% / TP% / hold on every row.
 """,
 
+    "scalp_a_plus": """
+### Scalp A+ — Smart Money Traps (Waqar Asim)
+[Video reference](https://www.youtube.com/watch?v=O3Jn0U0ftgM) — from trading **smart money concepts** to trading **smart money traps**.
+
+#### Daily map
+| Step | Rule |
+|------|------|
+| **Trading range** | Last structural impulse — **external high / external low**; trade only inside |
+| **POIs** | **Extreme** (origin) · **Decisional** (zone that caused BOS) — keep 2–3 max |
+| **Liquidity** | Equal highs/lows or engineered levels as fuel |
+
+#### POI qualification (all required)
+| Filter | Rule |
+|--------|------|
+| **Depth** | Retrace before BOS crosses **50%** of prior leg |
+| **Duration** | Multi-bar battle forming the zone (not a one-candle stall) |
+| **Inducement** | Liquidity grab into the zone before the impulse |
+
+#### Intraday → execution
+| Step | Rule |
+|------|------|
+| **1H narrative** | Complex pullback into POI · skip early false BOS (traps) |
+| **Magnets** | Prior spike / daily extreme / Asia high-low |
+| **Two-leg** | Two BOS legs in bias on **1m or 5m** |
+| **Entry** | Limit into resulting **FVG** |
+| **Risk / TP** | SL beyond swing · **1:3** intrasession · runner **1:10** |
+
+Conf / SL% / TP% / hold on every row.
+""",
+
+    "scalp_gold": """
+### Scalping — Gold (The Trading Geek)
+[Video reference](https://www.youtube.com/watch?v=en8RMFRqSME) — 5-step high-probability **gold** scalp.
+
+**Mindset:** Gold moves fast and respects liquidity — take the highest-probability section, in fast / out faster.
+
+| Step | Rule |
+|------|------|
+| **1. Trend** | **1H** and **15m** must align (BOS → HH/HL or LH/LL) |
+| **2. Markup** | Extreme demand (buys) / supply (sells) + swing liquidity (retail stops) |
+| **3. Patience** | Only when price is inside a **15m POI** — never mid-nowhere |
+| **4. Entry** | After **liquidity sweep** at POI: **Aggressive** = enter on sweep · **Conservative** = internal MSS then pullback to new zone |
+| **5. Target** | Next 15m swing / opposite zone · SL beyond the sweep candle |
+
+Suggested: `GC=F`, `XAUUSD=X`, `GLD`, `GOLDBEES`, … Conf / SL% / TP% / hold on every row.
+""",
+
     "scalp_multi_indicator": """
 ### Scalp — Multi Indicator (UT Bot · QQE · VAE · EMA · Volume Delta)
 [Video reference](https://www.youtube.com/watch?v=L3Zn_3ONytI&t=7s) — **1m** five-indicator stack:

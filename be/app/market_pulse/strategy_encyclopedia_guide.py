@@ -156,6 +156,8 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("scalp_smc", "Scalp — SMC Rule of Three (OTE · FVG · OB · CRT)"),
         ("scalp_arc", "Scalp — ARC Method (Area · Range · Candle)"),
         ("scalp_sr_mss", "Scalp — A+ S/R Zone + 1m MSS (Joovier)"),
+        ("scalp_a_plus", "Scalp A+ — Smart Money Traps (Waqar Asim)"),
+        ("scalp_gold", "Scalping — Gold (The Trading Geek 5-step)"),
         ("scalp_multi_indicator", "Scalp — Multi Indicator (UT Bot · QQE · VAE)"),
         ("scalp_crt_fvg", "Scalp — CRT-FVG (Market Structure, Liquidity & CRT)"),
         ("scalp_livefree_fx", "Scalp — LiveFree FX 5m (HTF Bias · Sessions · London Sweep · BoS)"),
@@ -794,6 +796,16 @@ Use 5m LTF for India; crypto/US align well with auto HTF resample.
     "scalp_sr_mss": """
 **When to use:** HTF S/R zone taps with 1m MSS reversal — LH/LL into support or HH/HL into resistance,
 then swing break entry. Groww after 09:15 IST; US/crypto after 09:30 NY. Default ~2.4:1 R:R.
+""",
+    "scalp_a_plus": """
+**When to use:** Waqar Asim Scalp A+ — daily range + qualified POI (depth/duration/inducement),
+skip 1H smart-money traps, execute two-leg + FVG on 1m/5m toward 1:3 / 1:10. Best when HTF POI is fresh
+and price is in a complex pullback into the zone.
+""",
+    "scalp_gold": """
+**When to use:** The Trading Geek gold scalp — 1H+15m aligned, wait for 15m demand/supply POI,
+enter only after a liquidity sweep (aggressive) or MSS+pullback (conservative). Best on GC=F / XAU / gold ETFs;
+keep targets at the next logical pool and risk tight beyond the sweep candle.
 """,
     "smc_cisd": """
 **When to use:** Avoid early sweep entries — wait for CISD close break after compression + liquidity grab.

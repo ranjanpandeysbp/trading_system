@@ -112,6 +112,8 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   scalp_heikin_ashi: '1m (India 09:45-11:45 IST / US 10:00-12:00 ET session window; crypto unrestricted)',
   scalp_livefree_fx: 'HTF 1D/4H/1H · 15m sessions · 5m sweep + BoS',
   scalp_smc: '4h HTF + 1h MTF + 5m LTF fusion',
+  scalp_a_plus: 'Daily range + POI (depth/duration/inducement) + 1H trap filter + 1m/5m two-leg FVG',
+  scalp_gold: '1H + 15m aligned · 15m demand/supply POI · liquidity sweep entry (aggressive/conservative)',
   scalp_sr_mss: '1h HTF zone + 1m MSS entry',
   scalp_weekly: 'Weekly range (from daily) + configurable execution timeframe (15m/1h/4h)',
   scalp_ichimoku_crash: 'Configurable (1h/4h/1d selectable below) — crypto (ETH/BTC) or any market',

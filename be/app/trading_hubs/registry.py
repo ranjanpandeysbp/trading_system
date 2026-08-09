@@ -17,6 +17,8 @@ from app.trading_hubs import (
     intraday_mtf_breakout_retest_engine,
     intraday_vwap_fade_engine,
     scalp_2min_engine,
+    scalp_a_plus_engine,
+    scalp_gold_engine,
     scalp_arc_engine,
     scalp_crt_fvg_engine,
     scalp_ichimoku_crash_engine,
@@ -570,6 +572,93 @@ per the video's own framing, footprint reads what's happening at a level, it doe
         description="UT Bot + QQE + Vaddah Attar momentum + EMA pullback + volume delta confluence.",
         module=scalp_multi_indicator_engine,
         config_cls=scalp_multi_indicator_engine.MultiIndicatorConfig,
+    ),
+    _section(
+        id="scalp_a_plus",
+        hub="scalping",
+        label="Scalp A+",
+        description=(
+            "Waqar Asim smart-money-traps scalp: daily trading range + qualified POI "
+            "(depth · duration · inducement) → 1H trap filter → 1m/5m two-leg protocol + FVG entry "
+            "(1:3 intrasession / 1:10 runner). "
+            f"Video: {scalp_a_plus_engine.YOUTUBE_SCALP_A_PLUS_URL}"
+        ),
+        module=scalp_a_plus_engine,
+        config_cls=scalp_a_plus_engine.ScalpAPlusConfig,
+        config_options={
+            "execution_tf": {
+                "type": "select",
+                "label": "Execution timeframe",
+                "choices": [{"value": v, "label": v} for v in scalp_a_plus_engine.EXECUTION_TF_OPTIONS],
+                "default": "5m",
+            },
+            "min_depth_pct": {
+                "type": "number",
+                "label": "POI min depth (0–1, 50% = 0.5)",
+                "min": 0.35,
+                "max": 0.75,
+                "step": 0.05,
+                "default": 0.5,
+            },
+            "rr_intrasession": {
+                "type": "number",
+                "label": "Intrasession R:R (TP1)",
+                "min": 2.0,
+                "max": 5.0,
+                "step": 0.5,
+                "default": 3.0,
+            },
+            "take_confidence_threshold": {
+                "type": "number",
+                "label": "Min confidence to TAKE",
+                "min": 55,
+                "max": 85,
+                "step": 1,
+                "default": 68,
+            },
+        },
+        guide=scalp_a_plus_engine.GUIDE_MARKDOWN,
+    ),
+    _section(
+        id="scalp_gold",
+        hub="scalping",
+        label="Scalping - Gold",
+        description=(
+            "The Trading Geek 5-step gold scalp: align 1H+15m structure → mark demand/supply + liquidity → "
+            "wait for 15m POI → entry after liquidity sweep (aggressive or conservative MSS pullback) → "
+            "TP next logical pool · SL beyond sweep candle. "
+            f"Video: {scalp_gold_engine.YOUTUBE_SCALP_GOLD_URL}"
+        ),
+        module=scalp_gold_engine,
+        config_cls=scalp_gold_engine.ScalpGoldConfig,
+        config_options={
+            "entry_style": {
+                "type": "select",
+                "label": "Entry model",
+                "choices": [
+                    {"value": v, "label": scalp_gold_engine.ENTRY_STYLE_LABELS[v]}
+                    for v in scalp_gold_engine.ENTRY_STYLE_OPTIONS
+                ],
+                "default": "conservative",
+            },
+            "min_rr": {
+                "type": "number",
+                "label": "Min R:R to next logical target",
+                "min": 1.0,
+                "max": 3.0,
+                "step": 0.1,
+                "default": 1.5,
+            },
+            "take_confidence_threshold": {
+                "type": "number",
+                "label": "Min confidence to TAKE",
+                "min": 55,
+                "max": 85,
+                "step": 1,
+                "default": 64,
+            },
+        },
+        guide=scalp_gold_engine.GUIDE_MARKDOWN,
     ),
     _section(
         id="scalp_smc",
