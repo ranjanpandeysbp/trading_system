@@ -94,6 +94,7 @@ function compactPriorForExplain(data: Row): Row {
     picks: data.picks,
     enrichments: data.enrichments,
     hedge_pairs: data.hedge_pairs,
+    workflow: data.workflow,
     summary: data.summary,
     ai: data.ai
       ? {
@@ -121,15 +122,32 @@ function assistantFromData(data: Row, q: string): ChatMsg {
   const selected = (data?.selected_strategies as Row[] | undefined) ?? []
   const enrichments = (data?.enrichments as Row[] | undefined) ?? []
   const hedgePairs = (data?.hedge_pairs as Row[] | undefined) ?? []
+  const workflow = (data?.workflow as Row | undefined) ?? null
   const isDeep = Boolean(data?.deep_mode)
   const isExplain = Boolean(data?.explain_only) || String(data?.mode || '') === 'explain'
   const summary = String(data?.summary || '')
   const report = String(ai?.report || '')
   const err = data?.error ? String(data.error) : ''
+  const wfOverall = (workflow?.overall as Row | undefined) ?? null
+  const workflowLines =
+    !isDeep && workflow && (wfOverall || workflow.error)
+      ? [
+          `Workflow playbook (${String(workflow.market || '—')}/${String(workflow.mode || '—')}):`,
+          workflow.error
+            ? `· error: ${String(workflow.error)}`
+            : `· overall ${String(wfOverall?.action || 'WAIT')}` +
+              (wfOverall?.confidence_pct != null ? ` (${wfOverall.confidence_pct}%)` : '') +
+              (wfOverall?.plain_english ? ` — ${String(wfOverall.plain_english)}` : ''),
+          ...(((workflow.steps as Row[] | undefined) ?? []).slice(0, 8).map((s) => {
+            return `· ${String(s.label || s.id || 'step')}: ${String(s.bias || s.status || '—')}` +
+              (s.summary ? ` — ${String(s.summary)}` : '')
+          })),
+        ].join('\n')
+      : ''
   const enrichLines =
     !isDeep && enrichments.length
       ? [
-          'Suitability enrichments:',
+          'Context layers (Workflow + core scans + suitability):',
           ...enrichments.map((e) => {
             const label = String(e.label || e.id || 'desk')
             const why = e.why ? ` (${String(e.why)})` : ''
@@ -158,6 +176,8 @@ function assistantFromData(data: Row, q: string): ChatMsg {
         isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
         !isExplain && summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
         isExplain && summary && `Prior picks (reference):\n${summary}`,
+        !isExplain && workflowLines,
+        isExplain && workflowLines,
         !isExplain && enrichLines,
         isExplain && enrichLines,
         hedgeLines,
@@ -214,7 +234,7 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB Mean + confluence and Pro Trade PA-VP-SMC dual scan, then suitability desks (India Options Market Prediction + Call Put Writing OI walls, Intra-Hedging, etc.). After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Conclusions use Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: asset-class Workflow playbook FIRST (India/US/Crypto/Commodities), then BB Mean + confluence and Pro Trade PA-VP-SMC dual scan, then suitability desks (India Options Market Prediction + Call Put Writing OI walls, Intra-Hedging, etc.). After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Conclusions use Manage → AI.',
     },
   ])
 
@@ -339,7 +359,8 @@ export function DashboardTradingChatPanel() {
             Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan. Also
             understands open questions: biggest 24h movers, top gainers/losers, gold/silver/commodity
             moves, broken support or resistance. Standard:{' '}
-            <strong className="text-white">BB Mean Reversion</strong> + confluence and{' '}
+            <strong className="text-white">Workflow playbook</strong> first (India / US / Crypto /
+            Commodities), then <strong className="text-white">BB Mean Reversion</strong> + confluence and{' '}
             <strong className="text-white">Pro Trade → PA-VP-SMC</strong>, then suitability desks as needed
             (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, Oil·Dollar·Bond,{' '}
             <strong className="text-white">Options Market Prediction</strong>,{' '}
@@ -648,7 +669,7 @@ export function DashboardTradingChatPanel() {
           context={lastAskContext}
           section="dashboard/trading-chat"
           title="Why this result?"
-          defaultQuestion="Why did the Trading Agent give this result? Explain the picks, %confidence, %SL, %TP, and how BB Mean + confluence vs PA-VP-SMC (and any Options desks) influenced the call."
+          defaultQuestion="Why did the Trading Agent give this result? Explain the picks, %confidence, %SL, %TP, and how the asset-class Workflow playbook, then BB Mean + confluence vs PA-VP-SMC (and any Options desks), influenced the call."
           buttonLabel="Explain result"
           showPredictNextMove={false}
           className="mt-4"

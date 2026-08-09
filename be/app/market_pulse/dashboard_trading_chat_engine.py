@@ -418,8 +418,8 @@ def build_chat_ai_context(
     enrichments: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = [
-        "Dashboard Trading Chat — dual core: BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC, "
-        "then suitability enrichments.",
+        "Dashboard Trading Chat — Workflow playbook FIRST (asset-class India/US/Crypto/Commodities), "
+        "then BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC, then suitability enrichments.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         f"Mode: {intent.get('mode')} · Action bias: {intent.get('action_bias')}",
@@ -436,7 +436,10 @@ def build_chat_ai_context(
         )
     if enrichments:
         lines.append("")
-        lines.append("Suitability enrichments (use as context; do not invent levels from them):")
+        lines.append(
+            "Context layers (Workflow playbook is primary tape; then core scans / enrichments — "
+            "do not invent levels from them):"
+        )
         for enr in enrichments:
             label = enr.get("label") or enr.get("id")
             why = enr.get("why") or ""
@@ -445,41 +448,42 @@ def build_chat_ai_context(
     lines.append("")
     lines.append(
         "Respond with a clear ranking, BUY/SELL/WAIT per name, %confidence, %SL, %TP, "
-        "and a one-line reason. Prefer BB / PA-VP-SMC engine numbers for SL/TP; cite "
+        "and a one-line reason. Lead with the Workflow playbook stance for this asset class; "
+        "then confirm or temper with BB / PA-VP-SMC engine numbers for SL/TP. Cite "
         "enrichments when they confirm or conflict (especially Options Market Prediction "
-        "and Call Put Writing walls). Note when BB and PA-VP-SMC agree or disagree. "
-        "Then add a short **Why** section: explain the logic behind the top picks "
-        "(BB confluence + PA-VP-SMC pillars + any options/OI enrichment). "
+        "and Call Put Writing walls). Note when Workflow, BB, and PA-VP-SMC agree or disagree. "
+        "Then add a short **Why** section: Workflow first, then BB confluence + PA-VP-SMC + options/OI. "
         "Flag risk if confluence is thin."
     )
     return "\n".join(lines)
 
 
 TRADING_CHAT_SYSTEM = (
-    "You are the Dashboard Trading Chat desk analyst. Conclude primarily from "
-    "BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC (price action · volume "
-    "profile · smart money confluence) engine numbers, and weigh suitability enrichments "
-    "(Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, "
-    "Oil-Dollar-Bond macro, Options Market Prediction, Options Call Put Writing OI walls, "
-    "Trading Hub Intra-Hedging pairs) when provided. Prefer BB or PA-VP-SMC levels for "
-    "SL/TP when both agree; when they conflict, say so and lower confidence. For hedge "
-    "pairs cite LONG/SHORT legs, spread, and confidence. For Call Put Writing cite Call "
-    "wall / Put floor / writing tilt / short-covering risk. For each name give: action "
-    "(BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, %SL, %TP, and a short reason. "
-    "Always include a brief **Why this result** paragraph explaining BB + PA-VP-SMC + "
-    "enrichment logic in plain English. Be concise and practical. This is "
-    "research/education only — not financial advice. End with: "
-    "VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
+    "You are the Dashboard Trading Chat desk analyst. FIRST weigh the asset-class "
+    "Workflow playbook (India F&O/intraday, US swing/pairs, Crypto kill-zone scalp, "
+    "Commodities HTF Gold/Oil) when provided — that is the primary market tape. "
+    "THEN confirm with BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC engine "
+    "numbers, and weigh suitability enrichments (Elliott Wave, Volume Spread next-candle, "
+    "Advance/Decline, Comparative Strength, Oil-Dollar-Bond macro, Options Market Prediction, "
+    "Options Call Put Writing OI walls, Trading Hub Intra-Hedging pairs). Prefer BB or "
+    "PA-VP-SMC levels for SL/TP when both agree; when they conflict with the Workflow "
+    "stance, say so and lower confidence. For hedge pairs cite LONG/SHORT legs, spread, "
+    "and confidence. For Call Put Writing cite Call wall / Put floor / writing tilt / "
+    "short-covering risk. For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), "
+    "%confidence, %SL, %TP, and a short reason. Always include a brief **Why this result** "
+    "paragraph explaining Workflow → BB + PA-VP-SMC + enrichment logic in plain English. "
+    "Be concise and practical. This is research/education only — not financial advice. "
+    "End with: VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
 )
 
 EXPLAIN_CHAT_SYSTEM = (
     "You explain Trading Agent desk results to the user. They already have picks and "
-    "enrichments — do NOT invent new tickers or levels. Cite BB Mean Reversion + "
-    "confluence, Pro Trade PA-VP-SMC pillars, Options Market Prediction / Call Put "
-    "Writing (OI walls, PCR, short covering), Intra-Hedging pairs, and other enrichment "
-    "summaries. Answer their 'why / explain' question clearly with %confidence meaning, "
-    "why SL%/TP% were chosen, and what would invalidate the setup. Research/education "
-    "only — not financial advice."
+    "enrichments — do NOT invent new tickers or levels. Start from the Workflow playbook "
+    "for their asset class, then cite BB Mean Reversion + confluence, Pro Trade PA-VP-SMC "
+    "pillars, Options Market Prediction / Call Put Writing (OI walls, PCR, short covering), "
+    "Intra-Hedging pairs, and other enrichment summaries. Answer their 'why / explain' "
+    "question clearly with %confidence meaning, why SL%/TP% were chosen, and what would "
+    "invalidate the setup. Research/education only — not financial advice."
 )
 
 # ---------------------------------------------------------------------------
@@ -487,6 +491,7 @@ EXPLAIN_CHAT_SYSTEM = (
 # ---------------------------------------------------------------------------
 
 NORMAL_ENRICHMENT_LABELS: dict[str, str] = {
+    "workflow_playbook": "Workflow playbook (asset-class)",
     "elliott_wave": "Elliott Wave",
     "volume_spread_next_candle": "Volume Spread (next candle)",
     "advance_decline": "Advance / Decline breadth",
@@ -893,6 +898,50 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
     ticker_signals: list[dict[str, Any]] = []
     summary = ""
 
+    if eid == "workflow_playbook":
+        overall = payload.get("overall") if isinstance(payload.get("overall"), dict) else {}
+        action = str(overall.get("action") or "WAIT").upper()
+        market = payload.get("market") or "—"
+        mode = payload.get("mode") or "—"
+        pe = overall.get("plain_english") or ""
+        steps = list(payload.get("steps") or [])
+        bits: list[str] = []
+        for s in steps[:10]:
+            if not isinstance(s, dict) or s.get("status") == "error":
+                continue
+            name = s.get("title") or s.get("label") or s.get("step") or s.get("id") or "step"
+            bias = s.get("bias") or s.get("action") or "—"
+            bits.append(f"{name}:{bias}")
+        # Soft tape signal on workflow tickers (index/stock under evaluation)
+        wf_side = "LONG" if action == "BUY" else "SHORT" if action == "SELL" else "WAIT"
+        for t in (payload.get("tickers") or [])[:8]:
+            if not t:
+                continue
+            ticker_signals.append({
+                "ticker": str(t).upper(),
+                "side": wf_side,
+                "take_trade": wf_side in ("LONG", "SHORT"),
+                "confidence_pct": overall.get("confidence_pct"),
+                "note": f"Workflow {market}/{mode} overall {action}",
+            })
+        summary = (
+            f"{market}/{mode} overall {action}"
+            + (f" ({overall.get('confidence_pct')}%)" if overall.get("confidence_pct") is not None else "")
+            + (f" · {pe}" if pe else "")
+            + (f" · steps: {', '.join(bits)}" if bits else "")
+        )[:420]
+        return {
+            "id": eid,
+            "label": label,
+            "summary": summary,
+            "overall_action": action,
+            "overall_confidence_pct": overall.get("confidence_pct"),
+            "market": market,
+            "mode": mode,
+            "ticker_signals": ticker_signals,
+            "raw_overall": overall,
+        }
+
     if eid in ("elliott_wave", "volume_spread_next_candle", "pa_vp_smc"):
         rows = list(payload.get("results") or payload.get("entries") or [])
         bits: list[str] = []
@@ -1090,8 +1139,14 @@ def apply_enrichments_to_picks(
 
     agree_boost = 4.0
     by_t: dict[str, list[dict[str, Any]]] = {}
+    workflow_overall: str | None = None
     for enr in enrichments:
         label = str(enr.get("label") or enr.get("id") or "enrichment")
+        if enr.get("id") == "workflow_playbook":
+            oa = str(enr.get("overall_action") or "").upper()
+            # Index tape biases all stock picks; stock mode uses ticker_signals only
+            if oa in ("BUY", "SELL", "WAIT") and str(enr.get("mode") or "").lower() == "index":
+                workflow_overall = oa
         for sig in enr.get("ticker_signals") or []:
             if not isinstance(sig, dict):
                 continue
@@ -1099,6 +1154,12 @@ def apply_enrichments_to_picks(
             if not t:
                 continue
             by_t.setdefault(t, []).append({**sig, "_label": label})
+
+    wf_side = (
+        "LONG" if workflow_overall == "BUY"
+        else "SHORT" if workflow_overall == "SELL"
+        else None
+    )
 
     out: list[dict[str, Any]] = []
     for p in picks:
@@ -1111,6 +1172,17 @@ def apply_enrichments_to_picks(
             conf_f = float(conf) if conf is not None else None
         except (TypeError, ValueError):
             conf_f = None
+
+        # Asset-class Workflow tape (index mode often won't share tickers with stock picks)
+        if wf_side and side in ("LONG", "SHORT"):
+            if side == wf_side:
+                if conf_f is not None:
+                    conf_f = min(96.0, conf_f + 5.0)
+                reasons.append(f"Workflow playbook agrees (overall {workflow_overall})")
+            else:
+                if conf_f is not None:
+                    conf_f = max(20.0, conf_f - 4.0)
+                reasons.append(f"Workflow playbook conflicts (overall {workflow_overall})")
 
         for sig in by_t.get(t, []):
             sig_side = str(sig.get("side") or "").upper()
@@ -1131,8 +1203,16 @@ def apply_enrichments_to_picks(
         if conf_f is not None:
             row["confidence_pct"] = round(conf_f, 1)
         if reasons:
-            row["reasons"] = reasons[:8]
-            row["reason"] = reasons[0]
+            # de-dupe while preserving order
+            seen: set[str] = set()
+            uniq: list[str] = []
+            for r in reasons:
+                if r in seen:
+                    continue
+                seen.add(r)
+                uniq.append(r)
+            row["reasons"] = uniq[:8]
+            row["reason"] = uniq[0]
         out.append(row)
     return out
 

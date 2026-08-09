@@ -1,4 +1,4 @@
-"""Dashboard Trading Chat — BB + confluence; suitability enrichments; optional Deep mode."""
+"""Dashboard Trading Chat — Workflow playbook first, then BB + PA-VP-SMC; enrichments; Deep mode."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from app.market_pulse.dashboard_trading_chat_engine import (
 from app.market_pulse.serialize import json_safe
 from app.services.ai_service import AIService
 from app.services.pro_trade_service import ProTradeService
+from app.services.workflow_evaluate_service import WorkflowEvaluateService
 from app.services.settings_service import SettingsService
 from app.services.ticker_universe_service import TickerUniverseService
 from app.strategies.registry import ALL_STRATEGIES, default_backtest_period
@@ -57,6 +58,48 @@ class DashboardTradingChatService:
         if not raw:
             return []
         return self.universe.resolve(asset_class, raw)[:8]
+
+    @staticmethod
+    def _workflow_market(asset_class: str) -> str:
+        """Map Trading Agent asset_class → Workflow Evaluate market key."""
+        ac = (asset_class or "india").lower().strip()
+        return {
+            "india": "india",
+            "us": "us",
+            "crypto": "crypto",
+            "commodity": "commodities",
+            "commodities": "commodities",
+        }.get(ac, "india")
+
+    async def _run_workflow_first(
+        self,
+        *,
+        asset_class: str,
+        mode: str,
+        scan_tickers: list[str],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """PRIMARY: asset-class Workflow playbook before BB / PA-VP-SMC."""
+        market = self._workflow_market(asset_class)
+        wf_mode = "stock" if mode == "single" else "index"
+        tickers = scan_tickers[:8] if mode == "single" else None
+        try:
+            wf = await WorkflowEvaluateService(self.settings, self.db).evaluate(
+                market, wf_mode, tickers=tickers,
+            )
+        except Exception as exc:
+            logger.exception("Workflow evaluate failed for %s/%s", market, wf_mode)
+            wf = {
+                "error": str(exc)[:240],
+                "market": market,
+                "mode": wf_mode,
+                "tickers": tickers or [],
+                "steps": [],
+                "overall": {"action": "WAIT", "plain_english": f"Workflow failed: {exc}"},
+            }
+        compact = summarize_enrichment_payload("workflow_playbook", wf)
+        compact["why"] = f"PRIMARY — {market} Workflow ({wf_mode}) before BB / PA-VP-SMC"
+        compact["score"] = 12.0
+        return wf, compact
 
     async def chat(
         self,
@@ -475,7 +518,12 @@ class DashboardTradingChatService:
 
         import asyncio
 
-        # Core dual scan: BB Mean + confluence AND Pro Trade PA-VP-SMC, then AI
+        # 1) PRIMARY — asset-class Workflow playbook (India / US / Crypto / Commodities)
+        wf_raw, wf_compact = await self._run_workflow_first(
+            asset_class=ac, mode=mode, scan_tickers=scan_tickers,
+        )
+
+        # 2) Core dual scan: BB Mean + confluence AND Pro Trade PA-VP-SMC
         pavp_cfg: dict[str, Any] = {}
         if tf in ("1m", "3m", "5m", "15m", "30m", "1h", "4h"):
             pavp_cfg["ltf"] = tf
@@ -550,7 +598,7 @@ class DashboardTradingChatService:
 
         picks = merge_live_picks([bb_picks, pavp_picks], top_n=top_n)
 
-        # Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options / Intra-Hedging)
+        # 3) Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options / Intra-Hedging)
         planned = select_normal_enrichments(
             style_key, ac, message, mode=mode, timeframe=tf, limit=3,
         )
@@ -567,11 +615,11 @@ class DashboardTradingChatService:
             tickers=enrich_tickers,
             message=message,
         )
-        # Always attach PA-VP-SMC compact summary for AI / FE (core dual scan)
+        # Workflow FIRST, then PA-VP-SMC compact, then suitability desks
         pavp_compact = summarize_enrichment_payload("pa_vp_smc", pavp)
-        pavp_compact["why"] = "core dual scan with BB Mean Reversion + confluence"
+        pavp_compact["why"] = "core dual scan with BB Mean Reversion + confluence (after Workflow)"
         pavp_compact["score"] = 10.0
-        enrichments = [pavp_compact] + list(enrichments or [])
+        enrichments = [wf_compact, pavp_compact] + list(enrichments or [])
 
         picks = apply_enrichments_to_picks(picks, enrichments)
         for i, p in enumerate(picks):
@@ -604,7 +652,25 @@ class DashboardTradingChatService:
             enrichments=enrichments,
         )
         packed["pa_vp_smc_entry_count"] = pavp.get("entry_count")
-        packed["core_engines"] = ["bb_mean_reversion", "pa_vp_smc"]
+        packed["core_engines"] = ["workflow_playbook", "bb_mean_reversion", "pa_vp_smc"]
+        packed["workflow"] = {
+            "market": wf_raw.get("market"),
+            "mode": wf_raw.get("mode"),
+            "tickers": wf_raw.get("tickers"),
+            "overall": wf_raw.get("overall"),
+            "steps": [
+                {
+                    "id": s.get("id") or s.get("step"),
+                    "label": s.get("title") or s.get("label") or s.get("step") or s.get("id"),
+                    "bias": s.get("bias"),
+                    "status": s.get("status"),
+                    "summary": (s.get("summary") or s.get("plain_english") or "")[:180],
+                }
+                for s in (wf_raw.get("steps") or [])
+                if isinstance(s, dict)
+            ],
+            "error": wf_raw.get("error"),
+        }
         return json_safe(packed)
 
     async def _chat_deep(
@@ -1184,8 +1250,9 @@ class DashboardTradingChatService:
             sys = TRADING_CHAT_SYSTEM
             q = (
                 "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason. "
-                "Weigh BB Mean Reversion + confluence and Pro Trade PA-VP-SMC together; note agreement "
-                "or conflict. Also weigh suitability enrichments — especially Options Market Prediction "
+                "Lead with the asset-class Workflow playbook stance; then confirm with BB Mean "
+                "Reversion + confluence and Pro Trade PA-VP-SMC; note agreement or conflict. "
+                "Also weigh suitability enrichments — especially Options Market Prediction "
                 "and Call Put Writing (OI walls / short covering). "
                 "Include a brief **Why this result** explanation. "
                 f"User asked: {message}"
@@ -1242,13 +1309,16 @@ class DashboardTradingChatService:
             )
 
         how = [
-            "Core dual scan: BB Mean Reversion + all confluence checks, and Pro Trade → PA-VP-SMC "
-            "(price action · volume profile · smart money), run together before AI.",
-            "Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
+            "1) PRIMARY: asset-class Workflow playbook (India / US / Crypto / Commodities) — "
+            "index tape for top-picks, stock workflow for named tickers.",
+            "2) Core dual scan: BB Mean Reversion + all confluence checks, and Pro Trade → PA-VP-SMC "
+            "(price action · volume profile · smart money), run together after Workflow.",
+            "3) Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
             "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction, "
             "Options Call Put Writing (OI walls / short covering), and Trading Hub Intra-Hedging "
             "(India — query-adapted TF / sector-vs-stock / max pairs).",
-            "BUY/SELL = eligible actionable setups from either core engine (merged by confidence).",
+            "BUY/SELL = eligible actionable setups from either core engine (merged by confidence), "
+            "tempered by Workflow overall stance.",
             "AI conclusion uses the provider saved in Manage → AI Settings and includes a Why section.",
             "Ask “why?” or “explain this result” as a follow-up to dig into the rationale without re-scanning.",
             "SL%/TP% come from the winning engine trade plan (BB band edge → mean, or PA-VP-SMC confluence stop/target).",
