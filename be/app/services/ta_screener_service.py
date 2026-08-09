@@ -12,6 +12,17 @@ from app.market_pulse.serialize import json_safe
 from app.market_pulse.ta_screener_registry import TA_SCREENERS
 from app.services.settings_service import SettingsService
 
+# Legacy / short ids → catalog id
+_SCREENER_ALIASES: dict[str, str] = {
+    "smc_fake_shift": "smc_fake_market_shift",
+}
+
+
+def _resolve_screener_id(screener_id: str) -> str:
+    sid = (screener_id or "").strip()
+    return _SCREENER_ALIASES.get(sid, sid)
+
+
 _DEFAULT_TF: dict[str, str] = {
     "price_action": "15m",
     "pump_dump_predictor": "5m",
@@ -22,6 +33,7 @@ _DEFAULT_TF: dict[str, str] = {
     "fakeout_15m": "1m",
     "top_down_mtf": "15m",
     "smc_fake_shift": "15m",
+    "smc_fake_market_shift": "15m",
     "weekly_stoch": "1d",
     "kn_smart_rsi": "5m",
     "velez_retracement": "15m",
@@ -194,7 +206,7 @@ def evaluate_screener_on_df(
                 session_mode=session_mode_for_market(market),
             )
 
-        if screener_id == "smc_fake_shift":
+        if screener_id in ("smc_fake_shift", "smc_fake_market_shift"):
             from app.market_pulse.smc_fake_market_shift_engine import analyze_smc_fake_market_shift
 
             return analyze_smc_fake_market_shift(work, chart_tf=tf)
@@ -401,7 +413,7 @@ def _run_one(
                 exchange,
             )
 
-        if screener_id == "smc_fake_shift":
+        if screener_id in ("smc_fake_shift", "smc_fake_market_shift"):
             from app.market_pulse.smc_fake_market_shift_engine import analyze_smc_fake_market_shift
 
             df = _fetch(ticker, tf, market, groww_token, exchange)
@@ -514,6 +526,7 @@ class TaScreenerService:
         options: dict[str, Any] | None = None,
         asset_class: str = "india",
     ) -> dict[str, Any]:
+        screener_id = _resolve_screener_id(screener_id)
         meta = next((s for s in TA_SCREENERS if s["id"] == screener_id), None)
         if not meta:
             raise ValueError(f"Unknown screener: {screener_id}")

@@ -16,7 +16,7 @@ TA_SCREENERS: list[dict[str, Any]] = [
     {"id": "fakeout_4h", "label": "Fakeout 5m–4h", "markets": ["india", "us"], "engine": "fakeout_4h_engine", "default_tf": "5m"},
     {"id": "fakeout_15m", "label": "Fakeout 1m–15m", "markets": ["india", "us"], "engine": "fakeout_15m_engine", "default_tf": "1m"},
     {"id": "top_down_mtf", "label": "Top Down MTF", "markets": ["india", "us", "crypto"], "engine": "top_down_mtf_engine", "default_tf": "15m"},
-    {"id": "smc_fake_shift", "label": "SMC Fake Market Shift", "markets": ["india", "us", "crypto"], "engine": "smc_fake_market_shift_engine", "default_tf": "15m"},
+    {"id": "smc_fake_market_shift", "label": "SMC Fake Market Shift", "markets": ["india", "us", "crypto"], "engine": "smc_fake_market_shift_engine", "default_tf": "15m"},
     {"id": "weekly_stoch", "label": "Weekly Stoch Sweet Spot", "markets": ["india", "us"], "engine": "weekly_stoch_sweet_spot_engine", "default_tf": "1d"},
     {"id": "kn_smart_rsi", "label": "KN Smart RSI MTF", "markets": ["india", "us", "crypto"], "engine": "kn_smart_rsi_engine", "default_tf": "5m"},
     {"id": "velez_retracement", "label": "Velez Retracement", "markets": ["india", "us"], "engine": "velez_retracement_engine", "default_tf": "15m"},

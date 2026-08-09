@@ -86,9 +86,11 @@ export default function TechnicalAnalysis() {
 
   useEffect(() => {
     const next = searchParams.get('tab')
-    if (next && next !== tab && screeners.some((s) => s.id === next)) {
-      setTab(next)
-      const meta = screeners.find((s) => s.id === next)
+    const aliases: Record<string, string> = { smc_fake_shift: 'smc_fake_market_shift' }
+    const resolved = next ? aliases[next] || next : null
+    if (resolved && resolved !== tab && screeners.some((s) => s.id === resolved)) {
+      setTab(resolved)
+      const meta = screeners.find((s) => s.id === resolved)
       if (meta?.default_tf) setEngineTf(meta.default_tf)
     }
   }, [searchParams, screeners, tab])
