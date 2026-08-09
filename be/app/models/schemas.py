@@ -235,6 +235,9 @@ class DashboardTradingChatRequest(BaseModel):
     top_n: int | None = Field(default=None, ge=1, le=500)  # None = all eligible picks
     skip_ai: bool = False
     deep_mode: bool = False  # backtest-rank strategies → encyclopedia → live → AI
+    # Follow-up: explain prior desk result ("why…") without re-scanning
+    explain_only: bool = False
+    prior_result: dict[str, Any] | None = None
 
 
 class AIConfigResponse(BaseModel):
@@ -1048,6 +1051,13 @@ class OptionsMarketPredictionRequest(BaseModel):
     futures_price: float | None = None
     fii_index_position_cut: bool | None = None
     further_analysis: list[str] | None = None
+
+
+class OptionsCallPutWritingRequest(BaseModel):
+    """Call / Put writing walls from option-chain OI — resistance, support, short-covering risk."""
+    symbol: str = "NIFTY"
+    is_index: bool = True
+    exchange: str | None = None
 
 
 class OptionsZeroToHeroRequest(BaseModel):

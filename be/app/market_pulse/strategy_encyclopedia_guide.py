@@ -195,6 +195,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("gokul_chhabra", "Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM options"),
         ("zero_to_hero", "Zero to Hero — high-conviction options progression"),
         ("market_prediction", "Market Prediction — derivatives conviction vs hollow move"),
+        ("call_put_writing", "Call Put Writing — OI walls · short covering"),
     ],
     "📓 Demo Trading": [
         ("demo_india", "Demo Trading — India (Groww)"),
@@ -899,6 +900,9 @@ Daily date range or same-day intraday; chart draws as soon as ticker + dates are
 """,
     "market_prediction": """
 **When to use:** Before trusting today's index/stock move — check whether derivatives (synthetic futures, OI, IV skew, PCR, VIX, FII/DII) back the tape or call it hollow.
+""",
+    "call_put_writing": """
+**When to use:** Map Call writing resistance walls and Put writing support floors; watch short-covering if Call walls break.
 """,
 }
 

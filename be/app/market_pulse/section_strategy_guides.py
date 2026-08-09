@@ -2673,6 +2673,28 @@ Checks whether today's index or stock move is backed by conviction in the NSE op
 **When to use:** Before trusting a big day on Nifty / Bank Nifty / F&O stocks — pair with
 **Advance Decline** and **Option Chain**. Open from Dashboard quick link or Options → Market Prediction.
 """,
+
+    "call_put_writing": """
+### Call Put Writing — OI walls & short covering
+
+Desk-style read of **who is writing Calls vs Puts** on the India F&O option chain.
+
+| Signal | Idea |
+|--------|------|
+| Call OI / fresh Call ΔOI walls | Near-term **resistance** — writers defend the ceiling |
+| Put OI / fresh Put ΔOI floors | Near-term **support** |
+| Writing tilt | Call-writing dominant (bearish ceiling) vs Put-writing dominant (bullish floor) |
+| PCR (OI) / Max Pain | Broader positioning + expiry magnet |
+| OI buildup | Long/Short Buildup vs covering / unwinding |
+| Short-covering risk | Spot testing or breaking the Call wall → squeeze / covering rally |
+
+**Video framing:** Weekly outlooks that highlight heavy Call writing at a strike (e.g. 24,600)
+as hard resistance, Put writing as support, and short-covering if the Call wall breaks.
+FII/Pro vs retail participant OI is **not** auto-fetched — use chain OI; treat external
+participant files as manual context only.
+
+**When to use:** Options → Call Put Writing before fading a ceiling or buying a floor on Nifty / Bank Nifty / F&O stocks.
+""",
 }
 
 

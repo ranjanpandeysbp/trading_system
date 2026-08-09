@@ -893,6 +893,8 @@ export function ZeroToHeroPanel({ data }: { data: Row }) {
 
 function marketViewBadgeClass(view: string): string {
   if (view.startsWith('HEALTHY')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  if (view === 'BULLISH') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  if (view === 'SHORT_COVERING') return 'border-amber-500/30 bg-amber-500/10 text-amber-400'
   if (view.startsWith('BEARISH') || view.startsWith('BULLISH')) return 'border-rose-500/30 bg-rose-500/10 text-rose-400'
   if (view.startsWith('CAUTIOUS')) return 'border-amber-500/30 bg-amber-500/10 text-amber-400'
   return 'border-slate-700/60 bg-slate-800/50 text-slate-300'
@@ -1075,6 +1077,201 @@ export function MarketPredictionPanel({ data }: { data: Row }) {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function OiStrikeTable({
+  title,
+  rows,
+  strikeKey = 'strike',
+  oiKey,
+  chgKey,
+  accent,
+}: {
+  title: string
+  rows: Row[]
+  strikeKey?: string
+  oiKey: string
+  chgKey: string
+  accent: 'call' | 'put'
+}) {
+  if (!rows.length) return null
+  const border = accent === 'call' ? 'border-rose-500/20' : 'border-emerald-500/20'
+  const head = accent === 'call' ? 'text-rose-400' : 'text-emerald-400'
+  return (
+    <div className={`rounded-xl border ${border} bg-slate-900/40 p-3`}>
+      <p className={`mb-2 text-xs font-medium uppercase tracking-wider ${head}`}>{title}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[280px] text-left text-xs text-slate-300">
+          <thead>
+            <tr className="border-b border-slate-800 text-slate-500">
+              <th className="px-2 py-1.5 font-medium">Strike</th>
+              <th className="px-2 py-1.5 font-medium">OI</th>
+              <th className="px-2 py-1.5 font-medium">ΔOI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r[strikeKey]}-${i}`} className="border-b border-slate-800/60">
+                <td className="px-2 py-1.5 font-medium text-white">{fmtNum(r[strikeKey], 0)}</td>
+                <td className="px-2 py-1.5">{fmtNum(r[oiKey], 0)}</td>
+                <td className={`px-2 py-1.5 ${Number(r[chgKey] ?? 0) >= 0 ? 'text-amber-300' : 'text-slate-400'}`}>
+                  {fmtNum(r[chgKey], 0)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export function CallPutWritingPanel({ data }: { data: Row }) {
+  if (data.error) return <p className="text-sm text-rose-400">{String(data.error)}</p>
+
+  const marketView = String(data.market_view ?? '—')
+  const riskStance = String(data.risk_stance ?? '—')
+  const writing = (data.writing as Row) ?? {}
+  const walls = (data.walls as Row) ?? {}
+  const covering = (data.short_covering as Row) ?? {}
+  const buildup = (data.buildup as Row | null) ?? null
+  const sentiment = (data.sentiment as Row | null) ?? null
+  const chainSignal = (data.chain_signal as Row | null) ?? null
+  const fiiDii = (data.fii_dii_cash as Row | null) ?? null
+  const trade = resolveTradeSuggestion(data)
+  const callWall = (walls.primary_call_wall as Row) ?? {}
+  const putFloor = (walls.primary_put_floor as Row) ?? {}
+  const topCall = (data.top_call_oi as Row[]) ?? (walls.call_resistance_strikes as Row[]) ?? []
+  const topPut = (data.top_put_oi as Row[]) ?? (walls.put_support_strikes as Row[]) ?? []
+  const topCallChg = (data.top_call_chg_oi as Row[]) ?? []
+  const topPutChg = (data.top_put_chg_oi as Row[]) ?? []
+  const plainEnglish = data.plain_english != null ? String(data.plain_english) : null
+  const expiry = data.expiry != null ? String(data.expiry) : null
+  const generatedAt = data.generated_at != null ? String(data.generated_at) : null
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold ${marketViewBadgeClass(marketView)}`}>
+            {marketView}
+          </span>
+          <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-medium ${riskStanceBadgeClass(riskStance)}`}>
+            {riskStance} risk
+          </span>
+          {writing.tilt != null && (
+            <span className="inline-flex items-center rounded-lg border border-slate-700/60 bg-slate-800/50 px-2.5 py-1 text-xs text-slate-300">
+              {String(writing.tilt).replace(/_/g, ' ')}
+            </span>
+          )}
+          <span className="text-xs text-slate-500">
+            {String(data.symbol ?? '')} {fmtNum(data.spot)}
+            {expiry && <> · Exp {expiry}</>}
+          </span>
+        </div>
+        {(generatedAt || data.video_title) && (
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            {data.video_title != null && <span>Framing: {String(data.video_title)}</span>}
+            {generatedAt && <span>Generated {generatedAt}</span>}
+          </div>
+        )}
+        {plainEnglish != null && (
+          <p className="mt-3 rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-2.5 text-sm leading-relaxed text-slate-200">
+            {plainEnglish}
+          </p>
+        )}
+        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+          <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">PCR (OI)</p>
+            <p className="text-sm font-semibold text-white">{fmtNum(data.pcr_oi, 2)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">Max Pain</p>
+            <p className="text-sm font-semibold text-white">{fmtNum(data.max_pain, 0)}</p>
+          </div>
+          <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-rose-400">Call wall</p>
+            <p className="text-sm font-semibold text-white">{fmtNum(callWall.strike, 0)}</p>
+            {callWall.ce_oi != null && <p className="text-[10px] text-slate-500">OI {fmtNum(callWall.ce_oi, 0)}</p>}
+          </div>
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-emerald-400">Put floor</p>
+            <p className="text-sm font-semibold text-white">{fmtNum(putFloor.strike, 0)}</p>
+            {putFloor.pe_oi != null && <p className="text-[10px] text-slate-500">OI {fmtNum(putFloor.pe_oi, 0)}</p>}
+          </div>
+        </div>
+        {writing.note != null && (
+          <p className="mt-2 text-xs text-slate-400">{String(writing.note)}</p>
+        )}
+        {covering.note != null && (
+          <p className={`mt-1.5 text-xs ${covering.threatened || covering.active ? 'text-amber-300' : 'text-slate-500'}`}>
+            {String(covering.note)}
+          </p>
+        )}
+      </div>
+
+      {trade && trade.action != null && (
+        <OptionsTradeSignalBlock
+          trade={{
+            ...trade,
+            plain_english: trade.advice ?? trade.plain_english,
+            confidence_reasons: (trade.reasons as string[] | undefined) ?? (trade.confidence_reasons as string[] | undefined) ?? [],
+          }}
+          legend="BUY / SELL / WAIT from Call/Put writing walls · SL% / TP% on the index / stock idea"
+        />
+      )}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <OiStrikeTable title="Call resistance walls (OI)" rows={topCall} oiKey="ce_oi" chgKey="ce_chg_oi" accent="call" />
+        <OiStrikeTable title="Put support floors (OI)" rows={topPut} oiKey="pe_oi" chgKey="pe_chg_oi" accent="put" />
+        <OiStrikeTable title="Fresh Call writing (ΔOI)" rows={topCallChg} oiKey="ce_oi" chgKey="ce_chg_oi" accent="call" />
+        <OiStrikeTable title="Fresh Put writing (ΔOI)" rows={topPutChg} oiKey="pe_oi" chgKey="pe_chg_oi" accent="put" />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {buildup && (
+          <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">OI buildup</p>
+            <p className="mt-1 text-sm font-semibold text-white">{String(buildup.label ?? '—')}</p>
+            {buildup.bias != null && <p className="text-xs text-slate-500">{String(buildup.bias)}</p>}
+          </div>
+        )}
+        {sentiment && (
+          <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Options sentiment</p>
+            <p className="mt-1 text-sm font-semibold text-white">{String(sentiment.verdict ?? '—')}</p>
+            {sentiment.score != null && <p className="text-xs text-slate-500">Score {fmtNum(sentiment.score, 1)}</p>}
+          </div>
+        )}
+        {chainSignal && (
+          <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Chain signal</p>
+            <p className="mt-1 text-sm font-semibold text-white">{String(chainSignal.bias ?? '—')}</p>
+            {chainSignal.confidence_pct != null && (
+              <p className="text-xs text-slate-500">{fmtNum(chainSignal.confidence_pct, 0)}% conf</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {fiiDii && (
+        <p className="text-xs text-slate-500">
+          Cash FII/DII:{' '}
+          {Boolean(fiiDii.available)
+            ? `${String(fiiDii.verdict ?? fiiDii.bias ?? '—')}${fiiDii.note != null ? ` — ${String(fiiDii.note)}` : ''}`
+            : String(fiiDii.note ?? 'unavailable')}
+        </p>
+      )}
+      {data.participant_oi_note != null && (
+        <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+          {String(data.participant_oi_note)}
+        </p>
+      )}
+      {data.disclaimer != null && (
+        <p className="text-[11px] text-slate-600">{String(data.disclaimer)}</p>
       )}
     </div>
   )

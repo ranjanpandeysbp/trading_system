@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   apiErrorMessage,
   fetchTickerSuggestions,
+  runOptionsCallPutWriting,
   runOptionsDeltaNeutral,
   runOptionsDoubleCalendar,
   runOptionsGokulChhabra,
@@ -19,7 +20,7 @@ import {
   useOptionsBackground,
   type OptionsSectionId,
 } from '../components/options/OptionsBackground'
-import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, CallPutWritingPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
@@ -36,6 +37,7 @@ const SECTIONS = [
   { id: 'gokul_chhabra', label: '🎯 Gokul Chhabra 3m ITM' },
   { id: 'zero_to_hero', label: '🚀 Zero to Hero' },
   { id: 'market_prediction', label: '🔮 Market Prediction' },
+  { id: 'call_put_writing', label: '✍️ Call Put Writing' },
 ] as const
 
 // Mirrors market_prediction_engine.FURTHER_ANALYSIS_OPTIONS on the backend — stock mode only.
@@ -218,6 +220,29 @@ Fixed universe: Nifty 50 / Bank Nifty (futures proxied via index OHLC), since th
 index option-buying strategy. This scanner reports whether a fresh entry signal exists right now — it
 does not track your own open position, so use the reasons/exit rule shown as your manual management
 checklist for the 1:1 partial-book and re-entry rules above.
+
+Research / education only — not financial advice.`
+
+const CALL_PUT_WRITING_EXPLANATION = `Call / Put Writing — OI walls & short-covering risk.
+
+Inspired by weekly index outlooks that frame near-term resistance from aggressive Call writing
+(open-interest walls at key strikes), support from Put writing, and short-covering if Call walls break.
+Also contrasts institutional-style hedges (buy Puts / sell Calls) vs retail Put selling — this app
+reads the live option chain; NSE FII/Pro/Client participant OI is not auto-fetched.
+
+Works on an index OR a single stock — pick "Index" for NSE F&O indices (Nifty 50, Bank Nifty,
+FINNIFTY, MIDCPNIFTY, NIFTYNXT50) or "Stock" for any NSE name with a listed options chain.
+
+What we compute:
+1. Primary Call wall — highest Call OI overhead → resistance writers are defending.
+2. Primary Put floor — highest Put OI below → support.
+3. Fresh writing tilt — Call ΔOI vs Put ΔOI (who is writing more today).
+4. PCR (OI) / Max Pain — broader positioning + expiry magnet.
+5. OI buildup — Long/Short Buildup vs covering / unwinding.
+6. Short-covering risk — spot testing or clearing the Call wall.
+
+Trade lean (BUY / SELL / WAIT) fades heavy Call writing into the wall, buys dips when Put writing
+dominates, or watches covering if the wall breaks. Always pair with price structure.
 
 Research / education only — not financial advice.`
 
@@ -440,6 +465,39 @@ export default function Options() {
   const mpAskContext = mpData ? buildAskContext('Market Prediction', mpData) : ''
   const showMpResults = !!mpData && (!runMpMutation.isPending || bg.viewedReportId != null)
 
+  const [cpwError, setCpwError] = useState('')
+  const [cpwMode, setCpwMode] = useState<'index' | 'stock'>('index')
+  const [cpwSymbol, setCpwSymbol] = useState('NIFTY')
+  const [cpwStockTicker, setCpwStockTicker] = useState('')
+  const [cpwStockDebounced, setCpwStockDebounced] = useState('')
+  const [cpwSuggestOpen, setCpwSuggestOpen] = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setCpwStockDebounced(cpwStockTicker.trim()), 200)
+    return () => clearTimeout(t)
+  }, [cpwStockTicker])
+
+  const cpwSuggestQuery = useQuery({
+    queryKey: ['cpw-stock-suggest', cpwStockDebounced],
+    queryFn: () => fetchTickerSuggestions('india', cpwStockDebounced, 10),
+    enabled: cpwMode === 'stock' && cpwStockDebounced.length >= 1,
+  })
+  const cpwSuggestions = cpwSuggestQuery.data?.tickers ?? []
+  const cpwActiveSymbol = cpwMode === 'stock' ? cpwStockTicker.trim().toUpperCase() : cpwSymbol
+
+  const runCpwMutation = useMutation({
+    mutationFn: () =>
+      runOptionsCallPutWriting({
+        symbol: cpwActiveSymbol,
+        is_index: cpwMode === 'index',
+      }),
+    onSuccess: () => setCpwError(''),
+    onError: (e) => setCpwError(apiErrorMessage(e)),
+  })
+  const cpwData = (bg.viewedPayload ?? runCpwMutation.data) as Record<string, unknown> | undefined
+  const cpwAskContext = cpwData ? buildAskContext('Call Put Writing', cpwData) : ''
+  const showCpwResults = !!cpwData && (!runCpwMutation.isPending || bg.viewedReportId != null)
+
   const [zthError, setZthError] = useState('')
   const [zthTf, setZthTf] = useState('15m')
   const [zthSlBuffer, setZthSlBuffer] = useState(0.05)
@@ -468,7 +526,7 @@ export default function Options() {
 
   return (
     <div>
-      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Hedging · Gokul Chhabra 3m ITM · Zero to Hero · India · US · Crypto · Commodities" />
+      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · Market Prediction · Call Put Writing" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
@@ -1214,6 +1272,109 @@ export default function Options() {
 
           {mpAskContext && showMpResults && (
             <AskAIPanel context={mpAskContext} section="options/market_prediction" />
+          )}
+        </div>
+      )}
+
+      {section === 'call_put_writing' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Map Call writing resistance walls and Put writing support floors from live OI — and flag
+            short-covering risk if the Call wall is tested or broken.
+          </p>
+
+          <CollapsibleSection title="📖 How Call Put Writing works" copyText={CALL_PUT_WRITING_EXPLANATION}>
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{CALL_PUT_WRITING_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <Chip selected={cpwMode === 'index'} onClick={() => setCpwMode('index')}>Index</Chip>
+              <Chip selected={cpwMode === 'stock'} onClick={() => { setCpwMode('stock'); setCpwSuggestOpen(true) }}>Stock</Chip>
+            </div>
+
+            {cpwMode === 'index' ? (
+              <FormField label="Index">
+                <select
+                  className="w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100"
+                  value={cpwSymbol}
+                  onChange={(e) => setCpwSymbol(e.target.value)}
+                >
+                  <option value="NIFTY">Nifty 50</option>
+                  <option value="BANKNIFTY">Bank Nifty</option>
+                  <option value="FINNIFTY">Nifty Financial Services</option>
+                  <option value="MIDCPNIFTY">Nifty Midcap Select</option>
+                  <option value="NIFTYNXT50">Nifty Next 50</option>
+                </select>
+              </FormField>
+            ) : (
+              <FormField label="Stock (India, NSE)">
+                <div className="relative">
+                  <Input
+                    value={cpwStockTicker}
+                    onChange={(e) => { setCpwStockTicker(e.target.value.toUpperCase()); setCpwSuggestOpen(true) }}
+                    onFocus={() => setCpwSuggestOpen(true)}
+                    onBlur={() => setTimeout(() => setCpwSuggestOpen(false), 120)}
+                    placeholder="e.g. RELIANCE"
+                    autoComplete="off"
+                  />
+                  {cpwSuggestOpen && cpwStockDebounced.length >= 1 && (cpwSuggestions.length > 0 || cpwSuggestQuery.isFetching) && (
+                    <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700/80 bg-slate-900 shadow-lg">
+                      {cpwSuggestQuery.isFetching && cpwSuggestions.length === 0 && (
+                        <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>
+                      )}
+                      {cpwSuggestions.map((s) => (
+                        <li key={s}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); setCpwStockTicker(s); setCpwSuggestOpen(false) }}
+                            className="block w-full px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800"
+                          >
+                            {s}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </FormField>
+            )}
+
+            <Button className="mt-4" onClick={() => runCpwMutation.mutate()} disabled={runCpwMutation.isPending || !cpwActiveSymbol || bg.runInBackground}>
+              {runCpwMutation.isPending ? 'Analyzing…' : `✍️ Run Call Put Writing (${cpwActiveSymbol || '…'})`}
+            </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Call Put Writing · ${cpwActiveSymbol || 'NIFTY'} · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground(
+                {
+                  symbol: cpwActiveSymbol,
+                  is_index: cpwMode === 'index',
+                },
+                () => (!cpwActiveSymbol ? 'Select an index or stock symbol' : null),
+              )}
+            />
+            {cpwError && <div className="mt-3"><Alert type="error">{cpwError}</Alert></div>}
+          </Card>
+
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
+          {runCpwMutation.isPending && <Loading message="Fetching option chain OI walls…" />}
+
+          {showCpwResults && (
+            <Card>
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <StrategyDataSourceBar data={(cpwData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
+              <CallPutWritingPanel data={cpwData!} />
+            </Card>
+          )}
+
+          {cpwAskContext && showCpwResults && (
+            <AskAIPanel context={cpwAskContext} section="options/call_put_writing" />
           )}
         </div>
       )}

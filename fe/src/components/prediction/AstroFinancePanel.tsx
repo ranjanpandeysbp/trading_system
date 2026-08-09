@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Badge } from '../ui/Badge'
 import { DataTable } from '../ui/Table'
 import { AskAIPanel } from '../ai/AskAIPanel'
+import { TradeSignalBlock, resolveTradeSuggestion } from '../trading/TradeSignalBlock'
 
 type Row = Record<string, unknown>
 
@@ -17,6 +18,8 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
   const pred = (result.prediction as Row) || {}
   const live = (result.live as Row) || {}
   const bias = String(pred.bias || live.verdict || 'WAIT')
+  const trade = resolveTradeSuggestion(result)
+  const currency = String(result.currency ?? '')
 
   return (
     <div className="rounded-xl border border-slate-800/70 bg-slate-950/40">
@@ -32,6 +35,12 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
             {live.confidence_pct != null && (
               <span className="text-xs text-slate-400">{String(live.confidence_pct)}% conf</span>
             )}
+            {trade.sl_pct != null && (
+              <span className="text-xs text-rose-300/90">SL {String(trade.sl_pct)}%</span>
+            )}
+            {trade.tp_pct != null && (
+              <span className="text-xs text-emerald-300/90">TP {String(trade.tp_pct)}%</span>
+            )}
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-slate-400">
             {String(pred.plain_english || result.error || '—')}
@@ -46,6 +55,14 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
             <p className="text-rose-300">{String(result.error)}</p>
           ) : (
             <>
+              {trade.action != null && (
+                <TradeSignalBlock
+                  trade={trade}
+                  currency={currency}
+                  legend="Astro Finance trade setup — confidence · SL% · TP% · always confirm with TA"
+                />
+              )}
+
               {result.now ? (
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                   {Object.entries(result.now as Row).map(([k, v]) => (

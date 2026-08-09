@@ -300,6 +300,8 @@ async def _execute_trading_agent(
         top_n=top_n_i,
         skip_ai=bool(payload.get("skip_ai") or False),
         deep_mode=bool(payload.get("deep_mode") or False),
+        explain_only=bool(payload.get("explain_only") or False),
+        prior_result=payload.get("prior_result") if isinstance(payload.get("prior_result"), dict) else None,
     )
 
 

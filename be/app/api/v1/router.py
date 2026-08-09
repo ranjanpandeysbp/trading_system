@@ -87,6 +87,7 @@ from app.models.schemas import (
     OptionsDoubleCalendarRequest,
     OptionsGokulChhabraRequest,
     OptionsMarketPredictionRequest,
+    OptionsCallPutWritingRequest,
     BramhastraChartRequest,
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
@@ -460,6 +461,8 @@ async def dashboard_trading_chat(
         top_n=payload.top_n,
         skip_ai=payload.skip_ai,
         deep_mode=payload.deep_mode,
+        explain_only=payload.explain_only,
+        prior_result=payload.prior_result,
     )
 
 
@@ -4232,6 +4235,19 @@ async def options_market_prediction(
         futures_price=payload.futures_price,
         fii_index_position_cut=payload.fii_index_position_cut,
         further_analysis=payload.further_analysis,
+    )
+
+
+@router.post("/options/call-put-writing")
+async def options_call_put_writing(
+    payload: OptionsCallPutWritingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).call_put_writing(
+        payload.symbol,
+        is_index=payload.is_index,
+        exchange=payload.exchange,
     )
 
 

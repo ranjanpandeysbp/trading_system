@@ -431,7 +431,10 @@ def build_chat_ai_context(
     lines.append(
         "Respond with a clear ranking, BUY/SELL/WAIT per name, %confidence, %SL, %TP, "
         "and a one-line reason. Prefer BB engine numbers for SL/TP; cite enrichments when they "
-        "confirm or conflict. Flag risk if confluence is thin."
+        "confirm or conflict (especially Options Market Prediction and Call Put Writing walls). "
+        "Then add a short **Why** section: explain the logic behind the top picks and any "
+        "options/OI enrichment (Call walls, Put floors, short-covering risk). "
+        "Flag risk if confluence is thin."
     )
     return "\n".join(lines)
 
@@ -440,12 +443,23 @@ TRADING_CHAT_SYSTEM = (
     "You are the Dashboard Trading Chat desk analyst. Conclude primarily from BB Mean "
     "Reversion + confluence engine numbers, and weigh suitability enrichments "
     "(Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, "
-    "Oil-Dollar-Bond macro, Options Market Prediction, Trading Hub Intra-Hedging pairs) "
-    "when provided. For hedge pairs cite LONG/SHORT legs, spread, and confidence. "
-    "For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, "
-    "%SL, %TP, and a short reason. Be concise and practical. This is research/education "
-    "only — not financial advice. End with: VERDICT: BUY|SELL|WAIT "
-    "(overall bias for the user's question)."
+    "Oil-Dollar-Bond macro, Options Market Prediction, Options Call Put Writing OI walls, "
+    "Trading Hub Intra-Hedging pairs) when provided. For hedge pairs cite LONG/SHORT legs, "
+    "spread, and confidence. For Call Put Writing cite Call wall / Put floor / writing tilt / "
+    "short-covering risk. For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), "
+    "%confidence, %SL, %TP, and a short reason. Always include a brief **Why this result** "
+    "paragraph explaining the engine + enrichment logic in plain English. Be concise and "
+    "practical. This is research/education only — not financial advice. End with: "
+    "VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
+)
+
+EXPLAIN_CHAT_SYSTEM = (
+    "You explain Trading Agent desk results to the user. They already have picks and "
+    "enrichments — do NOT invent new tickers or levels. Cite BB confluence reasons, "
+    "Options Market Prediction / Call Put Writing (OI walls, PCR, short covering), "
+    "Intra-Hedging pairs, and other enrichment summaries. Answer their 'why / explain' "
+    "question clearly with %confidence meaning, why SL%/TP% were chosen, and what would "
+    "invalidate the setup. Research/education only — not financial advice."
 )
 
 # ---------------------------------------------------------------------------
@@ -459,6 +473,7 @@ NORMAL_ENRICHMENT_LABELS: dict[str, str] = {
     "comparative_strength": "Comparative Strength",
     "oil_dollar_bond": "Oil · Dollar · Bond macro",
     "options_market_prediction": "Options Market Prediction",
+    "options_call_put_writing": "Options Call Put Writing",
     "intra_hedging": "Trading Hub · Intra-Hedging",
 }
 
@@ -476,6 +491,15 @@ _ENRICH_KEYWORD_BOOSTS: list[tuple[list[str], str, int]] = [
     (["comparative strength", "relative strength", "stronger than", "weaker than", "outperform", "underperform", "rotation", " vs ", "versus"], "comparative_strength", 6),
     (["oil", "dollar", "dxy", "bond yield", "bonds", "macro", "risk on", "risk-off", "risk off", "gold", "silver", "crude"], "oil_dollar_bond", 5),
     (["option", "options", "pcr", "open interest", "max pain", "vix", "market prediction", "oi buildup"], "options_market_prediction", 6),
+    (
+        [
+            "call writing", "put writing", "call put writing", "call/put writing",
+            "oi wall", "call wall", "put floor", "put writing", "short covering",
+            "short-covering", "writer", "writers", "resistance wall", "support floor",
+        ],
+        "options_call_put_writing",
+        7,
+    ),
     (["hedge", "hedging", "long short", "long/short", "long-short", "pairs trade", "pair trade", "sector pair", "beta neutral", "market neutral", "intra hedge", "intra-hedging"], "intra_hedging", 7),
 ]
 
@@ -644,6 +668,7 @@ def select_normal_enrichments(
         _bump("advance_decline", 1.5, "intraday market breadth")
         if ac == "india":
             _bump("options_market_prediction", 2.0, "India intraday options tape")
+            _bump("options_call_put_writing", 1.8, "India Call/Put writing walls")
             _bump("intra_hedging", 4.0, "Trading Hub Intra-Hedging default")
     elif style_key == "swing":
         _bump("elliott_wave", 3.5, "swing style")
@@ -651,6 +676,7 @@ def select_normal_enrichments(
         _bump("comparative_strength", 1.5, "swing relative strength")
         if ac == "india":
             _bump("intra_hedging", 3.0, "Intra-Hedging swing rotation")
+            _bump("options_call_put_writing", 1.2, "swing OI walls context")
     else:  # investing
         _bump("elliott_wave", 3.0, "investing style")
         _bump("comparative_strength", 3.0, "investing relative strength")
@@ -661,6 +687,8 @@ def select_normal_enrichments(
         _bump("oil_dollar_bond", 2.5 if ac == "commodity" else 1.5, f"{ac} macro tape")
     if ac == "india" and "options_market_prediction" not in scores:
         _bump("options_market_prediction", 1.0, "India options desk available")
+    if ac == "india" and "options_call_put_writing" not in scores:
+        _bump("options_call_put_writing", 0.9, "India Call/Put writing desk available")
 
     if mode == "top_picks":
         _bump("comparative_strength", 1.0, "top-picks ranking")
@@ -668,22 +696,29 @@ def select_normal_enrichments(
             _bump("advance_decline", 0.8, "universe breadth check")
 
     for keys, eid, pts in _ENRICH_KEYWORD_BOOSTS:
-        if eid == "options_market_prediction" and ac != "india":
-            continue
-        if eid == "intra_hedging" and ac != "india":
+        if eid in ("options_market_prediction", "options_call_put_writing", "intra_hedging") and ac != "india":
             continue
         if any(k in lower for k in keys):
             _bump(eid, float(pts), f"question mentions {keys[0]}")
 
-    # Options Market Prediction + Intra-Hedging are India-only
+    # Options desks + Intra-Hedging are India-only
     if ac != "india":
-        scores.pop("options_market_prediction", None)
-        why.pop("options_market_prediction", None)
-        scores.pop("intra_hedging", None)
-        why.pop("intra_hedging", None)
+        for oid in ("options_market_prediction", "options_call_put_writing", "intra_hedging"):
+            scores.pop(oid, None)
+            why.pop(oid, None)
 
-    # Allow one extra slot when Intra-Hedging is in play (default desk)
-    eff_limit = limit + 1 if "intra_hedging" in scores and scores["intra_hedging"] >= 1.5 else limit
+    # Extra slots when Intra-Hedging and/or both options desks are in play
+    extra = 0
+    if "intra_hedging" in scores and scores["intra_hedging"] >= 1.5:
+        extra += 1
+    opts_hot = sum(
+        1
+        for oid in ("options_market_prediction", "options_call_put_writing")
+        if scores.get(oid, 0) >= 1.5
+    )
+    if opts_hot >= 2:
+        extra += 1
+    eff_limit = limit + extra
 
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     chosen = [eid for eid, sc in ranked if sc >= 1.5][: max(1, eff_limit)]
@@ -697,6 +732,17 @@ def select_normal_enrichments(
         else:
             chosen.append("intra_hedging")
 
+    # Keep Call Put Writing when the question heavily targets OI walls
+    if (
+        "options_call_put_writing" in scores
+        and scores["options_call_put_writing"] >= 5.0
+        and "options_call_put_writing" not in chosen
+    ):
+        if len(chosen) >= eff_limit and chosen:
+            chosen[-1] = "options_call_put_writing"
+        else:
+            chosen.append("options_call_put_writing")
+
     out: list[dict[str, Any]] = []
     for eid in chosen:
         item: dict[str, Any] = {
@@ -709,6 +755,92 @@ def select_normal_enrichments(
             item["config"] = adapt_intra_hedging_config(style_key, message, timeframe)
         out.append(item)
     return out
+
+
+def is_explain_followup(message: str) -> bool:
+    """True when the user is asking why / for an explanation of a prior desk result."""
+    lower = f" {(message or '').lower()} "
+    triggers = (
+        " why ",
+        "why did",
+        "why does",
+        "why is",
+        "why are",
+        "explain",
+        "explanation",
+        "how did you",
+        "how come",
+        "rationale",
+        "reason behind",
+        "behind this",
+        "behind the",
+        "what makes you",
+        "walk me through",
+        "justify",
+    )
+    return any(t in lower for t in triggers)
+
+
+def build_explain_ai_context(
+    message: str,
+    prior: dict[str, Any],
+) -> str:
+    """Compact prior desk payload for a follow-up why/explain question."""
+    picks = list(prior.get("picks") or [])[:12]
+    enrichments = list(prior.get("enrichments") or [])[:8]
+    hedge = list(prior.get("hedge_pairs") or [])[:5]
+    ai = prior.get("ai") if isinstance(prior.get("ai"), dict) else {}
+    lines = [
+        "Trading Agent — explain prior result (do not invent new tickers or levels).",
+        f"User follow-up: {message}",
+        f"Prior asset_class={prior.get('asset_class')} style={prior.get('style')} "
+        f"TF={prior.get('timeframe')} mode={prior.get('mode')}",
+        "",
+        "Prior picks:",
+    ]
+    for p in picks:
+        if not isinstance(p, dict):
+            continue
+        lines.append(
+            f"{p.get('rank')}. {p.get('ticker')} | {p.get('action')}/{p.get('side')} | "
+            f"conf={p.get('confidence_pct')}% | SL%={p.get('sl_pct')} | TP%={p.get('tp_pct')} | "
+            f"{p.get('reason')}"
+        )
+    if enrichments:
+        lines.append("")
+        lines.append("Prior enrichments:")
+        for enr in enrichments:
+            if not isinstance(enr, dict):
+                continue
+            label = enr.get("label") or enr.get("id")
+            why = enr.get("why") or ""
+            summary = enr.get("summary") or enr.get("error") or "—"
+            lines.append(f"- {label}" + (f" [{why}]" if why else "") + f": {summary}")
+    if hedge:
+        lines.append("")
+        lines.append("Prior Intra-Hedging pairs:")
+        for p in hedge:
+            if not isinstance(p, dict):
+                continue
+            lines.append(
+                f"- LONG {p.get('long_label') or p.get('long_ticker')} / "
+                f"SHORT {p.get('short_label') or p.get('short_ticker')} · "
+                f"conf {p.get('confidence_pct')}% · spread {p.get('spread_pct')}%"
+            )
+    if ai.get("report"):
+        lines.append("")
+        lines.append("Prior AI conclusion (for reference):")
+        lines.append(str(ai.get("report"))[:1200])
+    if prior.get("summary"):
+        lines.append("")
+        lines.append(f"Prior summary:\n{str(prior.get('summary'))[:800]}")
+    lines.append("")
+    lines.append(
+        "Explain clearly: why these actions/confidence/SL/TP, how options desks "
+        "(Market Prediction / Call Put Writing) influenced the read if present, "
+        "and what would invalidate the setups."
+    )
+    return "\n".join(lines)
 
 
 def default_ad_index(asset_class: str) -> str:
@@ -850,6 +982,54 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
         if isinstance(trade, dict) and trade.get("summary"):
             bits.append(str(trade.get("summary"))[:120])
         summary = " · ".join(b for b in bits if b)
+
+    elif eid == "options_call_put_writing":
+        pe = payload.get("plain_english")
+        view = payload.get("market_view")
+        stance = payload.get("risk_stance")
+        writing = payload.get("writing") if isinstance(payload.get("writing"), dict) else {}
+        walls = payload.get("walls") if isinstance(payload.get("walls"), dict) else {}
+        covering = payload.get("short_covering") if isinstance(payload.get("short_covering"), dict) else {}
+        trade = payload.get("trade_suggestion") if isinstance(payload.get("trade_suggestion"), dict) else {}
+        call_wall = (walls.get("primary_call_wall") or {}) if isinstance(walls, dict) else {}
+        put_floor = (walls.get("primary_put_floor") or {}) if isinstance(walls, dict) else {}
+        bits = [str(pe or "")[:200]]
+        if view:
+            bits.append(f"view={view}")
+        if stance:
+            bits.append(f"risk={stance}")
+        if writing.get("tilt"):
+            bits.append(f"tilt={writing.get('tilt')}")
+        if call_wall.get("strike") is not None:
+            bits.append(f"Call wall {call_wall.get('strike')}")
+        if put_floor.get("strike") is not None:
+            bits.append(f"Put floor {put_floor.get('strike')}")
+        if covering.get("note"):
+            bits.append(str(covering.get("note"))[:120])
+        if payload.get("pcr_oi") is not None:
+            bits.append(f"PCR(OI)={payload.get('pcr_oi')}")
+        if trade.get("action"):
+            bits.append(
+                f"trade {trade.get('action')} conf={trade.get('confidence_pct')} "
+                f"SL={trade.get('sl_pct')} TP={trade.get('tp_pct')}"
+            )
+        summary = " · ".join(b for b in bits if b)[:400]
+        # Index-level signal for nudge when user scanned NIFTY-like names
+        sym = str(payload.get("symbol") or "NIFTY").upper()
+        side = str(trade.get("side") or "").upper()
+        act = str(trade.get("action") or "").upper()
+        if act == "BUY":
+            side = "LONG"
+        elif act == "SELL":
+            side = "SHORT"
+        if side in ("LONG", "SHORT"):
+            ticker_signals.append({
+                "ticker": sym,
+                "side": side,
+                "take_trade": bool(act in ("BUY", "SELL")),
+                "confidence_pct": trade.get("confidence_pct"),
+                "note": str(writing.get("note") or covering.get("note") or pe or "")[:140],
+            })
 
     else:
         summary = str(payload.get("plain_english") or payload.get("summary") or "ok")[:240]

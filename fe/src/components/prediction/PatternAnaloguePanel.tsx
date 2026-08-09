@@ -2,8 +2,19 @@ import { useMemo, useState } from 'react'
 import { Badge } from '../ui/Badge'
 import { DataTable, useSort } from '../ui/Table'
 import { AskAIPanel } from '../ai/AskAIPanel'
+import { TradeSignalBlock, resolveTradeSuggestion } from '../trading/TradeSignalBlock'
+import { PatternCandleChart, PatternShapeOverlay } from './PatternAnalogueCharts'
 
 type Row = Record<string, unknown>
+type Candle = {
+  time?: string
+  open?: number
+  high?: number
+  low?: number
+  close?: number
+  i?: number
+  zone?: string
+}
 
 function pct(v: unknown, digits = 2): string {
   if (v == null || v === '') return '—'
@@ -17,6 +28,10 @@ function biasTone(bias: string): 'BUY' | 'SELL' | 'HOLD' {
   if (b === 'BUY' || b === 'LONG') return 'BUY'
   if (b === 'SELL' || b === 'SHORT') return 'SELL'
   return 'HOLD'
+}
+
+function asCandles(v: unknown): Candle[] {
+  return Array.isArray(v) ? (v as Candle[]) : []
 }
 
 function MatchTable({ matches }: { matches: Row[] }) {
@@ -97,6 +112,69 @@ function MatchTable({ matches }: { matches: Row[] }) {
   )
 }
 
+function PatternChartsBlock({ template, matches }: { template: Row; matches: Row[] }) {
+  const baseCandles = asCandles(template.candles)
+  const overlayMatches = matches.slice(0, 6).map((m, i) => ({
+    id: `m${m.rank ?? i}`,
+    label: `#${m.rank ?? i + 1} · ${String(m.similarity ?? '—')}%`,
+    shape_pct: Array.isArray(m.shape_pct) ? (m.shape_pct as number[]) : [],
+  }))
+
+  if (!baseCandles.length && !matches.some((m) => asCandles(m.candles).length)) {
+    return null
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300/90">
+          Base pattern (live template)
+        </p>
+        <PatternCandleChart
+          candles={baseCandles}
+          height={200}
+          title={String(template.shape_label || 'Current window')}
+          subtitle={`${String(template.start_time || '').slice(0, 16)} → ${String(template.end_time || '').slice(0, 16)} · net ${pct(template.net_return_pct)}`}
+        />
+      </div>
+
+      {overlayMatches.some((m) => m.shape_pct.length) ? (
+        <PatternShapeOverlay
+          base={{ shape_pct: Array.isArray(template.shape_pct) ? (template.shape_pct as number[]) : [], label: 'Base' }}
+          matches={overlayMatches}
+          height={170}
+        />
+      ) : null}
+
+      {matches.length > 0 ? (
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300/90">
+            Historical matching patterns
+          </p>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {matches.map((m) => {
+              const candles = asCandles(m.candles)
+              const fwd = asCandles(m.forward_candles)
+              if (!candles.length) return null
+              return (
+                <PatternCandleChart
+                  key={`${m.rank}-${m.match_end}`}
+                  candles={candles}
+                  forwardCandles={fwd}
+                  height={150}
+                  compact
+                  title={`#${m.rank} · ${String(m.similarity ?? '—')}% similar · ${String(m.shape_label ?? '')}`}
+                  subtitle={`${String(m.match_start || '').slice(0, 16)} → ${String(m.match_end || '').slice(0, 16)} · next ${pct(m.next_bar_return_pct)} · fwd ${pct(m.forward_return_pct)}`}
+                />
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function TickerCard({ result, index }: { result: Row; index: number }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade))
   const pred = (result.prediction as Row) || {}
@@ -104,6 +182,8 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
   const template = (result.template as Row) || {}
   const matches = (result.matches as Row[]) || []
   const bias = String(pred.bias || result.signal || 'WAIT')
+  const trade = resolveTradeSuggestion(result)
+  const currency = String(result.currency ?? '')
 
   return (
     <div className="rounded-xl border border-slate-800/70 bg-slate-950/40">
@@ -118,6 +198,12 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
             <Badge action={biasTone(bias)} />
             {result.confidence_pct != null && (
               <span className="text-xs text-slate-400">{String(result.confidence_pct)}% conf</span>
+            )}
+            {trade.sl_pct != null && (
+              <span className="text-xs text-rose-300/90">SL {String(trade.sl_pct)}%</span>
+            )}
+            {trade.tp_pct != null && (
+              <span className="text-xs text-emerald-300/90">TP {String(trade.tp_pct)}%</span>
             )}
             {result.take_trade ? (
               <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">ACTIONABLE</span>
@@ -136,6 +222,14 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
             <p className="text-sm text-rose-300">{String(result.error)}</p>
           ) : (
             <>
+              {trade.action != null && (
+                <TradeSignalBlock
+                  trade={trade}
+                  currency={currency}
+                  legend="BUY / SELL / WAIT from historical analogues · SL% ≈ avg MAE · TP% ≈ avg MFE / forward move"
+                />
+              )}
+
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg bg-slate-900/50 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-slate-500">Current template</p>
@@ -167,6 +261,8 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
                   </p>
                 </div>
               </div>
+
+              <PatternChartsBlock template={template} matches={matches} />
 
               <MatchTable matches={matches} />
 

@@ -46,6 +46,7 @@ class OptionsService:
                 {"id": "gokul_chhabra", "label": "🎯 Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"},
                 {"id": "zero_to_hero", "label": "🚀 Zero to Hero — Previous Day High/Low Option Buying"},
                 {"id": "market_prediction", "label": "🔮 Market Prediction — Option Chain Bias"},
+                {"id": "call_put_writing", "label": "✍️ Call Put Writing — OI Walls & Short Covering"},
             ],
         }
 
@@ -354,6 +355,35 @@ class OptionsService:
             )
 
         payload = await asyncio.to_thread(_run)
+        return json_safe(payload)
+
+    async def call_put_writing(
+        self,
+        symbol: str,
+        *,
+        is_index: bool = True,
+        exchange: str | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.call_put_writing_engine import (
+            CallPutWritingConfig,
+            analyze_call_put_writing,
+        )
+
+        market, default_exchange = await self._asset_ctx("india")
+        _, token, _ = await self._ctx()
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return analyze_call_put_writing(
+                symbol,
+                is_index=is_index,
+                groww_token=token,
+                exchange=resolved_exchange,
+                cfg=CallPutWritingConfig(),
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["market"] = market
         return json_safe(payload)
 
     async def zero_to_hero(

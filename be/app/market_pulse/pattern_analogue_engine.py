@@ -58,6 +58,63 @@ def _parse_date(value: str | None) -> datetime | None:
         return None
 
 
+def _build_trade_suggestion(
+    *,
+    action: str,
+    confidence_pct: float,
+    plain_english: str,
+    reasons: list[str],
+    entry: float | None = None,
+    sl_pct: float | None = None,
+    tp_pct: float | None = None,
+    action_label: str | None = None,
+) -> dict[str, Any]:
+    """BUY / SELL / WAIT setup with confidence · SL% · TP% · explanation."""
+    act = (action or "WAIT").upper()
+    if act not in ("BUY", "SELL", "WAIT"):
+        act = "WAIT"
+    side = "LONG" if act == "BUY" else ("SHORT" if act == "SELL" else "WAIT")
+    label = action_label or (
+        "BUY — analogue bias" if act == "BUY" else ("SELL — analogue bias" if act == "SELL" else "WAIT")
+    )
+
+    sl = tp = None
+    if act in ("BUY", "SELL"):
+        if sl_pct is not None:
+            sl = round(max(0.15, float(sl_pct)), 2)
+        if tp_pct is not None:
+            tp = round(max(0.20, float(tp_pct)), 2)
+
+    stop_price = target_price = None
+    entry_f = float(entry) if entry and entry > 0 else None
+    if entry_f and sl is not None:
+        if act == "BUY":
+            stop_price = round(entry_f * (1 - sl / 100), 6)
+            if tp is not None:
+                target_price = round(entry_f * (1 + tp / 100), 6)
+        else:
+            stop_price = round(entry_f * (1 + sl / 100), 6)
+            if tp is not None:
+                target_price = round(entry_f * (1 - tp / 100), 6)
+
+    rr = round(tp / sl, 2) if sl and tp and sl > 0 else None
+    return {
+        "action": act,
+        "action_label": label,
+        "side": side,
+        "confidence_pct": round(float(confidence_pct), 1),
+        "sl_pct": sl,
+        "tp_pct": tp,
+        "rr": rr,
+        "entry_price": round(entry_f, 6) if entry_f else None,
+        "stop_price": stop_price,
+        "target_price": target_price,
+        "plain_english": plain_english,
+        "advice": plain_english,
+        "reasons": [r for r in reasons if r][:6],
+    }
+
+
 def _bar_time(idx: Any) -> str:
     try:
         ts = pd.Timestamp(idx)
@@ -172,6 +229,60 @@ def _template_label(df: pd.DataFrame, start_i: int, end_i: int) -> str:
     return "choppy flat"
 
 
+def _window_candles(
+    df: pd.DataFrame,
+    start_i: int,
+    end_i: int,
+    *,
+    forward_bars: int = 0,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[float]]:
+    """OHLC bars for the pattern window (+ optional forward path) and % close path from first close."""
+    candles: list[dict[str, Any]] = []
+    forward: list[dict[str, Any]] = []
+    shape_pct: list[float] = []
+    if start_i < 0 or end_i >= len(df) or end_i < start_i:
+        return candles, forward, shape_pct
+
+    base = float(df["close"].iloc[start_i])
+    if not np.isfinite(base) or abs(base) < 1e-12:
+        base = 1.0
+
+    for i in range(start_i, end_i + 1):
+        o = float(df["open"].iloc[i])
+        h = float(df["high"].iloc[i])
+        l = float(df["low"].iloc[i])
+        c = float(df["close"].iloc[i])
+        candles.append({
+            "time": _bar_time(df.index[i]),
+            "open": round(o, 6),
+            "high": round(h, 6),
+            "low": round(l, 6),
+            "close": round(c, 6),
+            "i": i - start_i,
+            "zone": "pattern",
+        })
+        shape_pct.append(round((c / base - 1.0) * 100.0, 4))
+
+    if forward_bars > 0:
+        n = len(df)
+        for j, i in enumerate(range(end_i + 1, min(n, end_i + 1 + forward_bars))):
+            o = float(df["open"].iloc[i])
+            h = float(df["high"].iloc[i])
+            l = float(df["low"].iloc[i])
+            c = float(df["close"].iloc[i])
+            forward.append({
+                "time": _bar_time(df.index[i]),
+                "open": round(o, 6),
+                "high": round(h, 6),
+                "low": round(l, 6),
+                "close": round(c, 6),
+                "i": (end_i - start_i) + 1 + j,
+                "zone": "forward",
+            })
+
+    return candles, forward, shape_pct
+
+
 def analyze_ticker(
     ticker: str,
     market: str,
@@ -247,6 +358,9 @@ def analyze_ticker(
         return out
 
     template_net = (closes[template_end] / closes[template_start] - 1.0) * 100.0
+    tmpl_candles, tmpl_fwd, tmpl_shape = _window_candles(
+        df, template_start, template_end, forward_bars=0,
+    )
     out["template"] = {
         "start_time": _bar_time(df.index[template_start]),
         "end_time": _bar_time(df.index[template_end]),
@@ -256,6 +370,9 @@ def analyze_ticker(
         "net_return_pct": round(float(template_net), 3),
         "shape_label": _template_label(df, template_start, template_end),
         "ltp": round(float(closes[template_end]), 6),
+        "candles": tmpl_candles,
+        "shape_pct": tmpl_shape,
+        "forward_candles": tmpl_fwd,
     }
     out["ltp"] = out["template"]["ltp"]
 
@@ -299,6 +416,7 @@ def analyze_ticker(
         if not fwd:
             continue
         net = (closes[end_i] / closes[start_i] - 1.0) * 100.0
+        m_candles, m_fwd, m_shape = _window_candles(df, start_i, end_i, forward_bars=fb)
         matches.append({
             "rank": rank,
             "similarity": round(float(sim) * 100.0, 2),
@@ -306,6 +424,9 @@ def analyze_ticker(
             "match_end": _bar_time(df.index[end_i]),
             "match_net_return_pct": round(float(net), 3),
             "shape_label": _template_label(df, start_i, end_i),
+            "candles": m_candles,
+            "forward_candles": m_fwd,
+            "shape_pct": m_shape,
             **fwd,
         })
 
@@ -330,6 +451,13 @@ def analyze_ticker(
             ),
         }
         out["outcome_summary"] = {"samples": 0}
+        out["trade_suggestion"] = _build_trade_suggestion(
+            action="WAIT",
+            confidence_pct=0.0,
+            plain_english=out["prediction"]["plain_english"],
+            reasons=["No analogues above similarity threshold"],
+            entry=out.get("ltp"),
+        )
         return out
 
     next_rets = [float(m["next_bar_return_pct"]) for m in matches]
@@ -388,6 +516,34 @@ def analyze_ticker(
     out["direction"] = side
     out["confidence_pct"] = round(conf, 1)
     out["signal"] = bias
+
+    # SL from average adverse excursion; TP from favorable / |forward| after analogues.
+    mae = abs(float(summary.get("avg_max_adverse_pct") or 0))
+    mfe = abs(float(summary.get("avg_max_favorable_pct") or 0))
+    fwd_mag = abs(float(summary.get("avg_forward_return_pct") or 0))
+    sl_pct = max(0.25, mae * 0.9) if mae > 0 else max(0.35, fwd_mag * 0.6)
+    tp_pct = max(0.35, mfe * 0.85 if mfe > 0 else fwd_mag * 1.1)
+    if bias == "WAIT":
+        sl_pct = tp_pct = None
+
+    reasons = [
+        f"{len(matches)} analogues · avg similarity {avg_sim:.1f}%",
+        f"Forward up-rate {summary['forward_up_pct']:.0f}% · avg {avg_fwd:+.2f}%",
+        f"Next-bar up-rate {summary['next_bar_up_pct']:.0f}% · avg {avg_next:+.2f}%",
+        f"Hist MFE {summary['avg_max_favorable_pct']:+.2f}% / MAE {summary['avg_max_adverse_pct']:+.2f}%",
+    ]
+    out["trade_suggestion"] = _build_trade_suggestion(
+        action=bias,
+        confidence_pct=conf,
+        plain_english=out["prediction"]["plain_english"],
+        reasons=reasons,
+        entry=out.get("ltp"),
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+    )
+    out["sl_pct"] = out["trade_suggestion"].get("sl_pct")
+    out["tp_pct"] = out["trade_suggestion"].get("tp_pct")
+    out["action"] = bias
     return out
 
 
@@ -460,12 +616,34 @@ def scan_universe(
 def build_pattern_analogue_ai_prompt(row: dict[str, Any]) -> str:
     pred = row.get("prediction") or {}
     summary = row.get("outcome_summary") or {}
+    tmpl = row.get("template") or {}
+    tmpl_slim = {
+        k: tmpl.get(k)
+        for k in (
+            "start_time", "end_time", "bars", "start_close", "end_close",
+            "net_return_pct", "shape_label", "ltp",
+        )
+        if isinstance(tmpl, dict)
+    }
+    matches_slim = []
+    for m in (row.get("matches") or [])[:5]:
+        if not isinstance(m, dict):
+            continue
+        matches_slim.append({
+            k: m.get(k)
+            for k in (
+                "rank", "similarity", "match_start", "match_end", "match_net_return_pct",
+                "shape_label", "next_bar_return_pct", "forward_return_pct",
+                "max_favorable_pct", "max_adverse_pct", "next_direction", "forward_direction",
+            )
+        })
     lines = [
         f"Ticker: {row.get('ticker')}",
         f"TF: {row.get('timeframe')} · pattern_bars={row.get('pattern_bars')} · forward_bars={row.get('forward_bars')}",
-        f"Template: {row.get('template')}",
+        f"Template: {tmpl_slim}",
         f"Prediction: {pred}",
         f"Outcome summary: {summary}",
-        f"Top matches: {(row.get('matches') or [])[:5]}",
+        f"Trade suggestion: {row.get('trade_suggestion')}",
+        f"Top matches: {matches_slim}",
     ]
     return "\n".join(str(x) for x in lines)

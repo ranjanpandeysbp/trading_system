@@ -566,6 +566,76 @@ def analyze_ticker(
     }
 
 
+def scan_scalp_gold_signals(
+    df_htf: pd.DataFrame,
+    df_ltf: pd.DataFrame,
+    cfg: ScalpGoldConfig,
+) -> list[dict[str, Any]]:
+    """Historical Gold scalp entries on the LTF (1H bias = snapshot).
+
+    HTF structure bias is computed once on the full 1H frame (same approximation
+    as silver-bullet / BB+VWAP hub backtests). 15m POI / sweep / MSS is walked.
+    """
+    cfg = cfg or ScalpGoldConfig()
+    signals: list[dict[str, Any]] = []
+    if df_htf is None or df_htf.empty or len(df_htf) < cfg.min_htf_bars:
+        return signals
+    if df_ltf is None or df_ltf.empty or len(df_ltf) < cfg.min_ltf_bars:
+        return signals
+
+    htf = _structure_bias(df_htf, cfg)
+    if htf["bias"] == Bias.NEUTRAL:
+        return signals
+
+    cooldown = max(6, int(cfg.max_mss_age_bars))
+    step = 2
+    next_i = cfg.min_ltf_bars
+    n = len(df_ltf)
+
+    while next_i < n:
+        i = next_i
+        window = df_ltf.iloc[: i + 1]
+        if len(window) < cfg.min_ltf_bars:
+            next_i = i + step
+            continue
+        try:
+            ltf = _structure_bias(window, cfg)
+            # Need aligned bias on the sliced LTF too
+            if ltf["bias"] != htf["bias"] or ltf["bias"] == Bias.NEUTRAL:
+                next_i = i + step
+                continue
+            pois = _pick_pois(ltf["df"], ltf["bias"], cfg)
+            liquidity = _liquidity_levels(ltf["swings"], htf["bias"])
+            ltp = float(ltf["df"]["Close"].iloc[-1])
+            live = evaluate_live_signal(
+                {"htf": htf, "ltf": ltf, "pois": pois, "liquidity": liquidity, "ltp": ltp},
+                cfg,
+            )
+        except Exception:
+            logger.debug("Scalp Gold bar scan failed at %s", i, exc_info=True)
+            next_i = i + step
+            continue
+
+        if live.get("take_trade") and live.get("direction") in ("LONG", "SHORT"):
+            ts = window.index[-1] if len(window) else df_ltf.index[i]
+            signals.append({
+                "bar_index": i,
+                "direction": live["direction"],
+                "time": str(pd.Timestamp(ts)),
+                "confidence_pct": live.get("confidence_pct"),
+                "phase": live.get("phase"),
+                "entry_price": live.get("entry_price"),
+                "stop_price": live.get("stop_price"),
+                "target_price": live.get("target_price"),
+                "entry_style": cfg.entry_style,
+            })
+            next_i = i + cooldown
+        else:
+            next_i = i + step
+
+    return signals
+
+
 def scan_universe(
     tickers: list[str],
     market: str,

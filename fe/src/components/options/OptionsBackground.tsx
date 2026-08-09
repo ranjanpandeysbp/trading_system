@@ -22,6 +22,7 @@ export type OptionsSectionId =
   | 'gokul_chhabra'
   | 'zero_to_hero'
   | 'market_prediction'
+  | 'call_put_writing'
 
 interface OptionsBgJobStatus {
   job_id: string

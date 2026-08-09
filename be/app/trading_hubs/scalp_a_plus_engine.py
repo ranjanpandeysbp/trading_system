@@ -708,6 +708,90 @@ def analyze_ticker(
     }
 
 
+def scan_scalp_a_plus_signals(
+    df_daily: pd.DataFrame,
+    df_1h: pd.DataFrame,
+    df_ltf: pd.DataFrame,
+    cfg: ScalpAPlusConfig,
+) -> list[dict[str, Any]]:
+    """Historical Scalp A+ entries on the execution TF (HTF POI/range = snapshot).
+
+    Same approximation as silver-bullet / BB+VWAP backtests: daily range +
+    decisional POI + 1H trap filter are computed once on the full HTF frames;
+    LTF two-leg / FVG / touch is evaluated as the execution series walks.
+    """
+    cfg = cfg or ScalpAPlusConfig()
+    signals: list[dict[str, Any]] = []
+    if df_daily is None or df_daily.empty or len(df_daily) < cfg.min_htf_bars:
+        return signals
+    if df_ltf is None or df_ltf.empty or len(df_ltf) < cfg.min_ltf_bars:
+        return signals
+
+    rng = _find_trading_range(df_daily, cfg)
+    if not rng:
+        return signals
+    poi = _qualify_decisional_poi(rng, cfg)
+    if not poi or not poi.get("qualified"):
+        return signals
+
+    narrative = (
+        _narrative_trap_filter(df_1h, rng["bias"], poi, cfg)
+        if df_1h is not None and not df_1h.empty
+        else {"in_pullback": False, "trap_risk": False, "magnets": {}}
+    )
+    if narrative.get("magnets") is not None:
+        narrative["magnets"]["external_high"] = rng["external_high"]
+        narrative["magnets"]["external_low"] = rng["external_low"]
+
+    # Cooldown avoids stacking many entries in the same impulse.
+    cooldown = max(8, int(cfg.recent_confirm_bars))
+    step = 2 if cfg.execution_tf == "5m" else 3
+    next_i = cfg.min_ltf_bars
+    n = len(df_ltf)
+
+    while next_i < n:
+        i = next_i
+        window = df_ltf.iloc[: i + 1]
+        if len(window) < cfg.min_ltf_bars:
+            next_i = i + step
+            continue
+        try:
+            ltf = _two_leg_and_fvg(window, rng["bias"], cfg)
+            ltp = float(to_smc_ohlc(window)["Close"].iloc[-1])
+            live = evaluate_live_signal(
+                {"range": rng, "poi": poi, "narrative": narrative, "ltf": ltf, "ltp": ltp},
+                cfg,
+            )
+        except Exception:
+            logger.debug("Scalp A+ bar scan failed at %s", i, exc_info=True)
+            next_i = i + step
+            continue
+
+        if live.get("take_trade") and live.get("direction") in ("LONG", "SHORT"):
+            signals.append({
+                "bar_index": i,
+                "direction": live["direction"],
+                "time": _bar_time_safe(df_ltf.index[i]),
+                "confidence_pct": live.get("confidence_pct"),
+                "phase": live.get("phase"),
+                "entry_price": live.get("entry_price"),
+                "stop_price": live.get("stop_price"),
+                "target_price": live.get("target_price"),
+            })
+            next_i = i + cooldown
+        else:
+            next_i = i + step
+
+    return signals
+
+
+def _bar_time_safe(idx: Any) -> str:
+    try:
+        return str(pd.Timestamp(idx))
+    except Exception:
+        return str(idx)
+
+
 def scan_universe(
     tickers: list[str],
     market: str,

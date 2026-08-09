@@ -699,6 +699,11 @@ class EngineBacktestService:
             cfg.asset_class = request.asset_class
         if hasattr(cfg, "lookback_bars"):
             cfg.lookback_bars = max(int(getattr(cfg, "lookback_bars", 0) or 0), limit)
+        # Scalping Gold uses htf/ltf (not execution_tf) — map Backtester TF → LTF
+        if request.strategy == "scalp_gold" and request.timeframe:
+            if request.timeframe in ("5m", "15m", "30m", "1h"):
+                cfg.ltf = request.timeframe
+            cfg.htf = "1h"
 
         work = await self._build_signal_frame(
             request.strategy, mod, cfg, request.ticker, market, groww_token, exchange, limit,
@@ -1069,6 +1074,65 @@ class EngineBacktestService:
             sig_col = frame.columns.get_loc("signal")
             for s in signals:
                 frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
+        if strategy_id == "scalp_a_plus":
+            # Daily range + POI + 1H trap filter = snapshot; LTF two-leg/FVG walked.
+            df_d = mod._fetch(
+                ticker, "1d", market, limit=getattr(cfg, "lookback_htf", 180),
+                groww_token=groww_token, exchange=exchange,
+            )
+            if df_d.empty or len(df_d) < getattr(cfg, "min_htf_bars", 40):
+                raise ValueError("Insufficient daily data for Scalp A+ trading-range map.")
+            df_1h = mod._fetch(
+                ticker, "1h", market, limit=getattr(cfg, "lookback_narrative", 220),
+                groww_token=groww_token, exchange=exchange,
+            )
+            exec_tf = getattr(cfg, "execution_tf", "5m") or "5m"
+            df_ltf = mod._fetch(
+                ticker, exec_tf, market, limit=max(limit, getattr(cfg, "lookback_ltf", 500)),
+                groww_token=groww_token, exchange=exchange,
+            )
+            if df_ltf.empty or len(df_ltf) < getattr(cfg, "min_ltf_bars", 80):
+                raise ValueError(f"Insufficient {exec_tf} data for Scalp A+ two-leg / FVG.")
+            signals = mod.scan_scalp_a_plus_signals(df_d, df_1h, df_ltf, cfg)
+            frame = df_ltf.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                bi = int(s["bar_index"])
+                if 0 <= bi < len(frame):
+                    frame.iloc[bi, sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
+        if strategy_id == "scalp_gold":
+            # 1H bias snapshot; 15m (or requested LTF) POI/sweep/MSS walked.
+            htf = getattr(cfg, "htf", "1h") or "1h"
+            ltf = getattr(cfg, "ltf", "15m") or "15m"
+            # Backtester timeframe: prefer as LTF when it is a gold-style TF
+            # (15m / 1h). Keep HTF one step higher when LTF is 1h.
+            # cfg.ltf may already be set by the runner when execution_tf exists;
+            # ScalpGoldConfig uses htf/ltf explicitly.
+            df_htf = mod._fetch(
+                ticker, htf, market, limit=max(limit, getattr(cfg, "lookback_htf", 220)),
+                groww_token=groww_token, exchange=exchange,
+            )
+            if df_htf.empty or len(df_htf) < getattr(cfg, "min_htf_bars", 60):
+                raise ValueError(f"Insufficient {htf} data for Scalping Gold trend alignment.")
+            df_ltf = mod._fetch(
+                ticker, ltf, market, limit=max(limit, getattr(cfg, "lookback_ltf", 400)),
+                groww_token=groww_token, exchange=exchange,
+            )
+            if df_ltf.empty or len(df_ltf) < getattr(cfg, "min_ltf_bars", 80):
+                raise ValueError(f"Insufficient {ltf} data for Scalping Gold POI / sweep model.")
+            signals = mod.scan_scalp_gold_signals(df_htf, df_ltf, cfg)
+            frame = df_ltf.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                bi = int(s["bar_index"])
+                if 0 <= bi < len(frame):
+                    frame.iloc[bi, sig_col] = 1 if s["direction"] == "LONG" else -1
             return frame
 
         raise ValueError(f"No signal-frame builder for {strategy_id}")

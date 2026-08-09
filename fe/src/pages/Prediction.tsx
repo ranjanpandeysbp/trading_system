@@ -483,6 +483,7 @@ export default function Prediction() {
     { id: 'pattern-analogue', label: 'Pattern Analogue' },
     { id: 'astro-finance', label: 'Astro Finance' },
     { id: 'market-prediction', label: 'Market Prediction', to: '/options?section=market_prediction' },
+    { id: 'call-put-writing', label: 'Call Put Writing', to: '/options?section=call_put_writing' },
   ]
 
   if (!tab) return <Navigate to="/prediction/pattern-analogue" replace />
@@ -492,6 +493,9 @@ export default function Prediction() {
   else if (tab === 'astro-finance') page = <AstroFinancePage />
   else if (tab === 'market-prediction') {
     return <Navigate to="/options?section=market_prediction" replace />
+  }
+  else if (tab === 'call-put-writing') {
+    return <Navigate to="/options?section=call_put_writing" replace />
   }
   else return <Navigate to="/prediction/pattern-analogue" replace />
 

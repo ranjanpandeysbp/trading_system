@@ -288,6 +288,8 @@ for section in HUB_SECTIONS:
         "swing_trend_velocity",
         "swing_bb_vwap_reversal",
         "smc_liquidity_silver_bullet",
+        "scalp_a_plus",
+        "scalp_gold",
     }:
         runner = "signal_df"
     else:
@@ -353,6 +355,37 @@ if "support_resistance" in ENGINE_STRATEGY_META:
             "Stop beyond the zone edge (or the pre-entry extreme).",
             "Target = the next recent structural high/low, usually the opposing zone.",
             "Exit if price closes back beyond the zone stop — setup invalidated.",
+        ],
+    })
+
+if "scalp_a_plus" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["scalp_a_plus"].update({
+        "indicators": ["Daily trading range", "Decisional / extreme POI", "1H trap filter", "LTF two-leg BOS", "Fair Value Gap"],
+        "entry_rules": [
+            "Map daily external high/low trading range and bias.",
+            "Qualify a decisional POI (depth ≥50%, duration, inducement).",
+            "1H narrative must not trip the smart-money trap filter.",
+            "Price tapping the HTF POI + LTF two-leg structure breaks in bias + FVG limit entry.",
+        ],
+        "exit_rules": [
+            "Stop beyond recent LTF swing / FVG extreme.",
+            "Primary target ~3R intrasession; optional runner toward 10R / liquidity magnet.",
+            "Flatten if HTF POI thesis fails or trap resume.",
+        ],
+    })
+
+if "scalp_gold" in ENGINE_STRATEGY_META:
+    ENGINE_STRATEGY_META["scalp_gold"].update({
+        "indicators": ["1H structure bias", "15m demand/supply POI", "Liquidity sweep", "Internal MSS"],
+        "entry_rules": [
+            "1H and 15m structure bias must align.",
+            "Mark extreme 15m demand (longs) / supply (shorts); wait for price inside a POI.",
+            "Enter after liquidity sweep at the POI (aggressive) or after MSS + pullback (conservative).",
+        ],
+        "exit_rules": [
+            "Stop just beyond the sweep candle extreme.",
+            "Target next logical 15m swing / opposing zone (min R:R).",
+            "Intrasession scalp — flatten if 15m structure breaks against you.",
         ],
     })
 

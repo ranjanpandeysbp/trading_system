@@ -333,6 +333,8 @@ export const runDashboardTradingChat = (payload: {
   top_n?: number
   skip_ai?: boolean
   deep_mode?: boolean
+  explain_only?: boolean
+  prior_result?: Record<string, unknown>
 }) => api.post('/dashboard/trading-chat', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchYoutubeAnalysisPrefs = () =>
@@ -1954,6 +1956,12 @@ export const runOptionsMarketPrediction = (payload?: {
   fii_index_position_cut?: boolean
   further_analysis?: string[]
 }) => api.post('/options/market-prediction', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runOptionsCallPutWriting = (payload?: {
+  symbol?: string
+  is_index?: boolean
+  exchange?: string
+}) => api.post('/options/call-put-writing', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runOptionsZeroToHero = (payload?: {
   tickers?: string[]

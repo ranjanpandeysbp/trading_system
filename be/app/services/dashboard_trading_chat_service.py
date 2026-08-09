@@ -7,6 +7,7 @@ from typing import Any
 
 from app.market_pulse.dashboard_trading_chat_engine import (
     DEEP_CHAT_SYSTEM,
+    EXPLAIN_CHAT_SYSTEM,
     PRO_TRADE_LIVE_IDS,
     SCREEN_CHAT_SYSTEM,
     TRADING_CHAT_SYSTEM,
@@ -14,6 +15,7 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     apply_enrichments_to_picks,
     build_chat_ai_context,
     build_deep_ai_context,
+    build_explain_ai_context,
     build_screen_ai_context,
     compact_break_pick,
     compact_mover_pick,
@@ -22,6 +24,7 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     default_ad_index,
     default_mover_index,
     default_universe,
+    is_explain_followup,
     is_screen_mode,
     load_strategy_guides,
     merge_live_picks,
@@ -66,7 +69,17 @@ class DashboardTradingChatService:
         top_n: int | None = None,
         skip_ai: bool = False,
         deep_mode: bool = False,
+        explain_only: bool = False,
+        prior_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # Follow-up: explain prior desk result without a new BB / options scan
+        if prior_result and (explain_only or is_explain_followup(message)):
+            return await self._chat_explain(
+                message=message,
+                prior_result=prior_result,
+                skip_ai=skip_ai,
+            )
+
         # Peek intent — open screens (movers / S&R breaks) bypass BB / deep backtest
         peek = parse_intent(message, asset_class=asset_class, style=style, tickers=tickers)
         if is_screen_mode(str(peek.get("mode") or "")):
@@ -98,6 +111,91 @@ class DashboardTradingChatService:
             top_n=top_n,
             skip_ai=skip_ai,
         )
+
+    async def _chat_explain(
+        self,
+        *,
+        message: str,
+        prior_result: dict[str, Any],
+        skip_ai: bool,
+    ) -> dict[str, Any]:
+        """Answer why / explain using the prior packed desk payload (no re-scan)."""
+        prior = prior_result if isinstance(prior_result, dict) else {}
+        picks = [p for p in (prior.get("picks") or []) if isinstance(p, dict)]
+        enrichments = [e for e in (prior.get("enrichments") or []) if isinstance(e, dict)]
+        hedge_pairs = [p for p in (prior.get("hedge_pairs") or []) if isinstance(p, dict)]
+
+        if skip_ai:
+            ai_payload = None
+        else:
+            cfg = await self.ai.provider_config()
+            if not picks and not enrichments and not prior.get("summary"):
+                ai_payload = {
+                    "report": (
+                        "No prior desk result to explain. Ask a trading question first "
+                        "(e.g. Indian intraday buys), then follow up with “why?”."
+                    ),
+                    "verdict": None,
+                    "confidence_pct": None,
+                    "provider": cfg.get("provider"),
+                    "model": cfg.get("model"),
+                    "error": False,
+                }
+            else:
+                ctx = build_explain_ai_context(message, prior)
+                try:
+                    ai_payload = await self.ai.ask(
+                        context=ctx,
+                        question=(
+                            "Explain why the Trading Agent gave this result. Cover picks, "
+                            "%confidence, %SL, %TP, and any Options Market Prediction / Call Put "
+                            f"Writing / Intra-Hedging influence. User asked: {message}"
+                        ),
+                        system_prompt=EXPLAIN_CHAT_SYSTEM,
+                        section="dashboard/trading-chat-explain",
+                        max_tokens=3500,
+                        mode="ask",
+                    )
+                except Exception as exc:
+                    logger.exception("Trading chat explain AI failed")
+                    ai_payload = {
+                        "report": f"Explanation unavailable: {exc}",
+                        "verdict": None,
+                        "confidence_pct": None,
+                        "provider": None,
+                        "model": None,
+                        "error": True,
+                    }
+
+        return json_safe({
+            "intent": {
+                "raw_message": message,
+                "mode": "explain",
+                "asset_class": prior.get("asset_class"),
+                "style": prior.get("style"),
+                "timeframe": prior.get("timeframe"),
+            },
+            "mode": "explain",
+            "explain_only": True,
+            "deep_mode": False,
+            "asset_class": prior.get("asset_class"),
+            "style": prior.get("style"),
+            "timeframe": prior.get("timeframe"),
+            "scanned": prior.get("scanned") or 0,
+            "scan_tickers": prior.get("scan_tickers") or [],
+            "extra_checks": prior.get("extra_checks") or [],
+            "enrichments": enrichments,
+            "hedge_pairs": hedge_pairs,
+            "picks": picks,
+            "summary": prior.get("summary") or "",
+            "ai": ai_payload,
+            "bb_entry_count": prior.get("bb_entry_count"),
+            "disclaimer": prior.get("disclaimer") or "Research / education only — not financial advice.",
+            "how_to_read": [
+                "Explain mode — no new scan. Answer uses the prior desk result only.",
+                "Ask another market question to refresh picks and options desks.",
+            ],
+        })
 
     async def _chat_screen(
         self,
@@ -884,6 +982,26 @@ class DashboardTradingChatService:
             opt = OptionsService(self.settings, self.db)
             return await opt.market_prediction(symbol, is_index=True)
 
+        if eid == "options_call_put_writing":
+            from app.services.options_service import OptionsService
+
+            symbol = "NIFTY"
+            upper_set = {str(t).upper() for t in tickers}
+            for cand, sym in (
+                ("BANKNIFTY", "BANKNIFTY"),
+                ("NIFTY BANK", "BANKNIFTY"),
+                ("FINNIFTY", "FINNIFTY"),
+                ("MIDCPNIFTY", "MIDCPNIFTY"),
+                ("NIFTYNXT50", "NIFTYNXT50"),
+                ("NIFTY", "NIFTY"),
+                ("NIFTY 50", "NIFTY"),
+            ):
+                if cand in upper_set:
+                    symbol = sym
+                    break
+            opt = OptionsService(self.settings, self.db)
+            return await opt.call_put_writing(symbol, is_index=True)
+
         return {"error": f"Unknown enrichment: {eid}"}
 
     async def _run_pro_live(
@@ -986,7 +1104,9 @@ class DashboardTradingChatService:
             sys = TRADING_CHAT_SYSTEM
             q = (
                 "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason. "
-                "Weigh suitability enrichments when they confirm or conflict. "
+                "Weigh suitability enrichments when they confirm or conflict — especially Options "
+                "Market Prediction and Call Put Writing (OI walls / short covering). "
+                "Include a brief **Why this result** explanation. "
                 f"User asked: {message}"
             )
             mode = "ask" if intent.get("mode") == "top_picks" else "next_move"
@@ -1044,9 +1164,11 @@ class DashboardTradingChatService:
             "Engine: BB Mean Reversion core + all confluence checks.",
             "Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
             "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction, "
-            "and Trading Hub Intra-Hedging (India — query-adapted TF / sector-vs-stock / max pairs).",
+            "Options Call Put Writing (OI walls / short covering), and Trading Hub Intra-Hedging "
+            "(India — query-adapted TF / sector-vs-stock / max pairs).",
             "BUY/SELL = eligible actionable setups (all of them — no top-10 cut).",
-            "AI conclusion uses the provider saved in Manage → AI Settings.",
+            "AI conclusion uses the provider saved in Manage → AI Settings and includes a Why section.",
+            "Ask “why?” or “explain this result” as a follow-up to dig into the rationale without re-scanning.",
             "SL%/TP% come from the engine trade plan (band edge → mean).",
         ]
         if deep_mode:

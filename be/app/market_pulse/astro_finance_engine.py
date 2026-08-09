@@ -367,6 +367,64 @@ class AstroFinanceConfig:
 
 
 # ---------------------------------------------------------------------------
+# Trade setup helper
+# ---------------------------------------------------------------------------
+
+def _build_trade_suggestion(
+    *,
+    action: str,
+    confidence_pct: float,
+    plain_english: str,
+    reasons: list[str],
+    entry: float | None = None,
+    sl_pct: float | None = None,
+    tp_pct: float | None = None,
+    action_label: str | None = None,
+) -> dict[str, Any]:
+    """BUY / SELL / WAIT with confidence · SL% · TP% · explanation."""
+    act = (action or "WAIT").upper()
+    if act not in ("BUY", "SELL", "WAIT"):
+        act = "WAIT"
+    side = "LONG" if act == "BUY" else ("SHORT" if act == "SELL" else "WAIT")
+    label = action_label or (
+        "BUY — astro timing" if act == "BUY" else ("SELL — astro timing" if act == "SELL" else "WAIT — timing overlay")
+    )
+    sl = tp = None
+    if act in ("BUY", "SELL"):
+        if sl_pct is not None:
+            sl = round(max(0.15, float(sl_pct)), 2)
+        if tp_pct is not None:
+            tp = round(max(0.20, float(tp_pct)), 2)
+    stop_price = target_price = None
+    entry_f = float(entry) if entry and entry > 0 else None
+    if entry_f and sl is not None:
+        if act == "BUY":
+            stop_price = round(entry_f * (1 - sl / 100), 6)
+            if tp is not None:
+                target_price = round(entry_f * (1 + tp / 100), 6)
+        else:
+            stop_price = round(entry_f * (1 + sl / 100), 6)
+            if tp is not None:
+                target_price = round(entry_f * (1 - tp / 100), 6)
+    rr = round(tp / sl, 2) if sl and tp and sl > 0 else None
+    return {
+        "action": act,
+        "action_label": label,
+        "side": side,
+        "confidence_pct": round(float(confidence_pct), 1),
+        "sl_pct": sl,
+        "tp_pct": tp,
+        "rr": rr,
+        "entry_price": round(entry_f, 6) if entry_f else None,
+        "stop_price": stop_price,
+        "target_price": target_price,
+        "plain_english": plain_english,
+        "advice": plain_english,
+        "reasons": [r for r in reasons if r][:6],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Strategy: Lunar Cycle
 # ---------------------------------------------------------------------------
 
@@ -438,11 +496,13 @@ def analyze_lunar_cycle(
     nearest = upcoming[0] if upcoming else None
     bias = "WAIT"
     conf = 40.0
+    active_stats: dict[str, Any] = {}
     if nearest:
         days_to = (date.fromisoformat(nearest["date"]) - date.today()).days
         if days_to <= cfg.event_window_days + 1:
             kind = nearest["type"]
             stats = ama if kind == "Amavasya" else poor
+            active_stats = stats
             avg = stats.get("avg_forward_return_pct") or 0
             if avg > 0.15:
                 bias = "BUY"
@@ -450,9 +510,43 @@ def analyze_lunar_cycle(
                 bias = "SELL"
             conf = min(78.0, 45 + abs(avg) * 8 + (stats.get("samples") or 0) * 0.3)
 
+    ltp = float(df["close"].iloc[-1])
+    plain = (
+        f"Moon phase now: {moon_phase_name(elong)} ({moon_illumination(elong)}% illum). "
+        f"Next event: {nearest['type'] if nearest else '—'} on {nearest['date'] if nearest else '—'}. "
+        f"Historical {cfg.forward_days}d fwd after Amavasya avg {ama.get('avg_forward_return_pct', '—')}% "
+        f"(n={ama.get('samples', 0)}); Poornima avg {poor.get('avg_forward_return_pct', '—')}% "
+        f"(n={poor.get('samples', 0)}). Volatility near lunations tends to be {vol_note}. "
+        "Use as timing overlay with TA (Harshubh)."
+    )
+    avg_fwd = float(active_stats.get("avg_forward_return_pct") or 0)
+    avg_rng = float(active_stats.get("avg_range_pct") or 0)
+    sl_pct = tp_pct = None
+    if bias in ("BUY", "SELL"):
+        sl_pct = max(0.35, avg_rng * 0.45) if avg_rng > 0 else max(0.4, abs(avg_fwd) * 0.7)
+        tp_pct = max(0.45, abs(avg_fwd) * 1.15 if abs(avg_fwd) > 0 else avg_rng * 0.55)
+    reasons = [
+        f"Next: {nearest['type'] if nearest else '—'} {nearest['date'] if nearest else ''}".strip(),
+        f"Active-event fwd avg {avg_fwd:+.2f}% · range {avg_rng:.2f}%" if active_stats else "No event in window",
+        f"Amavasya n={ama.get('samples', 0)} · Poornima n={poor.get('samples', 0)}",
+        "Confirm with price structure — lunar bias is timing only",
+    ]
+    trade = _build_trade_suggestion(
+        action=bias,
+        confidence_pct=conf,
+        plain_english=plain,
+        reasons=reasons,
+        entry=ltp,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        action_label="BUY — lunar window" if bias == "BUY" else ("SELL — lunar window" if bias == "SELL" else "WAIT — lunar overlay"),
+    )
+    take = bias in ("BUY", "SELL") and conf >= 55
+
     return {
         "ticker": ticker,
         "strategy": "lunar_cycle",
+        "ltp": round(ltp, 4),
         "now": {
             "utc": now.isoformat(),
             "elongation_deg": round(elong, 1),
@@ -467,22 +561,19 @@ def analyze_lunar_cycle(
         "prediction": {
             "bias": bias,
             "confidence_pct": round(conf, 1),
-            "plain_english": (
-                f"Moon phase now: {moon_phase_name(elong)} ({moon_illumination(elong)}% illum). "
-                f"Next event: {nearest['type'] if nearest else '—'} on {nearest['date'] if nearest else '—'}. "
-                f"Historical {cfg.forward_days}d fwd after Amavasya avg {ama.get('avg_forward_return_pct', '—')}% "
-                f"(n={ama.get('samples', 0)}); Poornima avg {poor.get('avg_forward_return_pct', '—')}% "
-                f"(n={poor.get('samples', 0)}). Volatility near lunations tends to be {vol_note}. "
-                "Use as timing overlay with TA (Harshubh)."
-            ),
+            "plain_english": plain,
         },
         "live": {
-            "take_trade": bias in ("BUY", "SELL") and conf >= 55,
+            "take_trade": take,
             "direction": "LONG" if bias == "BUY" else ("SHORT" if bias == "SELL" else None),
             "verdict": f"WATCH {bias}" if bias != "WAIT" else "WAIT",
             "confidence_pct": round(conf, 1),
             "signal": bias if bias != "WAIT" else "NONE",
+            "trade_suggestion": trade,
+            "sl_pct": trade.get("sl_pct"),
+            "tp_pct": trade.get("tp_pct"),
         },
+        "trade_suggestion": trade,
         "references": [YOUTUBE_HARSHUBH_VIJAY, YOUTUBE_HARSHUBH_VIKAS],
     }
 
@@ -558,6 +649,41 @@ def analyze_amavasya_sr(
     if nearest_r and dist_r is not None:
         bits.append(f"Nearest resistance {nearest_r[0]['high']} ({dist_r:.2f}% away)")
     bits.append("Mark highs/lows on Amavasya days; update when broken (Harshubh). Pair with TA confluence.")
+    plain = " ".join(bits)
+
+    sl_pct = tp_pct = None
+    if bias == "BUY" and nearest_s:
+        # Stop under support; target toward resistance (or 1.2× dist to support as fallback)
+        cushion = max(0.2, (dist_s or 0) + 0.25)
+        sl_pct = cushion
+        if nearest_r and dist_r is not None:
+            tp_pct = max(0.35, dist_r)
+        else:
+            tp_pct = max(0.5, cushion * 1.5)
+    elif bias == "SELL" and nearest_r:
+        cushion = max(0.2, (dist_r or 0) + 0.25)
+        sl_pct = cushion
+        if nearest_s and dist_s is not None:
+            tp_pct = max(0.35, dist_s)
+        else:
+            tp_pct = max(0.5, cushion * 1.5)
+
+    reasons = [
+        f"LTP {ltp:,.2f}",
+        f"Support {nearest_s[0]['low'] if nearest_s else '—'} ({dist_s:.2f}% away)" if nearest_s and dist_s is not None else "No nearby Amavasya support",
+        f"Resistance {nearest_r[0]['high'] if nearest_r else '—'} ({dist_r:.2f}% away)" if nearest_r and dist_r is not None else "No nearby Amavasya resistance",
+        f"{len(levels)} Amavasya sessions mapped",
+    ]
+    trade = _build_trade_suggestion(
+        action=bias,
+        confidence_pct=conf,
+        plain_english=plain,
+        reasons=reasons,
+        entry=ltp,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        action_label="BUY — Amavasya support" if bias == "BUY" else ("SELL — Amavasya resistance" if bias == "SELL" else "WAIT — Amavasya S/R"),
+    )
 
     return {
         "ticker": ticker,
@@ -570,7 +696,7 @@ def analyze_amavasya_sr(
         "prediction": {
             "bias": bias,
             "confidence_pct": conf,
-            "plain_english": " ".join(bits),
+            "plain_english": plain,
         },
         "live": {
             "take_trade": bias in ("BUY", "SELL"),
@@ -580,7 +706,14 @@ def analyze_amavasya_sr(
             "signal": bias if bias != "WAIT" else "NONE",
             "support_level": nearest_s[0]["low"] if nearest_s else None,
             "resistance_level": nearest_r[0]["high"] if nearest_r else None,
+            "trade_suggestion": trade,
+            "sl_pct": trade.get("sl_pct"),
+            "tp_pct": trade.get("tp_pct"),
+            "entry_price": trade.get("entry_price"),
+            "stop_price": trade.get("stop_price"),
+            "target_price": trade.get("target_price"),
         },
+        "trade_suggestion": trade,
         "references": [YOUTUBE_HARSHUBH_VIJAY],
     }
 
@@ -657,6 +790,27 @@ def analyze_bhadra_timing(
         for c in collapsed
     )
 
+    plain = (
+        f"Bhadra (Vishti Karana) windows overlapping {asset_class} session in {tz_name}. "
+        f"{'ACTIVE now — watch for intraday reversal / swing extreme.' if active else 'No Bhadra overlap right now.'} "
+        f"{len(collapsed)} window(s) in next ~3 sessions. "
+        "Harshubh: time is the catalyst — wait for Bhadra + price reaction, not Bhadra alone."
+    )
+    conf = 55.0 if active else 40.0
+    # Timing overlay: no directional SL/TP until price reacts — still emit WAIT setup with conf + explanation.
+    trade = _build_trade_suggestion(
+        action="WAIT",
+        confidence_pct=conf,
+        plain_english=plain,
+        reasons=[
+            "Bhadra ACTIVE — wait for reversal candle / liquidity sweep" if active else "No Bhadra in session now",
+            f"{len(collapsed)} Bhadra window(s) next ~3 sessions",
+            "Do not size a directional trade on Karana alone",
+        ],
+        entry=ltp,
+        action_label="WAIT — Bhadra timing",
+    )
+
     return {
         "ticker": ticker,
         "strategy": "bhadra_timing",
@@ -666,21 +820,18 @@ def analyze_bhadra_timing(
         "bhadra_active_now": active,
         "prediction": {
             "bias": "WAIT",
-            "confidence_pct": 55.0 if active else 40.0,
-            "plain_english": (
-                f"Bhadra (Vishti Karana) windows overlapping {asset_class} session in {tz_name}. "
-                f"{'ACTIVE now — watch for intraday reversal / swing extreme.' if active else 'No Bhadra overlap right now.'} "
-                f"{len(collapsed)} window(s) in next ~3 sessions. "
-                "Harshubh: time is the catalyst — wait for Bhadra + price reaction, not Bhadra alone."
-            ),
+            "confidence_pct": conf,
+            "plain_english": plain,
         },
         "live": {
             "take_trade": False,
             "verdict": "WATCH REVERSAL" if active else "WAIT",
-            "confidence_pct": 55.0 if active else 40.0,
+            "confidence_pct": conf,
             "signal": "NONE",
             "phase": "BHADRA_ACTIVE" if active else "NO_BHADRA",
+            "trade_suggestion": trade,
         },
+        "trade_suggestion": trade,
         "references": [YOUTUBE_HARSHUBH_VIJAY],
     }
 
@@ -752,11 +903,13 @@ def analyze_transit_gaps(
 
     bias = "WAIT"
     conf = 38.0
+    active_st: dict[str, Any] = {}
     if upcoming:
         nxt = upcoming[0]
         days = (date.fromisoformat(nxt["date"]) - date.today()).days
         if days <= 2:
             st = mars_s if nxt["planet"] == "Mars" else venus_s
+            active_st = st
             if (st.get("gap_up_pct") or 0) >= 55:
                 bias = "BUY"
                 conf = 58.0
@@ -767,9 +920,41 @@ def analyze_transit_gaps(
                 conf = 50.0
                 bias = "WAIT"
 
+    ltp = float(df["close"].iloc[-1])
+    plain = (
+        "Mars/Venus sign ingresses (approx Gochar) vs overnight gaps ±1 day. "
+        f"Mars: up-rate {mars_s.get('gap_up_pct', '—')}% / down {mars_s.get('gap_down_pct', '—')}% "
+        f"(avg |gap| {mars_s.get('avg_abs_gap_pct', '—')}%). "
+        f"Venus: up {venus_s.get('gap_up_pct', '—')}% / down {venus_s.get('gap_down_pct', '—')}%. "
+        f"Next ingress: {upcoming[0] if upcoming else '—'}. "
+        "Harshubh: gaps often align with transits more than 'news' alone — still confirm with TA."
+    )
+    abs_gap = float(active_st.get("avg_abs_gap_pct") or mars_s.get("avg_abs_gap_pct") or venus_s.get("avg_abs_gap_pct") or 0)
+    sl_pct = tp_pct = None
+    if bias in ("BUY", "SELL"):
+        sl_pct = max(0.3, abs_gap * 0.9) if abs_gap > 0 else 0.45
+        tp_pct = max(0.4, abs_gap * 1.4) if abs_gap > 0 else 0.7
+    take = bias in ("BUY", "SELL") and conf >= 55
+    trade = _build_trade_suggestion(
+        action=bias,
+        confidence_pct=conf,
+        plain_english=plain,
+        reasons=[
+            f"Next ingress {upcoming[0]['planet']} → {upcoming[0]['to_sign']} on {upcoming[0]['date']}" if upcoming else "No upcoming ingress",
+            f"Avg |gap| near transit {abs_gap:.2f}%" if abs_gap else "Gap sample thin",
+            f"Mars up {mars_s.get('gap_up_pct', '—')}% · Venus up {venus_s.get('gap_up_pct', '—')}%",
+            "Fade/follow only with gap + TA confirmation",
+        ],
+        entry=ltp,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        action_label="BUY — transit gap bias" if bias == "BUY" else ("SELL — transit gap bias" if bias == "SELL" else "WAIT — transit overlay"),
+    )
+
     return {
         "ticker": ticker,
         "strategy": "transit_gaps",
+        "ltp": round(ltp, 4),
         "stats_mars": mars_s,
         "stats_venus": venus_s,
         "upcoming_ingresses": upcoming,
@@ -777,22 +962,19 @@ def analyze_transit_gaps(
         "prediction": {
             "bias": bias,
             "confidence_pct": conf,
-            "plain_english": (
-                "Mars/Venus sign ingresses (approx Gochar) vs overnight gaps ±1 day. "
-                f"Mars: up-rate {mars_s.get('gap_up_pct', '—')}% / down {mars_s.get('gap_down_pct', '—')}% "
-                f"(avg |gap| {mars_s.get('avg_abs_gap_pct', '—')}%). "
-                f"Venus: up {venus_s.get('gap_up_pct', '—')}% / down {venus_s.get('gap_down_pct', '—')}%. "
-                f"Next ingress: {upcoming[0] if upcoming else '—'}. "
-                "Harshubh: gaps often align with transits more than 'news' alone — still confirm with TA."
-            ),
+            "plain_english": plain,
         },
         "live": {
-            "take_trade": False,
+            "take_trade": take,
             "verdict": f"WATCH GAP {bias}" if bias != "WAIT" else "WAIT",
             "confidence_pct": conf,
-            "signal": "NONE",
+            "signal": bias if take else "NONE",
             "direction": "LONG" if bias == "BUY" else ("SHORT" if bias == "SELL" else None),
+            "trade_suggestion": trade,
+            "sl_pct": trade.get("sl_pct"),
+            "tp_pct": trade.get("tp_pct"),
         },
+        "trade_suggestion": trade,
         "references": [YOUTUBE_HARSHUBH_VIJAY],
     }
 
@@ -859,6 +1041,23 @@ def analyze_trading_calendar(
             })
 
     fav_days = [c for c in calendar if c["favorable_trade_day"]]
+    plain = (
+        f"{strong_note} Today’s favorable Muhurat slots: "
+        + ", ".join(m["name"] for m in muhurats if m["favorable_execution"])
+        + ". Use Char/Shubh/Amrit/Labh for entries on favorable Moon-sign days. "
+        "Astrology times the trade — technicals choose the trade."
+    )
+    trade = _build_trade_suggestion(
+        action="WAIT",
+        confidence_pct=45.0,
+        plain_english=plain,
+        reasons=[
+            f"Strong Moon signs: {', '.join(strong) if strong else 'configure Ashtakvarga'}",
+            f"{len(fav_days)} favorable Moon-sign days in next ~35",
+            "Muhurat times execution — pick direction from TA",
+        ],
+        action_label="WAIT — calendar / Muhurat",
+    )
     return {
         "strategy": "trading_calendar",
         "asset_class": asset_class,
@@ -876,19 +1075,16 @@ def analyze_trading_calendar(
         "prediction": {
             "bias": "WAIT",
             "confidence_pct": 45.0,
-            "plain_english": (
-                f"{strong_note} Today’s favorable Muhurat slots: "
-                + ", ".join(m["name"] for m in muhurats if m["favorable_execution"])
-                + ". Use Char/Shubh/Amrit/Labh for entries on favorable Moon-sign days. "
-                "Astrology times the trade — technicals choose the trade."
-            ),
+            "plain_english": plain,
         },
         "live": {
             "take_trade": False,
             "verdict": "CALENDAR",
             "confidence_pct": 45.0,
             "signal": "NONE",
+            "trade_suggestion": trade,
         },
+        "trade_suggestion": trade,
         "references": [YOUTUBE_RAHUL_BHATNAGAR, YOUTUBE_HARSHUBH_VIKAS],
         "remedies_note": (
             "Optional upay from the video (cultural/spiritual — not trading advice): "

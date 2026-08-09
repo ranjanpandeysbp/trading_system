@@ -37,6 +37,7 @@ OPTIONS_SECTIONS = frozenset({
     "gokul_chhabra",
     "zero_to_hero",
     "market_prediction",
+    "call_put_writing",
 })
 
 
@@ -155,6 +156,12 @@ async def execute_options_section(service: Any, section_id: str, payload: dict[s
             futures_price=payload.get("futures_price"),
             fii_index_position_cut=payload.get("fii_index_position_cut"),
             further_analysis=payload.get("further_analysis"),
+        )
+    if section_id == "call_put_writing":
+        return await service.call_put_writing(
+            payload.get("symbol") or "NIFTY",
+            is_index=bool(payload.get("is_index", True)),
+            exchange=payload.get("exchange"),
         )
     raise ValueError(f"Unknown Options section: {section_id}")
 
