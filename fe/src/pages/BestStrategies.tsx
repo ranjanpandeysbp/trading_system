@@ -3,6 +3,7 @@ import { ArrowRight, Landmark, Sparkles, Crosshair, Clock, Wrench } from 'lucide
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
+import { PlaybookEvaluatePanel } from '../components/workflow/PlaybookEvaluatePanel'
 
 export type BestMarketId = 'india' | 'us' | 'crypto' | 'commodities'
 
@@ -383,6 +384,15 @@ function BestMarketView({ market }: { market: MarketDef }) {
           Research / education only — not financial advice. Apply calibrations on top of the desks linked above.
         </p>
       </Card>
+
+      <PlaybookEvaluatePanel
+        key={market.id}
+        market={market.id}
+        title="Evaluate best strategies"
+        description="Runs this market’s playbook desks for Index or Stock (same confluence engine as Workflow) with ticker autosuggest."
+        loadingMessage="Running best-strategy desks in parallel…"
+        className="mt-6"
+      />
     </div>
   )
 }

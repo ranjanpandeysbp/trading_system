@@ -1,24 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchTickerSuggestions } from '../../api/client'
 
 const fieldClass =
   'w-full rounded-xl border border-slate-700/80 bg-slate-800/50 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 transition-colors focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20'
 
+function lastToken(raw: string): { prefix: string; token: string; sep: string } {
+  const m = raw.match(/^(.*?)([,\s]+)([^,\s]*)$/)
+  if (m) return { prefix: m[1], sep: m[2].includes(',') ? ', ' : ' ', token: m[3] }
+  return { prefix: '', sep: '', token: raw }
+}
+
 /** Single-ticker text input with a live dropdown of matching symbols as the
- * user types, backed by the same suggestion API the watchlist button uses. */
+ * user types, backed by the same suggestion API the watchlist button uses.
+ * Set `multi` to keep prior comma/space-separated symbols and suggest only on
+ * the last token. */
 export function TickerAutosuggest({
   value,
   onChange,
   assetClass,
   placeholder = 'e.g. RELIANCE',
   className = '',
+  multi = false,
 }: {
   value: string
   onChange: (v: string) => void
   assetClass: 'india' | 'us' | 'crypto' | 'commodity'
   placeholder?: string
   className?: string
+  multi?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState(value)
@@ -26,10 +36,15 @@ export function TickerAutosuggest({
 
   useEffect(() => setQuery(value), [value])
 
+  const suggestQuery = useMemo(() => {
+    if (!multi) return query.trim()
+    return lastToken(query).token.trim()
+  }, [multi, query])
+
   const suggestQ = useQuery({
-    queryKey: ['ticker-suggest', assetClass, query],
-    queryFn: () => fetchTickerSuggestions(assetClass, query, 10),
-    enabled: open && query.trim().length >= 1,
+    queryKey: ['ticker-suggest', assetClass, suggestQuery],
+    queryFn: () => fetchTickerSuggestions(assetClass, suggestQuery, 10),
+    enabled: open && suggestQuery.length >= 1,
     staleTime: 30_000,
   })
   const suggestions = suggestQ.data?.tickers ?? []
@@ -44,8 +59,13 @@ export function TickerAutosuggest({
   }, [open])
 
   const pick = (t: string) => {
-    onChange(t)
-    setQuery(t)
+    let next = t
+    if (multi) {
+      const { prefix, sep } = lastToken(query)
+      next = prefix ? `${prefix}${sep || ', '}${t}` : t
+    }
+    onChange(next)
+    setQuery(next)
     setOpen(false)
   }
 
@@ -65,7 +85,7 @@ export function TickerAutosuggest({
         autoComplete="off"
         spellCheck={false}
       />
-      {open && query.trim().length >= 1 && suggestions.length > 0 && (
+      {open && suggestQuery.length >= 1 && suggestions.length > 0 && (
         <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 py-1 shadow-xl">
           {suggestions.map((t) => (
             <button

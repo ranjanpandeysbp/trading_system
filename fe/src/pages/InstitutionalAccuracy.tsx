@@ -3,6 +3,7 @@ import { ArrowRight, Landmark, Sparkles, Crosshair, Clock, FlaskConical } from '
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
+import { PlaybookEvaluatePanel } from '../components/workflow/PlaybookEvaluatePanel'
 
 export type InstMarketId = 'india' | 'us' | 'crypto' | 'commodities'
 
@@ -414,6 +415,15 @@ function MarketView({ market }: { market: MarketDef }) {
       <p className="mt-4 text-[11px] text-slate-600">
         Research / education only — not financial advice. Badges mark what is live in-app vs data layers still to integrate.
       </p>
+
+      <PlaybookEvaluatePanel
+        key={market.id}
+        market={market.id}
+        title="Evaluate institutional accuracy"
+        description="Runs live playbook desks for Index or Stock (proxies for GEX / flow / structure) with ticker autosuggest — same evaluate path as Workflow."
+        loadingMessage="Running institutional desks in parallel…"
+        className="mt-6"
+      />
     </div>
   )
 }
