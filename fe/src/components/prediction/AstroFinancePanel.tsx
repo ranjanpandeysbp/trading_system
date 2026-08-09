@@ -13,6 +13,36 @@ function tone(bias: string): 'BUY' | 'SELL' | 'HOLD' {
   return 'HOLD'
 }
 
+function LaymanExplain({ layman }: { layman: Row }) {
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-slate-200">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-200/90">
+        In plain English — what to do
+      </p>
+      <div className="space-y-2 text-xs leading-relaxed text-slate-300">
+        <p>
+          <span className="font-medium text-slate-100">What this means: </span>
+          {String(layman.what_this_means || '—')}
+        </p>
+        <p>
+          <span className="font-medium text-slate-100">How it relates to trading / investing: </span>
+          {String(layman.how_it_relates_to_trading || '—')}
+        </p>
+        <p>
+          <span className="font-medium text-emerald-200/90">What action to take: </span>
+          {String(layman.what_action_to_take || layman.summary || '—')}
+        </p>
+        {layman.suggested_stance ? (
+          <p className="text-slate-400">
+            Suggested stance: <span className="text-slate-200">{String(layman.suggested_stance)}</span>
+            {layman.confidence_pct != null ? ` · confidence ~${String(layman.confidence_pct)}%` : ''}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function ResultCard({ result, index }: { result: Row; index: number }) {
   const [open, setOpen] = useState(index === 0)
   const pred = (result.prediction as Row) || {}
@@ -20,6 +50,8 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
   const bias = String(pred.bias || live.verdict || 'WAIT')
   const trade = resolveTradeSuggestion(result)
   const currency = String(result.currency ?? '')
+  const layman = (result.layman as Row) || null
+  const strategyLabel = String(result.strategy_label || result.strategy || '')
 
   return (
     <div className="rounded-xl border border-slate-800/70 bg-slate-950/40">
@@ -31,6 +63,11 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-white">{String(result.ticker || result.strategy || 'Calendar')}</span>
+            {strategyLabel ? (
+              <span className="rounded-md bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-violet-200/90">
+                {strategyLabel}
+              </span>
+            ) : null}
             <Badge action={tone(bias)} />
             {live.confidence_pct != null && (
               <span className="text-xs text-slate-400">{String(live.confidence_pct)}% conf</span>
@@ -43,7 +80,7 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
             )}
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-slate-400">
-            {String(pred.plain_english || result.error || '—')}
+            {String(layman?.summary || pred.plain_english || result.error || '—')}
           </p>
         </div>
         <span className="shrink-0 text-slate-500">{open ? '▾' : '▸'}</span>
@@ -55,6 +92,8 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
             <p className="text-rose-300">{String(result.error)}</p>
           ) : (
             <>
+              {layman && <LaymanExplain layman={layman} />}
+
               {trade.action != null && (
                 <TradeSignalBlock
                   trade={trade}
@@ -322,6 +361,17 @@ function ResultCard({ result, index }: { result: Row; index: number }) {
 
 export function AstroFinancePanel({ data }: { data: Row }) {
   const results = useMemo(() => ((data?.results as Row[]) ?? []), [data])
+  const strategies = useMemo(() => {
+    const fromPayload = data?.strategies
+    if (Array.isArray(fromPayload) && fromPayload.length) return fromPayload.map(String)
+    const seen: string[] = []
+    for (const r of results) {
+      const sid = String(r.strategy || '')
+      if (sid && !seen.includes(sid)) seen.push(sid)
+    }
+    return seen
+  }, [data, results])
+
   if (!results.length) {
     return <p className="text-sm text-slate-500">{String(data?.error || 'No results')}</p>
   }
@@ -331,10 +381,15 @@ export function AstroFinancePanel({ data }: { data: Row }) {
         <span>{String(data.strategy_label || data.strategy)}</span>
         <span>
           Scanned {String(data.scanned ?? results.length)} · actionable {String(data.entry_count ?? 0)}
+          {strategies.length > 1 ? ` · ${strategies.length} desks` : ''}
         </span>
       </div>
       {results.map((r, i) => (
-        <ResultCard key={String(r.ticker || r.strategy || i)} result={r} index={i} />
+        <ResultCard
+          key={`${String(r.strategy || 'astro')}-${String(r.ticker || i)}-${i}`}
+          result={r}
+          index={i}
+        />
       ))}
       {data.disclaimer ? <p className="text-[11px] text-slate-600">{String(data.disclaimer)}</p> : null}
     </div>

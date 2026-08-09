@@ -72,9 +72,10 @@ class PredictionService:
 
     async def astro_finance(
         self,
-        strategy: str,
-        tickers: list[str],
+        strategy: str | None = None,
+        tickers: list[str] | None = None,
         *,
+        strategies: list[str] | None = None,
         asset_class: str = "india",
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
@@ -88,15 +89,26 @@ class PredictionService:
         )
         from app.market_pulse.ticker_utils import market_currency
 
-        if strategy not in STRATEGY_IDS:
-            return {"error": f"Unknown Astro Finance strategy: {strategy}", "results": []}
+        selected: list[str] = []
+        for s in strategies or []:
+            sid = str(s or "").strip()
+            if sid in STRATEGY_IDS and sid not in selected:
+                selected.append(sid)
+        if strategy:
+            sid = str(strategy).strip()
+            if sid in STRATEGY_IDS and sid not in selected:
+                selected.append(sid)
+            elif sid and sid not in STRATEGY_IDS and not selected:
+                return {"error": f"Unknown Astro Finance strategy: {sid}", "results": []}
+        if not selected:
+            selected = list(STRATEGY_IDS)
 
         market, default_exchange = await self._asset_ctx(asset_class)
         token, _ = await self._ctx()
-        resolved = self.universe.resolve(asset_class, tickers) if tickers else []
+        resolved = self.universe.resolve(asset_class, tickers or []) if tickers else []
         ov = dict(cfg_overrides or {})
-        ov["strategy"] = strategy
-        # list field
+        # Prefer first selected for cfg.strategy field (multi handled by scan)
+        ov["strategy"] = selected[0]
         if "strong_moon_signs" in ov and ov["strong_moon_signs"] is None:
             ov["strong_moon_signs"] = []
         cfg = AstroFinanceConfig(**{
@@ -107,8 +119,8 @@ class PredictionService:
 
         def _run():
             return scan_astro_finance(
-                strategy,
-                resolved,
+                strategies=selected,
+                tickers=resolved,
                 asset_class=asset_class,
                 market=market,
                 cfg=cfg,
@@ -121,7 +133,7 @@ class PredictionService:
         payload["market"] = market
         payload["currency"] = market_currency(market)
         for r in payload.get("results", []):
-            if isinstance(r, dict) and r.get("ticker"):
+            if isinstance(r, dict):
                 r["ai_context"] = build_astro_ai_prompt(r)
         payload["ai_system_prompt"] = ASTRO_FINANCE_AI_SYSTEM
         return json_safe(payload)

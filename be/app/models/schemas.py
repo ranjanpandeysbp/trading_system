@@ -1265,10 +1265,18 @@ class PredictionPatternAnalogueRequest(BaseModel):
 
 
 class PredictionAstroFinanceRequest(BaseModel):
-    """Financial astrology desks — lunar cycle, Amavasya S/R, Bhadra, transit gaps, trading calendar."""
-    strategy: str = Field(
-        default="lunar_cycle",
-        description="lunar_cycle | amavasya_sr | bhadra_timing | transit_gaps | trading_calendar",
+    """Financial astrology desks — lunar cycle, Amavasya S/R, Bhadra, transit gaps, trading calendar.
+
+    Pass ``strategies`` to run several desks in one call (preferred). Legacy ``strategy``
+    still works for a single desk; if both empty, all desks run.
+    """
+    strategy: str | None = Field(
+        default=None,
+        description="Legacy single desk: lunar_cycle | amavasya_sr | bhadra_timing | transit_gaps | trading_calendar",
+    )
+    strategies: list[str] = Field(
+        default_factory=list,
+        description="One or more desks to run together (same ids as strategy).",
     )
     tickers: list[str] = Field(default_factory=list)
     asset_class: str = "india"

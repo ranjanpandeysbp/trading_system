@@ -2096,7 +2096,8 @@ export const runPredictionPatternAnalogue = (payload: {
 }) => api.post('/prediction/pattern-analogue', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runPredictionAstroFinance = (payload: {
-  strategy: string
+  strategy?: string
+  strategies?: string[]
   tickers?: string[]
   asset_class?: string
   exchange?: string

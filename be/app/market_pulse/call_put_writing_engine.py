@@ -281,7 +281,7 @@ def analyze_call_put_writing(
     cfg = cfg or CallPutWritingConfig()
     sym = (symbol or "NIFTY").strip().upper()
 
-    chain = fetch_option_chain(sym, is_index=is_index, groww_token=groww_token, exchange=exchange)
+    chain = fetch_option_chain(sym, is_index=is_index, groww_token=groww_token)
     if not chain or chain.get("error"):
         return {
             "symbol": sym,

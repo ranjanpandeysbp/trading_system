@@ -473,34 +473,89 @@ class DashboardTradingChatService:
 
         scan_tickers = scan_tickers if mode == "top_picks" else scan_tickers[:8]
 
-        try:
-            bb = await self.pro.bb_mean_reversion(
+        import asyncio
+
+        # Core dual scan: BB Mean + confluence AND Pro Trade PA-VP-SMC, then AI
+        pavp_cfg: dict[str, Any] = {}
+        if tf in ("1m", "3m", "5m", "15m", "30m", "1h", "4h"):
+            pavp_cfg["ltf"] = tf
+            if style_key in ("swing", "investing"):
+                pavp_cfg["htf"] = "4h" if tf in ("15m", "30m", "1h") else "1d"
+            elif tf in ("1m", "3m", "5m"):
+                pavp_cfg["htf"] = "15m"
+            else:
+                pavp_cfg["htf"] = "1h"
+
+        async def _bb_scan():
+            return await self.pro.bb_mean_reversion(
                 scan_tickers,
                 asset_class=ac,
                 timeframes=[tf],
                 cfg_overrides={"extra_checks": checks},
             )
+
+        async def _pavp_scan():
+            return await self.pro.pa_vp_smc(
+                scan_tickers,
+                asset_class=ac,
+                cfg_overrides=pavp_cfg or None,
+            )
+
+        try:
+            bb_res, pavp_res = await asyncio.gather(_bb_scan(), _pavp_scan(), return_exceptions=True)
         except Exception as exc:
-            logger.exception("Dashboard trading chat BB scan failed")
+            logger.exception("Dashboard trading chat dual scan failed")
             return {"error": f"Scan failed: {exc}", "intent": intent, "picks": [], "ai": None}
 
+        if isinstance(bb_res, Exception):
+            logger.exception("BB scan failed: %s", bb_res)
+            return {"error": f"Scan failed: {bb_res}", "intent": intent, "picks": [], "ai": None}
+        bb = bb_res if isinstance(bb_res, dict) else {"results": []}
+        if isinstance(pavp_res, Exception):
+            logger.exception("PA-VP-SMC scan failed (continuing with BB): %s", pavp_res)
+            pavp = {"results": [], "error": str(pavp_res)[:200], "entry_count": 0}
+        else:
+            pavp = pavp_res if isinstance(pavp_res, dict) else {"results": []}
+
         results = list(bb.get("results") or [])
+        pavp_results = list(pavp.get("results") or [])
+
+        bb_picks: list[dict[str, Any]]
         if mode == "single":
-            picks = [compact_pick(r, rank=i + 1) for i, r in enumerate(results)]
-            picks = sorted(picks, key=lambda p: (0 if p.get("take_trade") else 1, -(p.get("confidence_pct") or 0)))
-            eligible = [p for p in picks if p.get("take_trade")]
-            picks = eligible if eligible else picks
+            bb_picks = [compact_pick(r, rank=i + 1) for i, r in enumerate(results)]
+            for p in bb_picks:
+                p["strategy_id"] = p.get("strategy_id") or "bb_mean_reversion"
+                p["strategy_label"] = p.get("strategy_label") or "BB Mean Reversion"
+            bb_picks = sorted(bb_picks, key=lambda p: (0 if p.get("take_trade") else 1, -(p.get("confidence_pct") or 0)))
+            eligible = [p for p in bb_picks if p.get("take_trade")]
+            bb_picks = eligible if eligible else bb_picks
             if top_n is not None:
-                picks = picks[:top_n]
-            for i, p in enumerate(picks):
+                bb_picks = bb_picks[:top_n]
+            for i, p in enumerate(bb_picks):
                 p["rank"] = i + 1
         else:
-            picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
+            bb_picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
+            for p in bb_picks:
+                p["strategy_id"] = p.get("strategy_id") or "bb_mean_reversion"
+                p["strategy_label"] = p.get("strategy_label") or "BB Mean Reversion"
+
+        pavp_picks = []
+        for r in pavp_results:
+            if not isinstance(r, dict):
+                continue
+            cp = compact_pick(r)
+            cp["strategy_id"] = "pa_vp_smc"
+            cp["strategy_label"] = "PA-VP-SMC"
+            pavp_picks.append(cp)
+
+        picks = merge_live_picks([bb_picks, pavp_picks], top_n=top_n)
 
         # Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options / Intra-Hedging)
         planned = select_normal_enrichments(
             style_key, ac, message, mode=mode, timeframe=tf, limit=3,
         )
+        # Drop pa_vp_smc from optional enrichments — already ran as a core desk
+        planned = [p for p in planned if p.get("id") != "pa_vp_smc"]
         enrich_tickers = [str(p.get("ticker")) for p in picks if p.get("ticker")][:8]
         if not enrich_tickers:
             enrich_tickers = list(scan_tickers[:6])
@@ -512,6 +567,12 @@ class DashboardTradingChatService:
             tickers=enrich_tickers,
             message=message,
         )
+        # Always attach PA-VP-SMC compact summary for AI / FE (core dual scan)
+        pavp_compact = summarize_enrichment_payload("pa_vp_smc", pavp)
+        pavp_compact["why"] = "core dual scan with BB Mean Reversion + confluence"
+        pavp_compact["score"] = 10.0
+        enrichments = [pavp_compact] + list(enrichments or [])
+
         picks = apply_enrichments_to_picks(picks, enrichments)
         for i, p in enumerate(picks):
             p["rank"] = i + 1
@@ -527,7 +588,7 @@ class DashboardTradingChatService:
             enrichments=enrichments,
         )
 
-        return json_safe(self._pack_response(
+        packed = self._pack_response(
             intent=intent,
             mode=mode,
             ac=ac,
@@ -537,11 +598,14 @@ class DashboardTradingChatService:
             picks=picks,
             ai_payload=ai_payload,
             bb_entry_count=bb.get("entry_count"),
-            disclaimer=bb.get("disclaimer"),
+            disclaimer=bb.get("disclaimer") or pavp.get("disclaimer"),
             scanned=len(results),
             deep_mode=False,
             enrichments=enrichments,
-        ))
+        )
+        packed["pa_vp_smc_entry_count"] = pavp.get("entry_count")
+        packed["core_engines"] = ["bb_mean_reversion", "pa_vp_smc"]
+        return json_safe(packed)
 
     async def _chat_deep(
         self,
@@ -1002,6 +1066,22 @@ class DashboardTradingChatService:
             opt = OptionsService(self.settings, self.db)
             return await opt.call_put_writing(symbol, is_index=True)
 
+        if eid == "pa_vp_smc":
+            cfg: dict[str, Any] = {}
+            if timeframe in ("1m", "3m", "5m", "15m", "30m", "1h", "4h"):
+                cfg["ltf"] = timeframe
+                if style in ("swing", "investing"):
+                    cfg["htf"] = "4h" if timeframe in ("15m", "30m", "1h") else "1d"
+                elif timeframe in ("1m", "3m", "5m"):
+                    cfg["htf"] = "15m"
+                else:
+                    cfg["htf"] = "1h"
+            return await self.pro.pa_vp_smc(
+                tickers[:8],
+                asset_class=asset_class,
+                cfg_overrides=cfg or None,
+            )
+
         return {"error": f"Unknown enrichment: {eid}"}
 
     async def _run_pro_live(
@@ -1104,8 +1184,9 @@ class DashboardTradingChatService:
             sys = TRADING_CHAT_SYSTEM
             q = (
                 "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason. "
-                "Weigh suitability enrichments when they confirm or conflict — especially Options "
-                "Market Prediction and Call Put Writing (OI walls / short covering). "
+                "Weigh BB Mean Reversion + confluence and Pro Trade PA-VP-SMC together; note agreement "
+                "or conflict. Also weigh suitability enrichments — especially Options Market Prediction "
+                "and Call Put Writing (OI walls / short covering). "
                 "Include a brief **Why this result** explanation. "
                 f"User asked: {message}"
             )
@@ -1161,15 +1242,16 @@ class DashboardTradingChatService:
             )
 
         how = [
-            "Engine: BB Mean Reversion core + all confluence checks.",
+            "Core dual scan: BB Mean Reversion + all confluence checks, and Pro Trade → PA-VP-SMC "
+            "(price action · volume profile · smart money), run together before AI.",
             "Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
             "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction, "
             "Options Call Put Writing (OI walls / short covering), and Trading Hub Intra-Hedging "
             "(India — query-adapted TF / sector-vs-stock / max pairs).",
-            "BUY/SELL = eligible actionable setups (all of them — no top-10 cut).",
+            "BUY/SELL = eligible actionable setups from either core engine (merged by confidence).",
             "AI conclusion uses the provider saved in Manage → AI Settings and includes a Why section.",
             "Ask “why?” or “explain this result” as a follow-up to dig into the rationale without re-scanning.",
-            "SL%/TP% come from the engine trade plan (band edge → mean).",
+            "SL%/TP% come from the winning engine trade plan (BB band edge → mean, or PA-VP-SMC confluence stop/target).",
         ]
         if deep_mode:
             how = [

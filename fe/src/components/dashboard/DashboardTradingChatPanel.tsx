@@ -214,7 +214,7 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB + confluence, suitability desks including India Options Market Prediction + Call Put Writing OI walls, and Intra-Hedging (query-adapted). After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Conclusions use Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: BB Mean + confluence and Pro Trade PA-VP-SMC dual scan, then suitability desks (India Options Market Prediction + Call Put Writing OI walls, Intra-Hedging, etc.). After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Conclusions use Manage → AI.',
     },
   ])
 
@@ -339,9 +339,10 @@ export function DashboardTradingChatPanel() {
             Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan. Also
             understands open questions: biggest 24h movers, top gainers/losers, gold/silver/commodity
             moves, broken support or resistance. Standard:{' '}
-            <strong className="text-white">BB Mean Reversion</strong> + confluence, then suitability desks
-            as needed (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength,
-            Oil·Dollar·Bond, <strong className="text-white">Options Market Prediction</strong>,{' '}
+            <strong className="text-white">BB Mean Reversion</strong> + confluence and{' '}
+            <strong className="text-white">Pro Trade → PA-VP-SMC</strong>, then suitability desks as needed
+            (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, Oil·Dollar·Bond,{' '}
+            <strong className="text-white">Options Market Prediction</strong>,{' '}
             <strong className="text-white">Call Put Writing</strong> OI walls) plus India{' '}
             <strong className="text-white">Trading Hub Intra-Hedging</strong>. After any result, ask{' '}
             <strong className="text-white">why / explain</strong> for the rationale (no re-scan). Deep mode:
@@ -647,7 +648,7 @@ export function DashboardTradingChatPanel() {
           context={lastAskContext}
           section="dashboard/trading-chat"
           title="Why this result?"
-          defaultQuestion="Why did the Trading Agent give this result? Explain the picks, %confidence, %SL, %TP, and any Options Market Prediction / Call Put Writing influence."
+          defaultQuestion="Why did the Trading Agent give this result? Explain the picks, %confidence, %SL, %TP, and how BB Mean + confluence vs PA-VP-SMC (and any Options desks) influenced the call."
           buttonLabel="Explain result"
           showPredictNextMove={false}
           className="mt-4"

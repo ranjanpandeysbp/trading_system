@@ -281,17 +281,30 @@ function AstroFinancePage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['1d'] })
   const [error, setError] = useState('')
-  const [strategy, setStrategy] = useState('lunar_cycle')
+  const [strategies, setStrategies] = useState<string[]>(() => ASTRO_STRATEGIES.map((s) => s.id))
   const [lookbackDays, setLookbackDays] = useState(730)
   const [forwardDays, setForwardDays] = useState(3)
   const [strongSigns, setStrongSigns] = useState<string[]>([])
   const bg = useAnalysisBackground('prediction', 'astro_finance')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
-  const needsTickers = strategy !== 'trading_calendar'
+  const needsTickers = strategies.some((s) => s !== 'trading_calendar')
+  const showLookback = strategies.some((s) => s === 'lunar_cycle' || s === 'amavasya_sr' || s === 'transit_gaps')
+  const showForward = strategies.includes('lunar_cycle')
+  const showCalendarSigns = strategies.includes('trading_calendar')
+
+  const toggleStrategy = (id: string) => {
+    setStrategies((prev) => {
+      if (prev.includes(id)) {
+        const next = prev.filter((s) => s !== id)
+        return next.length ? next : prev // keep at least one
+      }
+      return [...prev, id]
+    })
+  }
 
   const buildPayload = () => ({
-    strategy,
+    strategies,
     tickers: picker.tickers,
     asset_class: assetClass,
     lookback_days: lookbackDays,
@@ -301,6 +314,7 @@ function AstroFinancePage() {
 
   const runMut = useMutation({
     mutationFn: () => {
+      if (!strategies.length) throw new Error('Select at least one Astro desk')
       if (needsTickers && !picker.tickers.length) throw new Error('Select at least one ticker')
       return runPredictionAstroFinance(buildPayload())
     },
@@ -318,6 +332,13 @@ function AstroFinancePage() {
   const toggleSign = (sign: string) => {
     setStrongSigns((prev) => (prev.includes(sign) ? prev.filter((s) => s !== sign) : [...prev, sign]))
   }
+
+  const runLabel =
+    strategies.length === ASTRO_STRATEGIES.length
+      ? 'Run all Astro desks'
+      : strategies.length === 1
+        ? `Run ${ASTRO_STRATEGIES.find((s) => s.id === strategies[0])?.label}`
+        : `Run ${strategies.length} Astro desks`
 
   return (
     <div>
@@ -351,9 +372,27 @@ function AstroFinancePage() {
       </div>
 
       <Card className="mb-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <p className="text-xs font-medium text-slate-400">Desks (select one or more)</p>
+          <button
+            type="button"
+            className="text-[11px] text-blue-400 hover:underline"
+            onClick={() => setStrategies(ASTRO_STRATEGIES.map((s) => s.id))}
+          >
+            Select all
+          </button>
+          <span className="text-slate-600">·</span>
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 hover:underline"
+            onClick={() => setStrategies(['lunar_cycle'])}
+          >
+            Lunar only
+          </button>
+        </div>
         <div className="mb-3 flex flex-wrap gap-2">
           {ASTRO_STRATEGIES.map((s) => (
-            <Chip key={s.id} selected={strategy === s.id} onClick={() => setStrategy(s.id)}>
+            <Chip key={s.id} selected={strategies.includes(s.id)} onClick={() => toggleStrategy(s.id)}>
               {s.label}
             </Chip>
           ))}
@@ -377,7 +416,7 @@ function AstroFinancePage() {
 
         {needsTickers && (
           <AssetClassTickerPicker
-            key={`${assetClass}-${strategy}`}
+            key={`${assetClass}-astro`}
             assetClass={assetClass}
             showDurations={false}
             defaultSelectCount={assetClass === 'commodity' ? 4 : 6}
@@ -386,33 +425,31 @@ function AstroFinancePage() {
         )}
 
         <div className="mt-4 grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {strategy !== 'trading_calendar' && strategy !== 'bhadra_timing' && (
-            <>
-              <FormField label="Lookback days">
-                <Input
-                  type="number"
-                  min={120}
-                  max={2500}
-                  value={lookbackDays}
-                  onChange={(e) => setLookbackDays(Number(e.target.value) || 730)}
-                />
-              </FormField>
-              {strategy === 'lunar_cycle' && (
-                <FormField label="Forward days (post-event)">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={forwardDays}
-                    onChange={(e) => setForwardDays(Number(e.target.value) || 3)}
-                  />
-                </FormField>
-              )}
-            </>
+          {showLookback && (
+            <FormField label="Lookback days">
+              <Input
+                type="number"
+                min={120}
+                max={2500}
+                value={lookbackDays}
+                onChange={(e) => setLookbackDays(Number(e.target.value) || 730)}
+              />
+            </FormField>
+          )}
+          {showForward && (
+            <FormField label="Forward days (post-event)">
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={forwardDays}
+                onChange={(e) => setForwardDays(Number(e.target.value) || 3)}
+              />
+            </FormField>
           )}
         </div>
 
-        {strategy === 'trading_calendar' && (
+        {showCalendarSigns && (
           <div className="mt-4">
             <p className="mb-2 text-xs text-slate-400">
               Strong Moon signs (Ashtakvarga 4+ bindus) — leave empty to show all days
@@ -430,18 +467,20 @@ function AstroFinancePage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
             onClick={() => runMut.mutate()}
-            disabled={runMut.isPending || (needsTickers && !picker.tickers.length) || bg.runInBackground}
+            disabled={runMut.isPending || !strategies.length || (needsTickers && !picker.tickers.length) || bg.runInBackground}
           >
-            {runMut.isPending ? 'Running Astro desk…' : `Run ${ASTRO_STRATEGIES.find((s) => s.id === strategy)?.label}`}
+            {runMut.isPending ? 'Running Astro desks…' : runLabel}
           </Button>
         </div>
         <AnalysisBackgroundControls
           bg={bg}
-          placeholder={`Astro Finance · ${strategy} · ${new Date().toLocaleDateString()}`}
+          placeholder={`Astro Finance · ${strategies.join('+') || 'desks'} · ${new Date().toLocaleDateString()}`}
           onStart={() =>
-            bg.startBackground(buildPayload(), () =>
-              needsTickers && !picker.tickers.length ? 'Select at least one ticker' : null,
-            )
+            bg.startBackground(buildPayload(), () => {
+              if (!strategies.length) return 'Select at least one Astro desk'
+              if (needsTickers && !picker.tickers.length) return 'Select at least one ticker'
+              return null
+            })
           }
         />
         {error && (

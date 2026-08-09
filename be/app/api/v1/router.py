@@ -4828,6 +4828,7 @@ async def prediction_astro_finance(
 
     return await PredictionService(SettingsService(db)).astro_finance(
         strategy=payload.strategy,
+        strategies=payload.strategies or None,
         tickers=payload.tickers,
         asset_class=payload.asset_class,
         exchange=payload.exchange,

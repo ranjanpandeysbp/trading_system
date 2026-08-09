@@ -40,9 +40,11 @@ YOUTUBE_RAHUL_BHATNAGAR = "https://www.youtube.com/watch?v=G1WYa0VgA7A"
 ASTRO_FINANCE_AI_SYSTEM = (
     "You are an Astro Finance desk analyst. Use lunar cycle, Amavasya S/R, Bhadra timing, "
     "transit-gap bias, and trading-calendar overlays only as timing / confirmation — never "
-    "as a standalone reason to buy or sell. Cite dates, levels, and historical hit-rates from "
-    "the payload. Research/education only — not financial advice. Harshubh Shah: time is powerful "
-    "(Samay Balwan Che); always pair with technical analysis."
+    "as a standalone reason to buy or sell. Prefer the structured layman block (what it means, "
+    "how it relates to trading/investing, what action to take) when explaining outcomes. "
+    "Cite dates, levels, and historical hit-rates from the payload. Research/education only — "
+    "not financial advice. Harshubh Shah: time is powerful (Samay Balwan Che); always pair "
+    "with technical analysis."
 )
 
 ZODIAC = [
@@ -1113,57 +1115,305 @@ STRATEGY_LABELS = {
     "trading_calendar": "Trading Calendar · Muhurat · Commodity Map",
 }
 
+# Plain-language desk intros — what the desk is about for non-experts
+STRATEGY_LAYMAN_INTRO = {
+    "lunar_cycle": (
+        "New Moon (Amavasya) and Full Moon (Poornima) often coincide with emotional "
+        "swings in markets — swings in mood can show up as bigger moves or reversals."
+    ),
+    "amavasya_sr": (
+        "Prices on New-Moon sessions leave footprints: that day’s high/low often act "
+        "later as floors (support) or ceilings (resistance) traders watch for bounces or stalls."
+    ),
+    "bhadra_timing": (
+        "Bhadra (Vishti Karana) is a traditional ‘awkward’ time window. During market hours "
+        "it is used as a clock for possible intraday tops/bottoms — not a buy/sell by itself."
+    ),
+    "transit_gaps": (
+        "When Mars or Venus change zodiac signs, overnight gaps (open vs prior close) have "
+        "historically clustered. This desk checks if a gap bias shows up near those dates."
+    ),
+    "trading_calendar": (
+        "A date planner: which Moon-sign days and Muhurat time slots are traditionally "
+        "favored for placing trades. It times *when* to act — technicals still decide *what*."
+    ),
+}
 
-def scan_astro_finance(
+
+def _action_verb(bias: str) -> str:
+    b = (bias or "WAIT").upper()
+    if b in ("BUY", "LONG"):
+        return "BUY / look for longs"
+    if b in ("SELL", "SHORT"):
+        return "SELL / look for shorts"
+    return "WAIT / stay flat"
+
+
+def enrich_with_layman(row: dict[str, Any]) -> dict[str, Any]:
+    """Attach strategy_label + layman explanation (what / trading link / action)."""
+    if not isinstance(row, dict):
+        return row
+    sid = str(row.get("strategy") or "")
+    label = STRATEGY_LABELS.get(sid, sid.replace("_", " ").title() or "Astro desk")
+    row["strategy_label"] = label
+    if row.get("error"):
+        row["layman"] = {
+            "what_this_means": STRATEGY_LAYMAN_INTRO.get(sid, "Astro Finance timing desk."),
+            "how_it_relates_to_trading": (
+                "We could not finish this desk for this symbol (data or calculation issue)."
+            ),
+            "what_action_to_take": "Skip this symbol for now, or retry later. Do not trade on a failed scan.",
+            "summary": f"{label}: scan failed — {str(row.get('error'))[:160]}",
+        }
+        return row
+
+    pred = row.get("prediction") if isinstance(row.get("prediction"), dict) else {}
+    live = row.get("live") if isinstance(row.get("live"), dict) else {}
+    trade = row.get("trade_suggestion") if isinstance(row.get("trade_suggestion"), dict) else {}
+    bias = str(pred.get("bias") or live.get("signal") or trade.get("action") or "WAIT").upper()
+    if bias in ("NONE", ""):
+        bias = "WAIT"
+    conf = pred.get("confidence_pct") or live.get("confidence_pct") or trade.get("confidence_pct")
+    try:
+        conf_s = f"{float(conf):.0f}%" if conf is not None else "—"
+    except (TypeError, ValueError):
+        conf_s = "—"
+
+    intro = STRATEGY_LAYMAN_INTRO.get(sid, "Astro Finance timing overlay.")
+    plain = str(pred.get("plain_english") or trade.get("plain_english") or "").strip()
+
+    # Desk-specific “how it relates”
+    if sid == "lunar_cycle":
+        nearest = None
+        upcoming = row.get("upcoming_events") or []
+        if isinstance(upcoming, list) and upcoming:
+            nearest = upcoming[0] if isinstance(upcoming[0], dict) else None
+        phase = (row.get("now") or {}).get("phase") if isinstance(row.get("now"), dict) else None
+        relate = (
+            f"Right now the Moon looks like “{phase or '—'}”. "
+            f"Next big lunar checkpoint: "
+            f"{(nearest or {}).get('type', '—')} on {(nearest or {}).get('date', '—')}. "
+            "Traders use that window to expect more volatility or a turn — then confirm with chart structure."
+        )
+        if bias == "BUY":
+            action = (
+                f"Lean long into/near the lunar window only if price already looks constructive "
+                f"(higher lows / support hold). Confidence ~{conf_s}. Use the suggested SL%/TP% and "
+                "skip if the chart disagrees."
+            )
+        elif bias == "SELL":
+            action = (
+                f"Lean short / reduce longs near the lunar window only if price is weak "
+                f"(lower highs / resistance rejection). Confidence ~{conf_s}. Honor SL%/TP%; "
+                "do not sell solely because of the Moon."
+            )
+        else:
+            action = (
+                "No clear lunar edge right now — wait for the next Amavasya/Poornima window "
+                "or a clean TA setup. Treat this as a calendar reminder, not a signal."
+            )
+    elif sid == "amavasya_sr":
+        supports = row.get("supports") or []
+        resists = row.get("resistances") or []
+        s0 = supports[0] if supports and isinstance(supports[0], dict) else None
+        r0 = resists[0] if resists and isinstance(resists[0], dict) else None
+        relate = (
+            "New-Moon highs/lows are marked like sticky price magnets. "
+            f"Nearest support ≈ {s0.get('low') if s0 else '—'}; "
+            f"nearest resistance ≈ {r0.get('high') if r0 else '—'}. "
+            "Investors use them as levels to watch for bounce / stall; day traders fade or break them with confirmation."
+        )
+        if bias == "BUY":
+            action = (
+                f"Watch for a hold/bounce at Amavasya support — buy dips only with candle confirmation. "
+                f"Confidence ~{conf_s}. Stop under the support; target toward resistance / prior structure."
+            )
+        elif bias == "SELL":
+            action = (
+                f"Watch for rejection at Amavasya resistance — sell strength only with confirmation. "
+                f"Confidence ~{conf_s}. Stop above the ceiling; target toward support."
+            )
+        else:
+            action = (
+                "Price is not hugging a New-Moon level closely enough — mark the levels on your chart "
+                "and wait. No forced trade from Amavasya S/R alone."
+            )
+    elif sid == "bhadra_timing":
+        active = bool(row.get("bhadra_active_now"))
+        n_win = len(row.get("bhadra_windows") or [])
+        relate = (
+            f"{'Bhadra is ACTIVE in the cash session now' if active else 'No Bhadra overlap in session right now'}. "
+            f"{n_win} window(s) mapped over the next ~3 sessions. "
+            "Think of it as a ‘watch the clock’ alert for possible turning points — not a direction call."
+        )
+        action = (
+            "If Bhadra is active: do not chase; wait for a clear reversal candle / sweep, then trade "
+            "in the direction of that reaction with tight risk. If inactive: note upcoming windows and "
+            "plan alerts — stay flat until price reacts."
+        )
+    elif sid == "transit_gaps":
+        upcoming = row.get("upcoming_ingresses") or []
+        nxt = upcoming[0] if upcoming and isinstance(upcoming[0], dict) else None
+        relate = (
+            "Planet sign-changes can line up with gap opens. "
+            f"Next ingress: {(nxt or {}).get('planet', '—')} into {(nxt or {}).get('to_sign', '—')} "
+            f"on {(nxt or {}).get('date', '—')}. "
+            "Traders prepare for a gap day; investors treat it as a volatility heads-up, not a thesis by itself."
+        )
+        if bias == "BUY":
+            action = (
+                f"Historical tilt favors gap-up / long bias near this transit (conf ~{conf_s}). "
+                "Only act if the open gaps with your bias and TA agrees; use SL%/TP%. Fade fake gaps."
+            )
+        elif bias == "SELL":
+            action = (
+                f"Historical tilt favors gap-down / short bias near this transit (conf ~{conf_s}). "
+                "Only act with a confirming open + structure; use SL%/TP%."
+            )
+        else:
+            action = (
+                "No strong gap edge yet — diary the next Mars/Venus ingress and watch the open that day. "
+                "Stay flat until the gap and chart agree."
+            )
+    elif sid == "trading_calendar":
+        fav = row.get("favorable_days_next_35") or []
+        muh = [m for m in (row.get("muhurat_today") or []) if isinstance(m, dict) and m.get("favorable_execution")]
+        relate = (
+            f"{len(fav)} Moon-sign ‘favorable’ day(s) in the next ~35. "
+            f"Today’s preferred Muhurat slots: {', '.join(m.get('name', '') for m in muh) or 'none marked'}. "
+            "Use the calendar to schedule entries; still pick direction and size from technicals / risk rules."
+        )
+        action = (
+            "Prefer placing new trades on favorable Moon-sign days during Char / Shubh / Amrit / Labh slots "
+            "when your TA setup is ready. Avoid forcing trades on off days just because the calendar is empty — "
+            "skipping is a valid action."
+        )
+    else:
+        relate = plain or "Timing overlay for markets — confirm with charts."
+        action = f"Suggested stance: {_action_verb(bias)} (confidence {conf_s}). Always confirm with TA."
+
+    if plain and sid not in ("bhadra_timing",):  # keep relate primary; append brief desk note
+        relate = f"{relate} Desk note: {plain[:280]}{'…' if len(plain) > 280 else ''}"
+
+    sl = trade.get("sl_pct")
+    tp = trade.get("tp_pct")
+    risk_note = ""
+    if sl is not None or tp is not None:
+        risk_note = f" Suggested risk map: SL {sl if sl is not None else '—'}% · TP {tp if tp is not None else '—'}%."
+
+    summary = (
+        f"{label}: {_action_verb(bias)} (conf {conf_s}). "
+        f"{action.split('.')[0].strip()}."
+        f"{risk_note}"
+    )
+
+    layman = {
+        "what_this_means": intro,
+        "how_it_relates_to_trading": relate,
+        "what_action_to_take": action + risk_note,
+        "suggested_stance": _action_verb(bias),
+        "confidence_pct": conf,
+        "summary": summary,
+    }
+    row["layman"] = layman
+    # Keep prediction.plain_english readable; also mirror a short trader action line
+    if isinstance(pred, dict):
+        pred = dict(pred)
+        pred["layman_summary"] = summary
+        pred["action_for_trader"] = action + risk_note
+        row["prediction"] = pred
+    return row
+
+
+def _run_one_strategy(
     strategy: str,
     tickers: list[str],
     *,
+    asset_class: str,
+    market: str,
+    cfg: AstroFinanceConfig,
+    groww_token: str,
+    exchange: str,
+) -> list[dict[str, Any]]:
+    if strategy == "trading_calendar":
+        return [enrich_with_layman(analyze_trading_calendar(asset_class, cfg=cfg))]
+
+    use = [t for t in tickers if t] or list(DEFAULT_TICKERS.get(asset_class, ["SPY"]))
+    results: list[dict[str, Any]] = []
+    for t in use:
+        try:
+            if strategy == "lunar_cycle":
+                row = analyze_lunar_cycle(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange)
+            elif strategy == "amavasya_sr":
+                row = analyze_amavasya_sr(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange)
+            elif strategy == "bhadra_timing":
+                row = analyze_bhadra_timing(
+                    t, asset_class, market, cfg=cfg, groww_token=groww_token, exchange=exchange,
+                )
+            elif strategy == "transit_gaps":
+                row = analyze_transit_gaps(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange)
+            else:
+                row = {"ticker": t, "strategy": strategy, "error": f"Unknown strategy {strategy}"}
+        except Exception as exc:
+            row = {"ticker": t, "strategy": strategy, "error": str(exc)[:240]}
+        results.append(enrich_with_layman(row))
+    return results
+
+
+def scan_astro_finance(
+    strategy: str | None = None,
+    tickers: list[str] | None = None,
+    *,
+    strategies: list[str] | None = None,
     asset_class: str = "india",
     market: str = "Groww (India Stocks)",
     cfg: AstroFinanceConfig | None = None,
     groww_token: str = "",
     exchange: str = "NSE",
 ) -> dict[str, Any]:
-    cfg = cfg or AstroFinanceConfig(strategy=strategy)
-    cfg.strategy = strategy
-    use = [t for t in tickers if t] or list(DEFAULT_TICKERS.get(asset_class, ["SPY"]))
+    """Run one or many Astro desks. Pass ``strategies`` (preferred) or legacy ``strategy``."""
+    tickers = list(tickers or [])
+    selected: list[str] = []
+    if strategies:
+        for s in strategies:
+            sid = str(s or "").strip()
+            if sid in STRATEGY_IDS and sid not in selected:
+                selected.append(sid)
+    if strategy:
+        sid = str(strategy).strip()
+        if sid in STRATEGY_IDS and sid not in selected:
+            selected.append(sid)
+    if not selected:
+        selected = list(STRATEGY_IDS)
 
-    if strategy == "trading_calendar":
-        cal = analyze_trading_calendar(asset_class, cfg=cfg)
-        return {
-            "strategy": strategy,
-            "strategy_label": STRATEGY_LABELS[strategy],
-            "asset_class": asset_class,
-            "market": market,
-            "guide": GUIDE_OVERVIEW,
-            "results": [cal],
-            "entry_count": 0,
-            "scanned": 1,
-            "ai_system_prompt": ASTRO_FINANCE_AI_SYSTEM,
-            "references": cal.get("references"),
-            "disclaimer": "Research / education only — not financial advice. Astrology is a timing overlay; confirm with technical analysis.",
-        }
+    cfg = cfg or AstroFinanceConfig()
+    needs_tickers = any(s != "trading_calendar" for s in selected)
+    use = [t for t in tickers if t]
+    if needs_tickers and not use:
+        use = list(DEFAULT_TICKERS.get(asset_class, ["SPY"]))
 
-    results = []
-    for t in use:
-        try:
-            if strategy == "lunar_cycle":
-                results.append(analyze_lunar_cycle(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange))
-            elif strategy == "amavasya_sr":
-                results.append(analyze_amavasya_sr(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange))
-            elif strategy == "bhadra_timing":
-                results.append(analyze_bhadra_timing(t, asset_class, market, cfg=cfg, groww_token=groww_token, exchange=exchange))
-            elif strategy == "transit_gaps":
-                results.append(analyze_transit_gaps(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange))
-            else:
-                results.append({"ticker": t, "error": f"Unknown strategy {strategy}"})
-        except Exception as exc:
-            results.append({"ticker": t, "error": str(exc)[:240]})
+    results: list[dict[str, Any]] = []
+    for sid in selected:
+        cfg.strategy = sid
+        results.extend(
+            _run_one_strategy(
+                sid,
+                use,
+                asset_class=asset_class,
+                market=market,
+                cfg=cfg,
+                groww_token=groww_token,
+                exchange=exchange,
+            )
+        )
 
     actionable = [r for r in results if (r.get("live") or {}).get("take_trade")]
+    labels = [STRATEGY_LABELS.get(s, s) for s in selected]
+    primary = selected[0] if len(selected) == 1 else "multi"
     return {
-        "strategy": strategy,
-        "strategy_label": STRATEGY_LABELS.get(strategy, strategy),
+        "strategy": primary,
+        "strategies": selected,
+        "strategy_label": " · ".join(labels) if len(labels) > 1 else labels[0],
         "asset_class": asset_class,
         "market": market,
         "guide": GUIDE_OVERVIEW,
@@ -1171,10 +1421,11 @@ def scan_astro_finance(
             "lookback_days": cfg.lookback_days,
             "forward_days": cfg.forward_days,
             "strong_moon_signs": cfg.strong_moon_signs,
+            "strategies": selected,
         },
         "results": results,
         "entry_count": len(actionable),
-        "scanned": len(use),
+        "scanned": len(use) if needs_tickers else 1,
         "default_tickers": DEFAULT_TICKERS.get(asset_class, []),
         "ai_system_prompt": ASTRO_FINANCE_AI_SYSTEM,
         "references": [
@@ -1182,13 +1433,18 @@ def scan_astro_finance(
             YOUTUBE_HARSHUBH_VIKAS,
             YOUTUBE_RAHUL_BHATNAGAR,
         ],
-        "disclaimer": "Research / education only — not financial advice. Astrology is a timing overlay; confirm with technical analysis.",
+        "disclaimer": (
+            "Research / education only — not financial advice. Astrology is a timing overlay; "
+            "confirm with technical analysis."
+        ),
     }
 
 
 def build_astro_ai_prompt(row: dict[str, Any]) -> str:
+    lay = row.get("layman") if isinstance(row.get("layman"), dict) else {}
     return (
-        f"Strategy={row.get('strategy')} Ticker={row.get('ticker')}\n"
+        f"Strategy={row.get('strategy')} ({row.get('strategy_label')}) Ticker={row.get('ticker')}\n"
         f"Prediction={row.get('prediction')}\n"
         f"Live={row.get('live')}\n"
+        f"Layman={lay}\n"
     )

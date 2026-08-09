@@ -2,7 +2,8 @@
 dashboard_trading_chat_engine.py
 --------------------------------
 Intent parse + pick compaction for the Dashboard trading chatbot.
-Analysis itself runs via BB Mean Reversion with all EXTRA_CHECK_OPTIONS confluence.
+Standard mode dual-scans BB Mean Reversion (all EXTRA_CHECK_OPTIONS confluence)
+and Pro Trade PA-VP-SMC, then suitability enrichments → Manage AI.
 """
 
 from __future__ import annotations
@@ -335,6 +336,10 @@ def compact_pick(r: dict[str, Any], *, rank: int | None = None) -> dict[str, Any
         reasons.append(str(pe)[:280])
     for line in (r.get("confidence_reasons") or [])[:4]:
         reasons.append(str(line)[:160])
+    for line in (r.get("reasons") or [])[:4]:
+        s = str(line)[:160]
+        if s and s not in reasons:
+            reasons.append(s)
     extras = r.get("extra_checks_detail") or {}
     if isinstance(extras, dict):
         for k, v in list(extras.items())[:4]:
@@ -351,10 +356,17 @@ def compact_pick(r: dict[str, Any], *, rank: int | None = None) -> dict[str, Any
     except (TypeError, ValueError):
         conf_f = None
 
+    # PA-VP-SMC nests confluence matches; surface in reason trail
+    conf_block = r.get("confluence") if isinstance(r.get("confluence"), dict) else None
+    if conf_block and conf_block.get("matches") is not None:
+        reasons.append(
+            f"PA-VP-SMC pillars {conf_block.get('matches')}/{conf_block.get('min_required') or '—'}"
+        )
+
     return {
         "rank": rank,
         "ticker": r.get("ticker"),
-        "timeframe": r.get("timeframe"),
+        "timeframe": r.get("timeframe") or r.get("ltf"),
         "action": action,
         "side": side,
         "confidence_pct": conf_f,
@@ -370,6 +382,8 @@ def compact_pick(r: dict[str, Any], *, rank: int | None = None) -> dict[str, Any
         "reason": reasons[0] if reasons else (r.get("verdict") or "No clear setup"),
         "reasons": reasons[:6],
         "error": r.get("error"),
+        "strategy_id": r.get("strategy_id"),
+        "strategy_label": r.get("strategy_label"),
     }
 
 
@@ -404,7 +418,8 @@ def build_chat_ai_context(
     enrichments: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = [
-        "Dashboard Trading Chat — BB Mean Reversion + confluence, plus suitability enrichments.",
+        "Dashboard Trading Chat — dual core: BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC, "
+        "then suitability enrichments.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         f"Mode: {intent.get('mode')} · Action bias: {intent.get('action_bias')}",
@@ -430,36 +445,41 @@ def build_chat_ai_context(
     lines.append("")
     lines.append(
         "Respond with a clear ranking, BUY/SELL/WAIT per name, %confidence, %SL, %TP, "
-        "and a one-line reason. Prefer BB engine numbers for SL/TP; cite enrichments when they "
-        "confirm or conflict (especially Options Market Prediction and Call Put Writing walls). "
-        "Then add a short **Why** section: explain the logic behind the top picks and any "
-        "options/OI enrichment (Call walls, Put floors, short-covering risk). "
+        "and a one-line reason. Prefer BB / PA-VP-SMC engine numbers for SL/TP; cite "
+        "enrichments when they confirm or conflict (especially Options Market Prediction "
+        "and Call Put Writing walls). Note when BB and PA-VP-SMC agree or disagree. "
+        "Then add a short **Why** section: explain the logic behind the top picks "
+        "(BB confluence + PA-VP-SMC pillars + any options/OI enrichment). "
         "Flag risk if confluence is thin."
     )
     return "\n".join(lines)
 
 
 TRADING_CHAT_SYSTEM = (
-    "You are the Dashboard Trading Chat desk analyst. Conclude primarily from BB Mean "
-    "Reversion + confluence engine numbers, and weigh suitability enrichments "
+    "You are the Dashboard Trading Chat desk analyst. Conclude primarily from "
+    "BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC (price action · volume "
+    "profile · smart money confluence) engine numbers, and weigh suitability enrichments "
     "(Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, "
     "Oil-Dollar-Bond macro, Options Market Prediction, Options Call Put Writing OI walls, "
-    "Trading Hub Intra-Hedging pairs) when provided. For hedge pairs cite LONG/SHORT legs, "
-    "spread, and confidence. For Call Put Writing cite Call wall / Put floor / writing tilt / "
-    "short-covering risk. For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), "
-    "%confidence, %SL, %TP, and a short reason. Always include a brief **Why this result** "
-    "paragraph explaining the engine + enrichment logic in plain English. Be concise and "
-    "practical. This is research/education only — not financial advice. End with: "
+    "Trading Hub Intra-Hedging pairs) when provided. Prefer BB or PA-VP-SMC levels for "
+    "SL/TP when both agree; when they conflict, say so and lower confidence. For hedge "
+    "pairs cite LONG/SHORT legs, spread, and confidence. For Call Put Writing cite Call "
+    "wall / Put floor / writing tilt / short-covering risk. For each name give: action "
+    "(BUY/SELL/WAIT), side (LONG/SHORT/WAIT), %confidence, %SL, %TP, and a short reason. "
+    "Always include a brief **Why this result** paragraph explaining BB + PA-VP-SMC + "
+    "enrichment logic in plain English. Be concise and practical. This is "
+    "research/education only — not financial advice. End with: "
     "VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
 )
 
 EXPLAIN_CHAT_SYSTEM = (
     "You explain Trading Agent desk results to the user. They already have picks and "
-    "enrichments — do NOT invent new tickers or levels. Cite BB confluence reasons, "
-    "Options Market Prediction / Call Put Writing (OI walls, PCR, short covering), "
-    "Intra-Hedging pairs, and other enrichment summaries. Answer their 'why / explain' "
-    "question clearly with %confidence meaning, why SL%/TP% were chosen, and what would "
-    "invalidate the setup. Research/education only — not financial advice."
+    "enrichments — do NOT invent new tickers or levels. Cite BB Mean Reversion + "
+    "confluence, Pro Trade PA-VP-SMC pillars, Options Market Prediction / Call Put "
+    "Writing (OI walls, PCR, short covering), Intra-Hedging pairs, and other enrichment "
+    "summaries. Answer their 'why / explain' question clearly with %confidence meaning, "
+    "why SL%/TP% were chosen, and what would invalidate the setup. Research/education "
+    "only — not financial advice."
 )
 
 # ---------------------------------------------------------------------------
@@ -475,6 +495,7 @@ NORMAL_ENRICHMENT_LABELS: dict[str, str] = {
     "options_market_prediction": "Options Market Prediction",
     "options_call_put_writing": "Options Call Put Writing",
     "intra_hedging": "Trading Hub · Intra-Hedging",
+    "pa_vp_smc": "Pro Trade · PA-VP-SMC",
 }
 
 _DEFAULT_AD_INDEX: dict[str, str] = {
@@ -501,6 +522,14 @@ _ENRICH_KEYWORD_BOOSTS: list[tuple[list[str], str, int]] = [
         7,
     ),
     (["hedge", "hedging", "long short", "long/short", "long-short", "pairs trade", "pair trade", "sector pair", "beta neutral", "market neutral", "intra hedge", "intra-hedging"], "intra_hedging", 7),
+    (
+        [
+            "pa-vp-smc", "pa vp smc", "pa-vp", "pa vp", "volume profile", "order block",
+            "smart money", "smc", "fvg", "fair value gap", "liquidity sweep",
+        ],
+        "pa_vp_smc",
+        6,
+    ),
 ]
 
 _IH_STOCK_INDEX_HINTS: list[tuple[list[str], str]] = [
@@ -864,7 +893,7 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
     ticker_signals: list[dict[str, Any]] = []
     summary = ""
 
-    if eid in ("elliott_wave", "volume_spread_next_candle"):
+    if eid in ("elliott_wave", "volume_spread_next_candle", "pa_vp_smc"):
         rows = list(payload.get("results") or payload.get("entries") or [])
         bits: list[str] = []
         for r in rows[:8]:
@@ -875,13 +904,19 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
             take = bool(r.get("take_trade"))
             conf = r.get("confidence_pct")
             pe = str(r.get("plain_english") or r.get("verdict") or r.get("signal") or "")[:140]
+            conf_block = r.get("confluence") if isinstance(r.get("confluence"), dict) else {}
+            note = pe
+            if conf_block.get("matches") is not None:
+                note = (
+                    f"pillars {conf_block.get('matches')}/{conf_block.get('min_required') or '—'} · {pe}"
+                )[:140]
             if take or direction in ("LONG", "SHORT"):
                 ticker_signals.append({
                     "ticker": t,
                     "side": "LONG" if direction == "LONG" else "SHORT" if direction == "SHORT" else "WAIT",
                     "take_trade": take,
                     "confidence_pct": conf,
-                    "note": pe,
+                    "note": note,
                 })
             if t:
                 bits.append(
@@ -890,6 +925,8 @@ def summarize_enrichment_payload(eid: str, payload: dict[str, Any] | None) -> di
                     + (" ✓" if take else "")
                 )
         summary = "; ".join(bits) if bits else (str(payload.get("disclaimer") or "No live setups")[:200])
+        if eid == "pa_vp_smc" and payload.get("entry_count") is not None:
+            summary = (f"entries={payload.get('entry_count')} · " + summary)[:300]
 
     elif eid == "advance_decline":
         pe = payload.get("plain_english") or payload.get("outcome_layman") or payload.get("summary")

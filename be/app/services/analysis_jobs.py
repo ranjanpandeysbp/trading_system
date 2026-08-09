@@ -212,8 +212,10 @@ async def _execute_analysis_body(
                 strategy = "lunar_cycle"
             if section.startswith("astro_finance_") and section != "astro_finance":
                 strategy = section.replace("astro_finance_", "", 1)
+            strategies = payload.get("strategies")
             return await svc.astro_finance(
-                strategy=strategy,
+                strategy=strategy if not strategies else None,
+                strategies=strategies,
                 tickers=tickers,
                 asset_class=ac,
                 exchange=exchange,
