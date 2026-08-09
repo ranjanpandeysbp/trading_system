@@ -1836,6 +1836,7 @@ class CommandCenterService:
     def sections(self) -> dict[str, Any]:
         return {
             "sections": [
+                {"id": "all_strategies", "label": "All Strategies Explained"},
                 {"id": "playbook", "label": "Trading Playbook"},
                 {"id": "tomorrow_outlook", "label": "Tomorrow & Today Market Outlook"},
                 {"id": "mega_analyser", "label": "Mega Analyser"},

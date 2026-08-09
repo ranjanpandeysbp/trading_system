@@ -12,7 +12,24 @@ const nav: NavEntry[] = [
   { to: '/investing-agent', label: 'Investing Agent (FA)', shortLabel: 'FA', icon: Bot },
   { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard },
   { to: '/auto-trade', label: 'Auto Trade', shortLabel: 'Auto', icon: Radar },
-  { to: '/command-center', label: 'Command Center', shortLabel: 'Command', icon: Compass },
+  {
+    to: '/command-center',
+    label: 'Command Center',
+    shortLabel: 'Command',
+    icon: Compass,
+    children: [
+      { to: '/command-center', label: 'Tools & scanners' },
+      { to: '/command-center?tab=all_strategies', label: 'All Strategies Explained' },
+      { to: '/command-center?tab=playbook', label: 'Trading Playbook' },
+      { to: '/command-center?tab=mega_analyser', label: 'Mega Analyser' },
+      { to: '/command-center?tab=buy_sell', label: 'Buy or Sell' },
+      { to: '/command-center?tab=advance_decline_graph', label: 'Advance Decline' },
+      { to: '/command-center?tab=comparative_strength', label: 'Comparative Strength' },
+      { to: '/command-center?tab=oil_dollar_bond', label: 'Oil · Dollar · Bond' },
+      { to: '/command-center?tab=option_chain', label: 'Option Chain' },
+      { to: '/strategy-lab', label: 'Strategy Lab Encyclopedia' },
+    ],
+  },
   { to: '/strategies', label: 'Strategies', shortLabel: 'Rules', icon: BookOpen },
   { to: '/market-pulse', label: 'Market Pulse', shortLabel: 'Pulse', icon: Activity },
   { to: '/etf-ta-in', label: 'ETF TA IN', shortLabel: 'ETF', icon: Landmark },
@@ -87,7 +104,13 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const childMatches = (childTo: string) => {
     const pathOnly = childTo.split('?')[0]
     if (location.pathname === pathOnly) {
-      if (!childTo.includes('?')) return true
+      if (!childTo.includes('?')) {
+        // Plain path child (e.g. Command Center → Tools): active only when no tab query,
+        // or when tab is not claimed by a sibling deep-link.
+        const tab = new URLSearchParams(location.search).get('tab')
+        if (pathOnly === '/command-center' && tab && tab !== 'nse_world_indices') return false
+        return true
+      }
       // Query-string children (e.g. Trading Hubs deep-links): match pathname + required params.
       const want = new URLSearchParams(childTo.split('?')[1] || '')
       const have = new URLSearchParams(location.search)
@@ -104,6 +127,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
     if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
     if (entry.to === '/prediction' && location.pathname.startsWith('/prediction')) return true
+    if (entry.to === '/command-center' && location.pathname.startsWith('/command-center')) return true
     // Prediction also deep-links Options → Market Prediction / Call Put Writing.
     if (
       entry.to === '/prediction'

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Activity, ArrowUpDown, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, Droplets, FishingHook, Flame, Gauge, Globe2, Grid3x3, Landmark, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
+import { Activity, ArrowUpDown, BarChart3, BookOpen, CandlestickChart, Compass, Crosshair, Droplets, FishingHook, Flame, Gauge, Globe2, Grid3x3, Landmark, Library, LineChart, Link2, Newspaper, Package, PieChart, Radar, RefreshCw, Repeat, Rocket, Scale, Search, Shuffle, Sparkles, Sun, Target, TrendingDown, TrendingUp, Waves, Zap } from 'lucide-react'
 import {
   apiErrorMessage,
   fetchCoinDcx24hVolatility,
@@ -59,6 +59,7 @@ import { ComparativeStrengthPanel } from '../components/command-center/Comparati
 import { OilDollarBondPanel } from '../components/command-center/OilDollarBondPanel'
 import { SmartMoneyActivityPanel } from '../components/command-center/SmartMoneyActivityPanel'
 import { DetectSectorRotationPanel } from '../components/command-center/DetectSectorRotationPanel'
+import { AllStrategiesExplainedPanel } from '../components/command-center/AllStrategiesExplainedPanel'
 import { PlaybookPanel } from '../components/command-center/PlaybookPanel'
 import {
   AnalysisBackgroundControls,
@@ -74,6 +75,7 @@ import { FormField, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 
 const TABS = [
+  { id: 'all_strategies', label: 'All Strategies Explained', icon: Library },
   { id: 'playbook', label: 'Trading Playbook', icon: BookOpen },
   { id: 'tomorrow_outlook', label: 'Tomorrow Outlook', icon: Sun },
   { id: 'mega_analyser', label: 'Mega Analyser', icon: Radar },
@@ -130,6 +132,7 @@ const ONE_CLICK_STYLE: Record<string, 'intraday' | 'scalping' | 'swing'> = {
 }
 
 const CC_BG_SKIP = new Set<TabId>([
+  'all_strategies',
   'playbook',
   'tomorrow_outlook',
   'global_market_mood',
@@ -633,7 +636,9 @@ export default function CommandCenter() {
         ))}
       </div>
 
-      {tab === 'playbook' ? (
+      {tab === 'all_strategies' ? (
+        <AllStrategiesExplainedPanel />
+      ) : tab === 'playbook' ? (
         <PlaybookPanel />
       ) : tab === 'india_fii_dii_holdings' ? (
         <IndiaFiiDiiHoldingsPanel />
@@ -1170,7 +1175,7 @@ export default function CommandCenter() {
         </Card>
       )}
 
-      {askContext && !loading && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && tab !== 'comparative_strength' && tab !== 'oil_dollar_bond' && (
+      {askContext && !loading && tab !== 'all_strategies' && tab !== 'playbook' && tab !== 'trade_setup' && tab !== 'take_trade' && tab !== 'india_fii_dii_holdings' && tab !== 'mutual_fund_holdings' && tab !== 'etf_holdings' && tab !== 'smart_money_activity' && tab !== 'detect_sector_rotation' && tab !== 'advance_decline_graph' && tab !== 'comparative_strength' && tab !== 'oil_dollar_bond' && (
         <AskAIPanel context={askContext} section={`command-center/${tab}`} />
       )}
     </div>
