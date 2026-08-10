@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiErrorMessage, runPredictionAstroFinance, runPredictionPatternAnalogue } from '../api/client'
@@ -34,17 +34,55 @@ const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
 
 const OVERVIEW = `Pattern Analogue takes the latest N candles on your chosen timeframe as a “template” shape,
 searches earlier history (lookback bars or an explicit date range) for the most similar windows,
-then measures what happened in the next F bars after each match.
+then measures what happened in the bars before and after each match.
+
+Alternatively, upload or paste (Ctrl+V) a chart screenshot for a ticker — the shape is digitized and
+matched across that ticker’s history with the same before/after outcomes.
 
 Use it when you want a data-backed answer to: “When price last looked like this, what usually came next?”`
 
 const RULES = `How it works
 
 • Shape = z-scored relative close path over pattern_bars (scale-invariant).
+• Chart image mode digitizes the screenshot (Gemini vision when configured; else raster heuristic).
 • Similarity = cosine similarity; only matches ≥ min similarity are kept.
 • Overlapping historical hits are de-duplicated; live template is excluded from the search.
-• Forward outcome = next-bar return, F-bar return, MFE / MAE after each analogue.
+• Before / after = N bars preceding the match and F bars following (returns, MFE / MAE, charts).
 • Bias (BUY/SELL/WAIT) comes from the historical forward-return distribution — not a fill guarantee.`
+
+/** Compress a File/Blob to a JPEG data URL suitable for API upload. */
+function fileToChartDataUrl(file: Blob, maxW = 1280, quality = 0.78): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxW / Math.max(1, img.width))
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          reject(new Error('Canvas unavailable'))
+          return
+        }
+        ctx.drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      } catch (e) {
+        reject(e)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Could not read image'))
+    }
+    img.src = url
+  })
+}
 
 function PatternAnaloguePage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
@@ -53,14 +91,49 @@ function PatternAnaloguePage() {
   const [timeframe, setTimeframe] = useState('15m')
   const [patternBars, setPatternBars] = useState(20)
   const [forwardBars, setForwardBars] = useState(5)
+  const [beforeBars, setBeforeBars] = useState(5)
   const [searchLookback, setSearchLookback] = useState(500)
   const [searchFrom, setSearchFrom] = useState('')
   const [searchTo, setSearchTo] = useState('')
   const [topN, setTopN] = useState(10)
   const [minSim, setMinSim] = useState(0.82)
+  const [chartImage, setChartImage] = useState<string | null>(null)
+  const [chartBusy, setChartBusy] = useState(false)
+  const dropRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const bg = useAnalysisBackground('prediction', 'pattern_analogue')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const ingestImage = useCallback(async (file: Blob | null | undefined) => {
+    if (!file || !String(file.type || '').startsWith('image/')) return
+    setChartBusy(true)
+    setError('')
+    try {
+      const dataUrl = await fileToChartDataUrl(file)
+      setChartImage(dataUrl)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to read chart image')
+    } finally {
+      setChartBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          void ingestImage(item.getAsFile())
+          break
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [ingestImage])
 
   const buildPayload = () => ({
     tickers: picker.tickers,
@@ -68,16 +141,21 @@ function PatternAnaloguePage() {
     timeframe,
     pattern_bars: patternBars,
     forward_bars: forwardBars,
+    before_bars: beforeBars,
     search_lookback_bars: searchLookback,
     search_from_date: searchFrom || undefined,
     search_to_date: searchTo || undefined,
     top_n: topN,
     min_similarity: minSim,
+    ...(chartImage ? { chart_image_base64: chartImage } : {}),
   })
 
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (chartImage && picker.tickers.length > 8) {
+        throw new Error('Chart image mode: select up to 8 tickers (prefer one focused ticker)')
+      }
       return runPredictionPatternAnalogue(buildPayload())
     },
     onSuccess: () => {
@@ -94,7 +172,7 @@ function PatternAnaloguePage() {
     <div>
       <PageHeader
         title="Pattern Analogue"
-        description="Match the latest chart shape to history — see what usually happened next"
+        description="Match live bars or a chart screenshot to history — see what usually happened before and after"
       />
 
       <div className="mb-4 space-y-2">
@@ -129,6 +207,65 @@ function PatternAnaloguePage() {
           onChange={handlePickerChange}
         />
 
+        <div
+          ref={dropRef}
+          className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-950/40 p-4"
+          onDragOver={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            void ingestImage(e.dataTransfer.files?.[0])
+          }}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-slate-200">Chart image (optional)</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Upload, drag-drop, or paste (Ctrl+V) a chart screenshot for the selected ticker(s).
+                We digitize the shape and find every historical match with before/after outcomes.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()} disabled={chartBusy}>
+                {chartBusy ? 'Reading…' : 'Upload chart'}
+              </Button>
+              {chartImage ? (
+                <Button type="button" variant="secondary" onClick={() => setChartImage(null)}>
+                  Clear image
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              void ingestImage(e.target.files?.[0])
+              e.target.value = ''
+            }}
+          />
+          {chartImage ? (
+            <div className="mt-3 flex flex-wrap items-start gap-3">
+              <img
+                src={chartImage}
+                alt="Chart template preview"
+                className="max-h-40 max-w-full rounded-lg border border-slate-800 object-contain"
+              />
+              <p className="max-w-sm text-xs text-sky-300/90">
+                Image mode on — template comes from this screenshot (not the live last N bars).
+                Pick the ticker the chart belongs to, set timeframe to match the screenshot, then run.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-600">No image attached — will use the live last N bars as template.</p>
+          )}
+        </div>
+
         <div className="mt-4 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <FormField label="Timeframe">
             <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
@@ -139,7 +276,7 @@ function PatternAnaloguePage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Pattern bars (current shape)">
+          <FormField label="Pattern bars (shape length)">
             <Input
               type="number"
               min={5}
@@ -148,7 +285,16 @@ function PatternAnaloguePage() {
               onChange={(e) => setPatternBars(Number(e.target.value) || 20)}
             />
           </FormField>
-          <FormField label="Forward bars (what next?)">
+          <FormField label="Before bars (context)">
+            <Input
+              type="number"
+              min={0}
+              max={60}
+              value={beforeBars}
+              onChange={(e) => setBeforeBars(Number(e.target.value) || 0)}
+            />
+          </FormField>
+          <FormField label="After bars (what next?)">
             <Input
               type="number"
               min={1}
@@ -196,11 +342,15 @@ function PatternAnaloguePage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
             onClick={() => runMut.mutate()}
-            disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}
+            disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground || chartBusy}
           >
             {runMut.isPending
-              ? 'Scanning analogues…'
-              : `Find pattern analogues (${picker.tickers.length})`}
+              ? chartImage
+                ? 'Digitizing & scanning…'
+                : 'Scanning analogues…'
+              : chartImage
+                ? `Find chart analogues (${picker.tickers.length})`
+                : `Find pattern analogues (${picker.tickers.length})`}
           </Button>
         </div>
         <AnalysisBackgroundControls
@@ -220,7 +370,13 @@ function PatternAnaloguePage() {
       <AnalysisBackgroundJobsAndReports bg={bg} />
 
       {runMut.isPending && !bg.viewedPayload && (
-        <Loading message="Matching current chart shape against historical windows…" />
+        <Loading
+          message={
+            chartImage
+              ? 'Digitizing chart image and matching historical windows…'
+              : 'Matching current chart shape against historical windows…'
+          }
+        />
       )}
 
       {data && (!runMut.isPending || bg.viewedPayload) && (

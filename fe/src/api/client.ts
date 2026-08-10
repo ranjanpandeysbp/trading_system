@@ -2189,11 +2189,13 @@ export const runPredictionPatternAnalogue = (payload: {
   timeframe?: string
   pattern_bars?: number
   forward_bars?: number
+  before_bars?: number
   search_lookback_bars?: number
   search_from_date?: string
   search_to_date?: string
   top_n?: number
   min_similarity?: number
+  chart_image_base64?: string
 }) => api.post('/prediction/pattern-analogue', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runPredictionAstroFinance = (payload: {

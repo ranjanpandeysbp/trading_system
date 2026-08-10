@@ -4,9 +4,10 @@ pattern_analogue_engine.py
 Historical chart-shape analogue finder.
 
 For a ticker + timeframe, take the most recent ``pattern_bars`` candles as the
-template shape, search earlier history (chosen lookback / date range) for the
-most similar windows, and report what happened in the next ``forward_bars``
-after each match — plus aggregate bias stats for a forward prediction.
+template shape (or a digitized chart-image path), search earlier history
+(chosen lookback / date range) for the most similar windows, and report what
+happened in the ``before_bars`` before and ``forward_bars`` after each match —
+plus aggregate bias stats for a forward prediction.
 """
 
 from __future__ import annotations
@@ -24,9 +25,10 @@ from app.market_pulse.mtf_scanner_engine import normalize_ohlcv
 
 PATTERN_ANALOGUE_AI_SYSTEM = (
     "You are a desk analyst for Pattern Analogue Prediction. Conclude from the "
-    "similarity matches and forward-outcome stats: what historically followed "
-    "shapes like the current window. Cite match dates, avg/median forward return, "
-    "and next-bar up-rate. Research/education only — not financial advice."
+    "similarity matches and before/after outcome stats: what historically "
+    "preceded and followed shapes like the template window. Cite match dates, "
+    "avg/median forward return, before-context move, and next-bar up-rate. "
+    "Research/education only — not financial advice."
 )
 
 
@@ -35,6 +37,7 @@ class PatternAnalogueConfig:
     timeframe: str = "15m"
     pattern_bars: int = 20
     forward_bars: int = 5
+    before_bars: int = 5
     search_lookback_bars: int = 500
     search_from_date: str = ""
     search_to_date: str = ""
@@ -188,6 +191,83 @@ def _forward_stats(
     }
 
 
+def _before_stats(
+    df: pd.DataFrame,
+    start_i: int,
+    before_bars: int,
+) -> dict[str, Any] | None:
+    """Context in the ``before_bars`` ending just before the pattern window starts."""
+    bb = max(0, int(before_bars))
+    if bb <= 0:
+        return {
+            "before_start_time": None,
+            "before_end_time": None,
+            "before_return_pct": None,
+            "before_max_favorable_pct": None,
+            "before_max_adverse_pct": None,
+            "before_direction": None,
+        }
+    before_end = start_i - 1
+    before_start = start_i - bb
+    if before_start < 0 or before_end < 0:
+        return None
+
+    entry = float(df["close"].iloc[before_start])
+    exit_c = float(df["close"].iloc[before_end])
+    if not np.isfinite(entry) or abs(entry) < 1e-12:
+        return None
+
+    window = df.iloc[before_start : before_end + 1]
+    max_high = float(window["high"].max())
+    min_low = float(window["low"].min())
+    before_ret = (exit_c / entry - 1.0) * 100.0
+    mfe = (max_high / entry - 1.0) * 100.0
+    mae = (min_low / entry - 1.0) * 100.0
+
+    return {
+        "before_start_time": _bar_time(df.index[before_start]),
+        "before_end_time": _bar_time(df.index[before_end]),
+        "before_return_pct": round(before_ret, 3),
+        "before_max_favorable_pct": round(mfe, 3),
+        "before_max_adverse_pct": round(mae, 3),
+        "before_direction": "UP" if before_ret > 0 else ("DOWN" if before_ret < 0 else "FLAT"),
+    }
+
+
+def _resample_shape_pct(values: list[float] | np.ndarray, n: int) -> list[float]:
+    arr = np.asarray(list(values), dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if len(arr) == 0:
+        raise ValueError("Empty template shape")
+    n = max(5, int(n))
+    if len(arr) == 1:
+        out = np.zeros(n, dtype=float)
+    elif len(arr) == n:
+        out = arr.copy()
+    else:
+        x_old = np.linspace(0.0, 1.0, len(arr))
+        x_new = np.linspace(0.0, 1.0, n)
+        out = np.interp(x_new, x_old, arr)
+    out = out - float(out[0])
+    return [round(float(v), 4) for v in out]
+
+
+def _synthetic_candles_from_shape(shape_pct: list[float], *, base: float = 100.0) -> list[dict[str, Any]]:
+    candles: list[dict[str, Any]] = []
+    for i, pct in enumerate(shape_pct):
+        c = float(base) * (1.0 + float(pct) / 100.0)
+        candles.append({
+            "time": f"bar-{i + 1}",
+            "open": round(c, 6),
+            "high": round(c, 6),
+            "low": round(c, 6),
+            "close": round(c, 6),
+            "i": i,
+            "zone": "pattern",
+        })
+    return candles
+
+
 def _filter_search_range(df: pd.DataFrame, cfg: PatternAnalogueConfig) -> pd.DataFrame:
     start = _parse_date(cfg.search_from_date)
     end = _parse_date(cfg.search_to_date)
@@ -204,7 +284,13 @@ def _filter_search_range(df: pd.DataFrame, cfg: PatternAnalogueConfig) -> pd.Dat
 
 
 def _fetch_limit(cfg: PatternAnalogueConfig) -> int:
-    need = int(cfg.search_lookback_bars) + int(cfg.pattern_bars) + int(cfg.forward_bars) + 30
+    need = (
+        int(cfg.search_lookback_bars)
+        + int(cfg.pattern_bars)
+        + int(cfg.forward_bars)
+        + int(cfg.before_bars)
+        + 30
+    )
     # Intraday sources are thinner; still request enough for the search window.
     return max(120, min(need, 2500 if cfg.timeframe in ("1d", "1w", "1wk", "1M") else 1200))
 
@@ -229,23 +315,61 @@ def _template_label(df: pd.DataFrame, start_i: int, end_i: int) -> str:
     return "choppy flat"
 
 
+def _shape_label_from_pct(shape_pct: list[float]) -> str:
+    if len(shape_pct) < 2:
+        return "flat"
+    closes = np.asarray([1.0 + float(p) / 100.0 for p in shape_pct], dtype=float)
+    net = (closes[-1] / closes[0] - 1.0) * 100.0
+    path = float(np.sum(np.abs(np.diff(closes) / np.maximum(closes[:-1], 1e-12)))) * 100.0
+    if abs(net) < 0.15 and path < 1.0:
+        return "sideways / quiet"
+    if net >= 1.0 and path < abs(net) * 1.8:
+        return "smooth rally"
+    if net <= -1.0 and path < abs(net) * 1.8:
+        return "smooth selloff"
+    if net > 0:
+        return "choppy up"
+    if net < 0:
+        return "choppy down"
+    return "choppy flat"
+
+
 def _window_candles(
     df: pd.DataFrame,
     start_i: int,
     end_i: int,
     *,
     forward_bars: int = 0,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[float]]:
-    """OHLC bars for the pattern window (+ optional forward path) and % close path from first close."""
+    before_bars: int = 0,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[float]]:
+    """OHLC bars for pattern (+ optional before/forward) and % close path from pattern first close."""
     candles: list[dict[str, Any]] = []
     forward: list[dict[str, Any]] = []
+    before: list[dict[str, Any]] = []
     shape_pct: list[float] = []
     if start_i < 0 or end_i >= len(df) or end_i < start_i:
-        return candles, forward, shape_pct
+        return candles, forward, before, shape_pct
 
     base = float(df["close"].iloc[start_i])
     if not np.isfinite(base) or abs(base) < 1e-12:
         base = 1.0
+
+    bb = max(0, int(before_bars))
+    if bb > 0 and start_i >= bb:
+        for j, i in enumerate(range(start_i - bb, start_i)):
+            o = float(df["open"].iloc[i])
+            h = float(df["high"].iloc[i])
+            l = float(df["low"].iloc[i])
+            c = float(df["close"].iloc[i])
+            before.append({
+                "time": _bar_time(df.index[i]),
+                "open": round(o, 6),
+                "high": round(h, 6),
+                "low": round(l, 6),
+                "close": round(c, 6),
+                "i": j - bb,
+                "zone": "before",
+            })
 
     for i in range(start_i, end_i + 1):
         o = float(df["open"].iloc[i])
@@ -280,7 +404,7 @@ def _window_candles(
                 "zone": "forward",
             })
 
-    return candles, forward, shape_pct
+    return candles, forward, before, shape_pct
 
 
 def analyze_ticker(
@@ -290,24 +414,30 @@ def analyze_ticker(
     cfg: PatternAnalogueConfig | None = None,
     groww_token: str = "",
     exchange: str = "NSE",
+    template_shape_pct: list[float] | None = None,
+    template_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = cfg or PatternAnalogueConfig()
     pb = max(5, int(cfg.pattern_bars))
     fb = max(1, int(cfg.forward_bars))
+    bb = max(0, int(cfg.before_bars))
     top_n = max(1, min(50, int(cfg.top_n)))
     min_sim = float(np.clip(cfg.min_similarity, 0.0, 1.0))
     step = max(1, int(cfg.step))
+    image_mode = bool(template_shape_pct)
 
     out: dict[str, Any] = {
         "ticker": ticker,
         "timeframe": cfg.timeframe,
         "pattern_bars": pb,
         "forward_bars": fb,
+        "before_bars": bb,
         "matches": [],
         "outcome_summary": None,
         "template": None,
         "prediction": None,
         "take_trade": False,
+        "template_source": "chart_image" if image_mode else "live_bars",
         "error": None,
     }
 
@@ -332,63 +462,99 @@ def analyze_ticker(
     # Prefer explicit date range when given; else keep last search_lookback_bars.
     if cfg.search_from_date or cfg.search_to_date:
         hist = _filter_search_range(df, cfg)
-        # Always keep enough recent bars for the live template from full df.
-        # Merge: historical search slice + latest bars from full df.
-        recent = df.tail(pb + fb + 5)
+        recent = df.tail(pb + fb + bb + 5)
         hist = pd.concat([hist, recent]).sort_index()
         hist = hist[~hist.index.duplicated(keep="last")]
         df = hist
     else:
-        keep = int(cfg.search_lookback_bars) + pb + fb + 5
+        keep = int(cfg.search_lookback_bars) + pb + fb + bb + 5
         if len(df) > keep:
             df = df.tail(keep)
 
-    min_needed = pb + fb + 10
+    min_needed = pb + fb + bb + 10
     if len(df) < min_needed:
         out["error"] = f"Need at least {min_needed} bars; got {len(df)}"
         return out
 
     closes = df["close"].astype(float).values
     n = len(closes)
-    template_end = n - 1
-    template_start = template_end - pb + 1
-    template_vec = _shape_vector(closes[template_start : template_end + 1])
-    if template_vec is None:
-        out["error"] = "Could not build template shape"
-        return out
 
-    template_net = (closes[template_end] / closes[template_start] - 1.0) * 100.0
-    tmpl_candles, tmpl_fwd, tmpl_shape = _window_candles(
-        df, template_start, template_end, forward_bars=0,
-    )
-    out["template"] = {
-        "start_time": _bar_time(df.index[template_start]),
-        "end_time": _bar_time(df.index[template_end]),
-        "bars": pb,
-        "start_close": round(float(closes[template_start]), 6),
-        "end_close": round(float(closes[template_end]), 6),
-        "net_return_pct": round(float(template_net), 3),
-        "shape_label": _template_label(df, template_start, template_end),
-        "ltp": round(float(closes[template_end]), 6),
-        "candles": tmpl_candles,
-        "shape_pct": tmpl_shape,
-        "forward_candles": tmpl_fwd,
-    }
-    out["ltp"] = out["template"]["ltp"]
+    if image_mode:
+        try:
+            shape_pct = _resample_shape_pct(template_shape_pct or [], pb)
+        except ValueError as exc:
+            out["error"] = str(exc)
+            return out
+        rel_closes = np.asarray([1.0 + float(p) / 100.0 for p in shape_pct], dtype=float)
+        template_vec = _shape_vector(rel_closes)
+        if template_vec is None:
+            out["error"] = "Could not build template shape from chart image"
+            return out
+        template_net = float(shape_pct[-1]) if shape_pct else 0.0
+        meta = template_meta or {}
+        out["template"] = {
+            "source": "chart_image",
+            "start_time": None,
+            "end_time": None,
+            "bars": pb,
+            "start_close": None,
+            "end_close": None,
+            "net_return_pct": round(template_net, 3),
+            "shape_label": _shape_label_from_pct(shape_pct),
+            "ltp": round(float(closes[-1]), 6),
+            "candles": _synthetic_candles_from_shape(shape_pct),
+            "shape_pct": shape_pct,
+            "forward_candles": [],
+            "digitizer": meta.get("engine"),
+            "digitizer_notes": meta.get("notes"),
+        }
+        out["ltp"] = out["template"]["ltp"]
+        # Image template is not from live series — search all windows with before+forward room.
+        first_end = pb - 1 + bb
+        last_search_end = n - 1 - fb
+    else:
+        template_end = n - 1
+        template_start = template_end - pb + 1
+        template_vec = _shape_vector(closes[template_start : template_end + 1])
+        if template_vec is None:
+            out["error"] = "Could not build template shape"
+            return out
 
-    # Search windows that end before the live template starts (no look-ahead / overlap).
-    last_search_end = template_start - 1
-    first_end = pb - 1
-    if last_search_end - fb < first_end:
+        template_net = (closes[template_end] / closes[template_start] - 1.0) * 100.0
+        tmpl_candles, tmpl_fwd, tmpl_before, tmpl_shape = _window_candles(
+            df, template_start, template_end, forward_bars=0, before_bars=0,
+        )
+        out["template"] = {
+            "source": "live_bars",
+            "start_time": _bar_time(df.index[template_start]),
+            "end_time": _bar_time(df.index[template_end]),
+            "bars": pb,
+            "start_close": round(float(closes[template_start]), 6),
+            "end_close": round(float(closes[template_end]), 6),
+            "net_return_pct": round(float(template_net), 3),
+            "shape_label": _template_label(df, template_start, template_end),
+            "ltp": round(float(closes[template_end]), 6),
+            "candles": tmpl_candles,
+            "shape_pct": tmpl_shape,
+            "forward_candles": tmpl_fwd,
+            "before_candles": tmpl_before,
+        }
+        out["ltp"] = out["template"]["ltp"]
+        # Full forward path must finish before the live template starts (no look-ahead).
+        first_end = pb - 1 + bb
+        last_search_end = template_start - 1 - fb
+
+    if last_search_end < first_end:
         out["error"] = "Not enough history before the current pattern window"
         return out
 
     scored: list[tuple[float, int]] = []
-    for end_i in range(first_end, last_search_end + 1 - fb, step):
-        # Require full forward path available after the analogue.
-        if end_i + fb >= template_start:
+    for end_i in range(first_end, last_search_end + 1, step):
+        if end_i + fb >= n:
             continue
         start_i = end_i - pb + 1
+        if start_i - bb < 0:
+            continue
         vec = _shape_vector(closes[start_i : end_i + 1])
         if vec is None or len(vec) != len(template_vec):
             continue
@@ -415,8 +581,11 @@ def analyze_ticker(
         fwd = _forward_stats(df, end_i, fb)
         if not fwd:
             continue
+        before = _before_stats(df, start_i, bb) or {}
         net = (closes[end_i] / closes[start_i] - 1.0) * 100.0
-        m_candles, m_fwd, m_shape = _window_candles(df, start_i, end_i, forward_bars=fb)
+        m_candles, m_fwd, m_before, m_shape = _window_candles(
+            df, start_i, end_i, forward_bars=fb, before_bars=bb,
+        )
         matches.append({
             "rank": rank,
             "similarity": round(float(sim) * 100.0, 2),
@@ -426,7 +595,9 @@ def analyze_ticker(
             "shape_label": _template_label(df, start_i, end_i),
             "candles": m_candles,
             "forward_candles": m_fwd,
+            "before_candles": m_before,
             "shape_pct": m_shape,
+            **before,
             **fwd,
         })
 
@@ -439,15 +610,17 @@ def analyze_ticker(
         "search_from_date": cfg.search_from_date or None,
         "search_to_date": cfg.search_to_date or None,
         "search_lookback_bars": cfg.search_lookback_bars,
+        "template_source": out["template_source"],
     }
 
     if not matches:
+        src = "uploaded chart shape" if image_mode else f"last {pb} {cfg.timeframe} bars"
         out["prediction"] = {
             "bias": "WAIT",
             "confidence_pct": 0.0,
             "plain_english": (
-                f"No historical windows ≥ {min_sim * 100:.0f}% similar to the last {pb} "
-                f"{cfg.timeframe} bars in the chosen search range."
+                f"No historical windows >= {min_sim * 100:.0f}% similar to the {src} "
+                f"in the chosen search range."
             ),
         }
         out["outcome_summary"] = {"samples": 0}
@@ -462,12 +635,18 @@ def analyze_ticker(
 
     next_rets = [float(m["next_bar_return_pct"]) for m in matches]
     fwd_rets = [float(m["forward_return_pct"]) for m in matches]
+    before_rets = [
+        float(m["before_return_pct"])
+        for m in matches
+        if m.get("before_return_pct") is not None
+    ]
     up_next = sum(1 for r in next_rets if r > 0)
     up_fwd = sum(1 for r in fwd_rets if r > 0)
     avg_next = float(np.mean(next_rets))
     avg_fwd = float(np.mean(fwd_rets))
     med_fwd = float(np.median(fwd_rets))
     avg_sim = float(np.mean([float(m["similarity"]) for m in matches]))
+    avg_before = float(np.mean(before_rets)) if before_rets else None
 
     summary = {
         "samples": len(matches),
@@ -479,6 +658,11 @@ def analyze_ticker(
         "forward_up_pct": round(100.0 * up_fwd / len(matches), 1),
         "avg_max_favorable_pct": round(float(np.mean([m["max_favorable_pct"] for m in matches])), 3),
         "avg_max_adverse_pct": round(float(np.mean([m["max_adverse_pct"] for m in matches])), 3),
+        "avg_before_return_pct": round(avg_before, 3) if avg_before is not None else None,
+        "before_up_pct": (
+            round(100.0 * sum(1 for r in before_rets if r > 0) / len(before_rets), 1)
+            if before_rets else None
+        ),
     }
     out["outcome_summary"] = summary
 
@@ -498,15 +682,29 @@ def analyze_ticker(
     if bias == "WAIT":
         conf = min(conf, 48.0)
 
+    before_clause = ""
+    if avg_before is not None:
+        before_clause = (
+            f" In the {bb} bars before those matches, average move was {avg_before:+.2f}% "
+            f"(up {summary.get('before_up_pct')}%)."
+        )
+
+    src_desc = (
+        f"uploaded chart shape ({out['template']['shape_label']}, {out['template']['net_return_pct']:+.2f}%)"
+        if image_mode
+        else (
+            f"current {pb}-bar {cfg.timeframe} shape ({out['template']['shape_label']}, "
+            f"{out['template']['net_return_pct']:+.2f}%)"
+        )
+    )
     out["prediction"] = {
         "bias": bias,
         "side": side,
         "confidence_pct": round(conf, 1),
         "horizon_bars": fb,
         "plain_english": (
-            f"Current {pb}-bar {cfg.timeframe} shape ({out['template']['shape_label']}, "
-            f"{out['template']['net_return_pct']:+.2f}%) matched {len(matches)} historical windows "
-            f"(avg similarity {avg_sim:.1f}%). After those analogues, next bar avg "
+            f"{src_desc} matched {len(matches)} historical windows "
+            f"(avg similarity {avg_sim:.1f}%).{before_clause} After those analogues, next bar avg "
             f"{avg_next:+.2f}% (up {summary['next_bar_up_pct']:.0f}%) and {fb}-bar forward avg "
             f"{avg_fwd:+.2f}% / median {med_fwd:+.2f}% (up {summary['forward_up_pct']:.0f}%). "
             f"Suggested bias: {bias}."
@@ -532,6 +730,8 @@ def analyze_ticker(
         f"Next-bar up-rate {summary['next_bar_up_pct']:.0f}% · avg {avg_next:+.2f}%",
         f"Hist MFE {summary['avg_max_favorable_pct']:+.2f}% / MAE {summary['avg_max_adverse_pct']:+.2f}%",
     ]
+    if avg_before is not None:
+        reasons.insert(1, f"Before context avg {avg_before:+.2f}% over {bb} bars")
     out["trade_suggestion"] = _build_trade_suggestion(
         action=bias,
         confidence_pct=conf,
@@ -555,13 +755,23 @@ def scan_universe(
     groww_token: str = "",
     exchange: str = "NSE",
     max_workers: int = 6,
+    template_shape_pct: list[float] | None = None,
+    template_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = cfg or PatternAnalogueConfig()
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
     def _one(t: str) -> dict[str, Any]:
-        return analyze_ticker(t, market, cfg=cfg, groww_token=groww_token, exchange=exchange)
+        return analyze_ticker(
+            t,
+            market,
+            cfg=cfg,
+            groww_token=groww_token,
+            exchange=exchange,
+            template_shape_pct=template_shape_pct,
+            template_meta=template_meta,
+        )
 
     workers = max(1, min(max_workers, len(tickers) or 1))
     if workers == 1 or len(tickers) <= 1:
@@ -591,14 +801,19 @@ def scan_universe(
         )
     )
     actionable = [r for r in results if r.get("take_trade")]
+    mode = "chart image → historical analogues" if template_shape_pct else "live shape → historical analogues"
     return {
-        "strategy": "Pattern Analogue — historical shape match → forward outcome",
+        "strategy": f"Pattern Analogue — {mode}",
         "timeframe": cfg.timeframe,
         "pattern_bars": cfg.pattern_bars,
         "forward_bars": cfg.forward_bars,
+        "before_bars": cfg.before_bars,
+        "template_source": "chart_image" if template_shape_pct else "live_bars",
+        "template_meta": template_meta,
         "config": {
             "pattern_bars": cfg.pattern_bars,
             "forward_bars": cfg.forward_bars,
+            "before_bars": cfg.before_bars,
             "search_lookback_bars": cfg.search_lookback_bars,
             "search_from_date": cfg.search_from_date or None,
             "search_to_date": cfg.search_to_date or None,
@@ -620,8 +835,8 @@ def build_pattern_analogue_ai_prompt(row: dict[str, Any]) -> str:
     tmpl_slim = {
         k: tmpl.get(k)
         for k in (
-            "start_time", "end_time", "bars", "start_close", "end_close",
-            "net_return_pct", "shape_label", "ltp",
+            "source", "start_time", "end_time", "bars", "start_close", "end_close",
+            "net_return_pct", "shape_label", "ltp", "digitizer",
         )
         if isinstance(tmpl, dict)
     }
@@ -633,13 +848,16 @@ def build_pattern_analogue_ai_prompt(row: dict[str, Any]) -> str:
             k: m.get(k)
             for k in (
                 "rank", "similarity", "match_start", "match_end", "match_net_return_pct",
-                "shape_label", "next_bar_return_pct", "forward_return_pct",
+                "shape_label", "before_return_pct", "before_direction",
+                "next_bar_return_pct", "forward_return_pct",
                 "max_favorable_pct", "max_adverse_pct", "next_direction", "forward_direction",
             )
         })
     lines = [
         f"Ticker: {row.get('ticker')}",
-        f"TF: {row.get('timeframe')} · pattern_bars={row.get('pattern_bars')} · forward_bars={row.get('forward_bars')}",
+        f"TF: {row.get('timeframe')} · pattern_bars={row.get('pattern_bars')} · "
+        f"before_bars={row.get('before_bars')} · forward_bars={row.get('forward_bars')}",
+        f"Template source: {row.get('template_source')}",
         f"Template: {tmpl_slim}",
         f"Prediction: {pred}",
         f"Outcome summary: {summary}",

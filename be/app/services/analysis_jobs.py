@@ -222,8 +222,17 @@ async def _execute_analysis_body(
             }
         }
         if section == "pattern_analogue":
+            chart_image = payload.get("chart_image_base64")
+            cfg_clean = {
+                k: v for k, v in (cfg or {}).items()
+                if k not in {"chart_image_base64", "chart_image_mime", "template_shape_pct"}
+            }
             return await svc.pattern_analogue(
-                tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None,
+                tickers=tickers,
+                asset_class=ac,
+                exchange=exchange,
+                cfg_overrides=cfg_clean or None,
+                chart_image_base64=chart_image,
             )
         if section.startswith("astro_finance") or section in {
             "lunar_cycle", "amavasya_sr", "bhadra_timing", "transit_gaps", "trading_calendar",

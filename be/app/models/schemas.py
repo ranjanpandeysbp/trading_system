@@ -1430,18 +1430,23 @@ class ProTradeTickerChartRequest(BaseModel):
 
 
 class PredictionPatternAnalogueRequest(BaseModel):
-    """Find historical windows shaped like the latest N bars, then measure what happened next."""
+    """Find historical windows shaped like the latest N bars (or a chart screenshot), then measure before/after."""
     tickers: list[str] = Field(default_factory=list)
     asset_class: str = "india"
     exchange: str | None = None
     timeframe: str = "15m"
     pattern_bars: int = Field(default=20, ge=5, le=120)
     forward_bars: int = Field(default=5, ge=1, le=60)
+    before_bars: int = Field(default=5, ge=0, le=60)
     search_lookback_bars: int = Field(default=500, ge=80, le=2500)
     search_from_date: str | None = None
     search_to_date: str | None = None
     top_n: int = Field(default=10, ge=1, le=50)
     min_similarity: float = Field(default=0.82, ge=0.5, le=0.99)
+    chart_image_base64: str | None = Field(
+        default=None,
+        description="Optional chart screenshot (raw base64 or data URL). Digitized into the template shape.",
+    )
 
 
 class PredictionAstroFinanceRequest(BaseModel):

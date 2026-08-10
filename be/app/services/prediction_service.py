@@ -34,6 +34,7 @@ class PredictionService:
         asset_class: str = "india",
         exchange: str | None = None,
         cfg_overrides: dict[str, Any] | None = None,
+        chart_image_base64: str | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.pattern_analogue_engine import (
             PATTERN_ANALOGUE_AI_SYSTEM,
@@ -46,11 +47,50 @@ class PredictionService:
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
 
+        overrides = dict(cfg_overrides or {})
+        # Strip non-config keys that may leak from background job payloads.
+        chart_image = chart_image_base64 or overrides.pop("chart_image_base64", None)
+        overrides.pop("chart_image_mime", None)
+        overrides.pop("template_shape_pct", None)
+
         market, default_exchange = await self._asset_ctx(asset_class)
         token, _ = await self._ctx()
         resolved = self.universe.resolve(asset_class, tickers)
-        cfg = PatternAnalogueConfig(**(cfg_overrides or {}))
+        cfg = PatternAnalogueConfig(**overrides)
         resolved_exchange = exchange or default_exchange
+
+        template_shape_pct = None
+        template_meta = None
+        if chart_image:
+            from app.market_pulse.chart_image_digitizer import digitize_chart_image
+
+            gemini_key = await self.settings.get_gemini_api_key()
+            gemini_model = await self.settings.get_gemini_model()
+            try:
+                dig = await asyncio.to_thread(
+                    digitize_chart_image,
+                    chart_image,
+                    pattern_bars=cfg.pattern_bars,
+                    gemini_api_key=gemini_key,
+                    gemini_model=gemini_model,
+                )
+            except ValueError as exc:
+                return {
+                    "error": str(exc),
+                    "results": [],
+                    "entry_count": 0,
+                    "template_source": "chart_image",
+                }
+            template_shape_pct = dig.get("shape_pct")
+            template_meta = {
+                "engine": dig.get("engine"),
+                "notes": dig.get("notes"),
+                "mime": dig.get("mime"),
+                "net_return_pct": dig.get("net_return_pct"),
+            }
+            # Image mode works best on one focused ticker; keep user's selection order.
+            if len(resolved) > 8:
+                resolved = resolved[:8]
 
         def _run():
             return scan_universe(
@@ -59,6 +99,8 @@ class PredictionService:
                 cfg=cfg,
                 groww_token=token,
                 exchange=resolved_exchange,
+                template_shape_pct=template_shape_pct,
+                template_meta=template_meta,
             )
 
         payload = await asyncio.to_thread(_run)

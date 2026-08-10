@@ -28,3 +28,4 @@ google-genai>=1.0.0
 google-api-python-client
 anthropic>=0.60.0
 pyotp>=2.9.0
+Pillow>=10.0.0

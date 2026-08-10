@@ -24,6 +24,8 @@ const BULL = '#34d399'
 const BEAR = '#f87171'
 const FWD_BULL = '#a7f3d0'
 const FWD_BEAR = '#fecaca'
+const BEFORE_BULL = '#7dd3fc'
+const BEFORE_BEAR = '#93c5fd'
 const OVERLAY_COLORS = ['#38bdf8', '#a78bfa', '#fbbf24', '#fb7185', '#2dd4bf', '#e879f9', '#94a3b8']
 
 function CandlestickShape(props: {
@@ -47,9 +49,13 @@ function CandlestickShape(props: {
   const low = props.low ?? payload?.low
   const close = props.close ?? payload?.close
   if (high == null || low == null || high === low || open == null || close == null) return null
-  const isFwd = payload?.zone === 'forward'
+  const zone = payload?.zone
+  const isFwd = zone === 'forward'
+  const isBefore = zone === 'before'
   const isBullish = close >= open
-  const color = isFwd ? (isBullish ? FWD_BULL : FWD_BEAR) : isBullish ? BULL : BEAR
+  let color = isBullish ? BULL : BEAR
+  if (isFwd) color = isBullish ? FWD_BULL : FWD_BEAR
+  if (isBefore) color = isBullish ? BEFORE_BULL : BEFORE_BEAR
   const ratio = height / (high - low)
   const bodyTop = y + (high - Math.max(open, close)) * ratio
   const bodyHeight = Math.max(1, Math.abs(close - open) * ratio)
@@ -64,14 +70,14 @@ function CandlestickShape(props: {
         height={bodyHeight}
         fill={color}
         stroke={color}
-        opacity={isFwd ? 0.55 : 1}
+        opacity={isFwd || isBefore ? 0.55 : 1}
       />
     </g>
   )
 }
 
-function toChartRows(candles: Candle[], forward: Candle[] = []) {
-  const rows = [...candles, ...forward].filter((c) => c && c.high != null && c.low != null)
+function toChartRows(before: Candle[], candles: Candle[], forward: Candle[] = []) {
+  const rows = [...before, ...candles, ...forward].filter((c) => c && c.high != null && c.low != null)
   return rows.map((c, idx) => {
     const open = Number(c.open)
     const high = Number(c.high)
@@ -84,7 +90,6 @@ function toChartRows(candles: Candle[], forward: Candle[] = []) {
       high,
       low,
       close,
-      // Recharts Bar maps `range` onto the high-low box for the custom shape
       range: [low, high] as [number, number],
       label: String(c.time || '').slice(5, 16) || String(idx + 1),
     }
@@ -99,7 +104,8 @@ function CandleTooltip({ active, payload }: { active?: boolean; payload?: Array<
       <p className="font-medium text-white">{String(p.time ?? p.label ?? '')}</p>
       <p>O {Number(p.open).toFixed(2)} · H {Number(p.high).toFixed(2)}</p>
       <p>L {Number(p.low).toFixed(2)} · C {Number(p.close).toFixed(2)}</p>
-      {p.zone === 'forward' ? <p className="text-amber-300/90">Forward path</p> : null}
+      {p.zone === 'before' ? <p className="text-sky-300/90">Before pattern</p> : null}
+      {p.zone === 'forward' ? <p className="text-amber-300/90">After pattern</p> : null}
     </div>
   )
 }
@@ -107,6 +113,7 @@ function CandleTooltip({ active, payload }: { active?: boolean; payload?: Array<
 export function PatternCandleChart({
   candles,
   forwardCandles = [],
+  beforeCandles = [],
   height = 160,
   title,
   subtitle,
@@ -114,12 +121,16 @@ export function PatternCandleChart({
 }: {
   candles: Candle[]
   forwardCandles?: Candle[]
+  beforeCandles?: Candle[]
   height?: number
   title?: string
   subtitle?: string
   compact?: boolean
 }) {
-  const data = useMemo(() => toChartRows(candles, forwardCandles), [candles, forwardCandles])
+  const data = useMemo(
+    () => toChartRows(beforeCandles, candles, forwardCandles),
+    [beforeCandles, candles, forwardCandles],
+  )
   if (!data.length) {
     return <p className="text-xs text-slate-600">No candle data</p>
   }
@@ -159,8 +170,11 @@ export function PatternCandleChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {forwardCandles.length > 0 ? (
-        <p className="mt-1 text-[10px] text-slate-600">Dimmed candles = what followed historically</p>
+      {(beforeCandles.length > 0 || forwardCandles.length > 0) ? (
+        <p className="mt-1 text-[10px] text-slate-600">
+          {beforeCandles.length > 0 ? 'Blue dim = before · ' : ''}
+          {forwardCandles.length > 0 ? 'Pale dim = after' : ''}
+        </p>
       ) : null}
     </div>
   )

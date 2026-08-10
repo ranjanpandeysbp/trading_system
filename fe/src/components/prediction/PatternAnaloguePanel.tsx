@@ -40,6 +40,7 @@ function MatchTable({ matches }: { matches: Row[] }) {
     {
       rank: (r) => Number(r.rank ?? 0),
       similarity: (r) => Number(r.similarity ?? 0),
+      before: (r) => Number(r.before_return_pct ?? 0),
       next: (r) => Number(r.next_bar_return_pct ?? 0),
       forward: (r) => Number(r.forward_return_pct ?? 0),
       match_end: (r) => String(r.match_end ?? ''),
@@ -53,7 +54,7 @@ function MatchTable({ matches }: { matches: Row[] }) {
   }
 
   return (
-    <DataTable title="Historical analogues">
+    <DataTable title="Historical analogues — before & after">
       <thead>
         <tr>
           <th className="cursor-pointer" onClick={() => handleSort('rank')}>
@@ -66,11 +67,14 @@ function MatchTable({ matches }: { matches: Row[] }) {
             Match end{sortKey === 'match_end' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
           </th>
           <th>Shape</th>
+          <th className="cursor-pointer" onClick={() => handleSort('before')}>
+            Before{sortKey === 'before' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+          </th>
           <th className="cursor-pointer" onClick={() => handleSort('next')}>
             Next bar{sortKey === 'next' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
           </th>
           <th className="cursor-pointer" onClick={() => handleSort('forward')}>
-            Forward{sortKey === 'forward' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            After{sortKey === 'forward' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
           </th>
           <th>MFE / MAE</th>
         </tr>
@@ -87,6 +91,12 @@ function MatchTable({ matches }: { matches: Row[] }) {
             <td className="text-xs text-slate-400">
               {String(m.shape_label ?? '—')}
               <div className="text-slate-500">{pct(m.match_net_return_pct)}</div>
+            </td>
+            <td>
+              <span className={Number(m.before_return_pct) >= 0 ? 'text-sky-300' : 'text-sky-400/80'}>
+                {pct(m.before_return_pct)}
+              </span>
+              <div className="text-[11px] text-slate-500">{String(m.before_direction ?? '')}</div>
             </td>
             <td>
               <span className={Number(m.next_bar_return_pct) >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
@@ -119,6 +129,7 @@ function PatternChartsBlock({ template, matches }: { template: Row; matches: Row
     label: `#${m.rank ?? i + 1} · ${String(m.similarity ?? '—')}%`,
     shape_pct: Array.isArray(m.shape_pct) ? (m.shape_pct as number[]) : [],
   }))
+  const fromImage = String(template.source || '') === 'chart_image'
 
   if (!baseCandles.length && !matches.some((m) => asCandles(m.candles).length)) {
     return null
@@ -128,13 +139,17 @@ function PatternChartsBlock({ template, matches }: { template: Row; matches: Row
     <div className="space-y-3">
       <div>
         <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300/90">
-          Base pattern (live template)
+          {fromImage ? 'Digitized chart template' : 'Base pattern (live template)'}
         </p>
         <PatternCandleChart
           candles={baseCandles}
           height={200}
           title={String(template.shape_label || 'Current window')}
-          subtitle={`${String(template.start_time || '').slice(0, 16)} → ${String(template.end_time || '').slice(0, 16)} · net ${pct(template.net_return_pct)}`}
+          subtitle={
+            fromImage
+              ? `From screenshot · net ${pct(template.net_return_pct)}${template.digitizer ? ` · ${String(template.digitizer)}` : ''}`
+              : `${String(template.start_time || '').slice(0, 16)} → ${String(template.end_time || '').slice(0, 16)} · net ${pct(template.net_return_pct)}`
+          }
         />
       </div>
 
@@ -149,22 +164,24 @@ function PatternChartsBlock({ template, matches }: { template: Row; matches: Row
       {matches.length > 0 ? (
         <div>
           <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300/90">
-            Historical matching patterns
+            Historical matches — before · pattern · after
           </p>
           <div className="grid gap-3 lg:grid-cols-2">
             {matches.map((m) => {
               const candles = asCandles(m.candles)
               const fwd = asCandles(m.forward_candles)
+              const before = asCandles(m.before_candles)
               if (!candles.length) return null
               return (
                 <PatternCandleChart
                   key={`${m.rank}-${m.match_end}`}
                   candles={candles}
+                  beforeCandles={before}
                   forwardCandles={fwd}
                   height={150}
                   compact
                   title={`#${m.rank} · ${String(m.similarity ?? '—')}% similar · ${String(m.shape_label ?? '')}`}
-                  subtitle={`${String(m.match_start || '').slice(0, 16)} → ${String(m.match_end || '').slice(0, 16)} · next ${pct(m.next_bar_return_pct)} · fwd ${pct(m.forward_return_pct)}`}
+                  subtitle={`${String(m.match_start || '').slice(0, 16)} → ${String(m.match_end || '').slice(0, 16)} · before ${pct(m.before_return_pct)} · next ${pct(m.next_bar_return_pct)} · after ${pct(m.forward_return_pct)}`}
                 />
               )
             })}
@@ -205,6 +222,9 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
             {trade.tp_pct != null && (
               <span className="text-xs text-emerald-300/90">TP {String(trade.tp_pct)}%</span>
             )}
+            {String(result.template_source) === 'chart_image' ? (
+              <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">FROM CHART IMAGE</span>
+            ) : null}
             {result.take_trade ? (
               <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">ACTIONABLE</span>
             ) : null}
@@ -230,19 +250,34 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
                 />
               )}
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <div className="rounded-lg bg-slate-900/50 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Current template</p>
-                  <p className="mt-1 text-sm text-slate-200">{String(template.shape_label ?? '—')}</p>
-                  <p className="text-xs text-slate-400">
-                    {String(template.start_time ?? '').slice(0, 16)} → {String(template.end_time ?? '').slice(0, 16)}
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    {String(template.source) === 'chart_image' ? 'Chart template' : 'Current template'}
                   </p>
-                  <p className="text-xs text-slate-400">Net {pct(template.net_return_pct)} · LTP {String(template.ltp ?? '—')}</p>
+                  <p className="mt-1 text-sm text-slate-200">{String(template.shape_label ?? '—')}</p>
+                  {String(template.source) === 'chart_image' ? (
+                    <p className="text-xs text-slate-400">Digitized · Net {pct(template.net_return_pct)}</p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400">
+                        {String(template.start_time ?? '').slice(0, 16)} → {String(template.end_time ?? '').slice(0, 16)}
+                      </p>
+                      <p className="text-xs text-slate-400">Net {pct(template.net_return_pct)} · LTP {String(template.ltp ?? '—')}</p>
+                    </>
+                  )}
                 </div>
                 <div className="rounded-lg bg-slate-900/50 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-slate-500">Samples</p>
                   <p className="mt-1 text-lg font-semibold text-white">{String(summary.samples ?? matches.length)}</p>
                   <p className="text-xs text-slate-400">Avg sim {String(summary.avg_similarity_pct ?? '—')}%</p>
+                </div>
+                <div className="rounded-lg bg-slate-900/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Before (hist)</p>
+                  <p className={`mt-1 text-lg font-semibold ${Number(summary.avg_before_return_pct) >= 0 ? 'text-sky-300' : 'text-sky-400'}`}>
+                    {pct(summary.avg_before_return_pct)}
+                  </p>
+                  <p className="text-xs text-slate-400">Up rate {String(summary.before_up_pct ?? '—')}%</p>
                 </div>
                 <div className="rounded-lg bg-slate-900/50 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-slate-500">Next bar (hist)</p>
@@ -252,7 +287,7 @@ function TickerCard({ result, index }: { result: Row; index: number }) {
                   <p className="text-xs text-slate-400">Up rate {String(summary.next_bar_up_pct ?? '—')}%</p>
                 </div>
                 <div className="rounded-lg bg-slate-900/50 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Forward (hist)</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">After (hist)</p>
                   <p className={`mt-1 text-lg font-semibold ${Number(summary.avg_forward_return_pct) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                     {pct(summary.avg_forward_return_pct)}
                   </p>
@@ -290,12 +325,15 @@ export function PatternAnaloguePanel({ data }: { data: Row }) {
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
         <span>{String(data.strategy || 'Pattern Analogue')}</span>
         <span>
-          TF {String(data.timeframe)} · pattern {String(cfg.pattern_bars ?? data.pattern_bars)} bars · forward{' '}
-          {String(cfg.forward_bars ?? data.forward_bars)} bars
+          TF {String(data.timeframe)} · pattern {String(cfg.pattern_bars ?? data.pattern_bars)} bars · before{' '}
+          {String(cfg.before_bars ?? data.before_bars ?? 5)} · after {String(cfg.forward_bars ?? data.forward_bars)} bars
         </span>
         <span>
           Scanned {String(data.scanned ?? results.length)} · actionable {String(data.entry_count ?? 0)}
         </span>
+        {String(data.template_source) === 'chart_image' ? (
+          <span className="text-sky-400/90">Template from chart image</span>
+        ) : null}
       </div>
       {results.map((r, i) => (
         <TickerCard key={String(r.ticker || i)} result={r} index={i} />

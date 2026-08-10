@@ -5083,10 +5083,12 @@ async def prediction_pattern_analogue(
         tickers=payload.tickers,
         asset_class=payload.asset_class,
         exchange=payload.exchange,
+        chart_image_base64=payload.chart_image_base64,
         cfg_overrides={
             "timeframe": payload.timeframe,
             "pattern_bars": payload.pattern_bars,
             "forward_bars": payload.forward_bars,
+            "before_bars": payload.before_bars,
             "search_lookback_bars": payload.search_lookback_bars,
             "search_from_date": payload.search_from_date or "",
             "search_to_date": payload.search_to_date or "",
