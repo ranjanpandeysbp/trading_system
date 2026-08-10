@@ -169,6 +169,13 @@ def averaging_amount(fall_pct: float, initial_buy: float) -> float:
     return (fall_pct / 2.0) * (initial_buy / 10.0)
 
 
+def quantity_for_amount(amount: float, price: float) -> int:
+    """Whole units affordable at LTP for the rupee allocation."""
+    if amount <= 0 or price <= 0:
+        return 0
+    return int(amount // price)
+
+
 def _consec_above(close: pd.Series, sma: pd.Series, i: int) -> int:
     n = 0
     j = i
@@ -351,9 +358,14 @@ def analyze_etf(
         if fall_pct >= cfg.avg_min_drop_pct:
             can_average = True
             suggested_amount = averaging_amount(fall_pct, initial_buy)
+            qty_hint = quantity_for_amount(suggested_amount, price)
             checks.append({
                 "id": "avg_5pct", "label": f"≥{cfg.avg_min_drop_pct}% below last buy",
-                "passed": True, "detail": f"fall {_r(fall_pct, 2)}% · avg ₹{_r(suggested_amount, 0)}",
+                "passed": True,
+                "detail": (
+                    f"fall {_r(fall_pct, 2)}% · avg ₹{_r(suggested_amount, 0)}"
+                    + (f" · ~{qty_hint} qty" if qty_hint else "")
+                ),
             })
         else:
             checks.append({
@@ -422,8 +434,10 @@ def analyze_etf(
         elif can_average:
             action = "AVERAGE"
             signal = "ADD"
+            qty_hint = quantity_for_amount(suggested_amount, price)
             reason_parts.append(
                 f"Fresh 2-day breakout {_r(fall_pct, 1)}% below last buy — average ~₹{_r(suggested_amount, 0)}"
+                + (f" (~{qty_hint} units @ ₹{_r(price)})" if qty_hint else "")
             )
         else:
             action = "HOLD"
@@ -435,9 +449,11 @@ def analyze_etf(
             action = "BUY"
             signal = "BUY"
             suggested_amount = initial_buy
+            qty_hint = quantity_for_amount(suggested_amount, price)
             reason_parts.append(
-                f"2 consecutive closes above SMA{cfg.sma_period} — buy up to ₹{_r(initial_buy, 0)} "
-                f"(slot 1/{cap['max_etfs']}; max {cfg.max_new_buys_per_day} new ETFs today)"
+                f"2 consecutive closes above SMA{cfg.sma_period} — buy up to ₹{_r(initial_buy, 0)}"
+                + (f" (~{qty_hint} units @ ₹{_r(price)})" if qty_hint else "")
+                + f" (slot 1/{cap['max_etfs']}; max {cfg.max_new_buys_per_day} new ETFs today)"
             )
         elif days_above == 1:
             action = "WATCH"
@@ -453,6 +469,11 @@ def analyze_etf(
     if hasattr(bar_date, "strftime"):
         bar_date = bar_date.strftime("%Y-%m-%d")
 
+    suggested_qty = quantity_for_amount(suggested_amount, price) if suggested_amount else 0
+    if action not in ("BUY", "AVERAGE", "BUY_DEFERRED"):
+        suggested_qty = 0
+    approx_cost = _r(suggested_qty * price, 2) if suggested_qty else None
+
     metrics = {
         "price": _r(price),
         "sma28": _r(sma_now),
@@ -467,6 +488,8 @@ def analyze_etf(
         "last_buy": _r(last_buy) if last_buy else None,
         "fall_from_last_buy_pct": _r(fall_pct, 2) if held and last_buy else None,
         "suggested_amount": _r(suggested_amount, 2) if suggested_amount else None,
+        "suggested_qty": suggested_qty if suggested_qty else None,
+        "approx_cost": approx_cost,
         "total_units": _r(total_units, 4) if held else None,
         "total_cost": _r(total_cost, 2) if held else None,
         "bars": len(work),
@@ -485,9 +508,13 @@ def analyze_etf(
         "checks": checks,
         "metrics": metrics,
         "lots_advice": lots_advice,
+        "suggested_qty": suggested_qty if suggested_qty else None,
         "trade_suggestion": {
             "action": action,
             "amount": _r(suggested_amount, 2) if suggested_amount else None,
+            "quantity": suggested_qty if suggested_qty else None,
+            "approx_cost": approx_cost,
+            "price": _r(price),
             "reason": " · ".join(reason_parts),
         },
         "chart_data": _build_chart(work, max_bars=cfg.chart_bars),

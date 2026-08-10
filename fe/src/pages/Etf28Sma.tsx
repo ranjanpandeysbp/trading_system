@@ -126,6 +126,12 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
         {metrics.pnl_pct != null && (
           <span className="text-xs text-slate-300">P&L {fmtNum(metrics.pnl_pct)}%</span>
         )}
+        {metrics.suggested_amount != null && (
+          <span className="text-xs text-emerald-300">
+            Size {fmtInr(metrics.suggested_amount)}
+            {metrics.suggested_qty != null ? ` · ${String(metrics.suggested_qty)} qty` : ''}
+          </span>
+        )}
         {result.buy_priority != null && (
           <span className="text-xs text-sky-300">Buy #{String(result.buy_priority)}</span>
         )}
@@ -160,6 +166,14 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
             {metrics.suggested_amount != null && (
               <span>
                 Size: <strong className="text-emerald-300">{fmtInr(metrics.suggested_amount)}</strong>
+              </span>
+            )}
+            {metrics.suggested_qty != null && (
+              <span>
+                Qty: <strong className="text-emerald-300">{String(metrics.suggested_qty)}</strong>
+                {metrics.approx_cost != null ? (
+                  <span className="text-slate-500"> (≈{fmtInr(metrics.approx_cost)})</span>
+                ) : null}
               </span>
             )}
             {metrics.bar_date != null && (
