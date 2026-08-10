@@ -663,6 +663,15 @@ class EtfTopDownScanRequest(BaseModel):
     max_etfs_hold: int = Field(default=10, ge=1, le=20)
 
 
+class FallingKnifeScanRequest(BaseModel):
+    """Falling Knife — names down ≥ drop_pct from session-window high over lookback_hours."""
+    asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
+    tickers: list[str] = Field(default_factory=list)
+    drop_pct: float = Field(default=10.0, ge=0.5, le=90.0)
+    lookback_hours: float = Field(default=24.0, ge=1.0, le=336.0)
+    exchange: str | None = None
+
+
 class Etf28SmaLotInput(BaseModel):
     symbol: str
     price: float = Field(gt=0)

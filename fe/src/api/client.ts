@@ -219,6 +219,17 @@ export const runScan = (payload: {
     data_sources_used?: string[] | null
     data_source_label?: string | null
   }>('/scanner/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runFallingKnifeScan = (payload: {
+  asset_class: 'india' | 'us' | 'crypto' | 'commodity'
+  tickers: string[]
+  drop_pct: number
+  lookback_hours: number
+}) => api.post('/falling-knife/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const fetchFallingKnifeSession = (asset_class: string) =>
+  api.get('/falling-knife/session', { params: { asset_class } }).then((r) => r.data)
+
 export const runBacktest = (payload: {
   ticker: string
   strategy: string

@@ -22,6 +22,7 @@ from app.models.schemas import (
     BacktestResponse,
     Etf28SmaScanRequest,
     EtfTopDownScanRequest,
+    FallingKnifeScanRequest,
     EtfShopAddLotRequest,
     EtfShopCloseLotRequest,
     EtfShopConfigUpdateRequest,
@@ -311,6 +312,28 @@ async def scan(
         data_source_label=meta.get("data_source_label"),
         data_source_counts=meta.get("data_source_counts"),
     )
+
+
+@router.get("/falling-knife/session")
+async def falling_knife_session(
+    asset_class: str = "india",
+    current_user: User = Depends(get_current_user),
+):
+    from app.market_pulse.falling_knife_engine import session_info
+    from app.market_pulse.serialize import json_safe
+
+    return json_safe({"asset_class": asset_class, "session": session_info(asset_class)})
+
+
+@router.post("/falling-knife/scan")
+async def falling_knife_scan(
+    payload: FallingKnifeScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.falling_knife_service import FallingKnifeService
+
+    return await FallingKnifeService(SettingsService(db)).scan(payload.model_dump())
 
 
 @router.post("/backtest/run", response_model=BacktestResponse)

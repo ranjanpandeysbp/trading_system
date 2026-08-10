@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles, GitBranch, Medal, Building2, Flame } from 'lucide-react'
+import { LayoutDashboard, Search, LineChart, Wallet, Settings, TrendingUp, Menu, X, BookOpen, LogOut, User, Activity, BarChart3, Layers, Landmark, Compass, Beaker, CalendarRange, Bell, Eye, ArrowUp, Calculator, Target, ChevronDown, Clapperboard, Bot, Crosshair, Radar, ListTodo, Trophy, MessageSquare, Sparkles, GitBranch, Medal, Building2, Flame, TrendingDown } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 
@@ -138,6 +138,7 @@ const nav: NavEntry[] = [
   { to: '/best-mf', label: 'Best MF', shortLabel: 'Best MF', icon: Trophy },
   { to: '/mf-fire', label: 'MF FIRE', shortLabel: 'FIRE', icon: Flame },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
+  { to: '/falling-knife', label: 'Falling Knife', shortLabel: 'Knife', icon: TrendingDown },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },
   { to: '/settings', label: 'Manage', shortLabel: 'Settings', icon: Settings },

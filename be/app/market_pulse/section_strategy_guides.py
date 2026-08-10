@@ -180,6 +180,22 @@ Live global and India market board with institutional-style context.
 Click **Refresh Market Data** — not auto-fetched on every load.
 """,
 
+    "falling_knife": """
+### Falling Knife
+Find tickers that dropped **≥ X% from their session-window high** over the last **N hours**.
+
+| Asset | Session used |
+|-------|----------------|
+| India | Mon–Fri 09:15–15:30 IST |
+| US | Mon–Fri 09:30–16:00 ET |
+| Crypto | 24×7 |
+| Commodities | ~24×5 futures (Sun–Fri ET) |
+
+Shows fall %, window high/low, high→low range %, and bar count. Educational screener only.
+
+**When to use:** Spot sharp session drawdowns for mean-reversion / capitulation watchlists.
+""",
+
     "nifty_breadth": """
 ### Nifty Index Breadth
 Advances / declines / unchanged for major Nifty indices with S1-S2 / R1-R2 on each.
