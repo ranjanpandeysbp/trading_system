@@ -434,10 +434,8 @@ def analyze_etf(
         elif can_average:
             action = "AVERAGE"
             signal = "ADD"
-            qty_hint = quantity_for_amount(suggested_amount, price)
             reason_parts.append(
                 f"Fresh 2-day breakout {_r(fall_pct, 1)}% below last buy — average ~₹{_r(suggested_amount, 0)}"
-                + (f" (~{qty_hint} units @ ₹{_r(price)})" if qty_hint else "")
             )
         else:
             action = "HOLD"
@@ -449,11 +447,9 @@ def analyze_etf(
             action = "BUY"
             signal = "BUY"
             suggested_amount = initial_buy
-            qty_hint = quantity_for_amount(suggested_amount, price)
             reason_parts.append(
-                f"2 consecutive closes above SMA{cfg.sma_period} — buy up to ₹{_r(initial_buy, 0)}"
-                + (f" (~{qty_hint} units @ ₹{_r(price)})" if qty_hint else "")
-                + f" (slot 1/{cap['max_etfs']}; max {cfg.max_new_buys_per_day} new ETFs today)"
+                f"2 consecutive closes above SMA{cfg.sma_period} — buy up to ₹{_r(initial_buy, 0)} "
+                f"(slot 1/{cap['max_etfs']}; max {cfg.max_new_buys_per_day} new ETFs today)"
             )
         elif days_above == 1:
             action = "WATCH"
@@ -474,6 +470,23 @@ def analyze_etf(
         suggested_qty = 0
     approx_cost = _r(suggested_qty * price, 2) if suggested_qty else None
 
+    # Rewrite buy/average reason so qty is always visible next to the ₹ amount
+    if action in ("BUY", "AVERAGE") and suggested_amount:
+        qty_phrase = (
+            f"qty {suggested_qty} @ ₹{_r(price)}"
+            if suggested_qty > 0
+            else f"qty 0 @ ₹{_r(price)} (allocation below 1 unit — raise capital/slot or pick cheaper ETF)"
+        )
+        if action == "BUY":
+            reason_parts = [
+                f"2 consecutive closes above SMA{cfg.sma_period} — buy up to ₹{_r(suggested_amount, 1)} · "
+                f"{qty_phrase} (slot 1/{cap['max_etfs']}; max {cfg.max_new_buys_per_day} new ETFs today)"
+            ]
+        else:
+            reason_parts = [
+                f"Fresh 2-day breakout {_r(fall_pct, 1)}% below last buy — average ~₹{_r(suggested_amount, 0)} · {qty_phrase}"
+            ]
+
     metrics = {
         "price": _r(price),
         "sma28": _r(sma_now),
@@ -488,7 +501,7 @@ def analyze_etf(
         "last_buy": _r(last_buy) if last_buy else None,
         "fall_from_last_buy_pct": _r(fall_pct, 2) if held and last_buy else None,
         "suggested_amount": _r(suggested_amount, 2) if suggested_amount else None,
-        "suggested_qty": suggested_qty if suggested_qty else None,
+        "suggested_qty": int(suggested_qty) if suggested_qty or action in ("BUY", "AVERAGE") else None,
         "approx_cost": approx_cost,
         "total_units": _r(total_units, 4) if held else None,
         "total_cost": _r(total_cost, 2) if held else None,
@@ -497,6 +510,8 @@ def analyze_etf(
         "sell_mode": cfg.sell_mode,
     }
 
+    reason = " · ".join(reason_parts) if reason_parts else ""
+
     return {
         **base,
         "ltp": _r(price),
@@ -504,18 +519,18 @@ def analyze_etf(
         "action": action,
         "status": action.lower(),
         "take_trade": take,
-        "reason": " · ".join(reason_parts) if reason_parts else "",
+        "reason": reason,
         "checks": checks,
         "metrics": metrics,
         "lots_advice": lots_advice,
-        "suggested_qty": suggested_qty if suggested_qty else None,
+        "suggested_qty": int(suggested_qty) if suggested_qty or action in ("BUY", "AVERAGE") else None,
         "trade_suggestion": {
             "action": action,
             "amount": _r(suggested_amount, 2) if suggested_amount else None,
-            "quantity": suggested_qty if suggested_qty else None,
+            "quantity": int(suggested_qty) if action in ("BUY", "AVERAGE") else None,
             "approx_cost": approx_cost,
             "price": _r(price),
-            "reason": " · ".join(reason_parts),
+            "reason": reason,
         },
         "chart_data": _build_chart(work, max_bars=cfg.chart_bars),
         "chart_series": [{"key": "sma28", "label": f"SMA{cfg.sma_period}", "color": "#38bdf8"}],
@@ -614,20 +629,65 @@ def scan_universe(
     buy_limit = int(cfg.max_new_buys_per_day)
     for i, r in enumerate(buys_sorted):
         r["buy_priority"] = i + 1
+        metrics = dict(r.get("metrics") or {})
+        qty = metrics.get("suggested_qty")
+        amt = metrics.get("suggested_amount")
+        px = r.get("ltp") or metrics.get("price")
+        qty_bit = f" · qty {qty} @ ₹{px}" if qty is not None and px is not None else ""
+        amount_bit = f"buy up to ₹{_r(float(amt or 0), 1)}"
+        slot_bit = f"(slot 1/{cap['max_etfs']}; max {buy_limit} new ETFs today)"
         if i >= buy_limit:
             r["action"] = "BUY_DEFERRED"
             r["take_trade"] = False
             r["reason"] = (
-                (r.get("reason") or "")
-                + f" · Deferred — already {buy_limit} stronger new-buy candidates today"
+                f"2 consecutive closes above SMA{cfg.sma_period} — {amount_bit}{qty_bit} {slot_bit}"
+                f" · Deferred — already {buy_limit} stronger new-buy candidates today (not actionable today)"
             )
             r["trade_suggestion"] = {
                 **(r.get("trade_suggestion") or {}),
                 "action": "BUY_DEFERRED",
+                "quantity": qty,
+                "amount": amt,
+                "reason": r["reason"],
+            }
+        else:
+            # Top buys are actionable; reason includes ₹ allocation + share qty
+            r["take_trade"] = True
+            r["reason"] = (
+                f"2 consecutive closes above SMA{cfg.sma_period} — {amount_bit}{qty_bit} "
+                f"{slot_bit} · priority #{i + 1}/{buy_limit}"
+            )
+            r["trade_suggestion"] = {
+                **(r.get("trade_suggestion") or {}),
+                "action": "BUY",
+                "quantity": qty,
+                "amount": amt,
                 "reason": r["reason"],
             }
 
+    # Prefer actionable buys first in results ordering
+    results.sort(
+        key=lambda r: (
+            0 if r.get("take_trade") and r.get("action") == "BUY" else
+            1 if r.get("take_trade") else
+            2 if r.get("action") == "BUY_DEFERRED" else 3,
+            -(float((r.get("metrics") or {}).get("pct_vs_sma") or 0)),
+        )
+    )
+
     actionable = [r for r in results if r.get("take_trade")]
+    actionable_buys = [
+        {
+            "ticker": r.get("ticker"),
+            "ltp": r.get("ltp"),
+            "quantity": (r.get("metrics") or {}).get("suggested_qty") or r.get("suggested_qty"),
+            "amount": (r.get("metrics") or {}).get("suggested_amount"),
+            "approx_cost": (r.get("metrics") or {}).get("approx_cost"),
+            "buy_priority": r.get("buy_priority"),
+            "reason": r.get("reason"),
+        }
+        for r in results if r.get("action") == "BUY" and r.get("take_trade")
+    ]
 
     return {
         "strategy": STRATEGY_ID,
@@ -659,10 +719,12 @@ def scan_universe(
         },
         "daily_board": {
             "buys_today": [r for r in results if r.get("action") == "BUY"],
+            "actionable_buys": actionable_buys,
             "averages": averages,
             "sells": sells,
             "deferred_buys": [r for r in results if r.get("action") == "BUY_DEFERRED"],
         },
+        "actionable": actionable,
         "results": results,
         "entry_count": len(actionable),
         "scanned": len(results),
@@ -671,7 +733,7 @@ def scan_universe(
             "Research / education only — not financial advice. "
             "Prefer distinct ETF underlyings; execute near the close after ~3:15 PM IST."
         ),
-        "execution_hint": "Make decisions near market close (ideally after 3:15 PM IST).",
+        "execution_hint": "Make decisions near market close (ideally after 3:15 PM IST). Actionable buys include quantity.",
     }
 
 

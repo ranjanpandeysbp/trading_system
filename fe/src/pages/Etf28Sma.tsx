@@ -120,6 +120,11 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
         <span className="font-semibold text-white">{String(result.ticker)}</span>
         {result.ltp != null && <span className="text-sm text-slate-400">₹{fmtNum(result.ltp)}</span>}
         <ActionBadge action={String(result.action ?? 'WAIT')} />
+        {result.take_trade ? (
+          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-200">
+            Actionable
+          </span>
+        ) : null}
         {metrics.pct_vs_sma != null && (
           <span className="text-xs text-slate-400">vs SMA28 {fmtNum(metrics.pct_vs_sma)}%</span>
         )}
@@ -247,7 +252,7 @@ export default function Etf28Sma() {
   const [sellMode, setSellMode] = useState<'FIFO' | 'LIFO'>('FIFO')
   const [capitalExhausted, setCapitalExhausted] = useState(false)
   const [holdingsText, setHoldingsText] = useState('')
-  const [filter, setFilter] = useState<'all' | 'actionable' | 'buy' | 'sell' | 'average' | 'hold'>('all')
+  const [filter, setFilter] = useState<'all' | 'actionable' | 'buy' | 'sell' | 'average' | 'hold'>('actionable')
   const [showCharts, setShowCharts] = useState(false)
   const [error, setError] = useState('')
 
@@ -293,7 +298,10 @@ export default function Etf28Sma() {
 
   const runMut = useMutation({
     mutationFn: () => runEtf28SmaScan(buildPayload()),
-    onSuccess: () => setError(''),
+    onSuccess: () => {
+      setError('')
+      setFilter('actionable')
+    },
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
@@ -301,6 +309,8 @@ export default function Etf28Sma() {
   const capital = (data?.capital_plan as Row | undefined) ?? undefined
   const summary = (data?.summary as Row | undefined) ?? undefined
   const results = (data?.results as Row[] | undefined) ?? []
+  const dailyBoard = (data?.daily_board as Row | undefined) ?? undefined
+  const actionableBuys = (dailyBoard?.actionable_buys as Row[] | undefined) ?? []
   const askContext = data ? buildAskContext('ETF 28 SMA', data) : ''
 
   const filtered = useMemo(() => {
@@ -483,9 +493,42 @@ export default function Etf28Sma() {
             </Card>
           )}
 
+          {actionableBuys.length > 0 && (
+            <Card className="mb-4">
+              <p className="mb-2 text-sm font-medium text-emerald-200">Actionable buys today (with quantity)</p>
+              <p className="mb-3 text-xs text-slate-500">
+                Top {maxBuys}/day by momentum vs SMA28. Qty = floor(₹ allocation ÷ LTP).
+              </p>
+              <div className="space-y-2">
+                {actionableBuys.map((b) => (
+                  <div
+                    key={String(b.ticker)}
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold text-white">{String(b.ticker)}</span>
+                    {b.buy_priority != null && (
+                      <span className="text-xs text-sky-300">#{String(b.buy_priority)}</span>
+                    )}
+                    <span className="text-slate-400">₹{fmtNum(b.ltp)}</span>
+                    <span className="font-medium text-emerald-300">
+                      Qty {b.quantity != null ? String(b.quantity) : '—'}
+                    </span>
+                    <span className="text-slate-400">up to {fmtInr(b.amount)}</span>
+                    {b.approx_cost != null && (
+                      <span className="text-xs text-slate-500">≈{fmtInr(b.approx_cost)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {summary && (
             <Card className="mb-4">
               <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+                  {String(summary.actionable ?? 0)} actionable
+                </span>
                 <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
                   {String(summary.buy ?? 0)} buy
                 </span>
@@ -495,11 +538,11 @@ export default function Etf28Sma() {
                 <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
                   {String(summary.sell ?? 0)} sell
                 </span>
-                <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-400">
+                <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
                   {String(summary.hold ?? 0)} hold · {String(summary.watch ?? 0)} watch
                 </span>
                 {Number(summary.buy_deferred) > 0 && (
-                  <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200">
+                  <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-sky-200">
                     {String(summary.buy_deferred)} deferred (max {maxBuys}/day)
                   </span>
                 )}
@@ -507,12 +550,12 @@ export default function Etf28Sma() {
               <div className="flex flex-wrap gap-2">
                 {(
                   [
-                    ['all', 'All'],
                     ['actionable', 'Actionable'],
                     ['buy', 'Buys'],
                     ['average', 'Averages'],
                     ['sell', 'Sells'],
                     ['hold', 'Hold/Watch'],
+                    ['all', 'All'],
                   ] as const
                 ).map(([id, label]) => (
                   <Chip key={id} selected={filter === id} onClick={() => setFilter(id)}>
