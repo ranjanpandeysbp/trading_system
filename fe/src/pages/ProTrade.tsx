@@ -15,6 +15,7 @@ import {
   runProTradeRlbBreakout,
   runProTradeThreeInOne,
   runProTradeSimpleEffective,
+  runProTradeBbRsiVol,
   runProTradeBtst,
   runProTradeElliottWave,
   runProTradeFibonacciPro,
@@ -43,6 +44,7 @@ import { BuyLowSellHighPanel } from '../components/pro-trade/BuyLowSellHighPanel
 import { RlbBreakoutPanel } from '../components/pro-trade/RlbBreakoutPanel'
 import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTradeSystemPanel'
 import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
+import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
@@ -2783,6 +2785,176 @@ function SimpleEffectivePage() {
   )
 }
 
+const BRV_HOW_TO = `How to use BB-RSI-VOL
+
+1. Pick asset class + timeframes + tickers (works on all 4 asset classes).
+2. Defaults: BB(20,2) · RSI 35/70 · Vol MA20 · EMA 9/50 · require S/R.
+3. Scan — only TAKE rows with conf% / SL% / TP% are actionable.
+4. Pro habit: wait for the 9 EMA close; never front-run the band alone.
+5. Book partial at mid-band (T1); trail toward T2. Skip steep 50 EMA trends.
+6. Also available in Backtester as "BB-RSI-VOL". Research only — not advice.`
+
+const BRV_OVERVIEW = `BB-RSI-VOL — strategy matrix
+
+BUY: Lower BB touch · RSI ≤ 35 · Low volume (below Vol MA) · Support · close above 9 EMA
+SELL: Upper BB touch · RSI ≥ 70 · High volume (above Vol MA) · Resistance · close below 9 EMA
+
+Filters: 50 EMA slope + Kaufman ER (no falling knife / melt-up). Boost: RSI divergence + reversal candle.
+T1 = mid BB · T2 = opposite band / next S/R · SL beyond swing / climax wick.
+Outputs: % confidence · %SL · %TP · grade A/B/C.`
+
+const BRV_LAYMAN = `In plain English
+
+Buy when price is cheap at the bottom band, RSI is washed out, volume is quiet (sellers tired), and it sits on old support — but only after it closes back above the fast EMA.
+Sell when price spikes into the top band with high RSI and climax volume into resistance — after it closes back under the fast EMA.
+If the trend is a waterfall or a rocket, stand aside.`
+
+function BbRsiVolPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(300)
+  const [rsiBuy, setRsiBuy] = useState(35)
+  const [rsiSell, setRsiSell] = useState(70)
+  const [requireSr, setRequireSr] = useState(true)
+  const [showCharts, setShowCharts] = useState(true)
+  const bg = useAnalysisBackground('pro_trade', 'bb_rsi_vol')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations.length ? picker.durations : ['15m'],
+    lookback_bars: lookback,
+    rsi_buy: rsiBuy,
+    rsi_sell: rsiSell,
+    require_sr: requireSr,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      return runProTradeBbRsiVol(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('BB-RSI-VOL', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="BB-RSI-VOL"
+        description="Lower BB + RSI≤35 + low vol → Buy · Upper BB + RSI≥70 + high vol → Sell · S/R + EMA filters · conf% / SL% / TP%"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={BRV_HOW_TO}>
+          {BRV_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {BRV_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {BRV_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-3">
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          </FormField>
+          <FormField label="RSI buy ≤">
+            <Input type="number" min={20} max={45} value={rsiBuy} onChange={(e) => setRsiBuy(Number(e.target.value) || 35)} />
+          </FormField>
+          <FormField label="RSI sell ≥">
+            <Input type="number" min={60} max={85} value={rsiSell} onChange={(e) => setRsiSell(Number(e.target.value) || 70)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={requireSr} onClick={() => setRequireSr(true)}>Require S/R</Chip>
+          <Chip selected={!requireSr} onClick={() => setRequireSr(false)}>S/R optional</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? 'Scanning…'
+              : `Scan BB-RSI-VOL (${picker.tickers.length} × ${picker.durations.length || 1})`}
+          </Button>
+        </div>
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`BB-RSI-VOL · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking BB · RSI · volume · EMA · S/R…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <BbRsiVolPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/bb-rsi-vol" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
   { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
   { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
@@ -3382,6 +3554,7 @@ export default function ProTrade() {
     { id: 'rlb-breakout', label: 'RLB - Breakout' },
     { id: '3-in-1-trade-system', label: '3-in-1 Trade System' },
     { id: 'simple-effective', label: 'Simple Effective' },
+    { id: 'bb-rsi-vol', label: 'BB-RSI-VOL' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
@@ -3402,6 +3575,7 @@ export default function ProTrade() {
   else if (tab === 'rlb-breakout') page = <RlbBreakoutPage />
   else if (tab === '3-in-1-trade-system') page = <ThreeInOneTradeSystemPage />
   else if (tab === 'simple-effective') page = <SimpleEffectivePage />
+  else if (tab === 'bb-rsi-vol') page = <BbRsiVolPage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />

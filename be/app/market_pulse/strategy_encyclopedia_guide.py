@@ -187,6 +187,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("elliott_wave_pro", "Elliott Wave — impulse / corrective Pro Trade scanner"),
         ("fibonacci_pro", "Fibonacci Pro — golden-zone pullback · multi-strategy Fib"),
         ("bb_mean_reversion", "BB Mean Reversion — %B stretch · squeeze · S/R confluence"),
+        ("bb_rsi_vol", "BB-RSI-VOL — Lower BB+RSI≤35+low vol Buy · Upper+RSI≥70+high vol Sell"),
         ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
         ("buy_low_sell_high", "Buy Low Sell High — 25 DL GTT ladder · avg+5% exit · no SL"),
         ("rlb_breakout", "RLB - Breakout — Rocket Launcher · 7 confirmations"),
@@ -894,6 +895,9 @@ Also available on the **Dashboard**.
 """,
     "bb_mean_reversion": """
 **When to use:** Mean-reversion when %B stretches and S/R + RSI + volume climax agree — avoid strong-trend (high ER) regimes.
+""",
+    "bb_rsi_vol": """
+**When to use:** Fade Lower BB with RSI≤35 + low volume at Support (buy) or Upper BB with RSI≥70 + high volume at Resistance (sell); confirm with 9 EMA close; skip steep 50 EMA trends.
 """,
     "traffic_light_indicator": """
 **When to use:** Swing buy when SMA200>50>20 and daily close is under all three; sell when stack flips and close is above all three. Prefer large-caps; optional MTF Trend & Strength.

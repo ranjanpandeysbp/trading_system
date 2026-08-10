@@ -288,6 +288,53 @@ def build_bb_mean_reversion_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.
     return frame
 
 
+def build_bb_rsi_vol_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
+    """Vectorized BB-RSI-VOL core: band touch + RSI extreme + volume vs MA20
+    + close beyond EMA9. S/R / 50 EMA are live-only filters (need swing zones)."""
+    from app.market_pulse.bb_rsi_vol_engine import BbRsiVolConfig
+    from app.market_pulse.pro_trade_shared import ema as _ema, rsi as _rsi_ind
+
+    cfg = cfg or BbRsiVolConfig()
+    work = _empty_with_signal(df)
+    period = int(getattr(cfg, "bb_period", 20))
+    std_mult = float(getattr(cfg, "bb_std", 2.0))
+    rsi_buy = float(getattr(cfg, "rsi_buy", 35.0))
+    rsi_sell = float(getattr(cfg, "rsi_sell", 70.0))
+    vol_ma_n = int(getattr(cfg, "vol_ma_period", 20))
+    ema_n = int(getattr(cfg, "ema_fast", 9))
+    if len(work) < period + 25:
+        return work
+
+    closes = work["close"]
+    highs = work["high"]
+    lows = work["low"]
+    mid = closes.rolling(period).mean()
+    std = closes.rolling(period).std()
+    upper = mid + std_mult * std
+    lower = mid - std_mult * std
+    rsi_val = _rsi_ind(closes, period=14)
+    ema9 = _ema(closes, ema_n)
+    if "volume" in work.columns:
+        vol = work["volume"]
+        vol_ma = vol.rolling(vol_ma_n).mean()
+        low_vol = vol < vol_ma
+        high_vol = vol > vol_ma
+    else:
+        low_vol = pd.Series(True, index=work.index)
+        high_vol = pd.Series(True, index=work.index)
+
+    touch_low = (lows <= lower) | (closes <= lower)
+    touch_high = (highs >= upper) | (closes >= upper)
+    long_ok = touch_low & (rsi_val <= rsi_buy) & low_vol & (closes > ema9)
+    short_ok = touch_high & (rsi_val >= rsi_sell) & high_vol & (closes < ema9)
+
+    frame = work.copy()
+    frame["signal"] = 0
+    frame.loc[long_ok & ~short_ok, "signal"] = 1
+    frame.loc[short_ok & ~long_ok, "signal"] = -1
+    return frame
+
+
 def build_elliott_wave_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
     """Replays the live engine's own `analyze_elliott_waves` ZigZag wave
     count on an expanding (no-lookahead) window each bar, using the same
@@ -388,6 +435,7 @@ PRO_TRADE_SIGNAL_BUILDERS: dict[str, Any] = {
     "volume_profile_ce": build_volume_profile_ce_signals,
     "pa_vp_smc": build_pa_vp_smc_signals,
     "bb_mean_reversion": build_bb_mean_reversion_signals,
+    "bb_rsi_vol": build_bb_rsi_vol_signals,
     "elliott_wave_pro": build_elliott_wave_signals,
     "support_resistance": build_support_resistance_signals,
 }

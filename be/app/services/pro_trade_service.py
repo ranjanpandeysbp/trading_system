@@ -112,6 +112,12 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "bb_rsi_vol",
+                    "label": "BB-RSI-VOL",
+                    "path": "/pro-trade/bb-rsi-vol",
+                    "youtube": None,
+                },
+                {
                     "id": "btst",
                     "label": "Buy Today Sell Tomorrow",
                     "path": "/pro-trade/btst",
@@ -681,6 +687,59 @@ class ProTradeService:
             if isinstance(r, dict):
                 r["ai_context"] = build_simple_effective_ai_prompt(r)
         payload["ai_system_prompt"] = SIMPLE_EFFECTIVE_AI_SYSTEM
+        return json_safe(payload)
+
+    async def bb_rsi_vol(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        timeframes: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.bb_rsi_vol_engine import (
+            BB_RSI_VOL_AI_SYSTEM,
+            BbRsiVolConfig,
+            build_bb_rsi_vol_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+        if not timeframes:
+            return {"error": "Select at least one timeframe", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = BbRsiVolConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "bb_period", "bb_std", "rsi_period",
+                "rsi_buy", "rsi_sell", "vol_ma_period", "ema_fast", "ema_trend",
+                "zone_tolerance_pct", "min_rr", "sl_atr_mult", "er_hard_block",
+                "take_confidence_threshold", "min_bars", "chart_bars",
+                "require_sr", "require_ema_cross_close",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange, timeframes=timeframes,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_bb_rsi_vol_ai_prompt(r)
+        payload["ai_system_prompt"] = BB_RSI_VOL_AI_SYSTEM
         return json_safe(payload)
 
     async def btst(

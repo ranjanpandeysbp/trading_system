@@ -2311,6 +2311,21 @@ export const runProTradeSimpleEffective = (payload: {
   rr_multiple?: number
 }) => api.post('/pro-trade/simple-effective', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeBbRsiVol = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  bb_period?: number
+  bb_std?: number
+  rsi_buy?: number
+  rsi_sell?: number
+  min_rr?: number
+  require_sr?: boolean
+  take_confidence_threshold?: number
+}) => api.post('/pro-trade/bb-rsi-vol', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeBtst = (payload: {
   tickers: string[]
   asset_class?: string

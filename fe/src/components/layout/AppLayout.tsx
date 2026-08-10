@@ -110,6 +110,7 @@ const nav: NavEntry[] = [
       { to: '/pro-trade/rlb-breakout', label: 'RLB - Breakout' },
       { to: '/pro-trade/3-in-1-trade-system', label: '3-in-1 Trade System' },
       { to: '/pro-trade/simple-effective', label: 'Simple Effective' },
+      { to: '/pro-trade/bb-rsi-vol', label: 'BB-RSI-VOL' },
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
       { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },
       { to: '/pro-trade/ticker-chart', label: 'Ticker Chart' },

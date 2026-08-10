@@ -2719,6 +2719,23 @@ Works across timeframes and asset classes. Prefer accuracy over stretching RRR t
 **When to use:** Clean band breakouts with MACD-in-histogram confirmation — Stocks, Indices, Crypto, Commodities.
 """,
 
+    "bb_rsi_vol": """
+### BB-RSI-VOL — Bollinger · RSI · Volume · EMA · S/R
+
+Mean-reversion desk for all asset classes / timeframes.
+
+| Side | Setup |
+|------|--------|
+| **BUY** | Lower BB · RSI ≤ 35 · **low** vol · Support · close **above 9 EMA** |
+| **SELL** | Upper BB · RSI ≥ 70 · **high** vol · Resistance · close **below 9 EMA** |
+
+**Pro filters:** skip falling knives / melt-ups (steep 50 EMA, high ER); prefer RSI divergence; T1 mid-band · T2 opposite band/S/R; structural SL.
+
+Outputs **% confidence**, **%SL**, **%TP**. Also available in the Backtester.
+
+**When to use:** Range / chop fades — not clean trending markets.
+""",
+
     "etf_28_sma": """
 ### ETF 28 SMA Momentum (FIRE in India)
 

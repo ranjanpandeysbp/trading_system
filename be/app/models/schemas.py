@@ -1369,6 +1369,25 @@ class ProTradeSimpleEffectiveRequest(BaseModel):
     rr_multiple: float = Field(default=1.5, ge=1.0, le=3.0)
 
 
+class ProTradeBbRsiVolRequest(BaseModel):
+    """BB-RSI-VOL — Lower BB + RSI≤35 + low vol → Buy; Upper BB + RSI≥70 + high vol → Sell.
+
+    Filtered by S/R + 9/50 EMA. All asset classes / timeframes. Returns conf% · SL% · TP%.
+    """
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframes: list[str] = Field(default_factory=lambda: ["15m"])
+    lookback_bars: int = Field(default=300, ge=80, le=1200)
+    bb_period: int = Field(default=20, ge=10, le=50)
+    bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
+    rsi_buy: float = Field(default=35.0, ge=20.0, le=45.0)
+    rsi_sell: float = Field(default=70.0, ge=60.0, le=85.0)
+    min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
+    require_sr: bool = True
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+
+
 class ProTradeBtstRequest(BaseModel):
     """Buy Today Sell Tomorrow / Sell Today Buy Tomorrow — closing-strength (CLV) signature confirmed by
     trend, volume, relative strength vs Nifty, VWAP, RSI chase-risk guard, options OI buildup, late-session

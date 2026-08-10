@@ -112,6 +112,7 @@ from app.models.schemas import (
     ProTradeRlbBreakoutRequest,
     ProTradeThreeInOneRequest,
     ProTradeSimpleEffectiveRequest,
+    ProTradeBbRsiVolRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
@@ -4974,6 +4975,31 @@ async def pro_trade_simple_effective(
             "ma_slow": payload.ma_slow,
             "use_ema": payload.use_ema,
             "rr_multiple": payload.rr_multiple,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+    )
+
+
+@router.post("/pro-trade/bb-rsi-vol")
+async def pro_trade_bb_rsi_vol(
+    payload: ProTradeBbRsiVolRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).bb_rsi_vol(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "rsi_buy": payload.rsi_buy,
+            "rsi_sell": payload.rsi_sell,
+            "min_rr": payload.min_rr,
+            "require_sr": payload.require_sr,
+            "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },
     )

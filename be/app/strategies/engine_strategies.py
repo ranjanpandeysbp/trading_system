@@ -188,6 +188,24 @@ PRO_TRADE_STRATEGIES: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "bb_rsi_vol",
+        "name": "BB-RSI-VOL",
+        "description": "Lower BB + RSI≤35 + low volume → Buy; Upper BB + RSI≥70 + high volume → Sell. Filtered by S/R and 9/50 EMA. Reports conf% · SL% · TP%.",
+        "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d"],
+        "min_bars": 80,
+        "youtube": None,
+        "indicators": ["Bollinger Bands(20,2)", "RSI(14)", "Volume MA20", "EMA9", "EMA50", "Swing S/R"],
+        "entry_rules": [
+            "BUY: touch/pierce Lower BB, RSI ≤ 35, volume below MA20, near Support, close above 9 EMA.",
+            "SELL: touch/pierce Upper BB, RSI ≥ 70, volume above MA20, near Resistance, close below 9 EMA.",
+            "Skip falling-knife longs / melt-up shorts (steep 50 EMA or high Efficiency Ratio).",
+        ],
+        "exit_rules": [
+            "T1: mid Bollinger Band (20 SMA). T2: opposite band or next S/R.",
+            "SL below swing low + support (long) or above climax wick (short).",
+        ],
+    },
+    {
         "id": "elliott_wave_pro",
         "name": "Elliott Wave (Pro Trade)",
         "description": "Algorithmic ZigZag 5-wave impulse / ABC corrective count — trades only on a completed Wave 5 or Wave C. (Distinct from the separate 'Elliott Wave Screener' under TA Screeners.)",
