@@ -2,7 +2,8 @@
 market_pulse_feeds.py
 ---------------------
 News, analyst calls, and economic-event feeds for Market Pulse / News Scanner.
-Freshness-filtered RSS (Moneycontrol-heavy) + future-only event calendar.
+Freshness-filtered RSS (Moneycontrol-heavy) + Upstox market-news scrape +
+future-only event calendar.
 """
 
 from __future__ import annotations
@@ -11,9 +12,11 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from urllib.parse import urljoin
 
 import feedparser
 import pytz
+import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -26,9 +29,16 @@ _RSS_HEADERS = {
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
 }
+_HTML_HEADERS = {
+    **_RSS_HEADERS,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 MAX_NEWS_AGE_HOURS = 96
 MAX_ANALYST_AGE_DAYS = 14
+
+UPSTOX_MARKET_NEWS_URL = "https://upstox.com/news/market-news/"
 
 # (source label, url, max entries per feed)
 INDIA_NEWS_FEEDS: list[tuple[str, str, int]] = [
@@ -45,6 +55,12 @@ INDIA_NEWS_FEEDS: list[tuple[str, str, int]] = [
     ("LiveMint Markets", "https://www.livemint.com/rss/markets", 8),
     ("Financial Express Markets", "https://www.financialexpress.com/market/feed/", 8),
     ("NDTV Profit", "https://feeds.feedburner.com/ndtvprofit-latest", 8),
+    # Upstox via Google News (HTML scrape is primary; this catches extra headlines)
+    (
+        "Upstox (Google News)",
+        "https://news.google.com/rss/search?q=site:upstox.com/news/market-news&hl=en-IN&gl=IN&ceid=IN:en",
+        12,
+    ),
     ("CoinTelegraph", "https://cointelegraph.com/rss", 6),
     ("CryptoSlate", "https://cryptoslate.com/feed/", 6),
 ]
@@ -166,6 +182,102 @@ def _collect_rss_articles(
         reverse=True,
     )
     return articles[:max_total]
+
+
+def _upstox_category_from_url(url: str) -> str:
+    path = (url or "").lower()
+    for key, label in (
+        ("/ipo/", "IPO"),
+        ("/stocks/", "Stocks"),
+        ("/economy/", "Economy"),
+        ("/earnings/", "Earnings"),
+        ("/commodities/", "Commodities"),
+        ("/us-stocks/", "US Stocks"),
+        ("/trading/", "Trading"),
+        ("/mutual-funds/", "Mutual Funds"),
+        ("/investing/", "Investing"),
+        ("/financial-regulation/", "Regulation"),
+        ("/tax/", "Tax"),
+    ):
+        if key in path:
+            return label
+    return "Market"
+
+
+def fetch_upstox_market_news(*, max_items: int = 28) -> list[dict]:
+    """
+    Scrape live headlines from https://upstox.com/news/market-news/
+    for Market Pulse → News Scanner & Market Intelligence.
+    """
+    articles: list[dict] = []
+    seen: set[str] = set()
+    try:
+        resp = requests.get(UPSTOX_MARKET_NEWS_URL, headers=_HTML_HEADERS, timeout=20)
+        if resp.status_code != 200:
+            logger.warning("Upstox market news HTTP %s", resp.status_code)
+            return []
+        soup = BeautifulSoup(resp.text, "html.parser")
+        now = datetime.now(_UTC)
+        for a in soup.find_all("a", href=True):
+            href = str(a.get("href") or "").strip()
+            if "/news/market-news/" not in href:
+                continue
+            # Skip section index pages (stocks/, ipo/, …) without a slug article
+            path = href.split("?")[0].rstrip("/")
+            parts = [p for p in path.split("/") if p]
+            if "market-news" not in parts:
+                continue
+            idx = parts.index("market-news")
+            # Need category + slug (at least 2 segments after market-news)
+            if len(parts) < idx + 3:
+                continue
+            title = a.get_text(" ", strip=True)
+            if not title or len(title) < 28:
+                continue
+            # Drop UI chrome / CTAs
+            low = title.lower()
+            if low.startswith(("trade with", "open a free", "sign up", "start a free")):
+                continue
+            key = re.sub(r"\W+", "", title.lower())[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            link = urljoin(UPSTOX_MARKET_NEWS_URL, href)
+            cat = _upstox_category_from_url(link)
+            # List page has no reliable timestamps — treat as current (still within 96h)
+            articles.append({
+                "source": f"Upstox · {cat}",
+                "title": title[:220],
+                "link": link,
+                "published": _format_pub_display(now),
+                "published_dt": now.isoformat(),
+                "summary": f"Upstox market news · {cat}",
+                "age_hours": 0.0,
+                "origin": "upstox",
+            })
+            if len(articles) >= max_items:
+                break
+    except Exception as exc:
+        logger.warning("Upstox market news scrape failed: %s", exc)
+        return []
+    return articles
+
+
+def fetch_news() -> list[dict]:
+    """India/crypto news pool: RSS + Upstox market-news scrape (newest first)."""
+    rss = _collect_rss_articles(INDIA_NEWS_FEEDS, max_hours=MAX_NEWS_AGE_HOURS, max_total=70)
+    upstox = fetch_upstox_market_news(max_items=28)
+    seen: set[str] = set()
+    merged: list[dict] = []
+    # Prefer Upstox headlines first for freshness on the Market Intelligence board
+    for art in upstox + rss:
+        key = re.sub(r"\W+", "", str(art.get("title") or "").lower())[:120]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(art)
+    merged.sort(key=lambda a: a.get("published_dt") or "", reverse=True)
+    return merged[:90]
 
 
 def _infer_call_action(text: str) -> str:
@@ -488,10 +600,6 @@ def summarize_analyst_consensus(calls: list[dict]) -> dict:
         "latest_target": latest_target,
         "call_count": len(calls),
     }
-
-
-def fetch_news() -> list[dict]:
-    return _collect_rss_articles(INDIA_NEWS_FEEDS, max_hours=MAX_NEWS_AGE_HOURS, max_total=80)
 
 
 def fetch_global_news() -> list[dict]:

@@ -172,10 +172,10 @@ Live global and India market board with institutional-style context.
 - Markets: Yahoo + Gift Nifty
 - NSE flows: FII/DII, turnover, delivery, breadth
 - Options: PCR, max pain, OI walls
-- News: Moneycontrol-heavy RSS, **96h freshness**
+- News: Moneycontrol-heavy RSS + **[Upstox Market News](https://upstox.com/news/market-news/)** scrape, **96h freshness**
 - Analyst calls: brokerage recos and stock ideas
 - Events: macro calendar, **future dates only (IST)**
-- AI summary: Gemini/Groq over full payload
+- AI summary: Gemini/Groq over full payload (includes Upstox headlines)
 
 Click **Refresh Market Data** — not auto-fetched on every load.
 """,
@@ -2557,18 +2557,15 @@ Primary edge is the **next candle** after the signal bar. Stop beyond the signal
 """,
 
     "oil_dollar_bond": """
-### Oil · Dollar · Bond — Macro Tape
+### Oil · Dollar · Bond — Macro Tape + India Sector ETFs
 
 Command Center (and **Dashboard**) macro panel for:
 
-| Instrument | Typical Yahoo symbol |
-|------------|----------------------|
-| US Dollar Index | DX-Y.NYB |
-| Brent Crude | BZ=F |
-| US 2Y / US 10Y | ^UST2Y / ^TNX (futures fallbacks) |
-| Gold / Silver | GC=F / SI=F |
-| Nifty 50 · Dow 30 · Nasdaq | ^NSEI · ^DJI · ^IXIC |
-| Bitcoin · Ethereum | BTC-USD · ETH-USD |
+| Group | Instruments |
+|-------|-------------|
+| Global macro | DXY · Brent · US 2Y/10Y · Gold/Silver · Nifty 50 · Dow · Nasdaq · BTC/ETH |
+| India breadth | Nifty 500 · JUNIORBEES · Midcap 150 · Smallcap 250 |
+| India sectors | BANKBEES · PSUBNKBEES · ITBEES · AUTOBEES · PHARMABEES · HEALTHY · FMCGIETF · CONSUMBEES · METALIETF · GROWWPOWER · ENERGY · INFRABEES · MODEFENCE · MOREALTY · GROWWEV |
 
 **Modes**
 
@@ -2577,12 +2574,15 @@ Command Center (and **Dashboard**) macro panel for:
 | **Daily** | From / To date range → 1d bars |
 | **Intraday** | One session date + 1m / 5m / 15m / 30m / 1h |
 
+UI filter chips: **All · Global macro · India ETFs**.
+Note: **METALBEES does not exist** — Metal uses METALIETF / GROWWMETAL.
+
 Each instrument chart draws **S1/S2 (support)** and **R1/R2 (resistance)** from swing pivots in the window.
 A normalized **% change overlay** compares direction across units (no S/R on the overlay).
 
 **AI Predictor — Next Move:** RISK-ON / RISK-OFF / MIXED / WAIT with per-instrument UP/DOWN/FLAT leans.
 
-**When to use:** Morning or overnight macro regime; pair with Advance Decline + Comparative Strength before equity size.
+**When to use:** Morning or overnight macro regime + India sector rotation; pair with Advance Decline + Comparative Strength before equity size.
 """,
 
     "ticker_chart": """

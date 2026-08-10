@@ -58,7 +58,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("india_market_heatmap", "IN-US-Crypto Market Heatmap — Index/Sector Constituent Heatmap"),
         ("advance_decline_graph", "Advance Decline (Multi Asset) — Breadth + Options PCR"),
         ("comparative_strength", "Comparative Strength — Relative Long/Short vs Base"),
-        ("oil_dollar_bond", "Oil · Dollar · Bond — Macro Tape · Metals · Indices · Crypto"),
+        ("oil_dollar_bond", "Oil · Dollar · Bond — Macro + India sector ETFs"),
         ("mtf_trend_strength", "MTF Trend and Strength — Multi-TF Trend Stack"),
         ("market_movers", "Market Movers — Index Gainers/Losers · Multi-Asset"),
         ("smart_money_activity", "Check Smart Money Activity — Institutional Footprints"),
@@ -874,7 +874,8 @@ India F&O indices also show PCR — use when deciding if breadth and options pos
 **When to use:** Pair trades and relative longs/shorts — who is beating the base (Nifty / SPY / BTC) over the lookback.
 """,
     "oil_dollar_bond": """
-**When to use:** Macro regime read — DXY vs oil/metals/yields plus Nifty/Dow/Nasdaq and BTC/ETH.
+**When to use:** Macro regime + India sector rotation — DXY vs oil/metals/yields, global indices/crypto,
+and India ETFs (Bank, IT, Mid/Smallcap, Pharma, Metal, Power, FMCG, …).
 Daily or same-day intraday with S/R on every panel; AI next-move for RISK-ON / RISK-OFF / MIXED.
 Also available on the **Dashboard**.
 """,

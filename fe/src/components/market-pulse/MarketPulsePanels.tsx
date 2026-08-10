@@ -270,21 +270,44 @@ export function IntelligencePanel({ data }: { data: Row }) {
 
       {news.length > 0 && (
         <div>
-          <SectionTitle>Market News</SectionTitle>
-          <div className="mt-3 max-h-80 space-y-2 overflow-y-auto">
-            {news.slice(0, 12).map((a, i) => (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SectionTitle>Market News</SectionTitle>
+            <a
+              href="https://upstox.com/news/market-news/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-sky-400 hover:underline"
+            >
+              Upstox Market News ↗
+            </a>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Moneycontrol RSS + Upstox scrape · last 96h · newest first
+            {news.some((a) => String(a.source ?? '').includes('Upstox'))
+              ? ` · ${news.filter((a) => String(a.source ?? '').includes('Upstox')).length} Upstox`
+              : ''}
+          </p>
+          <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
+            {news.slice(0, 20).map((a, i) => {
+              const isUpstox = String(a.source ?? '').includes('Upstox')
+              return (
               <a
                 key={`${a.link}-${i}`}
                 href={String(a.link)}
                 target="_blank"
                 rel="noreferrer"
-                className="block rounded-xl border border-slate-800/60 bg-slate-800/20 p-3 transition-colors hover:border-slate-700 hover:bg-slate-800/40"
+                className={`block rounded-xl border p-3 transition-colors hover:bg-slate-800/40 ${
+                  isUpstox
+                    ? 'border-sky-500/25 bg-sky-500/5 hover:border-sky-500/40'
+                    : 'border-slate-800/60 bg-slate-800/20 hover:border-slate-700'
+                }`}
               >
                 <p className="text-sm font-medium text-white">{String(a.title)}</p>
                 <p className="mt-1 text-xs text-slate-500">{String(a.source)} · {String(a.published)}</p>
                 {a.summary != null && <p className="mt-2 line-clamp-2 text-xs text-slate-400">{String(a.summary)}</p>}
               </a>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Crosshair, Droplets } from 'lucide-react'
+import { Crosshair, Droplets, ExternalLink, Newspaper } from 'lucide-react'
 import { apiErrorMessage, askAI, runOilDollarBond } from '../../api/client'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import {
@@ -34,26 +34,28 @@ import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummary
 
 type Row = Record<string, unknown>
 type ChartMode = 'daily' | 'intraday'
+type SeriesGroup = 'all' | 'macro' | 'india_etf'
+
+const UPSTOX_MARKET_NEWS = 'https://upstox.com/news/market-news/'
 
 const OIL_DOLLAR_HOW_TO = `Oil · Dollar · Bond — How to
 
 How to run
 1. Choose Daily (date range) or Intraday (one session).
 2. For intraday, pick session date + bar size (1m–1h). Yahoo only keeps a limited window of intraday history.
-3. Click Load charts.
+3. Filter: Global macro · India sector ETFs · All.
+4. Click Load charts.
 
-Symbols
-- DXY → DX-Y.NYB
-- Brent → BZ=F
-- US 2Y → ^UST2Y / 2YY=F / ZT=F
-- US 10Y → ^TNX
-- Gold → GC=F
-- Silver → SI=F
-- Nifty 50 → ^NSEI
-- Dow 30 → ^DJI
-- Nasdaq → ^IXIC
-- Bitcoin → BTC-USD
-- Ethereum → ETH-USD
+Global macro
+- DXY → DX-Y.NYB · Brent → BZ=F · US 2Y/10Y · Gold/Silver · Nifty 50 · Dow · Nasdaq · BTC/ETH
+
+India sector & breadth ETFs
+- BANKBEES · PSUBNKBEES · ITBEES · AUTOBEES · PHARMABEES · HEALTHY
+- FMCGIETF · CONSUMBEES · METALIETF · GROWWPOWER · ENERGY · INFRABEES
+- MODEFENCE · MOREALTY · GROWWEV
+- Nifty 500 · JUNIORBEES · Midcap 150 · Smallcap 250
+
+Note: METALBEES does not exist — Metal uses METALIETF / GROWWMETAL.
 
 Each panel shows S1/S2 support (green), R1/R2 resistance (red), volume bars, and a break-probability summary from volume + S/R proximity.`
 
@@ -304,6 +306,7 @@ export function OilDollarBondPanel() {
   const [toDate, setToDate] = useState(() => isoDaysAgo(0))
   const [sessionDate, setSessionDate] = useState(() => isoDaysAgo(0))
   const [interval, setInterval] = useState('5m')
+  const [groupFilter, setGroupFilter] = useState<SeriesGroup>('all')
   const [showHow, setShowHow] = useState(false)
   const [error, setError] = useState('')
 
@@ -339,6 +342,10 @@ export function OilDollarBondPanel() {
 
   const data = (bg.viewedPayload ?? runMut.data) as Row | undefined
   const series = useMemo(() => ((data?.series as Row[]) ?? []), [data])
+  const filteredSeries = useMemo(() => {
+    if (groupFilter === 'all') return series
+    return series.filter((s) => String(s.group || 'macro') === groupFilter)
+  }, [series, groupFilter])
   const chart = useMemo(() => ((data?.chart as Row[]) ?? []), [data])
   const howTo = useMemo(() => ((data?.how_to_read as string[]) ?? []), [data])
   const askContext = data ? buildAskContext('Oil-Dollar-Bond', data) : ''
@@ -351,19 +358,19 @@ export function OilDollarBondPanel() {
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 text-sm font-semibold text-white">
               <Droplets size={16} className="text-amber-400" />
-              Oil · Dollar · Bond · Indices · Crypto
+              Oil · Dollar · Bond · Indices · India ETFs · Crypto
             </p>
             <p className="mt-1 text-sm leading-relaxed text-slate-300">
               Macro tape for <strong className="text-white">DXY</strong>, <strong className="text-white">Brent</strong>,{' '}
-              <strong className="text-white">US 2Y / 10Y</strong>, <strong className="text-white">Gold</strong>,{' '}
-              <strong className="text-white">Silver</strong>, <strong className="text-white">Nifty 50</strong>,{' '}
-              <strong className="text-white">Dow 30</strong>, <strong className="text-white">Nasdaq</strong>,{' '}
-              <strong className="text-white">Bitcoin</strong> and <strong className="text-white">Ethereum</strong> —
-              daily range or same-day intraday (Yahoo Finance).
+              <strong className="text-white">US 2Y / 10Y</strong>, <strong className="text-white">Gold / Silver</strong>,{' '}
+              <strong className="text-white">Nifty / Dow / Nasdaq</strong>, <strong className="text-white">BTC / ETH</strong>
+              {' '}plus India sector ETFs (
+              <strong className="text-white">BANKBEES</strong>, <strong className="text-white">ITBEES</strong>,{' '}
+              Mid/Smallcap, Pharma, Metal, Power, FMCG, …) — daily or same-day intraday.
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Rising DXY often pressures commodities; yields track rate expectations; equities and crypto show risk
-              appetite. Overlay chart normalizes % change across units.
+              Rising DXY often pressures commodities; yields track rate expectations; India ETFs show sector rotation
+              vs Nifty. Overlay chart normalizes % change across units.
             </p>
           </div>
           <button
@@ -381,21 +388,15 @@ export function OilDollarBondPanel() {
             <ol className="list-decimal space-y-1 pl-4">
               <li>Choose <span className="text-slate-300">Daily</span> (date range) or <span className="text-slate-300">Intraday</span> (one session).</li>
               <li>For intraday, pick session date + bar size (1m–1h). Yahoo only keeps a limited window of intraday history.</li>
+              <li>Filter: <span className="text-slate-300">Global macro</span> · <span className="text-slate-300">India ETFs</span> · All.</li>
               <li>Click <span className="text-slate-300">Load charts</span>.</li>
             </ol>
-            <p className="mt-2 font-medium text-slate-200">Symbols</p>
+            <p className="mt-2 font-medium text-slate-200">India sector ETFs</p>
             <ul className="list-disc space-y-1 pl-4">
-              <li>DXY → <span className="text-slate-300">DX-Y.NYB</span></li>
-              <li>Brent → <span className="text-slate-300">BZ=F</span></li>
-              <li>US 2Y → <span className="text-slate-300">^UST2Y / 2YY=F / ZT=F</span></li>
-              <li>US 10Y → <span className="text-slate-300">^TNX</span></li>
-              <li>Gold → <span className="text-slate-300">GC=F</span></li>
-              <li>Silver → <span className="text-slate-300">SI=F</span></li>
-              <li>Nifty 50 → <span className="text-slate-300">^NSEI</span></li>
-              <li>Dow 30 → <span className="text-slate-300">^DJI</span></li>
-              <li>Nasdaq → <span className="text-slate-300">^IXIC</span></li>
-              <li>Bitcoin → <span className="text-slate-300">BTC-USD</span></li>
-              <li>Ethereum → <span className="text-slate-300">ETH-USD</span></li>
+              <li>BANKBEES · PSUBNKBEES · ITBEES · AUTOBEES · PHARMABEES · HEALTHY</li>
+              <li>FMCGIETF · CONSUMBEES · METALIETF · GROWWPOWER · ENERGY · INFRABEES</li>
+              <li>MODEFENCE · MOREALTY · GROWWEV · Nifty 500 · Midcap 150 · Smallcap 250</li>
+              <li className="text-slate-500">METALBEES does not exist — Metal = METALIETF / GROWWMETAL</li>
             </ul>
           </HowToBox>
         )}
@@ -403,6 +404,21 @@ export function OilDollarBondPanel() {
         <div className="mb-4 flex flex-wrap gap-2">
           <Chip selected={mode === 'daily'} onClick={() => setMode('daily')}>Daily range</Chip>
           <Chip selected={mode === 'intraday'} onClick={() => setMode('intraday')}>Same-day intraday</Chip>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          <span className="self-center text-[11px] uppercase tracking-wide text-slate-500">Show</span>
+          {(
+            [
+              ['all', 'All'],
+              ['macro', 'Global macro'],
+              ['india_etf', 'India ETFs'],
+            ] as const
+          ).map(([id, label]) => (
+            <Chip key={id} selected={groupFilter === id} onClick={() => setGroupFilter(id)}>
+              {label}
+            </Chip>
+          ))}
         </div>
 
         {mode === 'daily' ? (
@@ -493,6 +509,31 @@ export function OilDollarBondPanel() {
         )}
       </Card>
 
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Newspaper size={16} className="text-sky-400" />
+              Market news
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+              Latest stocks, Nifty, IPO, earnings, commodities and macro headlines — pair with the tape above for
+              context on sector ETFs (Bank, IT, Metal, Mid/Smallcap, …).
+            </p>
+          </div>
+          <a
+            href={UPSTOX_MARKET_NEWS}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-200 hover:border-sky-400/50 hover:bg-sky-500/15"
+          >
+            Upstox Market News
+            <ExternalLink size={12} />
+          </a>
+        </div>
+        <p className="mt-2 break-all text-[11px] text-slate-500">{UPSTOX_MARKET_NEWS}</p>
+      </Card>
+
       <AnalysisBackgroundJobsAndReports bg={bg} />
 
       {runMut.isPending && !bg.viewedPayload && (
@@ -539,8 +580,8 @@ export function OilDollarBondPanel() {
                   )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {series.map((s) => {
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {filteredSeries.map((s) => {
                     const chg = s.change_pct != null ? Number(s.change_pct) : null
                     return (
                       <StatCard
@@ -554,7 +595,7 @@ export function OilDollarBondPanel() {
                 </div>
 
                 <div className="grid gap-3 lg:grid-cols-2">
-                  {series.map((s) => (
+                  {filteredSeries.map((s) => (
                     <SeriesChart
                       key={String(s.id)}
                       title={String(s.label)}
@@ -572,7 +613,7 @@ export function OilDollarBondPanel() {
                   ))}
                 </div>
 
-                <OverlayChart chart={chart} seriesMeta={series} />
+                <OverlayChart chart={chart} seriesMeta={filteredSeries} />
               </>
             )}
           </Card>
@@ -584,7 +625,7 @@ export function OilDollarBondPanel() {
                 title="AI View"
                 section="command-center/oil-dollar-bond"
                 context={askContext}
-                defaultQuestion="Given DXY, Brent, US 2Y/10Y, Gold, Silver, Nifty 50, Dow 30, Nasdaq, Bitcoin and Ethereum over this window, what is the macro risk regime and what would invalidate it?"
+                defaultQuestion="Given DXY, Brent, yields, metals, global indices, crypto, and India sector ETFs (Bank, IT, Mid/Smallcap, Pharma, Metal, Power, FMCG, …) over this window, what is the macro risk regime and which India sectors lead or lag?"
                 showPredictNextMove
               />
             </>

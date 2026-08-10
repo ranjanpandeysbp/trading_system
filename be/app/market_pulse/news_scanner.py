@@ -17,7 +17,7 @@ Sections:
   8. Commodities, Crypto & Bond Yields
   9. Nifty Options Chain Analysis (PCR, Max Pain, OI, Directional Verdict)
  10. Price Charts
- 11. News Feed (96h freshness, Moneycontrol-heavy RSS)
+  11. News Feed (96h freshness, Moneycontrol + Upstox Market News)
  11b. Analyst Calls & Brokerage Recommendations
  12. Upcoming Events (future-only macro calendar)
  13. AI Market Intelligence Summary
@@ -4428,10 +4428,11 @@ def build_ai_prompt(market_data, news_articles, global_news_articles, india_even
 def get_ai_summary(prompt_data, provider, model, api_key):
     system = """You are an expert Indian stock market analyst with deep knowledge of NSE, BSE, 
 macroeconomics, FII/DII flows, RBI policy, Options chain analysis, and global market linkages.
-Analyze the given market data, options chain data, news headlines and upcoming events. 
+Analyze the given market data, options chain data, news headlines (Moneycontrol, Upstox Market News,
+and other feeds) and upcoming events. 
 Provide a structured, actionable market intelligence summary covering:
 1. Overall Market Sentiment (Bullish/Bearish/Neutral with reasoning)
-2. Key Market Drivers Today (3-4 points)
+2. Key Market Drivers Today (3-4 points) — weight fresh Upstox / Moneycontrol stock & IPO headlines
 3. Nifty Options Chain Insight (PCR interpretation, Max Pain, Support/Resistance from OI)
 4. Impact Analysis of Global Signals on Indian Markets
 5. Upcoming Event Risks & Opportunities 
@@ -5256,7 +5257,7 @@ def render_news_scanner_tab(show_outlook_banners: bool = True):
         <div style="margin-top:40px; padding: 20px 0; border-top: 1px solid #1e3a5f; text-align:center;">
             <div style="font-size:0.75rem; color:#334155;">
                 🕐 IST: {now_ist.strftime('%d %b %Y %H:%M:%S')}<br>
-                Market Data: Yahoo + 5paisa · Options: NSE v3 / Groww · Flows: NSE FII/DII + Bhavcopy Delivery · News: Moneycontrol RSS + Analyst Recos
+                Market Data: Yahoo + 5paisa · Options: NSE v3 / Groww · Flows: NSE FII/DII + Bhavcopy Delivery · News: Moneycontrol RSS + Upstox Market News + Analyst Recos
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -5510,9 +5511,11 @@ def render_news_scanner_tab(show_outlook_banners: bool = True):
     # Section 11: News Feed
     # ═══════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-header-ns" style="margin-top:20px;">📰 Latest Market News</div>', unsafe_allow_html=True)
+    upstox_n = sum(1 for a in news_articles if "Upstox" in str(a.get("source", "")))
     st.caption(
         f"Fresh headlines only (last **96 hours**), sorted newest-first · "
         f"**{sum(1 for a in news_articles if 'Moneycontrol' in a.get('source', ''))}** Moneycontrol · "
+        f"**{upstox_n}** [Upstox](https://upstox.com/news/market-news/) · "
         f"**{len(news_articles)}** India/crypto · **{len(global_news_articles)}** global"
     )
     india_display = news_articles[: max(1, news_count // 2)] if news_articles else []
@@ -5628,7 +5631,7 @@ def render_news_scanner_tab(show_outlook_banners: bool = True):
     <div style="margin-top:40px; padding: 20px 0; border-top: 1px solid #1e3a5f; text-align:center;">
         <div style="font-size:0.75rem; color:#334155;">
             🕐 IST: {now_ist.strftime('%d %b %Y %H:%M:%S')}<br>
-            Market Data: Yahoo + 5paisa · Options: NSE v3 / Groww · Flows: NSE FII/DII + Bhavcopy Delivery · News: Moneycontrol RSS + Analyst Recos<br>
+            Market Data: Yahoo + 5paisa · Options: NSE v3 / Groww · Flows: NSE FII/DII + Bhavcopy Delivery · News: Moneycontrol RSS + Upstox Market News + Analyst Recos<br>
             AI: Google Gemini / Groq (LLaMA) · For educational purposes only. Not financial advice.<br>
             ⚠️ Yahoo data may be delayed 15-20 min. Gift Nifty & global indices refreshed from 5paisa. Always verify before trading.
         </div>
