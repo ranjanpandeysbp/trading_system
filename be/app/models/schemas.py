@@ -651,13 +651,13 @@ class Swing5ScanRequest(BaseModel):
 
 
 class EtfTopDownScanRequest(BaseModel):
-    """ETF Top Down — macro RS filter + P&F scoring + Renko/D-Smart 10 (weekly Friday rebalance)."""
+    """ETF Top Down — Finding Edge/Jay: noise macros, dual P&F RS (max 18), Renko/D-Smart 10, Friday rebalance."""
     tickers: list[str] = Field(default_factory=list)
     preset: str | None = None
     exchange: str = "NSE"
     top_n: int = Field(default=20, ge=5, le=40)
     renko_box_pct: float = Field(default=1.0, ge=0.25, le=5.0)
-    pn_f_box_pct: float = Field(default=0.25, ge=0.1, le=2.0)
+    pn_f_box_pct: float = Field(default=0.25, ge=0.1, le=2.0, description="Daily P&F box % (weekly fixed at 1%)")
     d_smart_period: int = Field(default=10, ge=5, le=20)
     lookback_bars: int = Field(default=400, ge=120, le=800)
     max_etfs_hold: int = Field(default=10, ge=1, le=20)

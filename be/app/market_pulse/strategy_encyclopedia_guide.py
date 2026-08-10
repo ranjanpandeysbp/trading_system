@@ -121,7 +121,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     "🇮🇳 ETF TA IN": [
         ("stf_shop", "ETF Shop 4.0 — 20 DMA · dynamic SIP · FIFO · 39 distinct ETFs"),
         ("etf_28_sma", "ETF 28 SMA Momentum — FIRE · 3.14% · averaging · FIFO/LIFO"),
-        ("etf_top_down", "ETF Top Down — macro RS · P&F · Renko + D-Smart 10 · weekly"),
+        ("etf_top_down", "ETF Top Down — dual P&F RS (max 18) · Renko + D-Smart 10 · weekly"),
     ],
     "⚡ Strategy Lab": [
         ("strategy_builder", "Strategy Builder & Tester"),
@@ -918,7 +918,9 @@ Also available on the **Dashboard**.
 **When to use:** India ETF momentum with 28 SMA two-close entry/exit, 3.14% profit floor, 5% cheaper re-breakout averaging, and FIFO/LIFO lot booking. Scan near the close.
 """,
     "etf_top_down": """
-**When to use:** Top-down ETF swing — rank macros with P&F RS, shortlist Top 20 ETFs with score > 0, enter/exit on Renko × D-Smart 10, rebalance weekly (Fridays).
+**When to use:** Top-down ETF swing (Finding Edge / Jay) — noise-filter 6 macros, dual P&F RS
+(0.25% daily + 1% weekly, max 18), shortlist Top 20 with score > 0, enter/exit on Renko × D-Smart 10,
+rebalance weekly (Fridays). Principles: profit + don’t give it back.
 """,
     "mf_fire": """
 **When to use:** Size your FI number (25×/35× expenses), 1% salary-confidence portfolio, and SIP runway — then pick equity MFs on Best MF. Education only.

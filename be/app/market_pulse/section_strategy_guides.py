@@ -2753,17 +2753,28 @@ Universe: FIRE curated list + ETF Shop presets. Execute near close (~after 3:15 
 """,
 
     "etf_top_down": """
-### ETF Top Down — RS + Renko / D-Smart (Finding H)
+### ETF Top Down — Finding Edge / Jay (P&F RS + Renko / D-Smart)
 
-[Video](https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s) — Jay’s low-drawdown ETF swing.
+[Video](https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s) — low-drawdown ETF swing.
 
-1. **Top-down macros** — Gold, Silver, Nifty 50/500, GS Composite/bonds, India VIX
-2. **P&F RS** −3…+3 (Double Top Buy above MA = +3)
-3. Screen ~55 ETFs → **Top 20 with score > 0**
-4. **Entry** Renko close above **D-Smart 10**; **exit** below (trailing SL)
-5. **Weekly rebalance** (prefer Fridays)
+**Principles:** (1) Make profit. (2) Don’t give it back — control drawdown. ETFs ≈ MF sector
+baskets; typically milder drops than single stocks. Returns follow **market phase**.
 
-Universe shared with ETF Shop / ETF 28 SMA. D-Smart approximated as EMA on Renko closes.
+**Noise filter (6):** Gold · USD/INR · India VIX · GS Composite/bonds · Nifty 50 · Nifty 500
+(+ Silver for asset RS). VIX **>18 fear**, **<12 calm**.
+
+**Method**
+1. Top-down sieve — Asset → Group → Sector → ETF via Relative Strength
+2. **P&F** box **0.25% ≈ daily**, **1% ≈ weekly**; each leg −3…+3 (DTB above MA = +3)
+3. Legs: Price + vs Nifty50 + vs Nifty500 × 2 TF → **max 18**
+4. Screen ~55 ETFs → **Top 20 with score > 0**
+5. **Entry** Renko close above **D-Smart 10**; **exit** below (trailing SL)
+6. **Weekly rebalance** (prefer Fridays) — don’t let Silver-like names erase the month
+
+**CAGR bands (relative, not promises):** ~12% MF-like · 15–18% beat MF when aligned ·
+up to ~24% strong bull. Live cite: ~2–2.5y, ~5–6% alpha vs flat market.
+
+Universe shared with ETF Shop / ETF 28 SMA. D-Smart ≈ EMA on Renko closes.
 
 **When to use:** Capture ETF momentum with controlled drawdowns; rotate into the dominating asset class.
 """,

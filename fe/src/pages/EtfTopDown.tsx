@@ -24,32 +24,42 @@ const YOUTUBE = 'https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s'
 const HOW_TO = `How to use ETF Top Down
 
 Source: ${YOUTUBE}
-(Finding H podcast — Jay’s low-drawdown ETF swing)
+(Finding Edge podcast — Jay’s low-drawdown ETF swing)
 
-1. Pick a universe preset (Top ~55 from FIRE + ETF Shop, or any ETF Shop / ETF 28 SMA list).
-2. Scan — first read the macro board (Gold, Silver, Nifty 50/500, bonds, India VIX).
-3. Focus on the shortlist: Top 20 ETFs with P&F RS score > 0.
+1. Read the macro board first (6 noise filters + Silver RS): who is dominating?
+2. Note India VIX: >18 fear · <12 calm.
+3. Focus the shortlist: Top 20 ETFs with composite P&F RS > 0 (max 18 = daily 0.25% + weekly 1%).
 4. Act on Renko × D-Smart 10: BUY on cross above, SELL / trail when below.
-5. Prefer rebalancing on Fridays so volatile names (e.g. Silver) don’t give back weekly gains.
-6. Research only — not advice. D-Smart is approximated as EMA(10) on Renko closes.`
+5. Prefer Friday weekly rebalance — volatile names (Silver) must not give back the month.
+6. Two principles: make profit; don’t give it back.
+7. Research only — not advice. D-Smart ≈ EMA(10) on Renko closes.`
 
-const OVERVIEW = `ETF Top Down — rules
+const OVERVIEW = `ETF Top Down — rules (Finding Edge / Jay)
 
-Philosophy: capture ETF momentum with controlled drawdowns (baskets fall less than single stocks).
+Philosophy
+• Profit + don’t erase it (drawdown control). ETFs ≈ MF sector baskets → typically milder drops than single stocks.
+• Returns follow market phase (sentiment, valuation, flows) — not fixed CAGR promises.
+• Phase bands (relative): ~12% MF-like · 15–18% beat MF when aligned · up to ~24% strong bull. Not COVID 50–100%.
+• Live cite: ~2–2.5y, market flat but ~5–6% alpha vs market via this ETF swing method.
 
-1. Top-down macros — Gold, Silver, Nifty 50, Nifty 500, GS Composite/bonds, India VIX.
-2. Relative Strength via Point & Figure (−3…+3). Double Top Buy above MA = +3; DBS below MA = −3.
-3. Multi-denominator vs Nifty 50 + Nifty 500.
-4. Rank ~55 ETFs → keep Top 20 with score strictly > 0.
-5. Entry: Renko close crosses above D-Smart 10. Exit: falls below (trailing stop).
-6. Weekly rebalance (Fridays preferred).`
+Setup
+1. Noise filter macros — Gold, USD/INR, India VIX, GS Composite/bonds, Nifty 50, Nifty 500 (+ Silver for RS).
+2. Top-down sieve — Asset → Group → Sector → ETF via Relative Strength (same stack desks use).
+3. P&F multi-denominator — box 0.25% ≈ daily, 1% ≈ weekly; each leg −3…+3.
+   Above MA: DTB +3 · X +2 · O retrace +1 · DBS −1.
+   Below MA: DBS −3 · O −2 · DTB +1 · X −1.
+4. Six legs (price + vs Nifty50 + vs Nifty500 × daily + weekly) → max score 18.
+5. Rank ~55 ETFs → keep Top 20 with score strictly > 0.
+6. Entry: Renko close crosses above D-Smart 10. Exit: falls below (trailing stop).
+7. Weekly rebalance (Fridays preferred).`
 
 const LAYMAN = `In plain English
 
-First see which big asset is winning (gold, silver, equity, bonds, fear).
-Then only look at ETFs that are beating the market on a simple scorecard.
-Buy when the Renko chart flips above a 10-period smart line; sell when it flips below.
-Check once a week (Friday) so a sharp drop in something like silver doesn’t erase the month.`
+Ignore daily noise. Watch six things: gold, dollar/rupee, fear (VIX), bonds, Nifty 50, Nifty 500.
+See which asset is winning versus the market on a simple scorecard (max 18).
+Only then pick ETFs that are beating Nifty — buy when Renko flips above a 10-period smart line; sell when it flips below.
+Check once a week (Friday) so a sharp drop in silver doesn’t wipe the month.
+Goal: make money and keep it — not turn ₹2L back into ₹1.2L.`
 
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
@@ -105,7 +115,10 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
           <span className="text-xs text-sky-300">RS #{String(result.rs_rank)}</span>
         )}
         {result.rs_score != null && (
-          <span className="text-xs text-slate-300">score {fmtNum(result.rs_score, 0)}</span>
+          <span className="text-xs text-slate-300">
+            score {fmtNum(result.rs_score, 0)}
+            {result.max_score != null ? `/${fmtNum(result.max_score, 0)}` : ''}
+          </span>
         )}
         {result.ltp != null && <span className="text-sm text-slate-400">₹{fmtNum(result.ltp)}</span>}
         <ActionBadge action={String(result.action ?? 'WAIT')} />
@@ -122,6 +135,18 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
             <p className="text-sm leading-relaxed text-slate-300">{String(result.reason)}</p>
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            {metrics.daily_score != null && (
+              <span>
+                Daily P&F: <strong className="text-slate-300">{fmtNum(metrics.daily_score, 0)}</strong>
+                <span className="text-slate-600"> (0.25%)</span>
+              </span>
+            )}
+            {metrics.weekly_score != null && (
+              <span>
+                Weekly P&F: <strong className="text-slate-300">{fmtNum(metrics.weekly_score, 0)}</strong>
+                <span className="text-slate-600"> (1%)</span>
+              </span>
+            )}
             {metrics.d_smart != null && (
               <span>
                 D-Smart: <strong className="text-slate-300">{fmtNum(metrics.d_smart)}</strong>
@@ -229,6 +254,8 @@ export default function EtfTopDown() {
   const macro = (data?.macro_board as Row[] | undefined) ?? []
   const summary = (data?.summary as Row | undefined) ?? undefined
   const rebalance = (data?.rebalance_hint as Row | undefined) ?? undefined
+  const vixRegime = (data?.vix_regime as Row | undefined) ?? undefined
+  const philosophy = (data?.philosophy as Row | undefined) ?? undefined
   const results = (data?.results as Row[] | undefined) ?? []
   const askContext = data ? buildAskContext('ETF Top Down', data) : ''
 
@@ -246,7 +273,7 @@ export default function EtfTopDown() {
     <div>
       <PageHeader
         title="ETF Top Down"
-        description="Macro RS filter → Top 20 P&F scores → Renko + D-Smart 10 · weekly Friday rebalance"
+        description="Noise-filter macros · dual P&F RS (max 18) · Top 20 · Renko + D-Smart 10 · Friday rebalance"
       />
 
       <div className="mb-4 space-y-2">
@@ -309,7 +336,7 @@ export default function EtfTopDown() {
           <FormField label="Renko box %">
             <Input type="number" step="0.25" min={0.25} max={5} value={renkoBox} onChange={(e) => setRenkoBox(Number(e.target.value) || 1)} />
           </FormField>
-          <FormField label="P&F box %">
+          <FormField label="P&F daily box % (+ weekly 1%)">
             <Input type="number" step="0.05" min={0.1} max={2} value={pnfBox} onChange={(e) => setPnfBox(Number(e.target.value) || 0.25)} />
           </FormField>
           <FormField label="D-Smart period">
@@ -343,11 +370,26 @@ export default function EtfTopDown() {
         <>
           {macro.length > 0 && (
             <Card className="mb-4">
-              <p className="mb-2 text-sm font-medium text-slate-200">Top-down macro board</p>
-              <p className="mb-3 text-xs text-slate-500">
-                Which asset class is dominating? (VIX / bond yields inverted so higher score = calmer / friendlier)
+              <p className="mb-2 text-sm font-medium text-slate-200">Top-down macro / asset board</p>
+              <p className="mb-2 text-xs text-slate-500">
+                Noise filter: Gold · USD/INR · India VIX · GS/bonds · Nifty 50 · Nifty 500 (+ Silver RS).
+                Score = daily 0.25% + weekly 1% P&F vs Nifty50/500 (max 18). VIX/bond yields inverted so
+                higher = calmer / friendlier.
               </p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {vixRegime?.note != null && (
+                <p
+                  className={`mb-3 text-xs ${
+                    vixRegime.regime === 'fear'
+                      ? 'text-rose-300'
+                      : vixRegime.regime === 'calm'
+                        ? 'text-emerald-300'
+                        : 'text-amber-200'
+                  }`}
+                >
+                  {String(vixRegime.note)}
+                </p>
+              )}
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {macro.map((m) => (
                   <div
                     key={String(m.id)}
@@ -363,14 +405,39 @@ export default function EtfTopDown() {
                     </div>
                     <p className="mt-1 text-xs text-slate-400">
                       {m.symbol != null ? String(m.symbol) : ''}
-                      {m.ltp != null ? ` · ₹${fmtNum(m.ltp)}` : ''}
+                      {m.ltp != null ? ` · ${fmtNum(m.ltp)}` : ''}
+                      {m.role === 'asset_rs' ? ' · asset RS' : ''}
                     </p>
                     <p className="mt-1 text-sm font-semibold text-sky-200">
-                      {m.total_score != null ? `RS ${fmtNum(m.total_score, 0)}` : String(m.error ?? '—')}
+                      {m.total_score != null
+                        ? `RS ${fmtNum(m.total_score, 0)}${m.max_score != null ? `/${fmtNum(m.max_score, 0)}` : ''}`
+                        : String(m.error ?? '—')}
                     </p>
+                    {(m.daily_score != null || m.weekly_score != null) && (
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        D {fmtNum(m.daily_score, 0)} · W {fmtNum(m.weekly_score, 0)}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
+            </Card>
+          )}
+
+          {philosophy && (
+            <Card className="mb-4">
+              <p className="mb-1 text-sm font-medium text-slate-200">Principles</p>
+              <ul className="mb-2 list-inside list-disc text-xs text-slate-400">
+                {((philosophy.principles as string[] | undefined) ?? []).map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+              {philosophy.why_etf != null && (
+                <p className="mb-2 text-xs text-slate-500">{String(philosophy.why_etf)}</p>
+              )}
+              {philosophy.live_alpha_cite != null && (
+                <p className="text-xs text-emerald-300/90">{String(philosophy.live_alpha_cite)}</p>
+              )}
             </Card>
           )}
 

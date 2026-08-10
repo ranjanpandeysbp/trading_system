@@ -1,22 +1,31 @@
 """
 etf_top_down_engine.py
 ----------------------
-ETF Top Down — Low-risk / high-reward ETF swing (Jay / Finding H podcast).
+ETF Top Down — Low-drawdown ETF swing (Jay / Finding Edge podcast).
 
 Video: https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s
 
-Pipeline:
-  1. Top-down macro filter — rank Gold, Silver, Nifty 50, Nifty 500,
-     GS Composite (bond proxy), India VIX (inverted) via P&F RS scores.
-  2. ETF scanner — score ~55 ETFs vs Nifty 50 + Nifty 500 (multi-denominator
-     P&F RS, −3…+3 per leg); keep Top N with score > 0.
-  3. Execution — Renko bricks + D-Smart 10 proxy (EMA of Renko closes):
-     BUY when price crosses above D-Smart 10; SELL / trail when below.
-  4. Weekly rebalance preference (Fridays) — volatile assets (e.g. Silver)
-     need weekly checks so gains are not given back.
+Two principles: (1) make profit (2) don't give the profit back (control drawdown).
+ETFs as a product give phase-linked returns with typically milder drawdowns than
+single stocks (sector baskets ≈ what MFs hold).
 
-Research / education only — not financial advice. D-Smart is approximated
-(Definedge proprietary); P&F scoring follows the video's published rules.
+Pipeline:
+  1. Noise filter — concentrate on 6 macros: Gold, USD/INR, India VIX,
+     GS Composite (bond-yield proxy), Nifty 50, Nifty 500 (+ Silver for RS).
+  2. Top-down sieve — Asset → Group → Sector → ETF via Relative Strength.
+  3. P&F RS multi-denominator — box 0.25% ≈ daily, 1% ≈ weekly; each leg
+     scores −3…+3 (DTB above MA = +3 … DBS below MA = −3). Six legs → max 18.
+  4. ETF scanner — ~55 ETFs vs Nifty 50 + Nifty 500; keep Top N with score > 0.
+  5. Execution — Renko + D-Smart 10: BUY cross above; SELL / trail below.
+  6. Weekly rebalance (Fridays) — volatile names (e.g. Silver) need weekly exits
+     so monthly gains are not erased.
+
+Expected returns are phase-relative (not COVID-era 50–100%): MF-like ~12%;
+beat MF ~15–18% when entries + sentiment align; strong bull + flows ~24%.
+~2–2.5y live experience cited: market flat but strategy ~+5–6% alpha vs market.
+
+Research / education only — not financial advice. D-Smart approximated
+(Definedge proprietary); P&F scoring follows the podcast rules.
 """
 
 from __future__ import annotations
@@ -45,51 +54,89 @@ STRATEGY_ID = "etf_top_down"
 STRATEGY_NAME = "ETF Top Down"
 YOUTUBE_URL = "https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s"
 
-# Macro proxies (India-friendly symbols / Yahoo tickers)
+# Noise-filter macros (podcast: ignore daily noise — these 6 interconnect everything)
+# + Silver for asset RS ranking examples (Gold/Silver rallies)
 MACRO_ASSETS: list[dict[str, Any]] = [
-    {"id": "gold", "label": "Gold", "symbol": "GOLDBEES", "yf": ["GOLDBEES.NS", "GC=F"], "invert": False},
-    {"id": "silver", "label": "Silver", "symbol": "SILVERBEES", "yf": ["SILVERBEES.NS", "SI=F"], "invert": False},
-    {"id": "nifty50", "label": "Nifty 50", "symbol": "NIFTYBEES", "yf": ["^NSEI", "NIFTYBEES.NS"], "invert": False},
-    {"id": "nifty500", "label": "Nifty 500", "symbol": "MONIFTY500", "yf": ["^CRSLDX", "MONIFTY500.NS", "BSE500IETF.NS"], "invert": False},
-    {"id": "gs_composite", "label": "GS Composite / Bonds", "symbol": "SETF10GILT", "yf": ["^TNX", "TLT", "SETF10GILT.NS"], "invert": True},
-    {"id": "india_vix", "label": "India VIX", "symbol": "INDIAVIX", "yf": ["^INDIAVIX"], "invert": True},
+    {"id": "gold", "label": "Gold", "symbol": "GOLDBEES", "yf": ["GOLDBEES.NS", "GC=F"], "invert": False, "role": "noise"},
+    {"id": "usdinr", "label": "USD / INR", "symbol": "USDINR", "yf": ["INR=X", "USDINR=X"], "invert": False, "role": "noise"},
+    {"id": "india_vix", "label": "India VIX", "symbol": "INDIAVIX", "yf": ["^INDIAVIX"], "invert": True, "role": "noise"},
+    {"id": "gs_composite", "label": "GS Composite / Bonds", "symbol": "SETF10GILT", "yf": ["^TNX", "TLT", "SETF10GILT.NS"], "invert": True, "role": "noise"},
+    {"id": "nifty50", "label": "Nifty 50", "symbol": "NIFTYBEES", "yf": ["^NSEI", "NIFTYBEES.NS"], "invert": False, "role": "noise"},
+    {"id": "nifty500", "label": "Nifty 500", "symbol": "MONIFTY500", "yf": ["^CRSLDX", "MONIFTY500.NS", "BSE500IETF.NS"], "invert": False, "role": "noise"},
+    {"id": "silver", "label": "Silver", "symbol": "SILVERBEES", "yf": ["SILVERBEES.NS", "SI=F"], "invert": False, "role": "asset_rs"},
 ]
 
-HOW_IT_WORKS = """
-### How ETF Top Down works
+# India VIX regimes (podcast): >18 fear, <12 calm / all-clear
+VIX_FEAR_ABOVE = 18.0
+VIX_CALM_BELOW = 12.0
 
-Low-drawdown ETF swing: **top-down asset filter → Relative Strength (P&F) → Renko + D-Smart 10**,
-rebalanced **weekly (Fridays)**.
+# Max composite = 6 legs × 3 pts (price+D1+D2) × (daily 0.25% + weekly 1%)
+MAX_RS_SCORE = 18
+
+HOW_IT_WORKS = """
+### How ETF Top Down works (Finding Edge — Jay)
+
+**Two principles:** (1) Profit from the market. (2) Do not give that profit back —
+drawdowns that erase 40% of gains defeat the point. ETFs fit because sector baskets
+typically fall less than single stocks when the index drops ~20%, and returns follow
+the **market phase** (sentiment + valuation + flows).
+
+**Noise filter (6 macros):** Gold · USD/INR · India VIX · GS Composite/bond yields ·
+Nifty 50 · Nifty 500. (Silver is scored for asset RS too.) VIX **>18 = fear**,
+**<12 = calm**. Money rotates between risk assets and US/GS yields.
+
+**Top-down sieve:** Asset → Group → Sector → ETF (same stack hedge/MF desks use),
+ranked by **Relative Strength** on Point & Figure.
 
 | Step | Rule |
 |------|------|
-| 1 | Rank **6 macros**: Gold, Silver, Nifty 50, Nifty 500, GS Composite/bonds, India VIX |
-| 2 | Score each vs denominators with **P&F RS** (−3…+3 per leg; DTB above MA = +3) |
-| 3 | Scan ETF universe (~55); keep **Top 20 with RS score > 0** |
-| 4 | **Buy** when Renko price crosses **above D-Smart 10**; **sell** when it falls below |
-| 5 | Prefer **Friday** weekly rebalance — Silver-like volatility needs weekly checks |
+| 1 | Rank macros / assets with **P&F RS** (multi-denominator) |
+| 2 | Box **0.25% ≈ daily**, **1% ≈ weekly**; each leg −3…+3 |
+| 3 | Legs: Price + vs Nifty50 (D1) + vs Nifty500 (D2) × 2 TF → **max 18** |
+| 4 | Scan ~55 ETFs; keep **Top 20 with RS score > 0** |
+| 5 | **Buy** Renko close crosses **above D-Smart 10**; **sell** when below |
+| 6 | Prefer **Friday** weekly rebalance (Silver-like names need weekly exits) |
+
+**P&F score card (above MA / bullish trend)**
+| Pattern | Score |
+|---------|------:|
+| Double Top Buy above MA | +3 |
+| X column (no DTB) | +2 |
+| O column retracement (no DBS) | +1 |
+| Double Bottom Sell (still above MA) | −1 |
+
+**Below MA / bearish:** DBS = −3 · O column = −2 · DTB below MA = +1 · X (no DTB) = −1
+
+**Expected CAGR (phase-relative, not a promise):** ~12% MF-like baseline; **15–18%**
+when entries + sentiment align (beat MF); up to **~24%** in a strong bull with flows.
+COVID-style 50–100% was valuation-suppressed — do not expect a repeat. Live cite:
+~2–2.5 years, market weak but strategy still **~5–6% alpha** vs market.
 
 **How to use this screen**
-1. Pick ETF universe (FIRE / ETF Shop / Combined — same lists as other ETF strategies).
-2. Scan — read macro leaders first, then Top-20 RS ETFs with BUY/SELL from Renko+D-Smart.
-3. Prefer acting on Fridays; trail exits with D-Smart 10.
-4. Research only — not advice. D-Smart approximated as EMA(10) on Renko closes.
+1. Read macro / asset board first (who is dominating?).
+2. Focus Top-20 RS ETFs (score > 0), then Renko × D-Smart BUY/SELL.
+3. Prefer Friday fills; trail with D-Smart 10.
+4. Research only — not advice. D-Smart ≈ EMA(10) on Renko closes.
 """.strip()
 
 RULES = [
-    "Top-down: filter macros before picking ETFs.",
-    "P&F RS score −3…+3 (Double Top Buy above MA = +3; DBS below MA = −3).",
-    "Multi-denominator vs Nifty 50 + Nifty 500 (and macros in the board).",
-    "Shortlist Top N ETFs with RS score strictly > 0.",
-    "Entry: Renko close crosses above D-Smart 10.",
-    "Exit / trail: Renko close falls below D-Smart 10.",
-    "Weekly rebalance preferred (Fridays).",
+    "Two principles: make profit; do not give profit back (drawdown control).",
+    "Noise filter: Gold, USD/INR, India VIX, GS Composite/bonds, Nifty 50, Nifty 500 (+ Silver RS).",
+    "India VIX: >18 fear · <12 calm.",
+    "Top-down sieve: Asset → Group → Sector → ETF via Relative Strength.",
+    "P&F box 0.25% ≈ daily, 1% ≈ weekly; score −3…+3 per leg (DTB above MA = +3).",
+    "Six legs (price + D1 Nifty50 + D2 Nifty500 × daily + weekly) → max score 18.",
+    "Shortlist Top N ETFs with composite RS score strictly > 0.",
+    "Entry: Renko close crosses above D-Smart 10; exit / trail when below.",
+    "Weekly rebalance preferred (Fridays) — protect gains on volatile ETFs.",
+    "Returns are phase-relative (~12 / 15–18 / ~24% bands) — not COVID-era guarantees.",
 ]
 
 ETF_TOP_DOWN_AI_SYSTEM = pro_trade_ai_system(
     STRATEGY_NAME,
-    "Top-down ETF swing: macro RS filter, P&F relative strength ranking, "
-    "Renko + D-Smart 10 entry/exit, weekly Friday rebalance.",
+    "Top-down ETF swing (Jay / Finding Edge): noise-filter macros, dual P&F RS "
+    "(0.25% daily + 1% weekly, max 18), Top-20 score > 0, Renko + D-Smart 10, "
+    "weekly Friday rebalance. Principles: profit + don't give it back.",
 )
 
 
@@ -99,12 +146,14 @@ class EtfTopDownConfig:
     min_rs_score: float = 0.01  # strictly > 0
     lookback_bars: int = 400
     chart_bars: int = 120
-    pn_f_box_pct: float = 0.25  # ~daily equivalent (video: 0.25% daily, 1% weekly)
+    pn_f_box_pct: float = 0.25  # ~daily (podcast: 0.25% daily, 1% weekly)
+    pn_f_weekly_box_pct: float = 1.0
     pn_f_ma_period: int = 10
     renko_box_pct: float = 1.0  # weekly-style brick %
     d_smart_period: int = 10
     max_etfs_hold: int = 10
     prefer_friday: bool = True
+    use_dual_tf_rs: bool = True  # daily 0.25% + weekly 1% → max 18
 
 
 def _r(x: float, n: int = 4) -> float:
@@ -296,6 +345,92 @@ def _price_pnf_score(close: pd.Series, *, box_pct: float, ma_period: int) -> dic
     return {"score": int(score), "pattern": pattern, "ma": _r(ma), "column": cols[-1]["type"] if cols else None}
 
 
+def _score_bundle_at_box(
+    close: pd.Series,
+    nifty: pd.Series | None,
+    nifty500: pd.Series | None,
+    *,
+    box_pct: float,
+    ma_period: int,
+    skip_d1: bool = False,
+    skip_d2: bool = False,
+) -> tuple[int, dict[str, Any]]:
+    """One timeframe: price + D1 (Nifty50) + D2 (Nifty500). Max +9."""
+    price_leg = _price_pnf_score(close, box_pct=box_pct, ma_period=ma_period)
+    legs: dict[str, Any] = {"price": price_leg}
+    total = int(price_leg.get("score") or 0)
+    if nifty is not None and not skip_d1:
+        d1 = _rs_score_vs_benchmark(close, nifty, box_pct=box_pct, ma_period=ma_period)
+        legs["vs_nifty50"] = d1
+        total += int(d1.get("score") or 0)
+    if nifty500 is not None and not skip_d2:
+        d2 = _rs_score_vs_benchmark(close, nifty500, box_pct=box_pct, ma_period=ma_period)
+        legs["vs_nifty500"] = d2
+        total += int(d2.get("score") or 0)
+    return total, legs
+
+
+def _composite_rs_score(
+    close: pd.Series,
+    nifty: pd.Series | None,
+    nifty500: pd.Series | None,
+    *,
+    cfg: EtfTopDownConfig,
+    skip_d1: bool = False,
+    skip_d2: bool = False,
+) -> dict[str, Any]:
+    """
+    Podcast composite: daily (0.25%) + weekly (1%) bundles.
+    Each bundle = price + D1 + D2 (−3…+3 each) → max 18 when dual TF enabled.
+    """
+    daily_total, daily_legs = _score_bundle_at_box(
+        close, nifty, nifty500,
+        box_pct=cfg.pn_f_box_pct,
+        ma_period=cfg.pn_f_ma_period,
+        skip_d1=skip_d1,
+        skip_d2=skip_d2,
+    )
+    legs: dict[str, Any] = {"daily": daily_legs, "daily_box_pct": cfg.pn_f_box_pct}
+    total = daily_total
+    weekly_total = 0
+    if cfg.use_dual_tf_rs:
+        weekly_total, weekly_legs = _score_bundle_at_box(
+            close, nifty, nifty500,
+            box_pct=cfg.pn_f_weekly_box_pct,
+            ma_period=cfg.pn_f_ma_period,
+            skip_d1=skip_d1,
+            skip_d2=skip_d2,
+        )
+        legs["weekly"] = weekly_legs
+        legs["weekly_box_pct"] = cfg.pn_f_weekly_box_pct
+        total += weekly_total
+    max_possible = MAX_RS_SCORE if cfg.use_dual_tf_rs else 9
+    # Fewer legs if denominators skipped (e.g. Nifty itself)
+    if skip_d1:
+        max_possible -= 3 if not cfg.use_dual_tf_rs else 6
+    if skip_d2:
+        max_possible -= 3 if not cfg.use_dual_tf_rs else 6
+    return {
+        "total": int(total),
+        "daily_total": int(daily_total),
+        "weekly_total": int(weekly_total),
+        "max_score": int(max(max_possible, 3)),
+        "legs": legs,
+    }
+
+
+def _vix_regime(raw_vix: float | None) -> dict[str, Any]:
+    if raw_vix is None or not np.isfinite(raw_vix):
+        return {"level": None, "regime": "unknown", "note": "India VIX unavailable"}
+    if raw_vix > VIX_FEAR_ABOVE:
+        regime, note = "fear", f"India VIX {raw_vix:.1f} > {VIX_FEAR_ABOVE:.0f} — fear / risk-off bias"
+    elif raw_vix < VIX_CALM_BELOW:
+        regime, note = "calm", f"India VIX {raw_vix:.1f} < {VIX_CALM_BELOW:.0f} — calm / risk-on bias"
+    else:
+        regime, note = "neutral", f"India VIX {raw_vix:.1f} — between calm ({VIX_CALM_BELOW:.0f}) and fear ({VIX_FEAR_ABOVE:.0f})"
+    return {"level": _r(raw_vix, 2), "regime": regime, "note": note}
+
+
 # ── Renko + D-Smart ──────────────────────────────────────────────────────────
 
 def _build_renko(closes: pd.Series, box_pct: float) -> pd.DataFrame:
@@ -378,6 +513,10 @@ def analyze_macro_board(
     nifty = series.get("nifty50")
     nifty500 = series.get("nifty500")
     rows: list[dict[str, Any]] = []
+    vix_raw = None
+    if "india_vix" in series and not series["india_vix"].empty:
+        vix_raw = float(series["india_vix"].iloc[-1])
+    vix_info = _vix_regime(vix_raw)
 
     for m in MACRO_ASSETS:
         mid = m["id"]
@@ -385,42 +524,45 @@ def analyze_macro_board(
         if s is None or s.empty:
             rows.append({
                 "id": mid, "label": m["label"], "symbol": m["symbol"],
-                "error": "No data", "total_score": None, "rank": None,
+                "role": m.get("role"), "error": "No data", "total_score": None, "rank": None,
             })
             continue
-        # For inverted assets (VIX, yields), use reciprocal so "strength" = calm / falling yields
+        # Inverted assets (VIX, yields): reciprocal so "strength" = calm / falling yields
         work = (1.0 / s.replace(0, np.nan)) if m.get("invert") else s
         work = work.dropna()
-        price_leg = _price_pnf_score(work, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-        legs = {"price": price_leg}
-        total = int(price_leg.get("score") or 0)
-        if nifty is not None and mid != "nifty50":
-            d1 = _rs_score_vs_benchmark(work, nifty, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-            legs["vs_nifty50"] = d1
-            total += int(d1.get("score") or 0)
-        if nifty500 is not None and mid != "nifty500":
-            d2 = _rs_score_vs_benchmark(work, nifty500, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-            legs["vs_nifty500"] = d2
-            total += int(d2.get("score") or 0)
-
+        composite = _composite_rs_score(
+            work, nifty, nifty500, cfg=cfg,
+            skip_d1=(mid == "nifty50"),
+            skip_d2=(mid == "nifty500"),
+        )
+        total = int(composite["total"])
         last = float(s.iloc[-1])
-        rows.append({
+        row: dict[str, Any] = {
             "id": mid,
             "label": m["label"],
             "symbol": m["symbol"],
+            "role": m.get("role"),
             "ltp": _r(last),
             "invert": bool(m.get("invert")),
             "total_score": total,
-            "legs": legs,
+            "daily_score": composite.get("daily_total"),
+            "weekly_score": composite.get("weekly_total"),
+            "max_score": composite.get("max_score"),
+            "legs": composite.get("legs"),
             "dominating": total > 0,
-        })
+        }
+        if mid == "india_vix":
+            row["vix_regime"] = vix_info
+        rows.append(row)
 
     scored = [r for r in rows if r.get("total_score") is not None]
     scored.sort(key=lambda r: float(r["total_score"]), reverse=True)
     for i, r in enumerate(scored):
         r["rank"] = i + 1
-    # preserve order by rank for scored; append errors
     err = [r for r in rows if r.get("total_score") is None]
+    # Attach board-level VIX note on first row metadata via caller — return vix separately
+    for r in scored + err:
+        r["board_vix"] = vix_info
     return scored + err
 
 
@@ -449,17 +591,9 @@ def analyze_etf(
         return base
 
     close = work["close"].astype(float)
-    price_leg = _price_pnf_score(close, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-    legs = {"price": price_leg}
-    total = int(price_leg.get("score") or 0)
-    if nifty is not None:
-        d1 = _rs_score_vs_benchmark(close, nifty, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-        legs["vs_nifty50"] = d1
-        total += int(d1.get("score") or 0)
-    if nifty500 is not None:
-        d2 = _rs_score_vs_benchmark(close, nifty500, box_pct=cfg.pn_f_box_pct, ma_period=cfg.pn_f_ma_period)
-        legs["vs_nifty500"] = d2
-        total += int(d2.get("score") or 0)
+    composite = _composite_rs_score(close, nifty, nifty500, cfg=cfg)
+    total = int(composite["total"])
+    legs = composite.get("legs") or {}
 
     renko = _build_renko(close, cfg.renko_box_pct)
     ds = _d_smart_signal(renko, cfg.d_smart_period)
@@ -467,23 +601,32 @@ def analyze_etf(
     action = "WAIT"
     signal = "NEUTRAL"
     reason = ""
+    score_bit = f"RS {total}/{composite.get('max_score', MAX_RS_SCORE)}"
     if total > 0 and ds.get("crossed_above"):
         action, signal = "BUY", "BUY"
-        reason = f"RS {total} > 0 and Renko crossed above D-Smart {cfg.d_smart_period}"
+        reason = f"{score_bit} > 0 and Renko crossed above D-Smart {cfg.d_smart_period}"
     elif total > 0 and ds.get("action") == "HOLD_LONG":
         action, signal = "HOLD", "HOLD"
-        reason = f"RS {total} > 0 and price above D-Smart {cfg.d_smart_period} — trail"
+        reason = f"{score_bit} > 0 and price above D-Smart {cfg.d_smart_period} — trail"
     elif ds.get("crossed_below") or ds.get("action") == "FLAT":
         action, signal = "SELL", "SELL"
         reason = f"Renko below D-Smart {cfg.d_smart_period} — exit / trail stop"
     elif total <= 0:
         action, signal = "SKIP", "WEAK"
-        reason = f"RS score {total} ≤ 0 — filtered out (need outperformance)"
+        reason = f"{score_bit} ≤ 0 — filtered out (need outperformance)"
     else:
         reason = "Waiting for Renko × D-Smart cross"
 
     checks = [
-        {"id": "rs_pos", "label": "RS score > 0", "passed": total > 0, "detail": f"score {total}"},
+        {
+            "id": "rs_pos",
+            "label": f"RS score > 0 (max {composite.get('max_score', MAX_RS_SCORE)})",
+            "passed": total > 0,
+            "detail": (
+                f"total {total} · daily {composite.get('daily_total')} · "
+                f"weekly {composite.get('weekly_total')}"
+            ),
+        },
         {
             "id": "dsmart", "label": f"Above D-Smart {cfg.d_smart_period}",
             "passed": bool(ds.get("above_d_smart")),
@@ -515,6 +658,9 @@ def analyze_etf(
         **base,
         "ltp": _r(float(close.iloc[-1])),
         "rs_score": total,
+        "daily_score": composite.get("daily_total"),
+        "weekly_score": composite.get("weekly_total"),
+        "max_score": composite.get("max_score"),
         "legs": legs,
         "d_smart": ds,
         "signal": signal,
@@ -524,6 +670,9 @@ def analyze_etf(
         "checks": checks,
         "metrics": {
             "rs_score": total,
+            "daily_score": composite.get("daily_total"),
+            "weekly_score": composite.get("weekly_total"),
+            "max_score": composite.get("max_score"),
             "d_smart": ds.get("d_smart"),
             "renko_close": ds.get("renko_close"),
             "renko_bricks": ds.get("bricks"),
@@ -605,6 +754,7 @@ def scan_universe(
     today = pd.Timestamp.utcnow()
     is_friday = bool(today.dayofweek == 4)  # UTC approx; UI notes IST Friday
     leader = macro[0] if macro and macro[0].get("total_score") is not None else None
+    vix_info = (macro[0].get("board_vix") if macro else None) or _vix_regime(None)
 
     return {
         "strategy": STRATEGY_ID,
@@ -612,10 +762,30 @@ def scan_universe(
         "youtube": YOUTUBE_URL,
         "how_it_works": HOW_IT_WORKS,
         "rules": RULES,
+        "philosophy": {
+            "principles": [
+                "Make profit from the market.",
+                "Do not give that profit back — control drawdown.",
+            ],
+            "why_etf": (
+                "Sector ETFs ≈ the baskets MFs hold; typically milder drawdowns than "
+                "single stocks when the index drops ~20%. Returns follow market phase."
+            ),
+            "expected_cagr": {
+                "mf_like": "~12%",
+                "beat_mf_aligned": "15–18%",
+                "strong_bull": "up to ~24%",
+                "note": "Phase-relative — not COVID-era 50–100% guarantees.",
+            },
+            "live_alpha_cite": "~5–6% alpha vs market over ~2–2.5 years (even when market was flat).",
+        },
         "config": {
             "top_n": cfg.top_n,
             "min_rs_score": cfg.min_rs_score,
             "pn_f_box_pct": cfg.pn_f_box_pct,
+            "pn_f_weekly_box_pct": cfg.pn_f_weekly_box_pct,
+            "use_dual_tf_rs": cfg.use_dual_tf_rs,
+            "max_rs_score": MAX_RS_SCORE if cfg.use_dual_tf_rs else 9,
             "renko_box_pct": cfg.renko_box_pct,
             "d_smart_period": cfg.d_smart_period,
             "max_etfs_hold": cfg.max_etfs_hold,
@@ -623,10 +793,14 @@ def scan_universe(
         },
         "macro_board": macro,
         "macro_leader": leader,
+        "vix_regime": vix_info,
         "rebalance_hint": {
             "prefer_friday": cfg.prefer_friday,
             "is_friday_utc": is_friday,
-            "note": "Rebalance weekly — prefer Fridays (IST). Silver-like names need weekly exits.",
+            "note": (
+                "Rebalance weekly — prefer Fridays (IST). "
+                "Volatile names (e.g. Silver) need weekly exits so gains are not given back."
+            ),
         },
         "summary": {
             "scanned": len(results),
@@ -635,6 +809,8 @@ def scan_universe(
             "sell": len(sells),
             "hold": len(holds),
             "errors": len([r for r in results if r.get("error")]),
+            "macro_leader": (leader or {}).get("label") if leader else None,
+            "vix_regime": (vix_info or {}).get("regime"),
         },
         "shortlist": shortlist,
         "daily_board": {"buys": buys, "sells": sells, "holds": holds},
@@ -645,7 +821,7 @@ def scan_universe(
         "disclaimer": (
             "Research / education only — not financial advice. "
             "D-Smart approximated as EMA on Renko closes (Definedge proprietary). "
-            "P&F RS follows the video scoring rules."
+            "P&F RS follows Finding Edge / Jay podcast scoring (0.25% daily + 1% weekly, max 18)."
         ),
     }
 
