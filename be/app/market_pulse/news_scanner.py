@@ -28,6 +28,7 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup
 import json
+import re
 import time
 import logging
 from datetime import date, datetime, timedelta
@@ -279,6 +280,103 @@ def fetch_gift_nifty_5paisa():
         }
     except Exception as e:
         logger.error(f"Error scraping Gift Nifty from 5paisa: {e}")
+        return None
+
+
+_INDIA_VIX_5PAISA_URL = "https://www.5paisa.com/share-market-today/india-vix"
+
+
+def fetch_india_vix_5paisa():
+    """Scrape live India VIX quote from 5paisa.com (same page chrome as Gift Nifty)."""
+    try:
+        resp = requests.get(_INDIA_VIX_5PAISA_URL, headers=_fivepaisa_headers(), timeout=15)
+        if resp.status_code != 200:
+            logger.warning("5paisa India VIX page returned status %s", resp.status_code)
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        prc_block = soup.select_one(".market--prc")
+        if not prc_block:
+            logger.warning("5paisa India VIX price block not found")
+            return None
+
+        big = prc_block.select_one(".prc-bigtext")
+        small = prc_block.select_one(".prc-smalltext")
+        price = None
+        if big:
+            price_text = big.get_text(strip=True)
+            if small:
+                price_text += small.get_text(strip=True)
+            price = _parse_number_text(price_text)
+
+        pct = None
+        change_pts = None
+        pct_label = prc_block.select_one('[class*="prc--percentage"]')
+        if pct_label:
+            for span in pct_label.find_all("span"):
+                txt = span.get_text(strip=True)
+                if not txt:
+                    continue
+                if "%" in txt:
+                    pct = _parse_number_text(txt)
+                elif txt[0] in "+-":
+                    change_pts = _parse_number_text(txt)
+
+        as_of = ""
+        date_el = prc_block.select_one(".market--prc--date")
+        if date_el:
+            as_of = date_el.get_text(" ", strip=True).replace("As on", "").strip()
+
+        # Page body often has open / prev / day range in prose when range widgets are missing
+        open_price = prev_close = day_low = day_high = None
+        body = soup.get_text(" ", strip=True)
+        m_open = re.search(r"opened at\s*₹?\s*([0-9]+(?:\.[0-9]+)?)", body, re.I)
+        if m_open:
+            open_price = _parse_number_text(m_open.group(1))
+        m_prev = re.search(
+            r"previous close of\s*₹?\s*([0-9]+(?:\.[0-9]+)?)", body, re.I
+        )
+        if m_prev:
+            prev_close = _parse_number_text(m_prev.group(1))
+        m_hl = re.search(
+            r"high/low of\s*₹?\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*₹?\s*([0-9]+(?:\.[0-9]+)?)",
+            body,
+            re.I,
+        )
+        if m_hl:
+            day_high = _parse_number_text(m_hl.group(1))
+            day_low = _parse_number_text(m_hl.group(2))
+
+        for range_block in soup.select(".stock-page__range"):
+            text = range_block.get_text(" ", strip=True)
+            if "Day Low" in text and day_low is None:
+                parts = text.split("Day High")
+                day_low = _parse_number_text(parts[0].replace("Day Low", "").strip())
+                if len(parts) > 1:
+                    day_high = _parse_number_text(parts[1].strip())
+
+        if price is None:
+            return None
+
+        if pct is None and prev_close and prev_close > 0:
+            pct = ((price - prev_close) / prev_close) * 100
+        if change_pts is None and prev_close is not None:
+            change_pts = price - prev_close
+
+        return {
+            "price": price,
+            "pct": pct,
+            "change_pts": change_pts,
+            "open": open_price,
+            "prev_close": prev_close,
+            "day_low": day_low,
+            "day_high": day_high,
+            "as_of": as_of,
+            "source": "5paisa.com",
+            "url": _INDIA_VIX_5PAISA_URL,
+        }
+    except Exception as e:
+        logger.error("Error scraping India VIX from 5paisa: %s", e)
         return None
 
 
@@ -4897,6 +4995,7 @@ def _clear_news_scanner_caches() -> None:
     fetch_all_market_data.clear()
     fetch_oilprice_energy_quotes.clear()
     fetch_gift_nifty_5paisa.clear()
+    fetch_india_vix_5paisa.clear()
     fetch_5paisa_global_indices.clear()
     fetch_nse_option_chain.clear()
     fetch_nse_fii_dii.clear()

@@ -56,10 +56,20 @@ YOUTUBE_URL = "https://www.youtube.com/watch?v=a4FmBVfjtNA&t=29s"
 
 # Noise-filter macros (podcast: ignore daily noise — these 6 interconnect everything)
 # + Silver for asset RS ranking examples (Gold/Silver rallies)
+# India VIX live LTP preferred from 5paisa: https://www.5paisa.com/share-market-today/india-vix
 MACRO_ASSETS: list[dict[str, Any]] = [
     {"id": "gold", "label": "Gold", "symbol": "GOLDBEES", "yf": ["GOLDBEES.NS", "GC=F"], "invert": False, "role": "noise"},
     {"id": "usdinr", "label": "USD / INR", "symbol": "USDINR", "yf": ["INR=X", "USDINR=X"], "invert": False, "role": "noise"},
-    {"id": "india_vix", "label": "India VIX", "symbol": "INDIAVIX", "yf": ["^INDIAVIX"], "invert": True, "role": "noise"},
+    {
+        "id": "india_vix",
+        "label": "India VIX",
+        "symbol": "INDIAVIX",
+        "yf": ["^INDIAVIX"],
+        "invert": True,
+        "role": "noise",
+        "live_source": "5paisa",
+        "live_url": "https://www.5paisa.com/share-market-today/india-vix",
+    },
     {"id": "gs_composite", "label": "GS Composite / Bonds", "symbol": "SETF10GILT", "yf": ["^TNX", "TLT", "SETF10GILT.NS"], "invert": True, "role": "noise"},
     {"id": "nifty50", "label": "Nifty 50", "symbol": "NIFTYBEES", "yf": ["^NSEI", "NIFTYBEES.NS"], "invert": False, "role": "noise"},
     {"id": "nifty500", "label": "Nifty 500", "symbol": "MONIFTY500", "yf": ["^CRSLDX", "MONIFTY500.NS", "BSE500IETF.NS"], "invert": False, "role": "noise"},
@@ -122,7 +132,7 @@ COVID-style 50–100% was valuation-suppressed — do not expect a repeat. Live 
 RULES = [
     "Two principles: make profit; do not give profit back (drawdown control).",
     "Noise filter: Gold, USD/INR, India VIX, GS Composite/bonds, Nifty 50, Nifty 500 (+ Silver RS).",
-    "India VIX: >18 fear · <12 calm.",
+    "India VIX: >18 fear · <12 calm (live LTP from 5paisa.com/share-market-today/india-vix).",
     "Top-down sieve: Asset → Group → Sector → ETF via Relative Strength.",
     "P&F box 0.25% ≈ daily, 1% ≈ weekly; score −3…+3 per leg (DTB above MA = +3).",
     "Six legs (price + D1 Nifty50 + D2 Nifty500 × daily + weekly) → max score 18.",
@@ -493,6 +503,92 @@ def _align_benchmarks(
     return out
 
 
+def _ohlc_row(close: float, *, open_: float | None = None, high: float | None = None, low: float | None = None) -> dict[str, float]:
+    c = float(close)
+    o = float(open_ if open_ is not None else c)
+    h = float(high if high is not None else max(o, c))
+    l = float(low if low is not None else min(o, c))
+    return {"open": o, "high": h, "low": l, "close": c, "volume": 0.0}
+
+
+def _fetch_india_vix_frame(
+    *,
+    limit: int = 400,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """
+    India VIX history for RS + live LTP from 5paisa.
+
+    Live: https://www.5paisa.com/share-market-today/india-vix
+    History fallback: Yahoo ^INDIAVIX (when available).
+    """
+    meta: dict[str, Any] = {
+        "live_source": None,
+        "history_source": None,
+        "url": "https://www.5paisa.com/share-market-today/india-vix",
+        "quote": None,
+    }
+    quote = None
+    try:
+        from app.market_pulse.news_scanner import fetch_india_vix_5paisa
+
+        quote = fetch_india_vix_5paisa()
+    except Exception:
+        logger.debug("5paisa India VIX fetch failed", exc_info=True)
+
+    hist = pd.DataFrame()
+    # Prefer direct Yahoo ^INDIAVIX (do not append .NS — common VIX quirk)
+    try:
+        import yfinance as yf
+
+        raw = yf.Ticker("^INDIAVIX").history(period="2y", interval="1d", auto_adjust=True)
+        if raw is not None and not raw.empty:
+            work = raw.rename(columns={c: str(c).lower() for c in raw.columns})
+            keep = [c for c in ("open", "high", "low", "close", "volume") if c in work.columns]
+            hist = work[keep].dropna(subset=["close"]).tail(limit)
+            if not hist.empty:
+                hist.index = pd.to_datetime(hist.index).tz_localize(None)
+                meta["history_source"] = "yfinance:^INDIAVIX"
+    except Exception:
+        logger.debug("Yahoo ^INDIAVIX history failed", exc_info=True)
+
+    live_px = float(quote["price"]) if quote and quote.get("price") is not None else None
+    if live_px is not None and live_px > 0:
+        meta["live_source"] = "5paisa.com"
+        meta["quote"] = quote
+        today = pd.Timestamp.now(tz=None).normalize()
+        row = _ohlc_row(
+            live_px,
+            open_=quote.get("open"),
+            high=quote.get("day_high"),
+            low=quote.get("day_low"),
+        )
+        if hist.empty:
+            prev = quote.get("prev_close")
+            idx = [today - pd.Timedelta(days=1), today]
+            rows = [
+                _ohlc_row(float(prev)) if prev else row,
+                row,
+            ]
+            hist = pd.DataFrame(rows, index=pd.DatetimeIndex(idx))
+            meta["history_source"] = "5paisa.com (live + prev_close)"
+        else:
+            work = hist.copy()
+            idx = pd.to_datetime(work.index)
+            if getattr(idx, "tz", None) is not None:
+                idx = idx.tz_convert(None)
+            work.index = idx
+            last_idx = pd.Timestamp(work.index[-1]).normalize()
+            if last_idx >= today - pd.Timedelta(days=1):
+                for col, val in row.items():
+                    if col in work.columns:
+                        work.iloc[-1, work.columns.get_loc(col)] = val
+            else:
+                work.loc[today] = {c: row.get(c, 0.0) for c in work.columns}
+            hist = work
+
+    return hist, meta
+
+
 def analyze_macro_board(
     *,
     cfg: EtfTopDownConfig,
@@ -500,32 +596,60 @@ def analyze_macro_board(
     exchange: str = "NSE",
 ) -> list[dict[str, Any]]:
     frames: dict[str, pd.DataFrame] = {}
+    vix_meta: dict[str, Any] = {}
     for m in MACRO_ASSETS:
-        frames[m["id"]] = _fetch_symbol(
-            str(m["symbol"]),
-            groww_token=groww_token,
-            exchange=exchange,
-            limit=cfg.lookback_bars,
-            yf_candidates=list(m.get("yf") or []),
-        )
+        if m["id"] == "india_vix":
+            frames[m["id"]], vix_meta = _fetch_india_vix_frame(limit=cfg.lookback_bars)
+        else:
+            frames[m["id"]] = _fetch_symbol(
+                str(m["symbol"]),
+                groww_token=groww_token,
+                exchange=exchange,
+                limit=cfg.lookback_bars,
+                yf_candidates=list(m.get("yf") or []),
+            )
 
     series = _align_benchmarks(frames)
     nifty = series.get("nifty50")
     nifty500 = series.get("nifty500")
     rows: list[dict[str, Any]] = []
+    # Prefer live 5paisa LTP for regime (fear/calm), else last history close
     vix_raw = None
-    if "india_vix" in series and not series["india_vix"].empty:
+    if vix_meta.get("quote") and vix_meta["quote"].get("price") is not None:
+        vix_raw = float(vix_meta["quote"]["price"])
+    elif "india_vix" in series and not series["india_vix"].empty:
         vix_raw = float(series["india_vix"].iloc[-1])
     vix_info = _vix_regime(vix_raw)
+    if vix_meta.get("live_source"):
+        vix_info = {
+            **vix_info,
+            "source": vix_meta.get("live_source"),
+            "url": vix_meta.get("url"),
+            "as_of": (vix_meta.get("quote") or {}).get("as_of"),
+            "change_pct": (vix_meta.get("quote") or {}).get("pct"),
+            "history_source": vix_meta.get("history_source"),
+        }
 
     for m in MACRO_ASSETS:
         mid = m["id"]
         s = series.get(mid)
         if s is None or s.empty:
-            rows.append({
+            err_row: dict[str, Any] = {
                 "id": mid, "label": m["label"], "symbol": m["symbol"],
                 "role": m.get("role"), "error": "No data", "total_score": None, "rank": None,
-            })
+            }
+            if mid == "india_vix" and vix_raw is not None:
+                # Still surface live 5paisa quote for regime even without history
+                err_row.pop("error", None)
+                err_row.update({
+                    "ltp": _r(vix_raw),
+                    "total_score": None,
+                    "vix_regime": vix_info,
+                    "live_source": vix_meta.get("live_source"),
+                    "source_url": vix_meta.get("url"),
+                    "note": "Live VIX from 5paisa; history unavailable for full RS score",
+                })
+            rows.append(err_row)
             continue
         # Inverted assets (VIX, yields): reciprocal so "strength" = calm / falling yields
         work = (1.0 / s.replace(0, np.nan)) if m.get("invert") else s
@@ -537,6 +661,8 @@ def analyze_macro_board(
         )
         total = int(composite["total"])
         last = float(s.iloc[-1])
+        if mid == "india_vix" and vix_raw is not None:
+            last = float(vix_raw)
         row: dict[str, Any] = {
             "id": mid,
             "label": m["label"],
@@ -553,6 +679,11 @@ def analyze_macro_board(
         }
         if mid == "india_vix":
             row["vix_regime"] = vix_info
+            row["live_source"] = vix_meta.get("live_source") or "yfinance"
+            row["source_url"] = vix_meta.get("url") or m.get("live_url")
+            if vix_meta.get("quote"):
+                row["change_pct"] = vix_meta["quote"].get("pct")
+                row["as_of"] = vix_meta["quote"].get("as_of")
         rows.append(row)
 
     scored = [r for r in rows if r.get("total_score") is not None]

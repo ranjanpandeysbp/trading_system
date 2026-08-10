@@ -27,7 +27,7 @@ Source: ${YOUTUBE}
 (Finding Edge podcast — Jay’s low-drawdown ETF swing)
 
 1. Read the macro board first (6 noise filters + Silver RS): who is dominating?
-2. Note India VIX: >18 fear · <12 calm.
+2. Note India VIX (live from 5paisa): >18 fear · <12 calm.
 3. Focus the shortlist: Top 20 ETFs with composite P&F RS > 0 (max 18 = daily 0.25% + weekly 1%).
 4. Act on Renko × D-Smart 10: BUY on cross above, SELL / trail when below.
 5. Prefer Friday weekly rebalance — volatile names (Silver) must not give back the month.
@@ -43,7 +43,7 @@ Philosophy
 • Live cite: ~2–2.5y, market flat but ~5–6% alpha vs market via this ETF swing method.
 
 Setup
-1. Noise filter macros — Gold, USD/INR, India VIX, GS Composite/bonds, Nifty 50, Nifty 500 (+ Silver for RS).
+1. Noise filter macros — Gold, USD/INR, India VIX (5paisa live), GS Composite/bonds, Nifty 50, Nifty 500 (+ Silver for RS).
 2. Top-down sieve — Asset → Group → Sector → ETF via Relative Strength (same stack desks use).
 3. P&F multi-denominator — box 0.25% ≈ daily, 1% ≈ weekly; each leg −3…+3.
    Above MA: DTB +3 · X +2 · O retrace +1 · DBS −1.
@@ -387,6 +387,20 @@ export default function EtfTopDown() {
                   }`}
                 >
                   {String(vixRegime.note)}
+                  {vixRegime.source != null && (
+                    <>
+                      {' · '}
+                      <a
+                        href={String(vixRegime.url || 'https://www.5paisa.com/share-market-today/india-vix')}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sky-400 hover:underline"
+                      >
+                        {String(vixRegime.source)}
+                      </a>
+                      {vixRegime.as_of != null ? ` · ${String(vixRegime.as_of)}` : ''}
+                    </>
+                  )}
                 </p>
               )}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -406,16 +420,30 @@ export default function EtfTopDown() {
                     <p className="mt-1 text-xs text-slate-400">
                       {m.symbol != null ? String(m.symbol) : ''}
                       {m.ltp != null ? ` · ${fmtNum(m.ltp)}` : ''}
+                      {m.change_pct != null ? ` (${fmtNum(m.change_pct)}%)` : ''}
                       {m.role === 'asset_rs' ? ' · asset RS' : ''}
                     </p>
                     <p className="mt-1 text-sm font-semibold text-sky-200">
                       {m.total_score != null
                         ? `RS ${fmtNum(m.total_score, 0)}${m.max_score != null ? `/${fmtNum(m.max_score, 0)}` : ''}`
-                        : String(m.error ?? '—')}
+                        : String(m.error ?? m.note ?? '—')}
                     </p>
                     {(m.daily_score != null || m.weekly_score != null) && (
                       <p className="mt-0.5 text-[11px] text-slate-500">
                         D {fmtNum(m.daily_score, 0)} · W {fmtNum(m.weekly_score, 0)}
+                      </p>
+                    )}
+                    {m.id === 'india_vix' && m.live_source != null && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Live:{' '}
+                        <a
+                          href={String(m.source_url || 'https://www.5paisa.com/share-market-today/india-vix')}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-400 hover:underline"
+                        >
+                          {String(m.live_source)}
+                        </a>
                       </p>
                     )}
                   </div>

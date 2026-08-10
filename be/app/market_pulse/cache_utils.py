@@ -6,6 +6,7 @@ _CACHED_NAMES = (
     "fetch_all_market_data",
     "fetch_oilprice_energy_quotes",
     "fetch_gift_nifty_5paisa",
+    "fetch_india_vix_5paisa",
     "fetch_5paisa_global_indices",
     "fetch_nse_option_chain",
     "fetch_nse_fii_dii",

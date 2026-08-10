@@ -2760,8 +2760,8 @@ Universe: FIRE curated list + ETF Shop presets. Execute near close (~after 3:15 
 **Principles:** (1) Make profit. (2) Don’t give it back — control drawdown. ETFs ≈ MF sector
 baskets; typically milder drops than single stocks. Returns follow **market phase**.
 
-**Noise filter (6):** Gold · USD/INR · India VIX · GS Composite/bonds · Nifty 50 · Nifty 500
-(+ Silver for asset RS). VIX **>18 fear**, **<12 calm**.
+**Noise filter (6):** Gold · USD/INR · India VIX ([5paisa live](https://www.5paisa.com/share-market-today/india-vix)) ·
+GS Composite/bonds · Nifty 50 · Nifty 500 (+ Silver for asset RS). VIX **>18 fear**, **<12 calm**.
 
 **Method**
 1. Top-down sieve — Asset → Group → Sector → ETF via Relative Strength
