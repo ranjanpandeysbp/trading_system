@@ -797,6 +797,30 @@ def analyze_ticker(
         "confidence_reasons": reasons,
         "grade": grade,
         "trade_plan": plan,
+        "trade_setup": {
+            "direction": direction,
+            "action": "BUY" if is_long else "SELL",
+            "signal": "BULLISH" if is_long else "BEARISH",
+            "entry_price": _r(entry),
+            "stop_price": _r(stop) if stop else None,
+            "target_price": _r(target) if target else None,
+            "sl_pct": sl_pct,
+            "tp_pct": tp_pct,
+            "rr": rr,
+            "confidence_pct": confidence_pct,
+            "confidence_reasons": reasons,
+            "grade": grade,
+            "take_trade": take,
+            "reason": (
+                f"{'BUY' if is_long else 'SELL'}: BB + RSI + vol · "
+                f"conf {confidence_pct:.0f}% · SL {sl_pct:.1f}% · TP {tp_pct:.1f}%"
+            ),
+            "plain_english": (
+                f"Risk {sl_pct:.1f}% to stop · aim {tp_pct:.1f}% to T1 · "
+                f"confidence {confidence_pct:.0f}% (grade {grade})."
+            ),
+            "timeframe": cfg.timeframe,
+        },
         "trade_suggestion": {
             "action": "BUY" if is_long else "SELL",
             "entry": _r(entry),

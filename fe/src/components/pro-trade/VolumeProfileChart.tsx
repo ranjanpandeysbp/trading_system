@@ -73,18 +73,38 @@ function PriceTooltip({ active, payload, label, chartType }: any) {
 }
 
 function CandlestickShape(props: any) {
-  const { x, y, width, height, low, high, open, close } = props
-  if (high == null || low == null || high === low) return null
+  const { x, y, width, height, payload } = props
+  const open = Number(payload?.open ?? props.open)
+  const high = Number(payload?.high ?? props.high)
+  const low = Number(payload?.low ?? props.low)
+  const close = Number(payload?.close ?? props.close)
+  if (
+    !Number.isFinite(high) ||
+    !Number.isFinite(low) ||
+    !Number.isFinite(open) ||
+    !Number.isFinite(close) ||
+    high === low
+  ) {
+    return null
+  }
   const isBullish = close >= open
   const color = isBullish ? BULL : BEAR
   const ratio = height / (high - low)
   const bodyTop = y + (high - Math.max(open, close)) * ratio
   const bodyHeight = Math.max(1, Math.abs(close - open) * ratio)
   const cx = x + width / 2
+  const bodyW = Math.max(1, width * 0.7)
   return (
     <g>
       <line x1={cx} y1={y} x2={cx} y2={y + height} stroke={color} strokeWidth={1} />
-      <rect x={x} y={bodyTop} width={Math.max(1, width)} height={bodyHeight} fill={color} stroke={color} />
+      <rect
+        x={x + (width - bodyW) / 2}
+        y={bodyTop}
+        width={bodyW}
+        height={bodyHeight}
+        fill={color}
+        stroke={color}
+      />
     </g>
   )
 }

@@ -169,6 +169,141 @@ def filter_session_bars(df: pd.DataFrame, asset_class: str, *, start_utc: dateti
     return work
 
 
+def _session_chart_bars(df: pd.DataFrame, *, max_bars: int = 240) -> list[dict[str, Any]]:
+    """OHLCV bars for FE candle/line charts (live Falling Knife)."""
+    if df is None or df.empty:
+        return []
+    work = df.tail(max(20, int(max_bars)))
+    rows: list[dict[str, Any]] = []
+    for ts, row in work.iterrows():
+        try:
+            o = float(row["open"])
+            h = float(row["high"])
+            l = float(row["low"])
+            c = float(row["close"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if any(x != x for x in (o, h, l, c)):
+            continue
+        t = pd.Timestamp(ts)
+        vol = None
+        try:
+            if "volume" in row and row["volume"] == row["volume"]:
+                vol = round(float(row["volume"]), 2)
+        except (TypeError, ValueError):
+            vol = None
+        rows.append({
+            "time": t.isoformat(),
+            "label": t.strftime("%H:%M") if (t.hour or t.minute) else t.strftime("%Y-%m-%d"),
+            "open": round(o, 4),
+            "high": round(h, 4),
+            "low": round(l, 4),
+            "close": round(c, 4),
+            "volume": vol,
+        })
+    return rows
+
+
+def _live_trade_setup(
+    sess: pd.DataFrame,
+    *,
+    match_kind: str | None,
+    matched: bool,
+    fall_from_high: float,
+    rise_from_low: float,
+    thr: float,
+    interval: str,
+) -> dict[str, Any]:
+    """Mean-reversion style setup: fall → long bounce, rise → short fade."""
+    from app.market_pulse.pro_trade_shared import (
+        ConfidenceScore,
+        atr as atr_ind,
+        atr_sane_stop_target,
+        pack_trade_setup,
+    )
+
+    entry = float(sess["close"].iloc[-1])
+    high = float(sess["high"].max())
+    low = float(sess["low"].min())
+    atr_s = atr_ind(sess)
+    atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
+
+    if not matched or not match_kind:
+        return pack_trade_setup(
+            direction="WAIT",
+            entry=entry,
+            stop=None,
+            target=None,
+            confidence_pct=15.0,
+            reason="No threshold match",
+            plain_english="No live fall/rise match — no trade setup.",
+            timeframe=interval,
+        )
+
+    # Prefer the larger excursion when both matched.
+    if match_kind == "both":
+        side = "fall" if fall_from_high >= rise_from_low else "rise"
+    else:
+        side = match_kind
+
+    if side == "fall":
+        direction = "LONG"
+        stop = low
+        # Target mid-range toward the window high (partial bounce).
+        mid = low + 0.5 * (high - low)
+        target = max(mid, entry + (atr_v or (entry * 0.01)) * 1.5)
+        if target <= entry:
+            target = entry + abs(entry - stop) * 2.0
+        base = f"Fall ≥{thr:g}% off high — mean-reversion long (knife catch)"
+    else:
+        direction = "SHORT"
+        stop = high
+        mid = high - 0.5 * (high - low)
+        target = min(mid, entry - (atr_v or (entry * 0.01)) * 1.5)
+        if target >= entry:
+            target = entry - abs(stop - entry) * 2.0
+        base = f"Rise ≥{thr:g}% off low — mean-reversion short (fade pump)"
+
+    stop, target, adjusted = atr_sane_stop_target(
+        direction, entry, stop, target, atr_v, default_rr=1.8
+    )
+
+    excess = (fall_from_high if side == "fall" else rise_from_low) - thr
+    score = ConfidenceScore(42.0, base)
+    score.add(matched, 10, "Live window matched threshold", "No match")
+    score.add(excess >= thr * 0.5, 12, "Move well beyond threshold", "Barely at threshold")
+    score.add(excess >= thr, 8, "Move ≥2× threshold — strong extension", None)
+    score.add(atr_v is not None, 6, "ATR available for stop sanity", "No ATR")
+    score.add(not adjusted, 4, "Stop fits ATR band", "Stop ATR-adjusted")
+    if side == "fall":
+        score.add(fall_from_high >= thr, 8, f"Off high −{fall_from_high:.1f}%", None)
+    else:
+        score.add(rise_from_low >= thr, 8, f"Off low +{rise_from_low:.1f}%", None)
+
+    conf, reasons = score.finalize()
+    setup = pack_trade_setup(
+        direction=direction,
+        entry=entry,
+        stop=stop,
+        target=target,
+        confidence_pct=conf,
+        confidence_reasons=reasons,
+        stop_adjusted=adjusted,
+        timeframe=interval,
+    )
+    setup["reason"] = (
+        f"{setup['action']}: {base} · conf {conf:.0f}% · "
+        f"SL {setup.get('sl_pct') or 0:.1f}% · TP {setup.get('tp_pct') or 0:.1f}%"
+    )
+    setup["plain_english"] = (
+        f"{'Buy the dip' if direction == 'LONG' else 'Fade the pump'} after a "
+        f"{'−' if side == 'fall' else '+'}{(fall_from_high if side == 'fall' else rise_from_low):.1f}% "
+        f"window move. Risk {setup.get('sl_pct') or 0:.1f}% · aim {setup.get('tp_pct') or 0:.1f}% · "
+        f"confidence {conf:.0f}% (grade {setup.get('grade')})."
+    )
+    return setup
+
+
 def _analyze_symbol(
     symbol: str,
     *,
@@ -263,6 +398,16 @@ def _analyze_symbol(
             except Exception:
                 return str(ts)
 
+        trade_setup = _live_trade_setup(
+            sess,
+            match_kind=match_kind,
+            matched=matched,
+            fall_from_high=fall_from_high,
+            rise_from_low=rise_from_low,
+            thr=thr,
+            interval=interval,
+        )
+
         return {
             "ticker": symbol,
             "matched": matched,
@@ -289,6 +434,13 @@ def _analyze_symbol(
             "interval": interval,
             "move_side": side,
             "threshold_pct": thr,
+            "chart_data": _session_chart_bars(sess, max_bars=240),
+            "trade_setup": trade_setup,
+            "confidence_pct": trade_setup.get("confidence_pct"),
+            "sl_pct": trade_setup.get("sl_pct"),
+            "tp_pct": trade_setup.get("tp_pct"),
+            "action": trade_setup.get("action"),
+            "setup_direction": trade_setup.get("direction"),
         }
     except Exception as exc:
         logger.debug("Falling knife failed for %s: %s", symbol, exc, exc_info=True)
@@ -891,6 +1043,20 @@ def analyze_history_ticker(
             if r:
                 forecast["rise"] = r
 
+        last = float(sess["close"].iloc[-1])
+        from app.market_pulse.pro_trade_shared import atr as atr_ind, enrich_forecast_trade_setup
+
+        atr_s = atr_ind(sess)
+        atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
+        for key in ("fall", "rise"):
+            if key in forecast:
+                enrich_forecast_trade_setup(
+                    forecast[key],
+                    entry=last,
+                    atr_value=atr_v,
+                    timeframe=interval,
+                )
+
         # Primary next-event pick: soonest future prediction only (never a past slot).
         primary = None
         candidates = [forecast[k] for k in ("fall", "rise") if k in forecast]
@@ -929,7 +1095,7 @@ def analyze_history_ticker(
                 except Exception:
                     pass
 
-        last = float(sess["close"].iloc[-1])
+        trade_setup = (primary or {}).get("trade_setup") if primary else None
         out.update({
             "events": events,
             "fall_count": len(falls),
@@ -937,6 +1103,14 @@ def analyze_history_ticker(
             "event_count": len(events),
             "forecast": forecast,
             "primary_forecast": primary,
+            "trade_setup": trade_setup,
+            "confidence_pct": (
+                (trade_setup or {}).get("confidence_pct")
+                if trade_setup
+                else (primary or {}).get("confidence_pct")
+            ),
+            "sl_pct": (trade_setup or {}).get("sl_pct") if trade_setup else None,
+            "tp_pct": (trade_setup or {}).get("tp_pct") if trade_setup else None,
             "bars_in_range": int(len(sess)),
             "interval": interval,
             "last": _r(last, 4),
@@ -950,6 +1124,7 @@ def analyze_history_ticker(
             "avg_rise_recovery_label": _duration_label(
                 _median([e["recovery_hours"] for e in rises if e.get("recovered")])
             ),
+            "chart_data": _session_chart_bars(sess, max_bars=300),
         })
         return out
     except Exception as exc:

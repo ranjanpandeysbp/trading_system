@@ -861,13 +861,30 @@ def compute_ticker_chart(
         )
         selected_readings = {k: readings[k] for k in selected if k in readings}
 
+        from app.market_pulse.pro_trade_shared import build_bias_sr_trade_setup
+
+        biases = [
+            str((readings.get(k) or {}).get("bias") or "neutral")
+            for k in selected
+            if k in readings
+        ]
+        trade_setup = build_bias_sr_trade_setup(
+            clipped,
+            biases=biases,
+            support=sr.get("s1") if isinstance(sr, dict) else None,
+            resistance=sr.get("r1") if isinstance(sr, dict) else None,
+            timeframe=iv,
+            base_reason="Ticker Chart selected indicators + S1/R1",
+        )
+
         how_to = [
             "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
             "Intraday: pick session date + bar size (1m–1h).",
             "Toggle indicators (RSI, MACD, Supertrend, VWAP, Volume, Bollinger, Fibonacci, EMAs) — overlays and signal text update together.",
+            "Trade setup shows % confidence, %SL, and %TP from selected-indicator tilt + S1/R1 (ATR-sane stops).",
             "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
             "RSI / MACD appear as sub-panels; EMAs / VWAP / BB / Supertrend / Fib overlay on price.",
-            "Break % and indicator tilt are educational heuristics — not a trade signal.",
+            "Educational heuristics — not a trade signal.",
         ]
         if is_crypto:
             how_to.insert(
@@ -899,6 +916,12 @@ def compute_ticker_chart(
             "indicator_readings": readings,
             "selected_indicator_readings": selected_readings,
             "fib_levels": fib_levels,
+            "trade_setup": trade_setup,
+            "confidence_pct": trade_setup.get("confidence_pct"),
+            "sl_pct": trade_setup.get("sl_pct"),
+            "tp_pct": trade_setup.get("tp_pct"),
+            "direction": trade_setup.get("direction"),
+            "action": trade_setup.get("action"),
             "signal_description": signal_description,
             "summary": (
                 f"{resolved} ({display_sym}"

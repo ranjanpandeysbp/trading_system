@@ -20,6 +20,8 @@ import { FormField, Input, Select } from '../components/ui/Form'
 import { Alert, Loading } from '../components/ui/Feedback'
 import { DataTable, Td, Th } from '../components/ui/Table'
 import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
+import { VolumeProfileChart, type VpChartBar } from '../components/pro-trade/VolumeProfileChart'
+import { TradeSetupBanner, tradeSetupFromResult } from '../components/pro-trade/TradeSetupBanner'
 
 type Row = Record<string, unknown>
 
@@ -53,7 +55,12 @@ Sessions
 · Crypto — 24×7
 · Commodities — ~24×5 futures (Sun–Fri ET)
 
-Educational only — not a buy/sell signal.`
+Educational only — not a buy/sell signal.
+
+Trade setup
+· Live: matched falls → mean-reversion BUY (knife catch); rises → SELL fade.
+· History: next-event forecast includes % confidence, %SL, and %TP (ATR-sane).
+· Always shown as Conf % · SL % · TP %.`
 
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
@@ -101,6 +108,28 @@ function defaultFromDate(daysBack = 90) {
   return d.toISOString().slice(0, 10)
 }
 
+function toVpBars(raw: unknown): VpChartBar[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((b) => {
+      const row = b as Row
+      const open = Number(row.open)
+      const high = Number(row.high)
+      const low = Number(row.low)
+      const close = Number(row.close)
+      if (![open, high, low, close].every(Number.isFinite)) return null
+      return {
+        time: String(row.time ?? row.label ?? ''),
+        open,
+        high,
+        low,
+        close,
+        volume: row.volume != null && Number.isFinite(Number(row.volume)) ? Number(row.volume) : null,
+      } as VpChartBar
+    })
+    .filter((b): b is VpChartBar => Boolean(b && b.time))
+}
+
 function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetClass }) {
   const [open, setOpen] = useState(false)
   const events = (row.events as Row[] | undefined) ?? []
@@ -108,6 +137,13 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
   const primary = (row.primary_forecast as Row | undefined) ?? null
   const fallF = (forecast.fall as Row | undefined) ?? null
   const riseF = (forecast.rise as Row | undefined) ?? null
+  const chartBars = useMemo(() => toVpBars(row.chart_data), [row.chart_data])
+  const tradeSetup = useMemo(() => {
+    const fromRow = tradeSetupFromResult(row)
+    if (fromRow) return fromRow
+    if (primary) return tradeSetupFromResult(primary)
+    return null
+  }, [row, primary])
 
   return (
     <div className="rounded-xl border border-slate-800/70 bg-slate-950/40">
@@ -128,6 +164,11 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
             {primary != null && (
               <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
                 Next {String(primary.direction)} · {String(primary.confidence_pct)}% conf
+              </span>
+            )}
+            {tradeSetup?.sl_pct != null && tradeSetup?.tp_pct != null && (
+              <span className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] text-slate-300">
+                SL {fmtNum(tradeSetup.sl_pct, 1)}% · TP {fmtNum(tradeSetup.tp_pct, 1)}%
               </span>
             )}
           </div>
@@ -164,6 +205,7 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
 
       {open && (
         <div className="space-y-4 border-t border-slate-800/60 px-4 py-3">
+          {tradeSetup && <TradeSetupBanner setup={tradeSetup} />}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg bg-slate-900/50 p-3">
               <p className="text-[11px] uppercase tracking-wide text-slate-500">Last</p>
@@ -206,6 +248,16 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
                       ? ` · rolled +${String(fallF.cycles_skipped)} past cycle(s)`
                       : ''}
                   </p>
+                  {(fallF.sl_pct != null || fallF.tp_pct != null) && (
+                    <p className="mt-1.5 text-xs">
+                      <span className="text-rose-300">SL {fmtNum(fallF.sl_pct, 1)}%</span>
+                      <span className="text-slate-600"> · </span>
+                      <span className="text-emerald-300">TP {fmtNum(fallF.tp_pct, 1)}%</span>
+                      {fallF.action != null ? (
+                        <span className="text-slate-500"> · {String(fallF.action)}</span>
+                      ) : null}
+                    </p>
+                  )}
                 </div>
               )}
               {riseF && (
@@ -220,9 +272,26 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
                       ? ` · rolled +${String(riseF.cycles_skipped)} past cycle(s)`
                       : ''}
                   </p>
+                  {(riseF.sl_pct != null || riseF.tp_pct != null) && (
+                    <p className="mt-1.5 text-xs">
+                      <span className="text-rose-300">SL {fmtNum(riseF.sl_pct, 1)}%</span>
+                      <span className="text-slate-600"> · </span>
+                      <span className="text-emerald-300">TP {fmtNum(riseF.tp_pct, 1)}%</span>
+                      {riseF.action != null ? (
+                        <span className="text-slate-500"> · {String(riseF.action)}</span>
+                      ) : null}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
+          )}
+
+          {chartBars.length > 0 && (
+            <VolumeProfileChart
+              chartData={chartBars}
+              readingGuide="Toggle Candles / Line above the chart. Session OHLC for this ticker over the selected history window."
+            />
           )}
 
           {!events.length ? (
@@ -296,6 +365,7 @@ export default function FallingKnife() {
   const [thresholdPct, setThresholdPct] = useState(10)
   const [error, setError] = useState('')
   const [showMatchedOnly, setShowMatchedOnly] = useState(true)
+  const [selectedLiveTicker, setSelectedLiveTicker] = useState<string | null>(null)
 
   const sessionQ = useQuery({
     queryKey: ['falling-knife-session', assetClass],
@@ -338,6 +408,18 @@ export default function FallingKnife() {
   const results = (data?.results as Row[] | undefined) ?? []
   const session = ((data?.session as Row | undefined) ?? (sessionQ.data as Row | undefined)?.session) as Row | undefined
   const liveRows = showMatchedOnly ? knives : results
+  const selectedLiveRow = useMemo(() => {
+    if (!liveRows.length) return null
+    if (selectedLiveTicker) {
+      const hit = liveRows.find((r) => String(r.ticker) === selectedLiveTicker)
+      if (hit) return hit
+    }
+    return liveRows[0] ?? null
+  }, [liveRows, selectedLiveTicker])
+  const selectedLiveBars = useMemo(
+    () => toVpBars(selectedLiveRow?.chart_data),
+    [selectedLiveRow],
+  )
   const askContext = data ? buildAskContext('Falling Knife', data) : ''
 
   const presets = useMemo(
@@ -574,78 +656,130 @@ export default function FallingKnife() {
                   : 'No rows.'}
               </p>
             ) : (
-              <DataTable>
-                <thead>
-                  <tr>
-                    <Th>#</Th>
-                    <Th>Ticker</Th>
-                    <Th>Net change %</Th>
-                    <Th>Off high %</Th>
-                    <Th>Off low %</Th>
-                    <Th>Last</Th>
-                    <Th>Open</Th>
-                    <Th>High</Th>
-                    <Th>Low</Th>
-                    <Th>H→L %</Th>
-                    <Th>Bars</Th>
-                    <Th>Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {liveRows.map((r, i) => {
-                    const matchFall = Boolean(r.match_fall)
-                    const matchRise = Boolean(r.match_rise)
-                    let statusLabel = '—'
-                    let statusClass = 'text-xs text-slate-500'
-                    if (r.error) {
-                      statusLabel = String(r.error)
-                      statusClass = 'text-xs text-amber-400'
-                    } else if (matchFall && matchRise) {
-                      statusLabel = 'Fall + Rise'
-                      statusClass = 'text-xs text-amber-300'
-                    } else if (matchFall) {
-                      statusLabel = 'Fall'
-                      statusClass = 'text-xs text-rose-300'
-                    } else if (matchRise) {
-                      statusLabel = 'Rise'
-                      statusClass = 'text-xs text-emerald-300'
-                    }
-                    return (
-                      <tr key={`${r.ticker}-${i}`}>
-                        <Td>{i + 1}</Td>
-                        <Td>
-                          <span className="font-semibold text-white">{String(r.ticker)}</span>
-                          {r.direction != null && (
-                            <span className="ml-2 text-[10px] uppercase text-slate-500">{String(r.direction)}</span>
-                          )}
-                        </Td>
-                        <Td>
-                          <span className={changeClass(r.change_pct)}>{fmtSignedPct(r.change_pct)}</span>
-                        </Td>
-                        <Td>
-                          <span className={matchFall ? 'font-semibold text-rose-300' : 'text-slate-300'}>
-                            {r.fall_from_high_pct != null ? `−${fmtNum(r.fall_from_high_pct)}%` : '—'}
-                          </span>
-                        </Td>
-                        <Td>
-                          <span className={matchRise ? 'font-semibold text-emerald-300' : 'text-emerald-300/70'}>
-                            {r.rise_from_low_pct != null ? `+${fmtNum(r.rise_from_low_pct)}%` : '—'}
-                          </span>
-                        </Td>
-                        <Td>{fmtPx(r.last, assetClass)}</Td>
-                        <Td>{fmtPx(r.window_open, assetClass)}</Td>
-                        <Td>{fmtPx(r.window_high, assetClass)}</Td>
-                        <Td>{fmtPx(r.window_low, assetClass)}</Td>
-                        <Td>{r.range_high_to_low_pct != null ? `${fmtNum(r.range_high_to_low_pct)}%` : '—'}</Td>
-                        <Td>{r.bars_in_window != null ? String(r.bars_in_window) : '—'}</Td>
-                        <Td>
-                          <span className={statusClass}>{statusLabel}</span>
-                        </Td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </DataTable>
+              <>
+                <p className="mb-2 text-xs text-slate-500">
+                  Click a row to load its chart (Candles / Line toggle on the chart).
+                </p>
+                <DataTable>
+                  <thead>
+                    <tr>
+                      <Th>#</Th>
+                      <Th>Ticker</Th>
+                      <Th>Net change %</Th>
+                      <Th>Off high %</Th>
+                      <Th>Off low %</Th>
+                      <Th>Conf %</Th>
+                      <Th>SL %</Th>
+                      <Th>TP %</Th>
+                      <Th>Last</Th>
+                      <Th>Open</Th>
+                      <Th>High</Th>
+                      <Th>Low</Th>
+                      <Th>H→L %</Th>
+                      <Th>Bars</Th>
+                      <Th>Status</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {liveRows.map((r, i) => {
+                      const matchFall = Boolean(r.match_fall)
+                      const matchRise = Boolean(r.match_rise)
+                      const isSelected = String(selectedLiveRow?.ticker ?? '') === String(r.ticker)
+                      const setup = tradeSetupFromResult(r)
+                      let statusLabel = '—'
+                      let statusClass = 'text-xs text-slate-500'
+                      if (r.error) {
+                        statusLabel = String(r.error)
+                        statusClass = 'text-xs text-amber-400'
+                      } else if (matchFall && matchRise) {
+                        statusLabel = 'Fall + Rise'
+                        statusClass = 'text-xs text-amber-300'
+                      } else if (matchFall) {
+                        statusLabel = 'Fall'
+                        statusClass = 'text-xs text-rose-300'
+                      } else if (matchRise) {
+                        statusLabel = 'Rise'
+                        statusClass = 'text-xs text-emerald-300'
+                      }
+                      return (
+                        <tr
+                          key={`${r.ticker}-${i}`}
+                          className={`cursor-pointer ${isSelected ? 'bg-sky-500/10' : 'hover:bg-slate-800/40'}`}
+                          onClick={() => setSelectedLiveTicker(String(r.ticker))}
+                        >
+                          <Td>{i + 1}</Td>
+                          <Td>
+                            <span className="font-semibold text-white">{String(r.ticker)}</span>
+                            {r.direction != null && (
+                              <span className="ml-2 text-[10px] uppercase text-slate-500">{String(r.direction)}</span>
+                            )}
+                            {setup?.action != null && setup.action !== 'WAIT' && (
+                              <span
+                                className={`ml-2 text-[10px] font-semibold ${
+                                  setup.action === 'BUY' ? 'text-emerald-400' : 'text-rose-400'
+                                }`}
+                              >
+                                {String(setup.action)}
+                              </span>
+                            )}
+                          </Td>
+                          <Td>
+                            <span className={changeClass(r.change_pct)}>{fmtSignedPct(r.change_pct)}</span>
+                          </Td>
+                          <Td>
+                            <span className={matchFall ? 'font-semibold text-rose-300' : 'text-slate-300'}>
+                              {r.fall_from_high_pct != null ? `−${fmtNum(r.fall_from_high_pct)}%` : '—'}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className={matchRise ? 'font-semibold text-emerald-300' : 'text-emerald-300/70'}>
+                              {r.rise_from_low_pct != null ? `+${fmtNum(r.rise_from_low_pct)}%` : '—'}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="text-slate-200">
+                              {setup?.confidence_pct != null ? `${fmtNum(setup.confidence_pct, 0)}%` : '—'}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="text-rose-300">
+                              {setup?.sl_pct != null ? `${fmtNum(setup.sl_pct, 1)}%` : '—'}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="text-emerald-300">
+                              {setup?.tp_pct != null ? `${fmtNum(setup.tp_pct, 1)}%` : '—'}
+                            </span>
+                          </Td>
+                          <Td>{fmtPx(r.last, assetClass)}</Td>
+                          <Td>{fmtPx(r.window_open, assetClass)}</Td>
+                          <Td>{fmtPx(r.window_high, assetClass)}</Td>
+                          <Td>{fmtPx(r.window_low, assetClass)}</Td>
+                          <Td>{r.range_high_to_low_pct != null ? `${fmtNum(r.range_high_to_low_pct)}%` : '—'}</Td>
+                          <Td>{r.bars_in_window != null ? String(r.bars_in_window) : '—'}</Td>
+                          <Td>
+                            <span className={statusClass}>{statusLabel}</span>
+                          </Td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </DataTable>
+                {selectedLiveBars.length > 0 && selectedLiveRow && (
+                  <div className="mt-4 border-t border-slate-800/60 pt-4">
+                    <p className="mb-2 text-sm font-medium text-white">
+                      Chart · {String(selectedLiveRow.ticker)}
+                    </p>
+                    <div className="mb-3">
+                      <TradeSetupBanner setup={tradeSetupFromResult(selectedLiveRow)} />
+                    </div>
+                    <VolumeProfileChart
+                      chartData={selectedLiveBars}
+                      readingGuide="Use Candles or Line. Live session window high/low drive the fall/rise match."
+                    />
+                  </div>
+                )}
+              </>
             )}
           </Card>
 

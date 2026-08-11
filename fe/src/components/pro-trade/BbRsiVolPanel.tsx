@@ -5,6 +5,7 @@ import { AddToWatchlistButton } from '../watchlist/AddToWatchlistButton'
 import type { WatchlistMarket } from '../watchlist/WatchlistMarketContext'
 import { AskAIPanel } from '../ai/AskAIPanel'
 import { VolumeProfileChart, type VpChartBar, type VpLevel, type VpSeries } from './VolumeProfileChart'
+import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 
 type Row = Record<string, unknown>
 
@@ -132,6 +133,7 @@ function TickerResultCard({
 
       {open && !result.error && (
         <div className="space-y-3 border-t border-slate-800/70 px-4 py-3">
+          <TradeSetupBanner setup={tradeSetupFromResult(result)} />
           {(result.plain_english != null || result.reason != null) && (
             <div
               className={`rounded-lg border px-3 py-2.5 text-sm leading-relaxed ${

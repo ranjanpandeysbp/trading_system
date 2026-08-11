@@ -189,6 +189,268 @@ def quality_grade(confidence_pct: float, rr: float | None, liquidity_is_ok: bool
     return "C"
 
 
+def pack_trade_setup(
+    *,
+    direction: str,
+    entry: float | None,
+    stop: float | None,
+    target: float | None,
+    confidence_pct: float,
+    confidence_reasons: list[str] | None = None,
+    grade: str | None = None,
+    take_trade: bool | None = None,
+    reason: str | None = None,
+    plain_english: str | None = None,
+    timeframe: str | None = None,
+    stop_adjusted: bool = False,
+) -> dict[str, Any]:
+    """Canonical trade-setup payload: % confidence, %SL, %TP (+ levels)."""
+    dir_key = (direction or "WAIT").upper()
+    if dir_key in ("BUY", "BULLISH"):
+        dir_key = "LONG"
+    elif dir_key in ("SELL", "BEARISH"):
+        dir_key = "SHORT"
+    elif dir_key not in ("LONG", "SHORT"):
+        dir_key = "WAIT"
+
+    sl_pct, tp_pct = (None, None)
+    if entry and dir_key in ("LONG", "SHORT"):
+        sl_pct, tp_pct = sl_tp_pct(dir_key, float(entry), stop, target)
+    rr = rr_ratio(sl_pct, tp_pct)
+    conf = round(float(confidence_pct or 0), 1)
+    if grade is None:
+        grade = quality_grade(conf, rr, True, stop_adjusted) if dir_key != "WAIT" else "C"
+    if take_trade is None:
+        take_trade = dir_key in ("LONG", "SHORT") and conf >= 55 and meets_rr_floor(sl_pct, tp_pct, 1.2)
+
+    action = "BUY" if dir_key == "LONG" else ("SELL" if dir_key == "SHORT" else "WAIT")
+    signal = "BULLISH" if dir_key == "LONG" else ("BEARISH" if dir_key == "SHORT" else "NEUTRAL")
+
+    def _r(v: float | None, d: int = 4) -> float | None:
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return round(f, d) if f == f else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "direction": dir_key,
+        "action": action,
+        "signal": signal,
+        "entry_price": _r(entry),
+        "stop_price": _r(stop),
+        "target_price": _r(target),
+        "sl_pct": round(sl_pct, 2) if sl_pct is not None else None,
+        "tp_pct": round(tp_pct, 2) if tp_pct is not None else None,
+        "rr": rr,
+        "confidence_pct": conf,
+        "confidence_reasons": list(confidence_reasons or []),
+        "grade": grade,
+        "take_trade": bool(take_trade),
+        "reason": reason,
+        "plain_english": plain_english,
+        "timeframe": timeframe,
+    }
+
+
+def build_bias_sr_trade_setup(
+    df: pd.DataFrame,
+    *,
+    biases: list[str],
+    support: float | None = None,
+    resistance: float | None = None,
+    timeframe: str = "1d",
+    base_reason: str = "Indicator tilt + S/R levels",
+) -> dict[str, Any]:
+    """Build a trade setup from bullish/bearish bias votes + nearest S/R + ATR."""
+    if df is None or df.empty or "close" not in df.columns:
+        return pack_trade_setup(
+            direction="WAIT",
+            entry=None,
+            stop=None,
+            target=None,
+            confidence_pct=10.0,
+            reason="Insufficient price data",
+            plain_english="No trade setup — insufficient bars.",
+            timeframe=timeframe,
+        )
+
+    entry = float(df["close"].iloc[-1])
+    atr_s = atr(df)
+    atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
+
+    bull = sum(1 for b in biases if str(b).lower() == "bullish")
+    bear = sum(1 for b in biases if str(b).lower() == "bearish")
+    voted = bull + bear
+
+    if bull > bear:
+        direction = "LONG"
+    elif bear > bull:
+        direction = "SHORT"
+    elif support and resistance and entry:
+        mid = (float(support) + float(resistance)) / 2.0
+        direction = "LONG" if entry <= mid else "SHORT"
+    else:
+        direction = "WAIT"
+
+    if direction == "WAIT" or not entry:
+        return pack_trade_setup(
+            direction="WAIT",
+            entry=entry,
+            stop=None,
+            target=None,
+            confidence_pct=25.0,
+            confidence_reasons=["Mixed / neutral indicator tilt — no clear side"],
+            reason="WAIT: no clear directional tilt",
+            plain_english="Indicators are mixed — wait for a clearer lean before risking capital.",
+            timeframe=timeframe,
+        )
+
+    is_long = direction == "LONG"
+    if is_long:
+        stop = float(support) if support and support < entry else None
+        target = float(resistance) if resistance and resistance > entry else None
+        if stop is None and atr_v:
+            stop = entry - 1.2 * atr_v
+        if target is None and stop is not None:
+            target = entry + 2.0 * abs(entry - stop)
+    else:
+        stop = float(resistance) if resistance and resistance > entry else None
+        target = float(support) if support and support < entry else None
+        if stop is None and atr_v:
+            stop = entry + 1.2 * atr_v
+        if target is None and stop is not None:
+            target = entry - 2.0 * abs(stop - entry)
+
+    stop, target, adjusted = atr_sane_stop_target(
+        direction, entry, stop, target, atr_v, default_rr=2.0
+    )
+
+    score = ConfidenceScore(38.0, base_reason)
+    score.add(voted >= 1, 10, f"{bull} bull / {bear} bear among selected indicators", "No directional indicator votes")
+    score.add(abs(bull - bear) >= 2, 12, "Clear majority tilt", "Tilt is thin (1-vote edge)")
+    score.add(bool(support and resistance), 10, "S1/R1 levels available for SL/TP", "Missing S/R — ATR used")
+    score.add(atr_v is not None and atr_v > 0, 6, "ATR available for stop sanity", "No ATR")
+    score.add(not adjusted, 4, "Stop fits ATR band", "Stop widened/narrowed to ATR band")
+    if is_long:
+        score.add(support is not None and support < entry, 8, "Support below entry for long SL", "No support under entry")
+        score.add(resistance is not None and resistance > entry, 6, "Resistance above for long TP", "No resistance overhead")
+    else:
+        score.add(resistance is not None and resistance > entry, 8, "Resistance above entry for short SL", "No resistance over entry")
+        score.add(support is not None and support < entry, 6, "Support below for short TP", "No support underneath")
+
+    conf, reasons = score.finalize()
+    setup = pack_trade_setup(
+        direction=direction,
+        entry=entry,
+        stop=stop,
+        target=target,
+        confidence_pct=conf,
+        confidence_reasons=reasons,
+        stop_adjusted=adjusted,
+        timeframe=timeframe,
+    )
+    setup["reason"] = (
+        f"{setup['action']}: {base_reason} · conf {conf:.0f}% · "
+        f"SL {setup.get('sl_pct') or 0:.1f}% · TP {setup.get('tp_pct') or 0:.1f}%"
+    )
+    setup["plain_english"] = (
+        f"{'Buy' if is_long else 'Sell'} setup: selected indicators lean "
+        f"{'bullish' if is_long else 'bearish'} ({bull}↑ / {bear}↓). "
+        f"Risk {setup.get('sl_pct') or 0:.1f}% to stop · aim {setup.get('tp_pct') or 0:.1f}% to target "
+        f"· confidence {conf:.0f}% (grade {setup.get('grade')})."
+    )
+    return setup
+
+
+def enrich_forecast_trade_setup(
+    forecast: dict[str, Any] | None,
+    *,
+    entry: float | None,
+    atr_value: float | None = None,
+    timeframe: str = "1d",
+) -> dict[str, Any] | None:
+    """Attach %SL / %TP to a Falling Knife (or similar) forecast that already has confidence %."""
+    if not forecast or not isinstance(forecast, dict):
+        return forecast
+    direction_raw = str(forecast.get("direction") or "").lower()
+    # Historical fall forecast → short bias into the dump; rise → long into the pump.
+    direction = "SHORT" if direction_raw == "fall" else ("LONG" if direction_raw == "rise" else "WAIT")
+    conf = float(forecast.get("confidence_pct") or 40.0)
+    move = forecast.get("predicted_magnitude_pct") or forecast.get("predicted_move_pct")
+    try:
+        move_abs = abs(float(move)) if move is not None else None
+    except (TypeError, ValueError):
+        move_abs = None
+
+    if direction == "WAIT" or not entry:
+        forecast["trade_setup"] = pack_trade_setup(
+            direction="WAIT",
+            entry=entry,
+            stop=None,
+            target=None,
+            confidence_pct=conf,
+            reason="No actionable side from forecast",
+            timeframe=timeframe,
+        )
+        return forecast
+
+    # Risk ~0.4× typical move (or 1.2× ATR); reward = typical move magnitude.
+    if atr_value and atr_value > 0 and entry:
+        sl_dist = 1.2 * atr_value
+    elif move_abs and entry:
+        sl_dist = entry * (max(0.4, move_abs * 0.4) / 100.0)
+    else:
+        sl_dist = entry * 0.015 if entry else None
+
+    if move_abs and entry:
+        tp_dist = entry * (move_abs / 100.0)
+    elif sl_dist:
+        tp_dist = sl_dist * 2.0
+    else:
+        tp_dist = None
+
+    if direction == "LONG":
+        stop = entry - sl_dist if sl_dist else None
+        target = entry + tp_dist if tp_dist else None
+    else:
+        stop = entry + sl_dist if sl_dist else None
+        target = entry - tp_dist if tp_dist else None
+
+    stop, target, adjusted = atr_sane_stop_target(
+        direction, float(entry), stop, target, atr_value, default_rr=2.0
+    )
+    setup = pack_trade_setup(
+        direction=direction,
+        entry=float(entry),
+        stop=stop,
+        target=target,
+        confidence_pct=conf,
+        confidence_reasons=[
+            f"Forecast {direction_raw} · samples {forecast.get('samples')}",
+            f"Typical move {move_abs:.1f}%" if move_abs else "Move size unknown",
+        ],
+        stop_adjusted=adjusted,
+        timeframe=timeframe,
+        reason=(
+            f"{'SELL' if direction == 'SHORT' else 'BUY'} into next {direction_raw}: "
+            f"conf {conf:.0f}%"
+        ),
+        plain_english=str(forecast.get("plain_english") or ""),
+    )
+    forecast["trade_setup"] = setup
+    forecast["sl_pct"] = setup.get("sl_pct")
+    forecast["tp_pct"] = setup.get("tp_pct")
+    forecast["rr"] = setup.get("rr")
+    forecast["action"] = setup.get("action")
+    forecast["entry_price"] = setup.get("entry_price")
+    forecast["stop_price"] = setup.get("stop_price")
+    forecast["target_price"] = setup.get("target_price")
+    return forecast
+
+
 # ---------------------------------------------------------------------------
 # Per-ticker "Ask AI" prompt — shared context builder + system prompt used by
 # every Pro Trade submenu's per-result "Ask AI" panel. Two output shapes exist

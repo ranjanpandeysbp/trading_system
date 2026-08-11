@@ -22,10 +22,22 @@ import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { TickerAutosuggest } from '../ui/TickerAutosuggest'
 import { CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
+import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
 type Row = Record<string, unknown>
 type ChartMode = 'daily' | 'intraday'
+type ChartStyle = 'candles' | 'line'
+
+type Candle = {
+  t?: string
+  label?: string
+  open?: number
+  high?: number
+  low?: number
+  close?: number
+  volume?: number | null
+}
 
 type SrLevel = { key?: string; label: string; kind: string; price: number }
 type SupportResistance = {
@@ -88,6 +100,37 @@ const OVERLAY_COLORS: Record<string, string> = {
   bb_upper: '#64748b',
   bb_mid: '#94a3b8',
   bb_lower: '#64748b',
+}
+
+const BULL = '#10b981'
+const BEAR = '#f43f5e'
+
+function CandlestickShape(props: {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  payload?: Record<string, unknown>
+}) {
+  const { x = 0, y = 0, width = 0, height = 0, payload } = props
+  const open = Number(payload?.open)
+  const high = Number(payload?.high)
+  const low = Number(payload?.low)
+  const close = Number(payload?.close)
+  if (![open, high, low, close].every(Number.isFinite) || high === low) return null
+  const isBullish = close >= open
+  const color = isBullish ? BULL : BEAR
+  const ratio = height / (high - low)
+  const bodyTop = y + (high - Math.max(open, close)) * ratio
+  const bodyHeight = Math.max(1, Math.abs(close - open) * ratio)
+  const cx = x + width / 2
+  const bodyW = Math.max(1, width * 0.7)
+  return (
+    <g>
+      <line x1={cx} y1={y} x2={cx} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={x + (width - bodyW) / 2} y={bodyTop} width={bodyW} height={bodyHeight} fill={color} stroke={color} />
+    </g>
+  )
 }
 
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
@@ -237,6 +280,7 @@ function OscillatorChart({
 
 function PriceChart({
   points,
+  candles,
   supportResistance,
   title,
   volumeSrSummary,
@@ -244,12 +288,14 @@ function PriceChart({
   fibLevels,
 }: {
   points: Row[]
+  candles?: Candle[]
   supportResistance?: SupportResistance | null
   title: string
   volumeSrSummary?: VolumeSrSummary | null
   selected: IndicatorId[]
   fibLevels?: SrLevel[]
 }) {
+  const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const showVolume = selected.includes('volume')
   const showBb = selected.includes('bollinger')
   const showFib = selected.includes('fibonacci')
@@ -312,9 +358,51 @@ function PriceChart({
     return keys
   }, [selected, showBb])
 
+  const chartRows = useMemo(() => {
+    const byT = new Map<string, Candle>()
+    for (const c of candles ?? []) {
+      if (c?.t) byT.set(String(c.t), c)
+      if (c?.label) byT.set(String(c.label), c)
+    }
+    return points.map((p) => {
+      const t = String(p.t ?? '')
+      const label = String(p.label ?? '')
+      const c = byT.get(t) || byT.get(label)
+      const close = Number(c?.close ?? p.value)
+      const open = Number(c?.open ?? close)
+      const high = Number(c?.high ?? Math.max(open, close))
+      const low = Number(c?.low ?? Math.min(open, close))
+      return {
+        ...p,
+        open,
+        high,
+        low,
+        close,
+        range: [low, high] as [number, number],
+      }
+    })
+  }, [points, candles])
+
+  const hasCandles = useMemo(
+    () => chartRows.some((r) => Number(r.high) !== Number(r.low) && Number.isFinite(Number(r.open))),
+    [chartRows],
+  )
+  const effectiveStyle: ChartStyle = chartStyle === 'candles' && hasCandles ? 'candles' : 'line'
+
   const yDomain = useMemo((): [number | string, number | string] => {
-    if (!points.length) return ['auto', 'auto']
-    const vals = points.map((p) => Number(p.value)).filter((n) => Number.isFinite(n))
+    if (!chartRows.length) return ['auto', 'auto']
+    const vals: number[] = []
+    for (const p of chartRows) {
+      if (effectiveStyle === 'candles') {
+        const hi = Number(p.high)
+        const lo = Number(p.low)
+        if (Number.isFinite(hi)) vals.push(hi)
+        if (Number.isFinite(lo)) vals.push(lo)
+      } else {
+        const n = Number(p.value ?? p.close)
+        if (Number.isFinite(n)) vals.push(n)
+      }
+    }
     if (!vals.length) return ['auto', 'auto']
     let lo = Math.min(...vals)
     let hi = Math.max(...vals)
@@ -327,7 +415,7 @@ function PriceChart({
       hi = Math.max(hi, lv.price)
     }
     for (const ov of overlayKeys) {
-      for (const p of points) {
+      for (const p of chartRows) {
         const n = Number(p[ov.key])
         if (Number.isFinite(n)) {
           lo = Math.min(lo, n)
@@ -337,7 +425,7 @@ function PriceChart({
     }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [points, levels, fibRefs, overlayKeys])
+  }, [chartRows, levels, fibRefs, overlayKeys, effectiveStyle])
 
   if (!points.length) {
     return (
@@ -349,17 +437,25 @@ function PriceChart({
 
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className="text-[10px] text-slate-500">
-          green = support · red = resistance
-          {showVolume ? ' · grey = volume' : ''}
-          {showFib ? ' · amber = fib' : ''}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>
+            Candles
+          </Chip>
+          <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>
+            Line
+          </Chip>
+          <span className="text-[10px] text-slate-500">
+            green = support · red = resistance
+            {showVolume ? ' · grey = volume' : ''}
+            {showFib ? ' · amber = fib' : ''}
+          </span>
+        </div>
       </div>
       <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={points} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartRows} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={32} />
             <YAxis
@@ -391,7 +487,32 @@ function PriceChart({
                 if (name === 'volume') {
                   return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
                 }
+                if (name === 'Price' || name === 'range') return null
                 return [Number(value).toFixed(3), name]
+              }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              content={({ active, payload, label }: any) => {
+                if (!active || !payload?.length) return null
+                const row = payload[0]?.payload
+                if (!row) return null
+                return (
+                  <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11, padding: '8px 10px' }}>
+                    <p style={{ color: '#e2e8f0', marginBottom: 4 }}>{String(label)}</p>
+                    {effectiveStyle === 'candles' ? (
+                      <>
+                        <p style={{ color: '#94a3b8' }}>O: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.open)}</span></p>
+                        <p style={{ color: '#94a3b8' }}>H: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.high)}</span></p>
+                        <p style={{ color: '#94a3b8' }}>L: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.low)}</span></p>
+                        <p style={{ color: '#94a3b8' }}>C: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.close)}</span></p>
+                      </>
+                    ) : (
+                      <p style={{ color: '#94a3b8' }}>Close: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.value ?? row.close)}</span></p>
+                    )}
+                    {row.volume != null && (
+                      <p style={{ color: '#94a3b8' }}>Vol: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.volume, 0)}</span></p>
+                    )}
+                  </div>
+                )
               }}
             />
             {levels.map((lv) => {
@@ -435,15 +556,19 @@ function PriceChart({
             {showVolume && hasVolumeData && (
               <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />
             )}
-            <Line
-              yAxisId="price"
-              type="monotone"
-              dataKey="value"
-              stroke="#38bdf8"
-              strokeWidth={2}
-              dot={false}
-              name="Close"
-            />
+            {effectiveStyle === 'candles' ? (
+              <Bar yAxisId="price" dataKey="range" name="Price" shape={CandlestickShape} isAnimationActive={false} />
+            ) : (
+              <Line
+                yAxisId="price"
+                type="monotone"
+                dataKey="value"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                dot={false}
+                name="Close"
+              />
+            )}
             {overlayKeys.map((ov) => (
               <Line
                 key={ov.key}
@@ -549,10 +674,11 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
     }, 350)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: refetch on control changes only
-  }, [ready, ticker, assetClass, mode, fromDate, toDate, sessionDate, interval])
+  }, [ready, ticker, assetClass, mode, fromDate, toDate, sessionDate, interval, selectedIndicators])
 
   const data = runMut.data as Row | undefined
   const points = (data?.points as Row[] | undefined) ?? []
+  const candles = (data?.candles as Candle[] | undefined) ?? []
   const sr = (data?.support_resistance as SupportResistance | null | undefined) ?? null
   const volSr = (data?.volume_sr_summary as VolumeSrSummary | null | undefined) ?? null
   const howTo = (data?.how_to_read as string[] | undefined) ?? []
@@ -580,6 +706,8 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
   const askContext = data
     ? buildAskContext('Ticker Chart', { ...data, signal_description: signalDescription, indicators: selectedIndicators })
     : ''
+
+  const tradeSetup = useMemo(() => tradeSetupFromResult(data), [data])
 
   function toggleIndicator(id: IndicatorId) {
     setSelectedIndicators((prev) => {
@@ -778,6 +906,12 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
             )}
           </div>
 
+          {tradeSetup && (
+            <div className="mb-3">
+              <TradeSetupBanner setup={tradeSetup} />
+            </div>
+          )}
+
           {signalDescription && (
             <div className="mb-3 rounded-lg border border-slate-800/70 bg-slate-950/50 p-3">
               <div className="mb-1 flex items-center justify-between gap-2">
@@ -829,6 +963,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
           )}
           <PriceChart
             points={points}
+            candles={candles}
             supportResistance={sr}
             title={`${String(data.ticker ?? ticker)} · ${mode === 'intraday' ? interval : '1d'}`}
             volumeSrSummary={volSr}
