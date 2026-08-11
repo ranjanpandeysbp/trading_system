@@ -30,7 +30,6 @@ import {
   Medal,
   Building2,
   Flame,
-  TrendingDown,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -161,6 +160,7 @@ export const appNav: NavEntry[] = [
     children: [
       { to: '/prediction/pattern-analogue', label: 'Pattern Analogue' },
       { to: '/prediction/astro-finance', label: 'Astro Finance' },
+      { to: '/prediction/falling-knife', label: 'Falling Knife' },
       { to: '/options?section=market_prediction', label: 'Market Prediction' },
       { to: '/options?section=call_put_writing', label: 'Call Put Writing' },
     ],
@@ -175,7 +175,6 @@ export const appNav: NavEntry[] = [
   { to: '/best-mf', label: 'Best MF', shortLabel: 'Best MF', icon: Trophy },
   { to: '/mf-fire', label: 'MF FIRE', shortLabel: 'FIRE', icon: Flame },
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
-  { to: '/falling-knife', label: 'Falling Knife', shortLabel: 'Knife', icon: TrendingDown },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },
   { to: '/settings', label: 'Manage', shortLabel: 'Settings', icon: Settings },

@@ -72,6 +72,9 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   { label: 'Sentiment Screener', to: '/technical-analysis?tab=sentiment_screener', group: 'Technical Analysis' },
   { label: 'Big Whale', to: '/technical-analysis?tab=big_whale', group: 'Technical Analysis' },
 
+  // Prediction
+  { label: 'Falling Knife History', to: '/prediction/falling-knife', group: 'Prediction', keywords: 'dump pump recovery forecast' },
+
   // Market Pulse common
   { label: 'Market Pulse Intelligence', to: '/market-pulse?section=intelligence', group: 'Market Pulse' },
   { label: 'Tomorrow Outlook (Pulse)', to: '/market-pulse?section=tomorrow_outlook', group: 'Market Pulse' },

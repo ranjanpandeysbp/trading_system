@@ -223,8 +223,14 @@ export const runScan = (payload: {
 export const runFallingKnifeScan = (payload: {
   asset_class: 'india' | 'us' | 'crypto' | 'commodity'
   tickers: string[]
-  drop_pct: number
-  lookback_hours: number
+  drop_pct?: number
+  lookback_hours?: number
+  exchange?: string
+  mode?: 'live' | 'history'
+  from_date?: string
+  to_date?: string
+  move_side?: 'fall' | 'rise' | 'both'
+  threshold_pct?: number
 }) => api.post('/falling-knife/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchFallingKnifeSession = (asset_class: string) =>

@@ -14,7 +14,6 @@ import CommandCenter from './pages/CommandCenter'
 import Dashboard from './pages/Dashboard'
 import TradingAgent from './pages/TradingAgent'
 import Scanner from './pages/Scanner'
-import FallingKnife from './pages/FallingKnife'
 import Backtester from './pages/Backtester'
 import Strategies from './pages/Strategies'
 import MarketPulse from './pages/MarketPulse'
@@ -124,7 +123,7 @@ export default function App() {
                 <Route path="/etf-top-down" element={<EtfTopDown />} />
                 <Route path="/auto-trade" element={<AutoTrade />} />
                 <Route path="/scanner" element={<Scanner />} />
-                <Route path="/falling-knife" element={<FallingKnife />} />
+                <Route path="/falling-knife" element={<Navigate to="/prediction/falling-knife" replace />} />
                 <Route path="/backtester" element={<Backtester />} />
                 <Route path="/paper" element={<PaperTrading />} />
                 <Route path="/settings" element={<ManageSettings />} />

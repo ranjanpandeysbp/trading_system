@@ -664,12 +664,23 @@ class EtfTopDownScanRequest(BaseModel):
 
 
 class FallingKnifeScanRequest(BaseModel):
-    """Falling Knife — names down ≥ drop_pct from session-window high over lookback_hours."""
+    """Falling Knife — live session drop scan and/or date-range rise/fall history + forecast."""
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     tickers: list[str] = Field(default_factory=list)
     drop_pct: float = Field(default=10.0, ge=0.5, le=90.0)
     lookback_hours: float = Field(default=24.0, ge=1.0, le=336.0)
     exchange: str | None = None
+    # History mode (when from_date set)
+    mode: Literal["live", "history"] = "live"
+    from_date: str | None = None
+    to_date: str | None = None
+    move_side: Literal["fall", "rise", "both"] = "both"
+    threshold_pct: float | None = Field(
+        default=None,
+        ge=0.5,
+        le=90.0,
+        description="History mode: min % rise/fall to count as an event (defaults to drop_pct).",
+    )
 
 
 class Etf28SmaLotInput(BaseModel):

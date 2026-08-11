@@ -15,6 +15,7 @@ import {
 } from '../components/command-center/AssetClassTickerPicker'
 import { PatternAnaloguePanel } from '../components/prediction/PatternAnaloguePanel'
 import { AstroFinancePanel } from '../components/prediction/AstroFinancePanel'
+import FallingKnifePage from './FallingKnife'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -698,6 +699,7 @@ export default function Prediction() {
   const TABS: { id: string; label: string; to?: string }[] = [
     { id: 'pattern-analogue', label: 'Pattern Analogue' },
     { id: 'astro-finance', label: 'Astro Finance' },
+    { id: 'falling-knife', label: 'Falling Knife' },
     { id: 'market-prediction', label: 'Market Prediction', to: '/options?section=market_prediction' },
     { id: 'call-put-writing', label: 'Call Put Writing', to: '/options?section=call_put_writing' },
   ]
@@ -707,6 +709,7 @@ export default function Prediction() {
   let page: ReactNode = null
   if (tab === 'pattern-analogue') page = <PatternAnaloguePage />
   else if (tab === 'astro-finance') page = <AstroFinancePage />
+  else if (tab === 'falling-knife') page = <FallingKnifePage />
   else if (tab === 'market-prediction') {
     return <Navigate to="/options?section=market_prediction" replace />
   }
