@@ -5068,6 +5068,7 @@ async def pro_trade_ticker_chart(
         to_date=payload.to_date,
         session_date=payload.session_date,
         interval=payload.interval,
+        indicators=payload.indicators,
     )
 
 

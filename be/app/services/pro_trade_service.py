@@ -790,6 +790,7 @@ class ProTradeService:
         to_date: str | None = None,
         session_date: str | None = None,
         interval: str = "1d",
+        indicators: list[str] | None = None,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_chart_engine import compute_ticker_chart
 
@@ -805,6 +806,7 @@ class ProTradeService:
                 session_date=session_date,
                 interval=interval,
                 market=market,
+                indicators=indicators,
             )
 
         return json_safe(await asyncio.to_thread(_run))

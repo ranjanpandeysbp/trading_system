@@ -36,6 +36,60 @@ type SupportResistance = {
   levels?: SrLevel[]
 }
 
+type IndicatorReading = {
+  id?: string
+  label?: string
+  detail?: string
+  signal?: string
+  bias?: string
+  value?: number
+  levels?: SrLevel[]
+}
+
+type IndicatorId =
+  | 'rsi'
+  | 'macd'
+  | 'supertrend'
+  | 'vwap'
+  | 'volume'
+  | 'bollinger'
+  | 'fibonacci'
+  | 'ema_5'
+  | 'ema_9'
+  | 'ema_20'
+  | 'ema_50'
+  | 'ema_200'
+
+const INDICATOR_OPTIONS: { id: IndicatorId; label: string }[] = [
+  { id: 'rsi', label: 'RSI' },
+  { id: 'macd', label: 'MACD' },
+  { id: 'supertrend', label: 'Supertrend' },
+  { id: 'vwap', label: 'VWAP' },
+  { id: 'volume', label: 'Volume' },
+  { id: 'bollinger', label: 'Bollinger' },
+  { id: 'fibonacci', label: 'Fibonacci' },
+  { id: 'ema_5', label: 'EMA 5' },
+  { id: 'ema_9', label: 'EMA 9' },
+  { id: 'ema_20', label: 'EMA 20' },
+  { id: 'ema_50', label: 'EMA 50' },
+  { id: 'ema_200', label: 'EMA 200' },
+]
+
+const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_50']
+
+const OVERLAY_COLORS: Record<string, string> = {
+  ema_5: '#fbbf24',
+  ema_9: '#a78bfa',
+  ema_20: '#34d399',
+  ema_50: '#fb923c',
+  ema_200: '#f472b6',
+  vwap: '#eab308',
+  supertrend: '#22d3ee',
+  bb_upper: '#64748b',
+  bb_mid: '#94a3b8',
+  bb_lower: '#64748b',
+}
+
 const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
   { id: 'india', label: 'India' },
   { id: 'us', label: 'US' },
@@ -70,17 +124,138 @@ function placeholderFor(ac: AssetClass): string {
   return 'e.g. RELIANCE'
 }
 
+function buildSignalDescription(opts: {
+  ticker: string
+  rangeTxt: string
+  changePct: number | null
+  volSrPlain: string
+  selected: IndicatorId[]
+  readings: Record<string, IndicatorReading>
+}): string {
+  const { ticker, rangeTxt, changePct, volSrPlain, selected, readings } = opts
+  const parts: string[] = [
+    `${ticker} · ${rangeTxt}${changePct != null ? ` · Δ ${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%` : ''}.`,
+  ]
+  if (volSrPlain) parts.push(volSrPlain)
+
+  const order: IndicatorId[] = [
+    'ema_5',
+    'ema_9',
+    'ema_20',
+    'ema_50',
+    'ema_200',
+    'vwap',
+    'bollinger',
+    'supertrend',
+    'rsi',
+    'macd',
+    'volume',
+    'fibonacci',
+  ]
+  let bull = 0
+  let bear = 0
+  const lines: string[] = []
+  for (const key of order) {
+    if (!selected.includes(key)) continue
+    const r = readings[key]
+    if (!r) continue
+    const detail = String(r.detail || r.signal || '').trim()
+    if (detail) lines.push(detail)
+    const bias = String(r.bias || 'neutral')
+    if (bias === 'bullish') bull += 1
+    else if (bias === 'bearish') bear += 1
+  }
+  if (lines.length) parts.push(`Indicators: ${lines.join(' · ')}`)
+  if (bull || bear) {
+    let tilt = 'Overall indicator tilt: mixed / neutral'
+    if (bull > bear + 1) tilt = 'Overall indicator tilt: bullish'
+    else if (bear > bull + 1) tilt = 'Overall indicator tilt: bearish'
+    parts.push(`${tilt} (${bull} bullish · ${bear} bearish of ${bull + bear} scored).`)
+  }
+  parts.push('Educational read only — not a buy/sell signal.')
+  return parts.filter(Boolean).join(' ')
+}
+
+function OscillatorChart({
+  points,
+  title,
+  lines,
+  referenceYs,
+  yDomain,
+}: {
+  points: Row[]
+  title: string
+  lines: { key: string; color: string; label: string }[]
+  referenceYs?: { y: number; color: string; label?: string }[]
+  yDomain?: [number | string, number | string]
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+      <p className="mb-2 text-xs font-medium text-slate-300">{title}</p>
+      <div className="h-36 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={40} />
+            <YAxis
+              domain={yDomain ?? ['auto', 'auto']}
+              tick={{ fill: '#94a3b8', fontSize: 9 }}
+              width={44}
+              tickFormatter={(v) => Number(v).toFixed(1)}
+            />
+            <Tooltip
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+              labelStyle={{ color: '#e2e8f0' }}
+            />
+            {(referenceYs ?? []).map((rl) => (
+              <ReferenceLine
+                key={`${rl.y}-${rl.label ?? ''}`}
+                y={rl.y}
+                stroke={rl.color}
+                strokeDasharray="4 3"
+                strokeWidth={1}
+              />
+            ))}
+            {lines.map((ln) => (
+              <Line
+                key={ln.key}
+                type="monotone"
+                dataKey={ln.key}
+                stroke={ln.color}
+                strokeWidth={1.5}
+                dot={false}
+                name={ln.label}
+                connectNulls
+              />
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
 function PriceChart({
   points,
   supportResistance,
   title,
   volumeSrSummary,
+  selected,
+  fibLevels,
 }: {
   points: Row[]
   supportResistance?: SupportResistance | null
   title: string
   volumeSrSummary?: VolumeSrSummary | null
+  selected: IndicatorId[]
+  fibLevels?: SrLevel[]
 }) {
+  const showVolume = selected.includes('volume')
+  const showBb = selected.includes('bollinger')
+  const showFib = selected.includes('fibonacci')
+  const showRsi = selected.includes('rsi')
+  const showMacd = selected.includes('macd')
+
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
     if (raw?.length) {
@@ -100,10 +275,42 @@ function PriceChart({
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
 
-  const hasVolume = useMemo(
+  const fibRefs = useMemo(() => {
+    if (!showFib) return []
+    return (fibLevels ?? [])
+      .map((lv) => ({
+        label: String(lv.label),
+        kind: 'fibonacci',
+        price: Number(lv.price),
+      }))
+      .filter((lv) => Number.isFinite(lv.price))
+  }, [fibLevels, showFib])
+
+  const hasVolumeData = useMemo(
     () => points.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
     [points],
   )
+
+  const overlayKeys = useMemo(() => {
+    const keys: { key: string; color: string; label: string; dash?: string }[] = []
+    for (const id of ['ema_5', 'ema_9', 'ema_20', 'ema_50', 'ema_200'] as IndicatorId[]) {
+      if (selected.includes(id)) {
+        keys.push({ key: id, color: OVERLAY_COLORS[id], label: id.replace('_', ' ').toUpperCase() })
+      }
+    }
+    if (selected.includes('vwap')) keys.push({ key: 'vwap', color: OVERLAY_COLORS.vwap, label: 'VWAP' })
+    if (selected.includes('supertrend')) {
+      keys.push({ key: 'supertrend', color: OVERLAY_COLORS.supertrend, label: 'Supertrend', dash: '4 2' })
+    }
+    if (showBb) {
+      keys.push(
+        { key: 'bb_upper', color: OVERLAY_COLORS.bb_upper, label: 'BB Upper', dash: '3 3' },
+        { key: 'bb_mid', color: OVERLAY_COLORS.bb_mid, label: 'BB Mid', dash: '2 2' },
+        { key: 'bb_lower', color: OVERLAY_COLORS.bb_lower, label: 'BB Lower', dash: '3 3' },
+      )
+    }
+    return keys
+  }, [selected, showBb])
 
   const yDomain = useMemo((): [number | string, number | string] => {
     if (!points.length) return ['auto', 'auto']
@@ -115,9 +322,22 @@ function PriceChart({
       lo = Math.min(lo, lv.price)
       hi = Math.max(hi, lv.price)
     }
+    for (const lv of fibRefs) {
+      lo = Math.min(lo, lv.price)
+      hi = Math.max(hi, lv.price)
+    }
+    for (const ov of overlayKeys) {
+      for (const p of points) {
+        const n = Number(p[ov.key])
+        if (Number.isFinite(n)) {
+          lo = Math.min(lo, n)
+          hi = Math.max(hi, n)
+        }
+      }
+    }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [points, levels])
+  }, [points, levels, fibRefs, overlayKeys])
 
   if (!points.length) {
     return (
@@ -131,7 +351,11 @@ function PriceChart({
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className="text-[10px] text-slate-500">green = support · red = resistance · grey = volume</span>
+        <span className="text-[10px] text-slate-500">
+          green = support · red = resistance
+          {showVolume ? ' · grey = volume' : ''}
+          {showFib ? ' · amber = fib' : ''}
+        </span>
       </div>
       <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -145,7 +369,7 @@ function PriceChart({
               width={56}
               tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
             />
-            {hasVolume && (
+            {showVolume && hasVolumeData && (
               <YAxis
                 yAxisId="vol"
                 orientation="right"
@@ -167,7 +391,7 @@ function PriceChart({
                 if (name === 'volume') {
                   return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
                 }
-                return [Number(value).toFixed(3), 'Close']
+                return [Number(value).toFixed(3), name]
               }}
             />
             {levels.map((lv) => {
@@ -191,12 +415,53 @@ function PriceChart({
                 />
               )
             })}
-            {hasVolume && <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />}
-            <Line yAxisId="price" type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={false} name="price" />
+            {fibRefs.map((lv) => (
+              <ReferenceLine
+                key={`fib-${lv.label}-${lv.price}`}
+                yAxisId="price"
+                y={lv.price}
+                stroke="#d97706"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+                ifOverflow="extendDomain"
+                label={{
+                  value: lv.label.replace('Fib ', ''),
+                  position: 'insideTopLeft',
+                  fill: '#d97706',
+                  fontSize: 9,
+                }}
+              />
+            ))}
+            {showVolume && hasVolumeData && (
+              <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />
+            )}
+            <Line
+              yAxisId="price"
+              type="monotone"
+              dataKey="value"
+              stroke="#38bdf8"
+              strokeWidth={2}
+              dot={false}
+              name="Close"
+            />
+            {overlayKeys.map((ov) => (
+              <Line
+                key={ov.key}
+                yAxisId="price"
+                type="monotone"
+                dataKey={ov.key}
+                stroke={ov.color}
+                strokeWidth={ov.key.startsWith('bb_') ? 1 : 1.5}
+                strokeDasharray={ov.dash}
+                dot={false}
+                name={ov.label}
+                connectNulls
+              />
+            ))}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {levels.length > 0 && (
+      {(levels.length > 0 || overlayKeys.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800/50 pt-2 text-[11px]">
           {levels.map((lv) => (
             <span
@@ -206,9 +471,39 @@ function PriceChart({
               {lv.label} {fmtNum(lv.price, lv.price >= 100 ? 1 : 3)}
             </span>
           ))}
+          {overlayKeys.map((ov) => (
+            <span key={`ov-${ov.key}`} style={{ color: ov.color }}>
+              {ov.label}
+            </span>
+          ))}
         </div>
       )}
       <VolumeSrSummaryCard data={volumeSrSummary} />
+      {showRsi && (
+        <OscillatorChart
+          points={points}
+          title="RSI (14)"
+          lines={[{ key: 'rsi', color: '#c084fc', label: 'RSI' }]}
+          referenceYs={[
+            { y: 70, color: '#f87171' },
+            { y: 30, color: '#34d399' },
+            { y: 50, color: '#475569' },
+          ]}
+          yDomain={[0, 100]}
+        />
+      )}
+      {showMacd && (
+        <OscillatorChart
+          points={points}
+          title="MACD (12, 26, 9)"
+          lines={[
+            { key: 'macd', color: '#38bdf8', label: 'MACD' },
+            { key: 'macd_signal', color: '#fb923c', label: 'Signal' },
+            { key: 'macd_hist', color: '#64748b', label: 'Hist' },
+          ]}
+          referenceYs={[{ y: 0, color: '#475569' }]}
+        />
+      )}
     </div>
   )
 }
@@ -221,6 +516,7 @@ export function TickerChartPage() {
   const [toDate, setToDate] = useState(isoDaysAgo(0))
   const [sessionDate, setSessionDate] = useState(isoDaysAgo(0))
   const [interval, setInterval] = useState('15m')
+  const [selectedIndicators, setSelectedIndicators] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
   const [error, setError] = useState('')
 
   const runMut = useMutation({
@@ -233,6 +529,7 @@ export function TickerChartPage() {
         to_date: mode === 'daily' ? toDate : undefined,
         session_date: mode === 'intraday' ? sessionDate : undefined,
         interval: mode === 'intraday' ? interval : '1d',
+        indicators: selectedIndicators,
       }),
     onSuccess: (data) => {
       setError(data?.error ? String(data.error) : '')
@@ -259,13 +556,43 @@ export function TickerChartPage() {
   const sr = (data?.support_resistance as SupportResistance | null | undefined) ?? null
   const volSr = (data?.volume_sr_summary as VolumeSrSummary | null | undefined) ?? null
   const howTo = (data?.how_to_read as string[] | undefined) ?? []
-  const askContext = data ? buildAskContext('Ticker Chart', data) : ''
+  const readings = (data?.indicator_readings as Record<string, IndicatorReading> | undefined) ?? {}
+  const fibLevels = (data?.fib_levels as SrLevel[] | undefined) ?? []
+
+  const rangeTxt = useMemo(() => {
+    if (!data) return ''
+    if (mode === 'intraday') return `${sessionDate} · ${interval}`
+    return `${fromDate} → ${toDate} · 1d`
+  }, [data, mode, sessionDate, interval, fromDate, toDate])
+
+  const signalDescription = useMemo(() => {
+    if (!data) return ''
+    return buildSignalDescription({
+      ticker: String(data.ticker ?? ticker),
+      rangeTxt,
+      changePct: data.change_pct != null ? Number(data.change_pct) : null,
+      volSrPlain: String(volSr?.plain_english ?? ''),
+      selected: selectedIndicators,
+      readings,
+    })
+  }, [data, ticker, rangeTxt, volSr, selectedIndicators, readings])
+
+  const askContext = data
+    ? buildAskContext('Ticker Chart', { ...data, signal_description: signalDescription, indicators: selectedIndicators })
+    : ''
+
+  function toggleIndicator(id: IndicatorId) {
+    setSelectedIndicators((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id)
+      return [...prev, id]
+    })
+  }
 
   return (
     <div>
       <PageHeader
         title="Ticker Chart"
-        description="India · US · Crypto · Commodities — pick a ticker and date range (or same-day intraday) and the chart draws with S1/S2 · R1/R2"
+        description="India · US · Crypto · Commodities — pick a ticker, date range, and indicators (RSI, MACD, EMAs…) — chart and signal text update together"
       />
 
       <Card className="mb-4">
@@ -364,8 +691,47 @@ export function TickerChartPage() {
           </div>
         )}
 
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Indicators</p>
+          <div className="flex flex-wrap gap-2">
+            {INDICATOR_OPTIONS.map((opt) => (
+              <Chip
+                key={opt.id}
+                selected={selectedIndicators.includes(opt.id)}
+                onClick={() => toggleIndicator(opt.id)}
+              >
+                {opt.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200"
+              onClick={() => setSelectedIndicators(DEFAULT_INDICATORS)}
+            >
+              Reset defaults
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200"
+              onClick={() => setSelectedIndicators(INDICATOR_OPTIONS.map((o) => o.id))}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200"
+              onClick={() => setSelectedIndicators([])}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
         <p className="mt-3 text-xs text-slate-500">
-          Chart loads automatically once a ticker and date range (or intraday session) are set.
+          Chart loads automatically once a ticker and date range (or intraday session) are set. Toggle
+          indicators to update overlays and the signal description — no reload needed.
         </p>
       </Card>
 
@@ -401,9 +767,42 @@ export function TickerChartPage() {
               <span className="text-xs text-slate-500">{String(data.yf_symbol)}</span>
             )}
           </div>
-          {data.plain_english != null && (
-            <p className="mb-3 text-xs leading-relaxed text-slate-400">{String(data.plain_english)}</p>
+
+          {signalDescription && (
+            <div className="mb-3 rounded-lg border border-slate-800/70 bg-slate-950/50 p-3">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Signal description
+                </p>
+                <CopyAllButton text={signalDescription} />
+              </div>
+              <p className="text-xs leading-relaxed text-slate-300">{signalDescription}</p>
+              {selectedIndicators.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {selectedIndicators.map((id) => {
+                    const r = readings[id]
+                    const bias = String(r?.bias || 'neutral')
+                    const tone =
+                      bias === 'bullish'
+                        ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/25'
+                        : bias === 'bearish'
+                          ? 'bg-rose-500/10 text-rose-400 ring-rose-500/25'
+                          : 'bg-slate-500/10 text-slate-400 ring-slate-500/25'
+                    return (
+                      <span
+                        key={id}
+                        className={`inline-flex rounded-md px-2 py-0.5 text-[10px] ring-1 ${tone}`}
+                        title={String(r?.detail || '')}
+                      >
+                        {r?.label || id}: {r?.signal || '—'}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )}
+
           {howTo.length > 0 && (
             <div className="mb-3 border-b border-slate-800/60 pb-3">
               <div className="mb-1 flex justify-end">
@@ -423,6 +822,8 @@ export function TickerChartPage() {
             supportResistance={sr}
             title={`${String(data.ticker ?? ticker)} · ${mode === 'intraday' ? interval : '1d'}`}
             volumeSrSummary={volSr}
+            selected={selectedIndicators}
+            fibLevels={fibLevels}
           />
         </Card>
       )}
@@ -431,7 +832,7 @@ export function TickerChartPage() {
         <AskAIPanel
           context={askContext}
           section="pro-trade/ticker-chart"
-          defaultQuestion="Read this ticker chart with S/R — what is the nearest support/resistance and bias?"
+          defaultQuestion="Read this ticker chart with the selected indicators — what is the bias and nearest support/resistance?"
           showPredictNextMove
         />
       )}

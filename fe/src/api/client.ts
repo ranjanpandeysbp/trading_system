@@ -2371,6 +2371,7 @@ export const runProTradeTickerChart = (payload: {
   session_date?: string
   interval?: string
   exchange?: string
+  indicators?: string[]
 }) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const startBtstJob = (payload: {

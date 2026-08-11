@@ -1438,6 +1438,10 @@ class ProTradeTickerChartRequest(BaseModel):
     session_date: str | None = None
     interval: str = "1d"  # 1d or 1m/5m/15m/30m/1h
     exchange: str | None = None
+    indicators: list[str] = Field(
+        default_factory=lambda: ["volume", "ema_9", "ema_50"],
+        description="Selected overlays: rsi, macd, supertrend, vwap, volume, bollinger, fibonacci, ema_5/9/20/50/200",
+    )
 
 
 class PredictionPatternAnalogueRequest(BaseModel):
