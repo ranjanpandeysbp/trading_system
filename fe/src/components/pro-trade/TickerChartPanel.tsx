@@ -508,7 +508,7 @@ function PriceChart({
   )
 }
 
-export function TickerChartPage() {
+export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [ticker, setTicker] = useState('')
   const [mode, setMode] = useState<ChartMode>('daily')
@@ -590,10 +590,20 @@ export function TickerChartPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Ticker Chart"
-        description="India · US · Crypto · Commodities — pick a ticker, date range, and indicators (RSI, MACD, EMAs…) — chart and signal text update together"
-      />
+      {!embedded && (
+        <PageHeader
+          title="Ticker Chart"
+          description="India · US · Crypto · Commodities — pick a ticker, date range, and indicators (RSI, MACD, EMAs…) — chart and signal text update together"
+        />
+      )}
+      {embedded && (
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold text-white">Ticker Chart</h2>
+          <p className="text-sm text-slate-400">
+            Quick ticker check — OHLC with S/R, indicators, and signal description
+          </p>
+        </div>
+      )}
 
       <Card className="mb-4">
         <div className="mb-3 flex flex-wrap gap-2">

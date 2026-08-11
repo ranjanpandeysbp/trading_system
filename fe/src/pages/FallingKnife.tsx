@@ -34,8 +34,11 @@ const HOW_TO = `Falling Knife — How to
 
 Live scan
 1. Pick asset class + universe.
-2. Set drop % from window high and lookback hours.
-3. Scan uses only that market’s session hours.
+2. Set threshold % and lookback hours.
+3. Choose Falls / Rises / Both (default: both).
+   · Fall = last price ≥ X% below the window high
+   · Rise = last price ≥ X% above the window low
+4. Scan uses only that market’s session hours.
 
 History & forecast
 1. Switch to History mode.
@@ -322,6 +325,7 @@ export default function FallingKnife() {
         mode: 'live',
         drop_pct: dropPct,
         lookback_hours: lookbackHours,
+        move_side: moveSide,
       })
     },
     onSuccess: () => setError(''),
@@ -350,7 +354,7 @@ export default function FallingKnife() {
     <div>
       <PageHeader
         title="Falling Knife"
-        description="Live session knives + history of ≥X% rises/falls with recovery time and next-move forecast"
+        description="Live session rises & falls + history of ≥X% moves with recovery time and next-move forecast"
       />
 
       <div className="mb-4 space-y-2">
@@ -400,8 +404,8 @@ export default function FallingKnife() {
 
         {mode === 'live' ? (
           <>
-            <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
-              <FormField label="Drop % (from window high)">
+            <div className="grid max-w-4xl gap-3 sm:grid-cols-3">
+              <FormField label="Threshold % (X)">
                 <Input
                   type="number"
                   min={0.5}
@@ -420,6 +424,13 @@ export default function FallingKnife() {
                   value={lookbackHours}
                   onChange={(e) => setLookbackHours(Number(e.target.value) || 24)}
                 />
+              </FormField>
+              <FormField label="Count">
+                <Select value={moveSide} onChange={(e) => setMoveSide(e.target.value as 'fall' | 'rise' | 'both')}>
+                  <option value="both">Falls & rises</option>
+                  <option value="fall">Falls only</option>
+                  <option value="rise">Rises only</option>
+                </Select>
               </FormField>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -478,7 +489,7 @@ export default function FallingKnife() {
                 : 'Scanning…'
               : mode === 'history'
                 ? `Analyze history (${picker.tickers.length} · ≥${thresholdPct}%)`
-                : `Scan Falling Knives (${picker.tickers.length} · ≥${dropPct}% / ${lookbackHours}h)`}
+                : `Scan (≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`}
           </Button>
           {mode === 'live' && (
             <Chip selected={showMatchedOnly} onClick={() => setShowMatchedOnly((v) => !v)}>
@@ -495,7 +506,7 @@ export default function FallingKnife() {
           message={
             mode === 'history'
               ? `Counting ≥${thresholdPct}% rises/falls and building forecasts…`
-              : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% drops in ${lookbackHours}h…`
+              : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
           }
         />
       )}
@@ -540,9 +551,13 @@ export default function FallingKnife() {
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
-                {String((data.summary as Row | undefined)?.matched ?? knives.length)} knives
+                {String((data.summary as Row | undefined)?.matched_falls ?? data.matched_falls ?? 0)} falls
+              </span>
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+                {String((data.summary as Row | undefined)?.matched_rises ?? data.matched_rises ?? 0)} rises
               </span>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
+                {String((data.summary as Row | undefined)?.matched ?? knives.length)} matched ·{' '}
                 {String((data.summary as Row | undefined)?.scanned ?? results.length)} scanned
               </span>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
@@ -555,7 +570,7 @@ export default function FallingKnife() {
             {!liveRows.length ? (
               <p className="text-sm text-slate-400">
                 {showMatchedOnly
-                  ? `No tickers fell ≥${dropPct}% from window high in the last ${lookbackHours}h (session hours).`
+                  ? `No tickers matched ≥${dropPct}% ${moveSide === 'fall' ? 'fall from high' : moveSide === 'rise' ? 'rise from low' : 'fall from high or rise from low'} in the last ${lookbackHours}h (session hours).`
                   : 'No rows.'}
               </p>
             ) : (
@@ -577,45 +592,58 @@ export default function FallingKnife() {
                   </tr>
                 </thead>
                 <tbody>
-                  {liveRows.map((r, i) => (
-                    <tr key={`${r.ticker}-${i}`}>
-                      <Td>{i + 1}</Td>
-                      <Td>
-                        <span className="font-semibold text-white">{String(r.ticker)}</span>
-                        {r.direction != null && (
-                          <span className="ml-2 text-[10px] uppercase text-slate-500">{String(r.direction)}</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <span className={changeClass(r.change_pct)}>{fmtSignedPct(r.change_pct)}</span>
-                      </Td>
-                      <Td>
-                        <span className={r.matched ? 'font-semibold text-rose-300' : 'text-slate-300'}>
-                          {r.fall_from_high_pct != null ? `−${fmtNum(r.fall_from_high_pct)}%` : '—'}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span className="text-emerald-300/90">
-                          {r.rise_from_low_pct != null ? `+${fmtNum(r.rise_from_low_pct)}%` : '—'}
-                        </span>
-                      </Td>
-                      <Td>{fmtPx(r.last, assetClass)}</Td>
-                      <Td>{fmtPx(r.window_open, assetClass)}</Td>
-                      <Td>{fmtPx(r.window_high, assetClass)}</Td>
-                      <Td>{fmtPx(r.window_low, assetClass)}</Td>
-                      <Td>{r.range_high_to_low_pct != null ? `${fmtNum(r.range_high_to_low_pct)}%` : '—'}</Td>
-                      <Td>{r.bars_in_window != null ? String(r.bars_in_window) : '—'}</Td>
-                      <Td>
-                        {r.error ? (
-                          <span className="text-xs text-amber-400">{String(r.error)}</span>
-                        ) : r.matched ? (
-                          <span className="text-xs text-rose-300">Knife</span>
-                        ) : (
-                          <span className="text-xs text-slate-500">—</span>
-                        )}
-                      </Td>
-                    </tr>
-                  ))}
+                  {liveRows.map((r, i) => {
+                    const matchFall = Boolean(r.match_fall)
+                    const matchRise = Boolean(r.match_rise)
+                    let statusLabel = '—'
+                    let statusClass = 'text-xs text-slate-500'
+                    if (r.error) {
+                      statusLabel = String(r.error)
+                      statusClass = 'text-xs text-amber-400'
+                    } else if (matchFall && matchRise) {
+                      statusLabel = 'Fall + Rise'
+                      statusClass = 'text-xs text-amber-300'
+                    } else if (matchFall) {
+                      statusLabel = 'Fall'
+                      statusClass = 'text-xs text-rose-300'
+                    } else if (matchRise) {
+                      statusLabel = 'Rise'
+                      statusClass = 'text-xs text-emerald-300'
+                    }
+                    return (
+                      <tr key={`${r.ticker}-${i}`}>
+                        <Td>{i + 1}</Td>
+                        <Td>
+                          <span className="font-semibold text-white">{String(r.ticker)}</span>
+                          {r.direction != null && (
+                            <span className="ml-2 text-[10px] uppercase text-slate-500">{String(r.direction)}</span>
+                          )}
+                        </Td>
+                        <Td>
+                          <span className={changeClass(r.change_pct)}>{fmtSignedPct(r.change_pct)}</span>
+                        </Td>
+                        <Td>
+                          <span className={matchFall ? 'font-semibold text-rose-300' : 'text-slate-300'}>
+                            {r.fall_from_high_pct != null ? `−${fmtNum(r.fall_from_high_pct)}%` : '—'}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span className={matchRise ? 'font-semibold text-emerald-300' : 'text-emerald-300/70'}>
+                            {r.rise_from_low_pct != null ? `+${fmtNum(r.rise_from_low_pct)}%` : '—'}
+                          </span>
+                        </Td>
+                        <Td>{fmtPx(r.last, assetClass)}</Td>
+                        <Td>{fmtPx(r.window_open, assetClass)}</Td>
+                        <Td>{fmtPx(r.window_high, assetClass)}</Td>
+                        <Td>{fmtPx(r.window_low, assetClass)}</Td>
+                        <Td>{r.range_high_to_low_pct != null ? `${fmtNum(r.range_high_to_low_pct)}%` : '—'}</Td>
+                        <Td>{r.bars_in_window != null ? String(r.bars_in_window) : '—'}</Td>
+                        <Td>
+                          <span className={statusClass}>{statusLabel}</span>
+                        </Td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </DataTable>
             )}

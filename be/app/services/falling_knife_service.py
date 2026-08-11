@@ -57,6 +57,7 @@ class FallingKnifeService:
                 tickers=tickers,
                 drop_pct=drop_pct,
                 lookback_hours=float(payload.get("lookback_hours") or 24.0),
+                move_side=str(payload.get("move_side") or "both"),
                 groww_token=token,
                 exchange=exchange,
             )

@@ -664,7 +664,7 @@ class EtfTopDownScanRequest(BaseModel):
 
 
 class FallingKnifeScanRequest(BaseModel):
-    """Falling Knife — live session drop scan and/or date-range rise/fall history + forecast."""
+    """Falling Knife — live session rise/fall scan and/or date-range history + forecast."""
     asset_class: Literal["india", "us", "crypto", "commodity"] = "india"
     tickers: list[str] = Field(default_factory=list)
     drop_pct: float = Field(default=10.0, ge=0.5, le=90.0)

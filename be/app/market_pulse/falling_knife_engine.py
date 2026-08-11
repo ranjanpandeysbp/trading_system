@@ -2,7 +2,9 @@
 falling_knife_engine.py
 -----------------------
 Scan an asset-class universe for names that have fallen ≥ X% from their
-session-aware window high over the last N hours.
+session-window high and/or risen ≥ X% from their session-window low
+(live), plus date-range history of threshold rise/fall events with
+recovery timing and next-move forecast.
 
 Session hours (regular / primary):
   India      Mon–Fri 09:15–15:30 Asia/Kolkata
@@ -180,6 +182,7 @@ def _analyze_symbol(
     exchange: str,
     start_utc: datetime,
     end_utc: datetime,
+    move_side: str = "both",
 ) -> dict[str, Any] | None:
     try:
         raw = fetch_data_for_gap_scan(
@@ -229,7 +232,26 @@ def _analyze_symbol(
             direction = "fallen"
         else:
             direction = "flat"
-        matched = fall_from_high >= float(drop_pct)
+
+        side = (move_side or "both").lower()
+        if side not in ("fall", "rise", "both"):
+            side = "both"
+        thr = float(drop_pct)
+        fall_ok = side in ("fall", "both") and fall_from_high >= thr
+        rise_ok = side in ("rise", "both") and rise_from_low >= thr
+        matched = fall_ok or rise_ok
+        if fall_ok and rise_ok:
+            match_kind = "both"
+        elif fall_ok:
+            match_kind = "fall"
+        elif rise_ok:
+            match_kind = "rise"
+        else:
+            match_kind = None
+        match_score = max(
+            fall_from_high if fall_ok else 0.0,
+            rise_from_low if rise_ok else 0.0,
+        )
 
         high_ts = sess["high"].idxmax()
         low_ts = sess["low"].idxmin()
@@ -244,6 +266,10 @@ def _analyze_symbol(
         return {
             "ticker": symbol,
             "matched": matched,
+            "match_kind": match_kind,
+            "match_fall": fall_ok,
+            "match_rise": rise_ok,
+            "match_score": _r(match_score, 2),
             "last": _r(last, 4),
             "window_open": _r(first, 4),
             "window_high": _r(high, 4),
@@ -261,6 +287,8 @@ def _analyze_symbol(
             "last_time": _fmt_ts(last_ts),
             "bars_in_window": int(len(sess)),
             "interval": interval,
+            "move_side": side,
+            "threshold_pct": thr,
         }
     except Exception as exc:
         logger.debug("Falling knife failed for %s: %s", symbol, exc, exc_info=True)
@@ -273,6 +301,7 @@ def scan_falling_knives(
     tickers: list[str],
     drop_pct: float = 10.0,
     lookback_hours: float = 24.0,
+    move_side: str = "both",
     groww_token: str = "",
     exchange: str = "NSE",
     max_workers: int = 8,
@@ -296,6 +325,9 @@ def scan_falling_knives(
 
     drop_pct = float(max(0.5, min(drop_pct, 90.0)))
     lookback_hours = float(max(1.0, min(lookback_hours, 24 * 14)))
+    side = (move_side or "both").lower()
+    if side not in ("fall", "rise", "both"):
+        side = "both"
     interval = choose_interval(lookback_hours)
     limit = bars_needed(lookback_hours, interval)
 
@@ -309,7 +341,9 @@ def scan_falling_knives(
             "strategy": STRATEGY_ID,
             "strategy_label": STRATEGY_NAME,
             "asset_class": ac,
+            "mode": "live",
             "drop_pct": drop_pct,
+            "move_side": side,
             "lookback_hours": lookback_hours,
             "interval": interval,
             "session": sess,
@@ -317,6 +351,8 @@ def scan_falling_knives(
             "window_end_utc": end_utc.isoformat(),
             "scanned": 0,
             "matched": 0,
+            "matched_falls": 0,
+            "matched_rises": 0,
             "results": [],
             "knives": [],
             "errors": 0,
@@ -339,6 +375,7 @@ def scan_falling_knives(
                 exchange=exchange,
                 start_utc=start_utc,
                 end_utc=end_utc,
+                move_side=side,
             ): sym
             for sym in symbols
         }
@@ -348,15 +385,32 @@ def scan_falling_knives(
                 results.append(row)
 
     knives = [r for r in results if r.get("matched")]
-    knives.sort(key=lambda r: float(r.get("fall_from_high_pct") or 0), reverse=True)
+    knives.sort(key=lambda r: float(r.get("match_score") or 0), reverse=True)
     errors = sum(1 for r in results if r.get("error") and not r.get("matched"))
+    matched_falls = sum(1 for r in knives if r.get("match_fall"))
+    matched_rises = sum(1 for r in knives if r.get("match_rise"))
+
+    if side == "fall":
+        thr_label = f">= {drop_pct:g}% off window high"
+        side_label = "falls"
+    elif side == "rise":
+        thr_label = f">= {drop_pct:g}% off window low"
+        side_label = "rises"
+    else:
+        thr_label = f">= {drop_pct:g}% off window high (fall) or low (rise)"
+        side_label = "falls & rises"
 
     top_bits = []
     for r in knives[:8]:
+        bits = []
+        if r.get("match_fall"):
+            bits.append(f"off-high −{r.get('fall_from_high_pct')}%")
+        if r.get("match_rise"):
+            bits.append(f"off-low +{r.get('rise_from_low_pct')}%")
         chg = r.get("change_pct")
         chg_bit = f"{'+' if (chg or 0) >= 0 else ''}{chg}%" if chg is not None else ""
         top_bits.append(
-            f"{r['ticker']} off-high −{r['fall_from_high_pct']}% · net {chg_bit} "
+            f"{r['ticker']} {' · '.join(bits)} · net {chg_bit} "
             f"(H {_r(r['window_high'], 2)} / L {_r(r['window_low'], 2)})"
         )
 
@@ -365,7 +419,9 @@ def scan_falling_knives(
         "strategy_label": STRATEGY_NAME,
         "asset_class": ac,
         "asset_label": cfg.get("label"),
+        "mode": "live",
         "drop_pct": drop_pct,
+        "move_side": side,
         "lookback_hours": lookback_hours,
         "interval": interval,
         "bars_requested": limit,
@@ -374,20 +430,26 @@ def scan_falling_knives(
         "window_end_utc": end_utc.isoformat(),
         "scanned": len(results),
         "matched": len(knives),
+        "matched_falls": matched_falls,
+        "matched_rises": matched_rises,
         "errors": errors,
-        "results": sorted(results, key=lambda r: float(r.get("fall_from_high_pct") or -1), reverse=True),
+        "results": sorted(results, key=lambda r: float(r.get("match_score") or -1), reverse=True),
         "knives": knives,
         "summary": {
             "scanned": len(results),
             "matched": len(knives),
+            "matched_falls": matched_falls,
+            "matched_rises": matched_rises,
             "errors": errors,
-            "threshold": f">= {drop_pct}% off window high",
+            "threshold": thr_label,
+            "move_side": side,
             "lookback": f"last {lookback_hours:g}h ({sess['label']})",
         },
         "plain_english": (
-            f"Falling Knife · {cfg.get('label')} · >={drop_pct:g}% down from session-window high "
+            f"Falling Knife · {cfg.get('label')} · live {side_label} · {thr_label} "
             f"in last {lookback_hours:g}h ({sess['label']}). "
-            f"Matched {len(knives)} / {len(results)}."
+            f"Matched {len(knives)} / {len(results)} "
+            f"({matched_falls} falls · {matched_rises} rises)."
             + ((" Top: " + " · ".join(top_bits) + ".") if top_bits else "")
         ),
         "how_to_read": _how_to(),
@@ -398,10 +460,12 @@ def scan_falling_knives(
 def _how_to() -> list[str]:
     return [
         "Pick an asset class and universe (index / custom list).",
-        "Live mode: set drop % and lookback hours — only that market’s regular session hours count.",
+        "Live mode: set threshold % + lookback hours + Falls / Rises / Both — only that market’s regular session hours count.",
+        "Live match: fall = last ≥ X% below window high · rise = last ≥ X% above window low.",
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
-        "Fall % off high = (window high - last) / high. Net change % = (last - window open) / open (risen + / fallen -).",
+        "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",
+        "Net change % = (last - window open) / open (risen + / fallen -).",
         "Recovery = hours/days until price returns to the level where the pump/dump started.",
         "Educational screener only — not a buy/sell signal.",
     ]

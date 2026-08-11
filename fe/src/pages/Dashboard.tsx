@@ -26,8 +26,18 @@ import { Card } from '../components/ui/Card'
 import { Loading } from '../components/ui/Feedback'
 import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 import { OilDollarBondPanel } from '../components/command-center/OilDollarBondPanel'
+import { TickerChartPage } from '../components/pro-trade/TickerChartPanel'
 
 const quickLinks = [
+  {
+    to: '/pro-trade/ticker-chart',
+    title: 'Ticker Chart',
+    description:
+      'Quick ticker check — India / US / Crypto / Commodities OHLC with S1/S2 · R1/R2, indicators, and signal description.',
+    icon: LineChart,
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/10',
+  },
   {
     to: '/command-center?tab=advance_decline_graph',
     title: 'Advance Decline',
@@ -183,6 +193,10 @@ export default function Dashboard() {
         title="Dashboard"
         description="Paper trading demo for Indian equities — scanner, backtester, and 15 rule-based strategies"
       />
+
+      <Card className="mb-8">
+        <TickerChartPage embedded />
+      </Card>
 
       {accLoading ? (
         <Loading message="Loading portfolio..." />
