@@ -22,6 +22,7 @@ import { DataTable, Td, Th } from '../components/ui/Table'
 import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAllButton'
 import { VolumeProfileChart, type VpChartBar } from '../components/pro-trade/VolumeProfileChart'
 import { TradeSetupBanner, tradeSetupFromResult } from '../components/pro-trade/TradeSetupBanner'
+import { FallRiseForecastCards, forecastFromResult } from '../components/pro-trade/FallRiseForecastCards'
 
 type Row = Record<string, unknown>
 
@@ -41,13 +42,15 @@ Live scan
    · Fall = last price ≥ X% below the window high
    · Rise = last price ≥ X% above the window low
 4. Scan uses only that market’s session hours.
+5. Each ticker also gets Fall/Rise next-move forecasts (Conf %, next time, move %, SL %, TP %)
+   from ~90d daily history — same cards as History mode.
 
 History & forecast
 1. Switch to History mode.
 2. Set from/to dates, threshold % (X), and Fall / Rise / Both.
 3. For each ticker you get every past move ≥ X%, event datetime, gap to next move,
    hours/days to recover back to the start of that pump/dump, plus a next-event
-   forecast (datetime, confidence %, typical move %).
+   forecast (datetime, confidence %, typical move %, SL %, TP %).
 
 Sessions
 · India — Mon–Fri 09:15–15:30 IST
@@ -135,8 +138,6 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
   const events = (row.events as Row[] | undefined) ?? []
   const forecast = (row.forecast as Row | undefined) ?? {}
   const primary = (row.primary_forecast as Row | undefined) ?? null
-  const fallF = (forecast.fall as Row | undefined) ?? null
-  const riseF = (forecast.rise as Row | undefined) ?? null
   const chartBars = useMemo(() => toVpBars(row.chart_data), [row.chart_data])
   const tradeSetup = useMemo(() => {
     const fromRow = tradeSetupFromResult(row)
@@ -234,58 +235,7 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
             </div>
           </div>
 
-          {(fallF || riseF) && (
-            <div className="grid gap-3 lg:grid-cols-2">
-              {fallF && (
-                <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
-                  <p className="text-xs font-semibold text-rose-200">Fall forecast</p>
-                  <p className="mt-1 text-sm text-slate-200">{String(fallF.plain_english ?? '')}</p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Confidence {String(fallF.confidence_pct)}% · next {fmtForecastWhen(fallF)}
-                    {fallF.hours_until_label != null ? ` · in ${String(fallF.hours_until_label)}` : ''} ·
-                    move {fmtSignedPct(fallF.predicted_move_pct)}
-                    {Number(fallF.cycles_skipped) > 0
-                      ? ` · rolled +${String(fallF.cycles_skipped)} past cycle(s)`
-                      : ''}
-                  </p>
-                  {(fallF.sl_pct != null || fallF.tp_pct != null) && (
-                    <p className="mt-1.5 text-xs">
-                      <span className="text-rose-300">SL {fmtNum(fallF.sl_pct, 1)}%</span>
-                      <span className="text-slate-600"> · </span>
-                      <span className="text-emerald-300">TP {fmtNum(fallF.tp_pct, 1)}%</span>
-                      {fallF.action != null ? (
-                        <span className="text-slate-500"> · {String(fallF.action)}</span>
-                      ) : null}
-                    </p>
-                  )}
-                </div>
-              )}
-              {riseF && (
-                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                  <p className="text-xs font-semibold text-emerald-200">Rise forecast</p>
-                  <p className="mt-1 text-sm text-slate-200">{String(riseF.plain_english ?? '')}</p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Confidence {String(riseF.confidence_pct)}% · next {fmtForecastWhen(riseF)}
-                    {riseF.hours_until_label != null ? ` · in ${String(riseF.hours_until_label)}` : ''} ·
-                    move {fmtSignedPct(riseF.predicted_move_pct)}
-                    {Number(riseF.cycles_skipped) > 0
-                      ? ` · rolled +${String(riseF.cycles_skipped)} past cycle(s)`
-                      : ''}
-                  </p>
-                  {(riseF.sl_pct != null || riseF.tp_pct != null) && (
-                    <p className="mt-1.5 text-xs">
-                      <span className="text-rose-300">SL {fmtNum(riseF.sl_pct, 1)}%</span>
-                      <span className="text-slate-600"> · </span>
-                      <span className="text-emerald-300">TP {fmtNum(riseF.tp_pct, 1)}%</span>
-                      {riseF.action != null ? (
-                        <span className="text-slate-500"> · {String(riseF.action)}</span>
-                      ) : null}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          <FallRiseForecastCards forecast={forecast} />
 
           {chartBars.length > 0 && (
             <VolumeProfileChart
@@ -773,9 +723,12 @@ export default function FallingKnife() {
                     <div className="mb-3">
                       <TradeSetupBanner setup={tradeSetupFromResult(selectedLiveRow)} />
                     </div>
+                    <div className="mb-3">
+                      <FallRiseForecastCards forecast={forecastFromResult(selectedLiveRow)} />
+                    </div>
                     <VolumeProfileChart
                       chartData={selectedLiveBars}
-                      readingGuide="Use Candles or Line. Live session window high/low drive the fall/rise match."
+                      readingGuide="Use Candles or Line. Live session window high/low drive the fall/rise match. Forecast cards use ~90d daily history."
                     />
                   </div>
                 )}

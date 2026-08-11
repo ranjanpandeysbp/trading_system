@@ -408,6 +408,19 @@ def _analyze_symbol(
             interval=interval,
         )
 
+        # Same Fall/Rise next-move forecasts as History (from ~90d daily bars).
+        forecast_block = fetch_and_build_move_forecasts(
+            symbol,
+            asset_class=asset_class,
+            market=market,
+            threshold_pct=thr,
+            move_side=side,
+            groww_token=groww_token,
+            exchange=exchange,
+            lookback_days=90,
+            entry=last,
+        )
+
         return {
             "ticker": symbol,
             "matched": matched,
@@ -441,6 +454,12 @@ def _analyze_symbol(
             "tp_pct": trade_setup.get("tp_pct"),
             "action": trade_setup.get("action"),
             "setup_direction": trade_setup.get("direction"),
+            "forecast": forecast_block.get("forecast") or {},
+            "primary_forecast": forecast_block.get("primary_forecast"),
+            "fall_count": forecast_block.get("fall_count"),
+            "rise_count": forecast_block.get("rise_count"),
+            "forecast_threshold_pct": forecast_block.get("forecast_threshold_pct"),
+            "forecast_error": forecast_block.get("forecast_error"),
         }
     except Exception as exc:
         logger.debug("Falling knife failed for %s: %s", symbol, exc, exc_info=True)
@@ -614,6 +633,7 @@ def _how_to() -> list[str]:
         "Pick an asset class and universe (index / custom list).",
         "Live mode: set threshold % + lookback hours + Falls / Rises / Both — only that market’s regular session hours count.",
         "Live match: fall = last ≥ X% below window high · rise = last ≥ X% above window low.",
+        "Live also builds Fall/Rise next-move forecasts (same as History) from ~90d daily history — Conf %, SL %, TP %.",
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
         "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",
@@ -982,6 +1002,202 @@ def _forecast_from_events(
     }
 
 
+def pick_primary_forecast(
+    forecast: dict[str, Any],
+    *,
+    now_utc: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Soonest future fall/rise slot; else highest-confidence side (never a past datetime)."""
+    if not forecast:
+        return None
+    now = now_utc or datetime.now(UTC)
+    candidates = [forecast[k] for k in ("fall", "rise") if k in forecast and forecast[k]]
+    if not candidates:
+        return None
+    future: list[tuple[Any, dict[str, Any]]] = []
+    now_ts = _as_utc_ts(now)
+    for c in candidates:
+        pt = c.get("predicted_next_time")
+        if not pt:
+            continue
+        try:
+            ts = _as_utc_ts(pt)
+            if ts >= now_ts:
+                future.append((ts, c))
+        except Exception:
+            continue
+    if future:
+        future.sort(key=lambda x: x[0])
+        return future[0][1]
+
+    primary = max(candidates, key=lambda c: float(c.get("confidence_pct") or 0))
+    if primary.get("predicted_next_time"):
+        try:
+            if _as_utc_ts(primary["predicted_next_time"]) < now_ts:
+                return {
+                    **primary,
+                    "predicted_next_time": None,
+                    "predicted_next_time_ist": None,
+                    "hours_until_predicted": None,
+                    "hours_until_label": None,
+                    "plain_english": (
+                        str(primary.get("plain_english") or "")
+                        + " Next dated slot is overdue and could not be rolled forward."
+                    ).strip(),
+                }
+        except Exception:
+            pass
+    return primary
+
+
+def build_fall_rise_forecasts_from_df(
+    df: pd.DataFrame,
+    *,
+    threshold_pct: float = 10.0,
+    move_side: str = "both",
+    timeframe: str = "1d",
+    now_utc: datetime | None = None,
+    entry: float | None = None,
+) -> dict[str, Any]:
+    """
+    Build Fall + Rise next-move forecasts (plain English, conf %, SL %, TP %)
+    from OHLC history. Used by Live scan, History, Ticker Chart, BB-RSI-VOL.
+    Works for India / US / Crypto / Commodities — same event math on the bars given.
+    """
+    empty: dict[str, Any] = {
+        "forecast": {},
+        "primary_forecast": None,
+        "events": [],
+        "fall_count": 0,
+        "rise_count": 0,
+        "event_count": 0,
+    }
+    if df is None or df.empty or len(df) < 8:
+        return empty
+
+    work = df.copy()
+    for col in ("open", "high", "low", "close"):
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+    work = work.dropna(subset=["high", "low", "close"])
+    if len(work) < 8:
+        return empty
+
+    side = (move_side or "both").lower()
+    if side not in ("fall", "rise", "both"):
+        side = "both"
+    thr = float(max(0.5, min(threshold_pct, 90.0)))
+    now = now_utc or datetime.now(UTC)
+
+    events = detect_threshold_events(work, thr, move_side=side)
+    falls = [e for e in events if e["direction"] == "fall"]
+    rises = [e for e in events if e["direction"] == "rise"]
+
+    forecast: dict[str, Any] = {}
+    if side in ("fall", "both"):
+        f = _forecast_from_events(events, direction="fall", now_utc=now)
+        if f:
+            forecast["fall"] = f
+    if side in ("rise", "both"):
+        r = _forecast_from_events(events, direction="rise", now_utc=now)
+        if r:
+            forecast["rise"] = r
+
+    try:
+        last = float(entry) if entry is not None else float(work["close"].iloc[-1])
+    except (TypeError, ValueError):
+        last = float(work["close"].iloc[-1])
+
+    from app.market_pulse.pro_trade_shared import atr as atr_ind, enrich_forecast_trade_setup
+
+    atr_s = atr_ind(work)
+    atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
+    for key in ("fall", "rise"):
+        if key in forecast:
+            enrich_forecast_trade_setup(
+                forecast[key],
+                entry=last,
+                atr_value=atr_v,
+                timeframe=timeframe,
+            )
+
+    primary = pick_primary_forecast(forecast, now_utc=now)
+    return {
+        "forecast": forecast,
+        "primary_forecast": primary,
+        "events": events,
+        "fall_count": len(falls),
+        "rise_count": len(rises),
+        "event_count": len(events),
+        "forecast_threshold_pct": thr,
+        "forecast_bars": int(len(work)),
+        "forecast_interval": timeframe,
+    }
+
+
+def fetch_and_build_move_forecasts(
+    symbol: str,
+    *,
+    asset_class: str,
+    market: str,
+    threshold_pct: float = 10.0,
+    move_side: str = "both",
+    groww_token: str = "",
+    exchange: str = "NSE",
+    lookback_days: int = 90,
+    entry: float | None = None,
+) -> dict[str, Any]:
+    """Fetch ~lookback_days of daily bars and build Fall/Rise forecasts for any asset class."""
+    days = int(max(30, min(lookback_days, 365)))
+    try:
+        raw = fetch_data_for_gap_scan(
+            symbol,
+            "1d",
+            market,
+            groww_token=groww_token,
+            exchange=exchange,
+            limit=int(days * 1.5) + 20,
+        )
+        df = normalize_ohlcv(raw) if raw is not None else pd.DataFrame()
+    except Exception as exc:
+        logger.debug("Forecast fetch failed for %s: %s", symbol, exc)
+        return {
+            "forecast": {},
+            "primary_forecast": None,
+            "events": [],
+            "fall_count": 0,
+            "rise_count": 0,
+            "event_count": 0,
+            "forecast_error": str(exc)[:160],
+        }
+
+    if df is None or df.empty:
+        return {
+            "forecast": {},
+            "primary_forecast": None,
+            "events": [],
+            "fall_count": 0,
+            "rise_count": 0,
+            "event_count": 0,
+            "forecast_error": "No daily bars for forecast",
+        }
+
+    end_utc = datetime.now(UTC)
+    start_utc = end_utc - timedelta(days=days)
+    sess = filter_session_bars(df, asset_class, start_utc=start_utc, end_utc=end_utc)
+    if sess is None or sess.empty or len(sess) < 8:
+        # Crypto / some feeds may already be clean — use raw tail
+        sess = df.tail(days + 5)
+
+    return build_fall_rise_forecasts_from_df(
+        sess,
+        threshold_pct=threshold_pct,
+        move_side=move_side,
+        timeframe="1d",
+        entry=entry,
+    )
+
+
 def analyze_history_ticker(
     symbol: str,
     *,
@@ -1031,70 +1247,17 @@ def analyze_history_ticker(
         events = detect_threshold_events(sess, threshold_pct, move_side=move_side)
         falls = [e for e in events if e["direction"] == "fall"]
         rises = [e for e in events if e["direction"] == "rise"]
-        now_utc = datetime.now(UTC)
-
-        forecast: dict[str, Any] = {}
-        if move_side in ("fall", "both"):
-            f = _forecast_from_events(events, direction="fall", now_utc=now_utc)
-            if f:
-                forecast["fall"] = f
-        if move_side in ("rise", "both"):
-            r = _forecast_from_events(events, direction="rise", now_utc=now_utc)
-            if r:
-                forecast["rise"] = r
 
         last = float(sess["close"].iloc[-1])
-        from app.market_pulse.pro_trade_shared import atr as atr_ind, enrich_forecast_trade_setup
-
-        atr_s = atr_ind(sess)
-        atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
-        for key in ("fall", "rise"):
-            if key in forecast:
-                enrich_forecast_trade_setup(
-                    forecast[key],
-                    entry=last,
-                    atr_value=atr_v,
-                    timeframe=interval,
-                )
-
-        # Primary next-event pick: soonest future prediction only (never a past slot).
-        primary = None
-        candidates = [forecast[k] for k in ("fall", "rise") if k in forecast]
-        future = []
-        now_ts = _as_utc_ts(now_utc)
-        for c in candidates:
-            pt = c.get("predicted_next_time")
-            if not pt:
-                continue
-            try:
-                ts = _as_utc_ts(pt)
-                if ts >= now_ts:
-                    future.append((ts, c))
-            except Exception:
-                continue
-        if future:
-            future.sort(key=lambda x: x[0])
-            primary = future[0][1]
-        elif candidates:
-            # No dated future slot — still surface highest-confidence side without a past datetime.
-            primary = max(candidates, key=lambda c: float(c.get("confidence_pct") or 0))
-            if primary.get("predicted_next_time"):
-                try:
-                    if _as_utc_ts(primary["predicted_next_time"]) < now_ts:
-                        primary = {
-                            **primary,
-                            "predicted_next_time": None,
-                            "predicted_next_time_ist": None,
-                            "hours_until_predicted": None,
-                            "hours_until_label": None,
-                            "plain_english": (
-                                str(primary.get("plain_english") or "")
-                                + " Next dated slot is overdue and could not be rolled forward."
-                            ).strip(),
-                        }
-                except Exception:
-                    pass
-
+        block = build_fall_rise_forecasts_from_df(
+            sess,
+            threshold_pct=threshold_pct,
+            move_side=move_side,
+            timeframe=interval,
+            entry=last,
+        )
+        forecast = block.get("forecast") or {}
+        primary = block.get("primary_forecast")
         trade_setup = (primary or {}).get("trade_setup") if primary else None
         out.update({
             "events": events,

@@ -877,11 +877,38 @@ def compute_ticker_chart(
             base_reason="Ticker Chart selected indicators + S1/R1",
         )
 
+        # Fall / Rise next-move forecasts (same engine as Falling Knife) for all asset classes.
+        # Prefer ~90d daily history so short chart windows still produce useful forecasts.
+        from app.market_pulse.falling_knife_engine import (
+            build_fall_rise_forecasts_from_df,
+            fetch_and_build_move_forecasts,
+        )
+
+        move_forecasts = fetch_and_build_move_forecasts(
+            resolved,
+            asset_class=ac,
+            market=mkt,
+            threshold_pct=10.0,
+            move_side="both",
+            lookback_days=90,
+            entry=last,
+        )
+        if not (move_forecasts.get("forecast") or {}):
+            forecast_src = ohlc if ohlc is not None and len(ohlc) >= 8 else clipped
+            move_forecasts = build_fall_rise_forecasts_from_df(
+                forecast_src,
+                threshold_pct=10.0,
+                move_side="both",
+                timeframe="1d" if not intraday else iv,
+                entry=last,
+            )
+
         how_to = [
             "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
             "Intraday: pick session date + bar size (1m–1h).",
             "Toggle indicators (RSI, MACD, Supertrend, VWAP, Volume, Bollinger, Fibonacci, EMAs) — overlays and signal text update together.",
             "Trade setup shows % confidence, %SL, and %TP from selected-indicator tilt + S1/R1 (ATR-sane stops).",
+            "Fall / Rise forecast cards use ≥10% historical moves on the loaded bars (Conf · next time · move · SL% · TP%).",
             "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
             "RSI / MACD appear as sub-panels; EMAs / VWAP / BB / Supertrend / Fib overlay on price.",
             "Educational heuristics — not a trade signal.",
@@ -922,6 +949,10 @@ def compute_ticker_chart(
             "tp_pct": trade_setup.get("tp_pct"),
             "direction": trade_setup.get("direction"),
             "action": trade_setup.get("action"),
+            "forecast": move_forecasts.get("forecast") or {},
+            "primary_forecast": move_forecasts.get("primary_forecast"),
+            "fall_count": move_forecasts.get("fall_count"),
+            "rise_count": move_forecasts.get("rise_count"),
             "signal_description": signal_description,
             "summary": (
                 f"{resolved} ({display_sym}"

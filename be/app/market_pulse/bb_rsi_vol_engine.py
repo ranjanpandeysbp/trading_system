@@ -630,6 +630,26 @@ def analyze_ticker(
         *([{"price": _r(float(resistance["top"])), "label": "Resistance", "color": "#fb7185"}] if resistance else []),
     ]
 
+    # Fall / Rise forecasts available on every charted result (WAIT / WATCH / take).
+    try:
+        from app.market_pulse.falling_knife_engine import build_fall_rise_forecasts_from_df
+
+        move_forecasts = build_fall_rise_forecasts_from_df(
+            work,
+            threshold_pct=10.0,
+            move_side="both",
+            timeframe=cfg.timeframe,
+            entry=price,
+        )
+        out["forecast"] = move_forecasts.get("forecast") or {}
+        out["primary_forecast"] = move_forecasts.get("primary_forecast")
+        out["fall_count"] = move_forecasts.get("fall_count")
+        out["rise_count"] = move_forecasts.get("rise_count")
+    except Exception as exc:
+        logger.debug("BB move forecasts skipped for %s: %s", ticker, exc)
+        out["forecast"] = {}
+        out["primary_forecast"] = None
+
     direction: str | None = None
     if buy_setup and (not cfg.require_ema_cross_close or close_above_9):
         if cfg.require_sr and not near_sup:

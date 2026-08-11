@@ -23,6 +23,7 @@ import { TickerAutosuggest } from '../ui/TickerAutosuggest'
 import { CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
 import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
+import { FallRiseForecastCards, forecastFromResult } from './FallRiseForecastCards'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
 type Row = Record<string, unknown>
@@ -909,6 +910,12 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
           {tradeSetup && (
             <div className="mb-3">
               <TradeSetupBanner setup={tradeSetup} />
+            </div>
+          )}
+
+          {forecastFromResult(data) && (
+            <div className="mb-3">
+              <FallRiseForecastCards forecast={forecastFromResult(data)} />
             </div>
           )}
 
