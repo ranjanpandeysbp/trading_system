@@ -78,6 +78,7 @@ function TickerResultCard({
           { key: 'bb_upper', label: 'BB Upper', color: '#94a3b8' },
           { key: 'bb_mid', label: 'BB Mid', color: '#38bdf8' },
           { key: 'bb_lower', label: 'BB Lower', color: '#94a3b8' },
+          { key: 'ema5', label: 'EMA5', color: '#2dd4bf' },
           { key: 'ema9', label: 'EMA9', color: '#fbbf24' },
           { key: 'ema50', label: 'EMA50', color: '#a78bfa' },
         ]
@@ -109,6 +110,16 @@ function TickerResultCard({
           {result.confidence_pct != null && (
             <span className="text-xs font-medium text-slate-300">{fmtNum(result.confidence_pct, 0)}% conf</span>
           )}
+          {(() => {
+            const ema = (result.ema_continuation as Row | undefined) ?? {}
+            if (ema.confidence_pct == null) return null
+            const dir = String(ema.short_term_direction ?? '')
+            return (
+              <span className="text-[11px] text-teal-300/90">
+                EMA {dir || '—'} · next2 {ema.will_continue ? 'cont' : 'stall'} · {fmtNum(ema.confidence_pct, 0)}%
+              </span>
+            )
+          })()}
           {result.sl_pct != null && result.tp_pct != null && (
             <span className="text-xs text-slate-400">
               SL {fmtNum(result.sl_pct, 1)}% · TP {fmtNum(result.tp_pct, 1)}%
@@ -170,6 +181,86 @@ function TickerResultCard({
             </div>
           </div>
 
+          {(() => {
+            const ema = (result.ema_continuation as Row | undefined) ?? {}
+            if (!ema || ema.error) return null
+            const dir = String(ema.short_term_direction ?? 'flat')
+            const dirCls =
+              dir === 'rising' ? 'text-emerald-300' : dir === 'falling' ? 'text-rose-300' : 'text-slate-300'
+            const will = ema.will_continue
+            return (
+              <div className="rounded-lg border border-teal-500/25 bg-teal-500/5 px-3 py-2.5 text-sm text-slate-200">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-teal-300/90">
+                  EMA5 / EMA9 · next-2 continuation ({String(ema.history_days ?? 100)}d hist)
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <p className="text-[11px] text-slate-500">vs EMA5</p>
+                    <p className="font-medium text-white">
+                      {String(ema.price_vs_ema5 ?? '—')} ({fmtNum(ema.distance_ema5_pct, 2)}%)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-500">vs EMA9</p>
+                    <p className="font-medium text-white">
+                      {String(ema.price_vs_ema9 ?? '—')} ({fmtNum(ema.distance_ema9_pct, 2)}%)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-500">Short-term</p>
+                    <p className={`font-medium ${dirCls}`}>
+                      {dir} · {String(ema.intensity ?? '—')} ({fmtNum(ema.move_pct, 2)}%)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-500">Next {String(ema.continuation_bars ?? 2)} candles</p>
+                    <p className="font-medium text-white">
+                      {will == null ? '—' : will ? 'Likely continue' : 'Stall / reverse'}
+                      {ema.confidence_pct != null ? ` · ${fmtNum(ema.confidence_pct, 0)}% conf` : ''}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Pred move {ema.predicted_next_2_return_pct != null ? `${Number(ema.predicted_next_2_return_pct) >= 0 ? '+' : ''}${fmtNum(ema.predicted_next_2_return_pct, 2)}%` : '—'}
+                      {ema.predicted_intensity != null ? ` · ${String(ema.predicted_intensity)}` : ''}
+                      {ema.continuation_rate_pct != null
+                        ? ` · hist ${fmtNum(ema.continued_count, 0)}/${fmtNum(ema.analogues, 0)} (${fmtNum(ema.continuation_rate_pct, 0)}%)`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+                {ema.plain_english != null && (
+                  <p className="mt-2 text-xs leading-relaxed text-slate-400">{String(ema.plain_english)}</p>
+                )}
+                {Array.isArray(ema.recent_analogues) && (ema.recent_analogues as Row[]).length > 0 && (
+                  <div className="mt-2 overflow-x-auto">
+                    <p className="mb-1 text-[11px] font-medium text-slate-500">Recent similar setups</p>
+                    <table className="w-full text-left text-[11px] text-slate-400">
+                      <thead>
+                        <tr className="text-slate-500">
+                          <th className="pr-2">When</th>
+                          <th className="pr-2">Move</th>
+                          <th className="pr-2">Next-2</th>
+                          <th>Continued?</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(ema.recent_analogues as Row[]).slice(-6).map((a, i) => (
+                          <tr key={`${a.time}-${i}`}>
+                            <td className="pr-2 whitespace-nowrap">{String(a.time ?? '').replace('T', ' ').slice(0, 16)}</td>
+                            <td className="pr-2">{fmtNum(a.move_pct, 2)}%</td>
+                            <td className="pr-2">{fmtNum(a.next_2_return_pct, 2)}%</td>
+                            <td className={a.continued ? 'text-emerald-400' : 'text-rose-400'}>
+                              {a.continued ? 'yes' : 'no'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {checks.length > 0 && (
             <div className="grid gap-1.5 sm:grid-cols-2">
               {checks.map((ch) => {
@@ -209,7 +300,7 @@ function TickerResultCard({
               chartData={chartData}
               series={series}
               levels={levels}
-              readingGuide="Grey = BB · Blue mid · Gold EMA9 · Purple EMA50. Buy: lower band + RSI≤35 + low vol at support, close above EMA9. Sell: upper + RSI≥70 + high vol at resistance, close below EMA9."
+              readingGuide="Grey = BB · Blue mid · Teal EMA5 · Gold EMA9 · Purple EMA50. Buy: lower band + RSI≤35 + low vol at support, close above EMA9. Sell: upper + RSI≥70 + high vol at resistance, close below EMA9. Continuation uses ~100d EMA analogues for next-2 candles."
             />
           )}
 

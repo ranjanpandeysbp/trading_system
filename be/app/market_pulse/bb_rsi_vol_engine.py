@@ -70,7 +70,13 @@ Mean-reversion desk: **Bollinger stretch + RSI extreme + volume context**, filte
 | **BUY** | Touch/pierce **Lower** band | ≤ **35** | **Low** (below Vol MA20) | Near **Support** | Close **above 9 EMA** |
 | **SELL** | Touch/pierce **Upper** band | ≥ **70** | **High** (above Vol MA20) | Near **Resistance** | Close **below 9 EMA** |
 
-**Defaults:** BB(20, 2) · RSI(14) · Vol MA20 · EMA 9 / 50
+**Defaults:** BB(20, 2) · RSI(14) · Vol MA20 · EMA 5 / 9 / 50
+
+**EMA continuation (last ~100 days)**
+- Reports whether price is above/below EMA5 and EMA9
+- Short-term rise/fall intensity (mild → extreme vs ATR)
+- Finds similar historical EMA setups and measures whether the next 2 candles continued
+- Outputs continuation bias + % confidence from that history
 
 **Targets / risk**
 - T1 = Mid BB (20 SMA) · T2 = opposite band or next S/R
@@ -128,6 +134,7 @@ class BbRsiVolConfig:
     rsi_sell: float = 70.0
     vol_ma_period: int = 20
     ema_fast: int = 9
+    ema_ultra_fast: int = 5
     ema_trend: int = 50
     zone_tolerance_pct: float = 1.25
     min_rr: float = 1.2
@@ -138,6 +145,9 @@ class BbRsiVolConfig:
     chart_bars: int = 120
     require_sr: bool = True
     require_ema_cross_close: bool = True
+    history_days: int = 100
+    continuation_bars: int = 2
+    intensity_lookback_bars: int = 3
 
 
 def _r(x: float, n: int = 6) -> float:
@@ -173,6 +183,249 @@ def _ema_slope_pct(ema: pd.Series, lookback: int = 5) -> float | None:
     return (b - a) / abs(a) * 100.0
 
 
+def _bars_for_history_days(timeframe: str, days: int) -> int:
+    """Approximate bars needed to cover ~``days`` calendar days on ``timeframe``."""
+    d = max(20, int(days))
+    tf = (timeframe or "15m").lower()
+    if tf in ("1d", "1wk", "1w", "1M"):
+        return min(2500, d + 40)
+    if tf == "4h":
+        return min(2500, d * 6 + 50)
+    if tf == "1h":
+        return min(2500, d * 8 + 60)
+    if tf == "30m":
+        return min(2500, d * 14 + 80)
+    if tf == "15m":
+        return min(2500, d * 26 + 100)
+    if tf == "5m":
+        return min(2500, d * 78 + 120)
+    if tf == "1m":
+        return min(2500, d * 200 + 150)
+    return min(2500, d * 12 + 80)
+
+
+def _intensity_label(abs_move_pct: float, atr_pct: float) -> str:
+    """Classify short-term move strength vs ATR."""
+    atr_pct = max(0.05, float(atr_pct or 0.05))
+    score = abs(float(abs_move_pct)) / atr_pct
+    if score < 0.6:
+        return "mild"
+    if score < 1.2:
+        return "moderate"
+    if score < 2.0:
+        return "strong"
+    return "extreme"
+
+
+def _ema_continuation_forecast(
+    work: pd.DataFrame,
+    *,
+    cfg: BbRsiVolConfig,
+) -> dict[str, Any]:
+    """
+    Price vs EMA5/EMA9, short-term rise/fall intensity, and 2-candle continuation
+    odds from analogues in the last ``history_days`` window.
+    """
+    close = work["close"].astype(float)
+    n = len(work)
+    i = n - 1
+    hist_days = max(20, int(cfg.history_days))
+    fwd = max(1, int(cfg.continuation_bars))
+    look = max(2, int(cfg.intensity_lookback_bars))
+
+    ema5 = work["ema5"] if "ema5" in work.columns else _ema(close, cfg.ema_ultra_fast)
+    ema9 = work["ema9"] if "ema9" in work.columns else _ema(close, cfg.ema_fast)
+
+    price = float(close.iloc[i])
+    e5 = float(ema5.iloc[i]) if pd.notna(ema5.iloc[i]) else None
+    e9 = float(ema9.iloc[i]) if pd.notna(ema9.iloc[i]) else None
+    if e5 is None or e9 is None or price <= 0:
+        return {"error": "EMA5/EMA9 not ready"}
+
+    above_5 = price > e5
+    above_9 = price > e9
+    below_5 = price < e5
+    below_9 = price < e9
+
+    ref_i = max(0, i - look)
+    ref = float(close.iloc[ref_i])
+    move_pct = ((price / ref) - 1.0) * 100.0 if ref > 0 else 0.0
+    if move_pct > 0.05:
+        direction = "rising"
+    elif move_pct < -0.05:
+        direction = "falling"
+    else:
+        direction = "flat"
+
+    atr_series = _atr_ind(work, 14)
+    atr_v = float(atr_series.iloc[i]) if pd.notna(atr_series.iloc[i]) else 0.0
+    atr_pct = (atr_v / price) * 100.0 if price > 0 else 0.0
+    intensity = _intensity_label(abs(move_pct), atr_pct)
+    intensity_score = round(abs(move_pct) / max(atr_pct, 0.05), 2)
+
+    slope5 = _ema_slope_pct(ema5.dropna(), min(5, look))
+    slope9 = _ema_slope_pct(ema9.dropna(), min(5, look))
+
+    # Restrict analogue search to last ~history_days of bars (leave room for forward path).
+    bars_window = _bars_for_history_days(cfg.timeframe, hist_days)
+    start_j = max(look + 5, n - bars_window)
+    end_j = n - 1 - fwd  # need forward path after analogue
+    if end_j <= start_j:
+        return {
+            "price_vs_ema5": "above" if above_5 else "below",
+            "price_vs_ema9": "above" if above_9 else "below",
+            "above_ema5": above_5,
+            "above_ema9": above_9,
+            "below_ema5": below_5,
+            "below_ema9": below_9,
+            "ema5": _r(e5),
+            "ema9": _r(e9),
+            "distance_ema5_pct": _r((price / e5 - 1.0) * 100.0, 3),
+            "distance_ema9_pct": _r((price / e9 - 1.0) * 100.0, 3),
+            "short_term_direction": direction,
+            "move_pct": _r(move_pct, 3),
+            "intensity": intensity,
+            "intensity_score": intensity_score,
+            "ema5_slope_pct": _r(slope5, 3) if slope5 is not None else None,
+            "ema9_slope_pct": _r(slope9, 3) if slope9 is not None else None,
+            "history_days": hist_days,
+            "continuation_bars": fwd,
+            "analogues": 0,
+            "error": "Not enough history for continuation sample",
+        }
+
+    # Intensity band for analogues (±40% relative or ±0.35% absolute floor)
+    band = max(0.35, abs(move_pct) * 0.40)
+    min_gap = max(3, look)
+    spaced: list[dict[str, Any]] = []
+    last_j_kept = -10**9
+    for j in range(start_j, end_j + 1):
+        pj = float(close.iloc[j])
+        e5j = float(ema5.iloc[j]) if pd.notna(ema5.iloc[j]) else None
+        e9j = float(ema9.iloc[j]) if pd.notna(ema9.iloc[j]) else None
+        if e5j is None or e9j is None or pj <= 0:
+            continue
+        if (pj > e5j) != above_5 or (pj > e9j) != above_9:
+            continue
+        ref_j = float(close.iloc[j - look])
+        if ref_j <= 0:
+            continue
+        mv = ((pj / ref_j) - 1.0) * 100.0
+        if direction == "rising" and mv <= 0.05:
+            continue
+        if direction == "falling" and mv >= -0.05:
+            continue
+        if direction == "flat" and abs(mv) > 0.15:
+            continue
+        if abs(mv - move_pct) > band and direction != "flat":
+            continue
+        if j - last_j_kept < min_gap:
+            continue
+        fwd_close = float(close.iloc[j + fwd])
+        if not np.isfinite(fwd_close) or fwd_close <= 0:
+            continue
+        fwd_ret = ((fwd_close / pj) - 1.0) * 100.0
+        if direction == "rising":
+            continued = fwd_close > pj
+        elif direction == "falling":
+            continued = fwd_close < pj
+        else:
+            continued = abs(fwd_ret) < 0.15
+        try:
+            t = pd.Timestamp(work.index[j]).isoformat()
+        except Exception:
+            t = str(work.index[j])
+        spaced.append({
+            "time": t,
+            "move_pct": _r(mv, 3),
+            "next_2_return_pct": _r(fwd_ret, 3),
+            "continued": bool(continued),
+        })
+        last_j_kept = j
+
+    samples = len(spaced)
+    continued_n = sum(1 for a in spaced if a["continued"])
+    cont_rate = (100.0 * continued_n / samples) if samples else None
+    avg_fwd = float(np.mean([a["next_2_return_pct"] for a in spaced])) if samples else None
+    med_fwd = float(np.median([a["next_2_return_pct"] for a in spaced])) if samples else None
+
+    will_continue = None
+    if cont_rate is not None:
+        if direction == "flat":
+            will_continue = cont_rate >= 55
+        else:
+            will_continue = cont_rate >= 55
+
+    # Confidence: agreement with history × sample size
+    if samples <= 0:
+        conf = 0.0
+    else:
+        agreement = abs((cont_rate or 50) - 50.0) / 50.0
+        conf = min(90.0, max(18.0, (cont_rate or 50) * 0.55 + agreement * 25.0 + min(15.0, samples)))
+        if direction == "flat":
+            conf = min(conf, 45.0)
+
+    predicted_move = med_fwd if med_fwd is not None else avg_fwd
+    predicted_intensity = (
+        _intensity_label(abs(predicted_move or 0), atr_pct) if predicted_move is not None else None
+    )
+
+    if direction == "rising":
+        verb = "continue to rise" if will_continue else "stall / reverse"
+    elif direction == "falling":
+        verb = "continue to fall" if will_continue else "stall / reverse"
+    else:
+        verb = "stay flat" if will_continue else "break out"
+
+    plain = (
+        f"Price is {'above' if above_5 else 'below'} EMA5 ({_r(e5)}) and "
+        f"{'above' if above_9 else 'below'} EMA9 ({_r(e9)}). "
+        f"Short-term {direction} {abs(move_pct):.2f}% over {look} bars ({intensity} intensity). "
+    )
+    if samples:
+        plain += (
+            f"In the last ~{hist_days}d, {samples} similar EMA setups: next {fwd} candle(s) "
+            f"continued {continued_n}/{samples} times ({cont_rate:.0f}%). "
+            f"Median next-{fwd} move {predicted_move:+.2f}% ({predicted_intensity}). "
+            f"Bias: likely to {verb} · confidence {conf:.0f}%."
+        )
+    else:
+        plain += f"No close historical analogues in the last ~{hist_days}d for a {fwd}-candle forecast."
+
+    return {
+        "price_vs_ema5": "above" if above_5 else ("below" if below_5 else "at"),
+        "price_vs_ema9": "above" if above_9 else ("below" if below_9 else "at"),
+        "above_ema5": above_5,
+        "above_ema9": above_9,
+        "below_ema5": below_5,
+        "below_ema9": below_9,
+        "ema5": _r(e5),
+        "ema9": _r(e9),
+        "distance_ema5_pct": _r((price / e5 - 1.0) * 100.0, 3),
+        "distance_ema9_pct": _r((price / e9 - 1.0) * 100.0, 3),
+        "short_term_direction": direction,
+        "move_pct": _r(move_pct, 3),
+        "move_lookback_bars": look,
+        "intensity": intensity,
+        "intensity_score": intensity_score,
+        "ema5_slope_pct": _r(slope5, 3) if slope5 is not None else None,
+        "ema9_slope_pct": _r(slope9, 3) if slope9 is not None else None,
+        "history_days": hist_days,
+        "continuation_bars": fwd,
+        "analogues": samples,
+        "continued_count": continued_n,
+        "continuation_rate_pct": _r(cont_rate, 1) if cont_rate is not None else None,
+        "will_continue": will_continue,
+        "predicted_next_2_return_pct": _r(predicted_move, 3) if predicted_move is not None else None,
+        "avg_next_2_return_pct": _r(avg_fwd, 3) if avg_fwd is not None else None,
+        "predicted_intensity": predicted_intensity,
+        "confidence_pct": _r(conf, 1),
+        "bias": verb,
+        "plain_english": plain,
+        "recent_analogues": spaced[-8:],
+    }
+
+
 def _build_chart(work: pd.DataFrame, *, max_bars: int) -> list[dict[str, Any]]:
     if work is None or work.empty:
         return []
@@ -188,7 +441,7 @@ def _build_chart(work: pd.DataFrame, *, max_bars: int) -> list[dict[str, Any]]:
             "close": _r(float(bar["close"])),
             "volume": _r(float(bar["volume"]), 2) if has_vol and pd.notna(bar.get("volume")) else None,
         }
-        for k in ("bb_upper", "bb_mid", "bb_lower", "ema9", "ema50", "vol_ma"):
+        for k in ("bb_upper", "bb_mid", "bb_lower", "ema5", "ema9", "ema50", "vol_ma"):
             if k in bar and pd.notna(bar.get(k)):
                 row[k] = _r(float(bar[k]), 6)
         rows.append(row)
@@ -204,6 +457,7 @@ def analyze_ticker(
     exchange: str = "NSE",
 ) -> dict[str, Any]:
     cfg = cfg or BbRsiVolConfig()
+    fetch_limit = max(int(cfg.lookback_bars), _bars_for_history_days(cfg.timeframe, cfg.history_days))
     out: dict[str, Any] = {
         "ticker": ticker,
         "timeframe": cfg.timeframe,
@@ -218,7 +472,7 @@ def analyze_ticker(
 
     try:
         raw = fetch_data_for_gap_scan(
-            ticker, cfg.timeframe, market, groww_token, exchange, limit=cfg.lookback_bars,
+            ticker, cfg.timeframe, market, groww_token, exchange, limit=fetch_limit,
         )
         df = normalize_ohlcv(raw)
     except Exception as exc:
@@ -237,6 +491,7 @@ def analyze_ticker(
 
     upper, mid, lower = _bb_cols(close, cfg.bb_period, cfg.bb_std)
     work["bb_upper"], work["bb_mid"], work["bb_lower"] = upper, mid, lower
+    work["ema5"] = _ema(close, cfg.ema_ultra_fast)
     work["ema9"] = _ema(close, cfg.ema_fast)
     work["ema50"] = _ema(close, cfg.ema_trend)
     work["rsi"] = _rsi_ind(close, cfg.rsi_period)
@@ -251,6 +506,7 @@ def analyze_ticker(
     hi = float(high.iloc[i])
     lo = float(low.iloc[i])
     rsi_v = float(work["rsi"].iloc[i])
+    ema5 = float(work["ema5"].iloc[i]) if pd.notna(work["ema5"].iloc[i]) else None
     ema9 = float(work["ema9"].iloc[i])
     ema50 = float(work["ema50"].iloc[i]) if pd.notna(work["ema50"].iloc[i]) else None
     bb_u, bb_m, bb_l = float(upper.iloc[i]), float(mid.iloc[i]), float(lower.iloc[i])
@@ -263,9 +519,14 @@ def analyze_ticker(
     touch_upper = hi >= bb_u or price >= bb_u
     close_above_9 = price > ema9
     close_below_9 = price < ema9
+    close_above_5 = ema5 is not None and price > ema5
+    close_below_5 = ema5 is not None and price < ema5
 
     er = float(kaufman_efficiency_ratio(close, period=14).iloc[i] or 0)
     slope50 = _ema_slope_pct(work["ema50"].dropna(), 5)
+
+    ema_cont = _ema_continuation_forecast(work, cfg=cfg)
+    out["ema_continuation"] = ema_cont
 
     zones = find_swing_sr_zones(work, PaVpSmcConfig())
     support = zones.get("support")
@@ -315,21 +576,44 @@ def analyze_ticker(
         {"id": "high_vol", "label": "Volume above MA20 (climax)", "passed": bool(high_vol), "detail": f"vol {_r(vol_now or 0, 0)} / MA {_r(vol_ma or 0, 0)}"},
         {"id": "support", "label": "Near Support", "passed": near_sup, "detail": str((support or {}).get("origin_index", "—"))},
         {"id": "resistance", "label": "Near Resistance", "passed": near_res, "detail": str((resistance or {}).get("origin_index", "—"))},
+        {"id": "ema5_long", "label": "Close above 5 EMA", "passed": bool(close_above_5), "detail": f"EMA5 {_r(ema5) if ema5 else '—'}"},
+        {"id": "ema5_short", "label": "Close below 5 EMA", "passed": bool(close_below_5), "detail": f"EMA5 {_r(ema5) if ema5 else '—'}"},
         {"id": "ema9_long", "label": "Close above 9 EMA", "passed": close_above_9, "detail": f"EMA9 {_r(ema9)}"},
         {"id": "ema9_short", "label": "Close below 9 EMA", "passed": close_below_9, "detail": f"EMA9 {_r(ema9)}"},
         {"id": "ema50", "label": "50 EMA not opposing steeply", "passed": not (steep_down or steep_up), "detail": f"slope5 {_r(slope50, 2) if slope50 is not None else '—'}% · ER {_r(er, 2)}"},
         {"id": "bull_div", "label": "Bullish RSI divergence", "passed": bull_div, "detail": "boost" if bull_div else "—"},
         {"id": "bear_div", "label": "Bearish RSI divergence", "passed": bear_div, "detail": "boost" if bear_div else "—"},
+        {
+            "id": "ema_continuation",
+            "label": f"Next-{cfg.continuation_bars} candle continuation (100d hist)",
+            "passed": bool(ema_cont.get("will_continue")),
+            "detail": (
+                f"{ema_cont.get('short_term_direction')} · {ema_cont.get('intensity')} · "
+                f"{ema_cont.get('continuation_rate_pct')}% hist · conf {ema_cont.get('confidence_pct')}%"
+                if not ema_cont.get("error")
+                else str(ema_cont.get("error"))
+            ),
+        },
     ]
 
     out["ltp"] = _r(price)
     out["metrics"] = {
         "bb_upper": _r(bb_u), "bb_mid": _r(bb_m), "bb_lower": _r(bb_l),
-        "rsi": _r(rsi_v, 1), "ema9": _r(ema9), "ema50": _r(ema50) if ema50 else None,
+        "rsi": _r(rsi_v, 1),
+        "ema5": _r(ema5) if ema5 else None,
+        "ema9": _r(ema9),
+        "ema50": _r(ema50) if ema50 else None,
+        "above_ema5": close_above_5,
+        "above_ema9": close_above_9,
         "vol_vs_ma": _r((vol_now / vol_ma) if vol_now and vol_ma else 0, 2),
         "er": _r(er, 3), "ema50_slope_pct": _r(slope50, 2) if slope50 is not None else None,
         "near_support": near_sup, "near_resistance": near_res,
         "bull_div": bull_div, "bear_div": bear_div,
+        "short_term_direction": ema_cont.get("short_term_direction"),
+        "move_intensity": ema_cont.get("intensity"),
+        "continuation_confidence_pct": ema_cont.get("confidence_pct"),
+        "will_continue_next_2": ema_cont.get("will_continue"),
+        "predicted_next_2_return_pct": ema_cont.get("predicted_next_2_return_pct"),
     }
     out["checks"] = checks
     out["chart_data"] = _build_chart(work, max_bars=cfg.chart_bars)
@@ -337,6 +621,7 @@ def analyze_ticker(
         {"key": "bb_upper", "label": "BB Upper", "color": "#94a3b8"},
         {"key": "bb_mid", "label": "BB Mid", "color": "#38bdf8"},
         {"key": "bb_lower", "label": "BB Lower", "color": "#94a3b8"},
+        {"key": "ema5", "label": "EMA5", "color": "#2dd4bf"},
         {"key": "ema9", "label": "EMA9", "color": "#fbbf24"},
         {"key": "ema50", "label": "EMA50", "color": "#a78bfa"},
     ]
@@ -439,6 +724,21 @@ def analyze_ticker(
     score.add(close_above_9 if is_long else close_below_9, 8,
               "9 EMA close confirms buyers/sellers stepped in",
               "No 9 EMA confirmation")
+    score.add(close_above_5 if is_long else close_below_5, 4,
+              "5 EMA aligned with trade side",
+              "5 EMA not aligned")
+    cont_ok = bool(ema_cont.get("will_continue"))
+    cont_dir = str(ema_cont.get("short_term_direction") or "")
+    cont_agrees = (
+        (is_long and cont_dir == "rising" and cont_ok)
+        or ((not is_long) and cont_dir == "falling" and cont_ok)
+    )
+    score.add(
+        cont_agrees,
+        7,
+        f"100d hist: next-{cfg.continuation_bars} candles likely continue ({ema_cont.get('confidence_pct')}% conf)",
+        f"EMA continuation hist does not strongly agree ({ema_cont.get('bias')})",
+    )
     score.add(bull_candle if is_long else bear_candle, 6,
               "Reversal candlestick agrees",
               "No clear reversal candle yet")
@@ -513,8 +813,11 @@ def analyze_ticker(
             f"{_r(rsi_v, 1)} and {'quiet' if is_long else 'climax'} volume"
             f"{' at support' if is_long and near_sup else ''}"
             f"{' at resistance' if not is_long and near_res else ''}. "
-            f"Entry confirmed by close {'above' if is_long else 'below'} the 9 EMA. "
+            f"Entry confirmed by close {'above' if is_long else 'below'} the 9 EMA"
+            f"{' / above 5 EMA' if is_long and close_above_5 else ''}"
+            f"{' / below 5 EMA' if (not is_long) and close_below_5 else ''}. "
             f"Risk {sl_pct:.1f}% to stop · aim {tp_pct:.1f}% to T1 (mid-band) · confidence {confidence_pct:.0f}% (grade {grade}). "
+            f"{ema_cont.get('plain_english') or ''} "
             f"Pro tip: prefer RSI divergence and book partial at mid-band."
         ),
         "matched_pattern": next((p.get("name") for p in (patterns or []) if p.get("name")), None),
@@ -575,10 +878,13 @@ def scan_universe(
             "rsi_buy": cfg.rsi_buy,
             "rsi_sell": cfg.rsi_sell,
             "vol_ma_period": cfg.vol_ma_period,
+            "ema_ultra_fast": cfg.ema_ultra_fast,
             "ema_fast": cfg.ema_fast,
             "ema_trend": cfg.ema_trend,
             "min_rr": cfg.min_rr,
             "take_confidence_threshold": cfg.take_confidence_threshold,
+            "history_days": cfg.history_days,
+            "continuation_bars": cfg.continuation_bars,
         },
         "results": results,
         "entry_count": len(actionable),
@@ -592,11 +898,13 @@ def scan_universe(
 
 
 def build_bb_rsi_vol_ai_prompt(result: dict[str, Any]) -> str:
+    ema_c = result.get("ema_continuation") or {}
     extra = [
         f"Direction: {result.get('direction')}",
         f"Conf {result.get('confidence_pct')}% · SL {result.get('sl_pct')}% · TP {result.get('tp_pct')}%",
         f"Grade: {result.get('grade')}",
         f"Reason: {result.get('reason')}",
+        f"EMA continuation: {ema_c.get('plain_english') or ema_c}",
         f"Checks: {result.get('checks')}",
         f"Pro checklist: {result.get('pro_checklist')}",
     ]

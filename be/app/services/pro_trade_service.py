@@ -719,10 +719,11 @@ class ProTradeService:
             k: v for k, v in ov.items()
             if k in {
                 "timeframe", "lookback_bars", "bb_period", "bb_std", "rsi_period",
-                "rsi_buy", "rsi_sell", "vol_ma_period", "ema_fast", "ema_trend",
+                "rsi_buy", "rsi_sell", "vol_ma_period", "ema_fast", "ema_ultra_fast", "ema_trend",
                 "zone_tolerance_pct", "min_rr", "sl_atr_mult", "er_hard_block",
                 "take_confidence_threshold", "min_bars", "chart_bars",
                 "require_sr", "require_ema_cross_close",
+                "history_days", "continuation_bars", "intensity_lookback_bars",
             }
         })
         resolved_exchange = exchange or default_exchange

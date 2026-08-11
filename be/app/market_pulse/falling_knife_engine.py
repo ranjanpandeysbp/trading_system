@@ -653,6 +653,21 @@ def detect_threshold_events(
     return events
 
 
+def _as_utc_ts(value) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize(UTC)
+    return ts.tz_convert(UTC)
+
+
+def _fmt_ts_ist(ts) -> str | None:
+    try:
+        t = _as_utc_ts(ts).tz_convert(IST)
+        return t.strftime("%Y-%m-%d %H:%M IST")
+    except Exception:
+        return None
+
+
 def _forecast_from_events(
     events: list[dict[str, Any]],
     *,
@@ -679,27 +694,55 @@ def _forecast_from_events(
     conf = _confidence_from_samples(len(subset), gaps)
 
     last = subset[-1]
-    last_ts = pd.Timestamp(last["event_time"])
-    if last_ts.tzinfo is None:
-        last_ts = last_ts.tz_localize(UTC)
+    last_ts = _as_utc_ts(last["event_time"])
+    now_ts = _as_utc_ts(now_utc)
 
-    predicted_at = None
-    hours_until = None
+    predicted_ts: pd.Timestamp | None = None
+    cycles_skipped = 0
+    raw_predicted_ts: pd.Timestamp | None = None
+    overdue_hours: float | None = None
+
     if med_gap is not None and med_gap > 0:
-        predicted_at = (last_ts + pd.Timedelta(hours=med_gap)).isoformat()
-        hours_until = _hours_between(now_utc, last_ts + pd.Timedelta(hours=med_gap))
+        step = pd.Timedelta(hours=float(med_gap))
+        predicted_ts = last_ts + step
+        raw_predicted_ts = predicted_ts
+        # Roll forward past due slots so the next window is always in the future (IST "now").
+        while predicted_ts <= now_ts and cycles_skipped < 120:
+            predicted_ts = predicted_ts + step
+            cycles_skipped += 1
+        if cycles_skipped > 0:
+            overdue_hours = _hours_between(raw_predicted_ts, now_ts)
+            # Each missed cycle softens confidence (pattern slipped vs calendar).
+            conf = round(float(np.clip(conf - min(35.0, cycles_skipped * 4.5), 10.0, 88.0)), 1)
 
+    hours_until = _hours_between(now_ts, predicted_ts) if predicted_ts is not None else None
     signed_move = -float(med_move) if direction == "fall" and med_move is not None else med_move
+
+    predicted_iso = predicted_ts.isoformat() if predicted_ts is not None else None
+    predicted_ist = _fmt_ts_ist(predicted_ts) if predicted_ts is not None else None
+    roll_note = ""
+    if cycles_skipped > 0:
+        roll_note = (
+            f" Prior slot { _fmt_ts_ist(raw_predicted_ts) or 'n/a' } already passed "
+            f"({_duration_label(overdue_hours) or 'overdue'}); rolled forward {cycles_skipped} cycle(s)."
+        )
 
     return {
         "direction": direction,
         "samples": len(subset),
         "confidence_pct": conf,
         "last_event_time": last.get("event_time"),
+        "last_event_time_ist": _fmt_ts_ist(last_ts),
         "median_gap_hours": _r(med_gap, 2) if med_gap is not None else None,
         "avg_gap_hours": _r(avg_gap, 2) if avg_gap is not None else None,
         "median_gap_label": _duration_label(med_gap),
-        "predicted_next_time": predicted_at,
+        "predicted_next_time": predicted_iso,
+        "predicted_next_time_ist": predicted_ist,
+        "raw_predicted_next_time": raw_predicted_ts.isoformat() if raw_predicted_ts is not None else None,
+        "raw_predicted_next_time_ist": _fmt_ts_ist(raw_predicted_ts) if raw_predicted_ts is not None else None,
+        "cycles_skipped": cycles_skipped,
+        "overdue_hours": overdue_hours,
+        "overdue_label": _duration_label(overdue_hours) if overdue_hours is not None else None,
         "hours_until_predicted": hours_until,
         "hours_until_label": _duration_label(hours_until) if hours_until is not None else None,
         "predicted_move_pct": _r(signed_move, 2) if signed_move is not None else None,
@@ -710,13 +753,15 @@ def _forecast_from_events(
         "recovery_rate_pct": _r(
             100.0 * sum(1 for e in subset if e.get("recovered")) / len(subset), 1
         ),
+        "as_of_ist": _fmt_ts_ist(now_ts),
         "plain_english": (
             f"Based on {len(subset)} historical {direction}(s) ≥ threshold: "
-            f"median gap { _duration_label(med_gap) or 'n/a' }, "
-            f"next {direction} around {predicted_at or 'n/a'} "
+            f"median gap {_duration_label(med_gap) or 'n/a'}, "
+            f"next {direction} around {predicted_ist or 'n/a'} "
             f"({conf:.0f}% confidence), "
             f"typical move {('−' if direction == 'fall' else '+')}{med_move or 0:.1f}%, "
             f"median recovery {_duration_label(med_rec) or 'not observed'}."
+            f"{roll_note}"
         ),
     }
 
@@ -782,19 +827,18 @@ def analyze_history_ticker(
             if r:
                 forecast["rise"] = r
 
-        # Primary next-event pick: whichever predicted time is sooner (and in the future)
+        # Primary next-event pick: soonest future prediction only (never a past slot).
         primary = None
         candidates = [forecast[k] for k in ("fall", "rise") if k in forecast]
         future = []
+        now_ts = _as_utc_ts(now_utc)
         for c in candidates:
             pt = c.get("predicted_next_time")
             if not pt:
                 continue
             try:
-                ts = pd.Timestamp(pt)
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize(UTC)
-                if ts >= pd.Timestamp(now_utc):
+                ts = _as_utc_ts(pt)
+                if ts >= now_ts:
                     future.append((ts, c))
             except Exception:
                 continue
@@ -802,7 +846,24 @@ def analyze_history_ticker(
             future.sort(key=lambda x: x[0])
             primary = future[0][1]
         elif candidates:
+            # No dated future slot — still surface highest-confidence side without a past datetime.
             primary = max(candidates, key=lambda c: float(c.get("confidence_pct") or 0))
+            if primary.get("predicted_next_time"):
+                try:
+                    if _as_utc_ts(primary["predicted_next_time"]) < now_ts:
+                        primary = {
+                            **primary,
+                            "predicted_next_time": None,
+                            "predicted_next_time_ist": None,
+                            "hours_until_predicted": None,
+                            "hours_until_label": None,
+                            "plain_english": (
+                                str(primary.get("plain_english") or "")
+                                + " Next dated slot is overdue and could not be rolled forward."
+                            ).strip(),
+                        }
+                except Exception:
+                    pass
 
         last = float(sess["close"].iloc[-1])
         out.update({

@@ -2788,16 +2788,19 @@ function SimpleEffectivePage() {
 const BRV_HOW_TO = `How to use BB-RSI-VOL
 
 1. Pick asset class + timeframes + tickers (works on all 4 asset classes).
-2. Defaults: BB(20,2) · RSI 35/70 · Vol MA20 · EMA 9/50 · require S/R.
+2. Defaults: BB(20,2) · RSI 35/70 · Vol MA20 · EMA 5/9/50 · require S/R.
 3. Scan — only TAKE rows with conf% / SL% / TP% are actionable.
-4. Pro habit: wait for the 9 EMA close; never front-run the band alone.
-5. Book partial at mid-band (T1); trail toward T2. Skip steep 50 EMA trends.
-6. Also available in Backtester as "BB-RSI-VOL". Research only — not advice.`
+4. Each ticker also shows EMA5/EMA9 position, rise/fall intensity, and whether the next 2 candles tend to continue (from ~100d history) with % confidence.
+5. Pro habit: wait for the 9 EMA close; never front-run the band alone.
+6. Book partial at mid-band (T1); trail toward T2. Skip steep 50 EMA trends.
+7. Also available in Backtester as "BB-RSI-VOL". Research only — not advice.`
 
 const BRV_OVERVIEW = `BB-RSI-VOL — strategy matrix
 
 BUY: Lower BB touch · RSI ≤ 35 · Low volume (below Vol MA) · Support · close above 9 EMA
 SELL: Upper BB touch · RSI ≥ 70 · High volume (above Vol MA) · Resistance · close below 9 EMA
+
+Also reports: price above/below EMA5 & EMA9 · short-term rise/fall intensity · next-2-candle continuation odds from similar setups in the last ~100 days (% confidence).
 
 Filters: 50 EMA slope + Kaufman ER (no falling knife / melt-up). Boost: RSI divergence + reversal candle.
 T1 = mid BB · T2 = opposite band / next S/R · SL beyond swing / climax wick.

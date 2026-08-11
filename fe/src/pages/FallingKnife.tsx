@@ -81,7 +81,15 @@ function fmtPx(v: unknown, assetClass: AssetClass) {
 
 function fmtWhen(v: unknown) {
   if (v == null || v === '') return '—'
-  return String(v).replace('T', ' ').slice(0, 16)
+  const s = String(v)
+  if (s.includes('IST')) return s
+  return s.replace('T', ' ').slice(0, 16)
+}
+
+function fmtForecastWhen(f: Row | null | undefined) {
+  if (!f) return '—'
+  if (f.predicted_next_time_ist) return String(f.predicted_next_time_ist)
+  return fmtWhen(f.predicted_next_time)
 }
 
 function defaultFromDate(daysBack = 90) {
@@ -125,11 +133,21 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
           ) : primary != null ? (
             <p className="mt-1 text-xs text-slate-400">
               Predicted {String(primary.direction)} around{' '}
-              <span className="text-slate-200">{fmtWhen(primary.predicted_next_time)}</span>
+              <span className="text-slate-200">{fmtForecastWhen(primary)}</span>
+              {primary.hours_until_label != null ? (
+                <span className="text-slate-500"> · in {String(primary.hours_until_label)}</span>
+              ) : null}
               {' · move '}
               <span className={changeClass(primary.predicted_move_pct)}>
                 {fmtSignedPct(primary.predicted_move_pct)}
               </span>
+              {Number(primary.cycles_skipped) > 0 ? (
+                <span className="text-amber-400/90">
+                  {' '}
+                  · rolled +{String(primary.cycles_skipped)} past cycle
+                  {Number(primary.cycles_skipped) === 1 ? '' : 's'}
+                </span>
+              ) : null}
               {primary.median_recovery_label != null
                 ? ` · typical recovery ${String(primary.median_recovery_label)}`
                 : ''}
@@ -178,8 +196,12 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
                   <p className="text-xs font-semibold text-rose-200">Fall forecast</p>
                   <p className="mt-1 text-sm text-slate-200">{String(fallF.plain_english ?? '')}</p>
                   <p className="mt-2 text-xs text-slate-400">
-                    Confidence {String(fallF.confidence_pct)}% · next {fmtWhen(fallF.predicted_next_time)} ·
+                    Confidence {String(fallF.confidence_pct)}% · next {fmtForecastWhen(fallF)}
+                    {fallF.hours_until_label != null ? ` · in ${String(fallF.hours_until_label)}` : ''} ·
                     move {fmtSignedPct(fallF.predicted_move_pct)}
+                    {Number(fallF.cycles_skipped) > 0
+                      ? ` · rolled +${String(fallF.cycles_skipped)} past cycle(s)`
+                      : ''}
                   </p>
                 </div>
               )}
@@ -188,8 +210,12 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
                   <p className="text-xs font-semibold text-emerald-200">Rise forecast</p>
                   <p className="mt-1 text-sm text-slate-200">{String(riseF.plain_english ?? '')}</p>
                   <p className="mt-2 text-xs text-slate-400">
-                    Confidence {String(riseF.confidence_pct)}% · next {fmtWhen(riseF.predicted_next_time)} ·
+                    Confidence {String(riseF.confidence_pct)}% · next {fmtForecastWhen(riseF)}
+                    {riseF.hours_until_label != null ? ` · in ${String(riseF.hours_until_label)}` : ''} ·
                     move {fmtSignedPct(riseF.predicted_move_pct)}
+                    {Number(riseF.cycles_skipped) > 0
+                      ? ` · rolled +${String(riseF.cycles_skipped)} past cycle(s)`
+                      : ''}
                   </p>
                 </div>
               )}
