@@ -10,7 +10,7 @@ Commodities, with swing S1/S2 · R1/R2 support & resistance.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
@@ -24,6 +24,13 @@ _INTRADAY_MAX_LOOKBACK_DAYS = {"1m": 7, "2m": 60, "5m": 60, "15m": 60, "30m": 60
 
 def _parse_date(value: str) -> datetime:
     return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d")
+
+
+def _as_utc_ts(dt: datetime) -> float:
+    """Naive calendar datetimes are treated as UTC for CoinDCX windows."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).timestamp()
+    return dt.astimezone(timezone.utc).timestamp()
 
 
 def _normalize_interval(interval: str, *, intraday: bool) -> str:
@@ -52,6 +59,63 @@ def _to_yf_symbol(ticker: str, *, asset_class: str, market: str) -> str:
 
     is_crypto = asset_class == "crypto"
     return _yfinance_symbol(ticker, is_crypto=is_crypto, market=market)
+
+
+def _coindcx_resolution(interval: str) -> str:
+    """Map chart interval to a CoinDCX futures candlestick resolution."""
+    iv = (interval or "1d").strip().lower()
+    if iv in ("60m", "1h"):
+        return "1h"
+    if iv == "2m":
+        return "1m"  # CoinDCX has no 2m — use 1m
+    if iv in ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"):
+        return iv
+    return "1d"
+
+
+def _interval_seconds(interval: str) -> int:
+    iv = _coindcx_resolution(interval)
+    return {
+        "1m": 60,
+        "5m": 300,
+        "15m": 900,
+        "30m": 1800,
+        "1h": 3600,
+        "4h": 14400,
+        "1d": 86400,
+        "1w": 604800,
+    }.get(iv, 86400)
+
+
+def _download_coindcx_ohlc(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    interval: str = "1d",
+) -> pd.DataFrame:
+    """OHLCV from CoinDCX USDT-margined futures candlesticks."""
+    from app.market_pulse.heatmap import coindcx_ohlcv_indexed
+
+    res = _coindcx_resolution(interval)
+    pad_days = 40 if res == "1d" else (3 if res in ("1h", "4h") else 1)
+    start_ts = _as_utc_ts(start - timedelta(days=pad_days))
+    end_ts = _as_utc_ts(end + timedelta(days=1))
+    span = max(end_ts - start_ts, _interval_seconds(res))
+    limit = int(span / _interval_seconds(res)) + 80
+    limit = max(80, min(limit, 5000))
+
+    df = coindcx_ohlcv_indexed(
+        symbol,
+        res,
+        limit=limit,
+        start_ts=start_ts,
+        end_ts=end_ts,
+    )
+    if df.empty:
+        return pd.DataFrame()
+    df.index = _strip_tz(pd.to_datetime(df.index))
+    return df
 
 
 def _download_ohlc(
@@ -685,7 +749,10 @@ def compute_ticker_chart(
 
     resolved_list = resolve_tickers(ac, [raw_ticker])
     resolved = resolved_list[0] if resolved_list else raw_ticker.upper()
-    yf_sym = _to_yf_symbol(resolved, asset_class=ac, market=mkt)
+    is_crypto = ac == "crypto"
+    yf_sym = _to_yf_symbol(resolved, asset_class=ac, market=mkt) if not is_crypto else ""
+    # CoinDCX futures pair (B-BTC_USDT style after API normalize)
+    display_sym = resolved if is_crypto else yf_sym
 
     intraday = (mode or "daily").strip().lower() == "intraday"
     iv = _normalize_interval(interval, intraday=intraday)
@@ -708,20 +775,40 @@ def compute_ticker_chart(
 
     start_tracking()
     try:
-        ohlc = _download_ohlc(yf_sym, start, end, interval=iv)
-        # Prefer marking source even on empty so FE can show badge consistently
-        try:
-            from app.market_pulse.data_source_ctx import mark_source
-            if not ohlc.empty:
-                ohlc = mark_source(ohlc, "yfinance")
-        except Exception:
-            pass
+        if is_crypto:
+            ohlc = _download_coindcx_ohlc(resolved, start, end, interval=iv)
+            if ohlc.empty:
+                # Last-resort yfinance only if CoinDCX returns nothing
+                logger.warning("CoinDCX futures empty for %s — trying yfinance fallback", resolved)
+                ohlc = _download_ohlc(
+                    _to_yf_symbol(resolved, asset_class=ac, market=mkt),
+                    start,
+                    end,
+                    interval=iv,
+                )
+                if not ohlc.empty:
+                    try:
+                        from app.market_pulse.data_source_ctx import mark_source
+                        ohlc = mark_source(ohlc, "yfinance")
+                    except Exception:
+                        pass
+        else:
+            ohlc = _download_ohlc(yf_sym, start, end, interval=iv)
+            try:
+                from app.market_pulse.data_source_ctx import mark_source
+                if not ohlc.empty:
+                    ohlc = mark_source(ohlc, "yfinance")
+            except Exception:
+                pass
 
         if ohlc.empty:
+            src = "CoinDCX futures" if is_crypto else yf_sym
             return attach_data_source({
-                "error": f"No {iv} data for {resolved} ({yf_sym}) in this window.",
+                "error": f"No {iv} data for {resolved} ({src}) in this window.",
                 "ticker": resolved,
-                "yf_symbol": yf_sym,
+                "yf_symbol": display_sym,
+                "source_symbol": display_sym,
+                "data_provider": "coindcx" if is_crypto else "yfinance",
                 "asset_class": ac,
                 "mode": "intraday" if intraday else "daily",
                 "interval": iv,
@@ -774,9 +861,27 @@ def compute_ticker_chart(
         )
         selected_readings = {k: readings[k] for k in selected if k in readings}
 
+        how_to = [
+            "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
+            "Intraday: pick session date + bar size (1m–1h).",
+            "Toggle indicators (RSI, MACD, Supertrend, VWAP, Volume, Bollinger, Fibonacci, EMAs) — overlays and signal text update together.",
+            "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
+            "RSI / MACD appear as sub-panels; EMAs / VWAP / BB / Supertrend / Fib overlay on price.",
+            "Break % and indicator tilt are educational heuristics — not a trade signal.",
+        ]
+        if is_crypto:
+            how_to.insert(
+                1,
+                "Crypto uses CoinDCX USDT-margined futures candlesticks (pcode=f) — not Yahoo spot.",
+            )
+        else:
+            how_to.insert(1, "India / US / Commodities use Yahoo Finance OHLC (Groww/IndMoney where wired elsewhere).")
+
         return attach_data_source({
             "ticker": resolved,
-            "yf_symbol": yf_sym,
+            "yf_symbol": display_sym,
+            "source_symbol": display_sym,
+            "data_provider": "coindcx" if is_crypto else "yfinance",
             "asset_class": ac,
             "mode": "intraday" if intraday else "daily",
             "interval": iv,
@@ -795,16 +900,14 @@ def compute_ticker_chart(
             "selected_indicator_readings": selected_readings,
             "fib_levels": fib_levels,
             "signal_description": signal_description,
-            "summary": f"{resolved} ({yf_sym}) · {range_txt} · Δ {change_pct:+.2f}%" if change_pct is not None else f"{resolved} · {range_txt}",
+            "summary": (
+                f"{resolved} ({display_sym}"
+                + (" · CoinDCX futures" if is_crypto else "")
+                + f") · {range_txt}"
+                + (f" · Δ {change_pct:+.2f}%" if change_pct is not None else "")
+            ),
             "plain_english": signal_description,
-            "how_to_read": [
-                "Daily: pick From / To — chart loads as soon as both dates and a ticker are set.",
-                "Intraday: pick session date + bar size (1m–1h). Yahoo keeps a limited intraday history window.",
-                "Toggle indicators (RSI, MACD, Supertrend, VWAP, Volume, Bollinger, Fibonacci, EMAs) — overlays and signal text update together.",
-                "Green dashed = support (S1 nearer, S2 deeper) · Red dashed = resistance (R1 nearer, R2 higher).",
-                "RSI / MACD appear as sub-panels; EMAs / VWAP / BB / Supertrend / Fib overlay on price.",
-                "Break % and indicator tilt are educational heuristics — not a trade signal.",
-            ],
+            "how_to_read": how_to,
         })
     finally:
         clear_tracking()

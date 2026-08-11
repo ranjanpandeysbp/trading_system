@@ -115,6 +115,38 @@ def _groww_auth_quote_sync(symbol: str, exchange: str, token: str) -> MarketQuot
     return MarketQuote(price=price, day_high=high, day_low=low)
 
 
+def _coindcx_quote_sync(ticker: str) -> MarketQuote | None:
+    """Live CoinDCX USDT futures quote (last / day high / day low)."""
+    try:
+        from app.market_pulse.heatmap import _coindcx_sym_key, fetch_coindcx_futures_snapshot
+
+        def _base(sym: str) -> str:
+            return _coindcx_sym_key(sym).replace("USDT", "").lstrip("B")
+
+        snap = fetch_coindcx_futures_snapshot()
+        if not snap:
+            return None
+        want = _base(ticker)
+        if not want:
+            return None
+        for row in snap:
+            if _base(str(row.get("sym") or "")) != want:
+                continue
+            price = float(row.get("price") or 0)
+            if price <= 0:
+                continue
+            hi = row.get("high")
+            lo = row.get("low")
+            return MarketQuote(
+                price=price,
+                day_high=float(hi) if hi not in (None, 0, 0.0) else None,
+                day_low=float(lo) if lo not in (None, 0, 0.0) else None,
+            )
+    except Exception as exc:
+        logger.debug("CoinDCX quote failed for %s: %s", ticker, exc)
+    return None
+
+
 def _yf_symbol_for_quote(ticker: str, *, asset_class: str = "india", market: str = "") -> str:
     """Map ticker to a Yahoo symbol appropriate for the asset class."""
     raw = (ticker or "").strip()
@@ -140,10 +172,21 @@ async def fetch_market_quote(
     Fetch current market price and day high/low.
 
     India: IndMoney (if selected) → Groww (if selected) → yfinance (.NS).
-    US / commodity / crypto: yfinance (IndMoney API is India-focused).
+    Crypto: CoinDCX USDT futures snapshot → yfinance fallback.
+    US / commodity: yfinance (IndMoney API is India-focused).
     """
     ac = (asset_class or "india").lower()
     token = (groww_token or "").strip()
+
+    if ac == "crypto" or "coindcx" in (market or "").lower() or "crypto" in (market or "").lower():
+        q = await asyncio.to_thread(_coindcx_quote_sync, ticker)
+        if q:
+            return q
+        symbol = _yf_symbol_for_quote(ticker, asset_class="crypto", market=market)
+        yf_quote = await asyncio.to_thread(_yfinance_quote_sync, symbol)
+        if yf_quote:
+            return yf_quote
+        raise ValueError(f"Could not fetch CoinDCX futures price for {ticker}")
 
     if ac == "india":
         from app.data.provider_ctx import get_active_data_provider, get_active_indmoney_token

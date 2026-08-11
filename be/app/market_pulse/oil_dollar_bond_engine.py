@@ -110,6 +110,7 @@ INSTRUMENTS: list[dict[str, Any]] = [
         "short": "Bitcoin",
         "unit": "USD",
         "group": "macro",
+        "coindcx": "B-BTCUSDT",
         "candidates": ["BTC-USD", "BTCUSD=X"],
         "color": "#fb923c",
     },
@@ -119,6 +120,7 @@ INSTRUMENTS: list[dict[str, Any]] = [
         "short": "Ethereum",
         "unit": "USD",
         "group": "macro",
+        "coindcx": "B-ETHUSDT",
         "candidates": ["ETH-USD", "ETHUSD=X"],
         "color": "#60a5fa",
     },
@@ -327,6 +329,42 @@ def _strip_tz(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return idx
 
 
+def _download_coindcx_ohlc(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    interval: str = "1d",
+) -> pd.DataFrame:
+    """OHLCV from CoinDCX USDT futures for macro crypto series."""
+    from datetime import timezone
+
+    from app.market_pulse.heatmap import coindcx_ohlcv_indexed
+
+    res = interval if interval in ("1m", "5m", "15m", "30m", "1h", "4h", "1d") else (
+        "1h" if interval in ("60m",) else "1d"
+    )
+    if interval == "2m":
+        res = "1m"
+    pad = timedelta(days=5 if res == "1d" else 1)
+    start_u = datetime(start.year, start.month, start.day, tzinfo=timezone.utc) - pad
+    end_u = datetime(end.year, end.month, end.day, tzinfo=timezone.utc) + timedelta(days=1)
+    secs = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400}.get(res, 86400)
+    limit = int((end_u.timestamp() - start_u.timestamp()) / secs) + 80
+    limit = max(50, min(limit, 5000))
+    df = coindcx_ohlcv_indexed(
+        symbol,
+        res,
+        limit=limit,
+        start_ts=start_u.timestamp(),
+        end_ts=end_u.timestamp(),
+    )
+    if df.empty:
+        return pd.DataFrame()
+    df.index = _strip_tz(pd.to_datetime(df.index))
+    return df
+
+
 def _download_ohlc(
     symbol: str,
     start: datetime,
@@ -405,13 +443,19 @@ def _pick_ohlc(
     end: datetime,
     *,
     interval: str,
-) -> tuple[str | None, pd.DataFrame]:
+    coindcx: str | None = None,
+) -> tuple[str | None, pd.DataFrame, str]:
+    """Return (symbol, df, source). Crypto prefers CoinDCX futures when ``coindcx`` set."""
     min_bars = 2 if interval == "1d" else 3
+    if coindcx:
+        df = _download_coindcx_ohlc(coindcx, start, end, interval=interval)
+        if len(df) >= min_bars:
+            return coindcx, df, "coindcx"
     for sym in candidates:
         df = _download_ohlc(sym, start, end, interval=interval)
         if len(df) >= min_bars:
-            return sym, df
-    return None, pd.DataFrame()
+            return sym, df, "yfinance"
+    return None, pd.DataFrame(), ""
 
 
 def _series_to_points(series: pd.Series, *, intraday: bool) -> list[dict[str, Any]]:
@@ -599,8 +643,9 @@ def compute_oil_dollar_bond(
         if day < oldest:
             return {
                 "error": (
-                    f"Yahoo only keeps ~{max_days} days of {iv} history. "
-                    f"Pick a session on or after {oldest.strftime('%Y-%m-%d')}."
+                    f"Yahoo only keeps ~{max_days} days of {iv} history for non-crypto. "
+                    f"Pick a session on or after {oldest.strftime('%Y-%m-%d')} "
+                    f"(Bitcoin/Ethereum use CoinDCX futures and may still load)."
                 ),
                 "series": [],
                 "chart": [],
@@ -627,11 +672,27 @@ def compute_oil_dollar_bond(
     series_out: list[dict[str, Any]] = []
     aligned: dict[str, pd.Series] = {}
     errors: dict[str, str] = {}
+    sources_used: set[str] = set()
 
     for spec in INSTRUMENTS:
-        sym, ohlc = _pick_ohlc(list(spec["candidates"]), start, end, interval=iv)
+        coindcx_sym = spec.get("coindcx")
+        sym, ohlc, src = _pick_ohlc(
+            list(spec["candidates"]),
+            start,
+            end,
+            interval=iv,
+            coindcx=str(coindcx_sym) if coindcx_sym else None,
+        )
+        if src:
+            sources_used.add(src)
+            try:
+                from app.market_pulse.data_source_ctx import note_source
+                note_source(src)
+            except Exception:
+                pass
         if sym is None or ohlc.empty:
-            errors[str(spec["id"])] = f"No data for {spec['label']} (tried {', '.join(spec['candidates'])})."
+            tried = ([str(coindcx_sym)] if coindcx_sym else []) + list(spec["candidates"])
+            errors[str(spec["id"])] = f"No data for {spec['label']} (tried {', '.join(tried)})."
             series_out.append({
                 "id": spec["id"],
                 "label": spec["label"],
@@ -702,6 +763,7 @@ def compute_oil_dollar_bond(
             "bars": len(points),
             "support_resistance": sr,
             "volume_sr_summary": vol_sr,
+            "data_source": src or "yfinance",
         })
 
     chart = _build_overlay(aligned, intraday=intraday)
@@ -719,14 +781,22 @@ def compute_oil_dollar_bond(
         else f"{from_date_out} → {to_date_out}"
     )
 
+    src_label = " + ".join(sorted(sources_used)) if sources_used else "yfinance"
+    if "coindcx" in sources_used and "yfinance" in sources_used:
+        src_label = "yfinance + CoinDCX futures"
+    elif sources_used == {"coindcx"}:
+        src_label = "CoinDCX futures"
+    elif "coindcx" in sources_used:
+        src_label = "CoinDCX futures + yfinance"
+
     return {
         "mode": "intraday" if intraday else "daily",
         "interval": iv,
         "session_date": from_date_out if intraday else None,
         "from_date": from_date_out,
         "to_date": to_date_out,
-        "data_source": "yfinance",
-        "data_source_label": "yfinance",
+        "data_source": src_label,
+        "data_source_label": src_label,
         "series": series_out,
         "chart": chart,
         "instruments": [

@@ -74,23 +74,82 @@ def _yfinance_symbol(symbol: str, is_crypto: bool, market: str = "") -> str:
 
 
 def fetch_ohlcv_yfinance(symbol: str, tf_key: str, is_crypto: bool = False, limit: int = 300, market: str = "") -> pd.DataFrame:
-    """Fetch OHLCV data from yfinance for gap analysis. Returns a DataFrame
-    with columns open/high/low/close/volume indexed by datetime, with the
-    final row dropped if it's a still-forming candle for `tf_key` (yfinance
-    does return the current partial intraday candle during market hours)."""
+    """Fetch OHLCV for scanning engines.
+
+    Crypto (``is_crypto`` or CoinDCX market) always prefers **CoinDCX USDT futures**.
+    Equities/commodities use yfinance. Returns a DataFrame with columns
+    open/high/low/close/volume indexed by datetime; the final row is dropped if
+    it's a still-forming candle for ``tf_key``.
+    """
     from app.market_pulse.bar_utils import last_closed_bar
 
     df = _fetch_ohlcv_yfinance_raw(symbol, tf_key, is_crypto=is_crypto, limit=limit, market=market)
     return last_closed_bar(df, tf_key)
 
 
-def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False, limit: int = 300, market: str = "") -> pd.DataFrame:
+def _crypto_market(market: str = "", *, is_crypto: bool = False) -> bool:
+    m = (market or "").lower()
+    return bool(is_crypto or "coindcx" in m or "crypto" in m)
+
+
+def _fetch_coindcx_ohlcv_for_tf(symbol: str, tf_key: str, limit: int = 300) -> pd.DataFrame:
+    """CoinDCX futures bars for a strategy timeframe (with 3m resample from 1m)."""
+    from app.market_pulse.heatmap import coindcx_ohlcv_indexed
+
+    tf = (tf_key or "1d").strip()
+    if tf == "1M":
+        # No monthly futures candles — approximate from weekly
+        weekly = coindcx_ohlcv_indexed(symbol, "1w", limit=max(limit * 5, 120))
+        if weekly.empty:
+            return pd.DataFrame()
+        out = weekly.resample("MS").agg({
+            "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+        }).dropna()
+        from app.market_pulse.data_source_ctx import mark_source
+        return mark_source(out.tail(limit), "coindcx")
+
+    if tf == "3m":
+        raw = coindcx_ohlcv_indexed(symbol, "1m", limit=max(limit * 3, 300))
+        if raw.empty:
+            return pd.DataFrame()
+        out = raw.resample("3min").agg({
+            "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+        }).dropna()
+        from app.market_pulse.data_source_ctx import mark_source
+        return mark_source(out.tail(limit), "coindcx")
+
+    # CoinDCX native resolutions
+    res = "1h" if tf in ("60m", "1h") else tf
+    if res not in ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"):
+        res = "1d"
+    return coindcx_ohlcv_indexed(symbol, res, limit=limit)
+
+
+def _fetch_ohlcv_yfinance_raw(
+    symbol: str,
+    tf_key: str,
+    is_crypto: bool = False,
+    limit: int = 300,
+    market: str = "",
+    *,
+    prefer_coindcx: bool = True,
+) -> pd.DataFrame:
     from app.market_pulse.data_source_ctx import mark_source
+
+    # ── Crypto: CoinDCX futures first (everywhere) ────────────────────────
+    if prefer_coindcx and _crypto_market(market, is_crypto=is_crypto):
+        try:
+            df = _fetch_coindcx_ohlcv_for_tf(symbol, tf_key, limit=limit)
+            if not df.empty:
+                return df.tail(limit) if len(df) > limit else df
+            logger.warning("CoinDCX futures empty for %s [%s] — yfinance fallback", symbol, tf_key)
+        except Exception as e:
+            logger.warning("CoinDCX futures fetch failed for %s [%s]: %s", symbol, tf_key, e)
 
     try:
         import yfinance as yf
 
-        yf_sym = _yfinance_symbol(symbol, is_crypto, market)
+        yf_sym = _yfinance_symbol(symbol, _crypto_market(market, is_crypto=is_crypto), market)
         period, interval, _ = YF_TF_MAP.get(tf_key, ("1y", "1d", 300))
 
         # Resample timeframes yfinance does not offer natively
@@ -98,7 +157,7 @@ def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False,
         if tf_key in _RESAMPLE:
             rs_period, rs_interval, rs_rule = _RESAMPLE[tf_key]
             symbols_try = [yf_sym]
-            if not is_crypto:
+            if not _crypto_market(market, is_crypto=is_crypto):
                 from app.market_pulse.nse_index_yfinance import index_yf_candidates, is_nse_index_symbol
                 if is_nse_index_symbol(symbol):
                     symbols_try = index_yf_candidates(symbol) or symbols_try
@@ -122,7 +181,7 @@ def _fetch_ohlcv_yfinance_raw(symbol: str, tf_key: str, is_crypto: bool = False,
             return mark_source(df.tail(limit), "yfinance")
 
         symbols_to_try = [yf_sym]
-        if not is_crypto:
+        if not _crypto_market(market, is_crypto=is_crypto):
             from app.market_pulse.nse_index_yfinance import index_yf_candidates, is_nse_index_symbol
             if is_nse_index_symbol(symbol):
                 symbols_to_try = index_yf_candidates(symbol) or symbols_to_try
@@ -240,23 +299,21 @@ def _fetch_data_for_gap_scan_raw(
 
     # ── CoinDCX Crypto ────────────────────────────────────────────────────
     else:
-        if timeframe not in ("1w", "1M"):
-            try:
-                from app.market_pulse.heatmap import fetch_coindcx_ohlcv
-                df = fetch_coindcx_ohlcv(symbol, timeframe, limit=limit)
-                if not df.empty and len(df) >= MIN_BARS_REQUIRED:
-                    # CoinDCX returns time-indexed via integer; convert
-                    if "time" in df.columns:
-                        df["date"] = pd.to_datetime(df["time"], unit="s")
-                        df.set_index("date", inplace=True)
-                        df.drop(columns=["time"], errors="ignore", inplace=True)
-                    return mark_source(df.tail(limit), "coindcx")
-            except Exception as e:
-                logger.debug(f"CoinDCX OHLCV fetch failed for {symbol}: {e}")
+        try:
+            df = _fetch_coindcx_ohlcv_for_tf(symbol, timeframe, limit=limit)
+            if not df.empty:
+                return df.tail(limit) if len(df) > limit else df
+        except Exception as e:
+            logger.debug(f"CoinDCX OHLCV fetch failed for {symbol}: {e}")
 
-        # yfinance fallback for crypto (weekly/monthly or API failure)
-        df = fetch_ohlcv_yfinance(symbol, timeframe, is_crypto=True, limit=limit, market=market)
-        return df
+        # yfinance fallback for crypto only if CoinDCX returned nothing
+        logger.warning("CoinDCX empty for %s [%s] — falling back to yfinance", symbol, timeframe)
+        from app.market_pulse.bar_utils import last_closed_bar
+
+        df = _fetch_ohlcv_yfinance_raw(
+            symbol, timeframe, is_crypto=True, limit=limit, market=market, prefer_coindcx=False,
+        )
+        return last_closed_bar(df, timeframe)
 
 
 # ---------------------------------------------------------------------------

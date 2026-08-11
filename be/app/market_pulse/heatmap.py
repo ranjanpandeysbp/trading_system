@@ -338,15 +338,19 @@ def calculate_support_resistance(df: pd.DataFrame, lookback: int = 20) -> tuple:
 
 # ─── CoinDCX API Functions ───────────────────────────────────────────────────
 
-def fetch_coindcx_ohlcv(symbol, resolution, limit=1000):
-    """Fetch OHLCV data from CoinDCX Futures API."""
+def fetch_coindcx_ohlcv(symbol, resolution, limit=1000, start_ts=None, end_ts=None):
+    """Fetch OHLCV data from CoinDCX Futures API (USDT-margined perpetuals).
+
+    Optional ``start_ts`` / ``end_ts`` (unix seconds) pin the candle window;
+    otherwise lookback is derived from ``limit`` × resolution.
+    """
     if symbol:
         clean_base = symbol.replace("B-", "").replace("-", "").replace("_", "").replace("USDT", "").upper()
         symbol = f"B-{clean_base}_USDT"
 
     url = "https://public.coindcx.com/market_data/candlesticks"
     
-    res_map = {"1m": "1", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "1D", "1w": "1W"}
+    res_map = {"1m": "1", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "60m": "60", "4h": "240", "1d": "1D", "1w": "1W"}
     res = res_map.get(resolution, resolution)
 
     _res_secs = {
@@ -354,11 +358,13 @@ def fetch_coindcx_ohlcv(symbol, resolution, limit=1000):
         "240": 14400, "1D": 86400, "1W": 604800,
     }
     res_sec = _res_secs.get(res, 3600)
-    lookback = limit * res_sec
+    lookback = max(int(limit), 1) * res_sec
     
     import time
-    end = int(time.time())
-    start = end - lookback
+    end = int(end_ts) if end_ts is not None else int(time.time())
+    start = int(start_ts) if start_ts is not None else (end - lookback)
+    if start >= end:
+        start = end - lookback
 
     params = {
         "pair": symbol,
@@ -393,11 +399,46 @@ def fetch_coindcx_ohlcv(symbol, resolution, limit=1000):
             })
 
         df = pd.DataFrame(rows).sort_values("time").reset_index(drop=True)
+        if limit and len(df) > int(limit):
+            df = df.tail(int(limit)).reset_index(drop=True)
         logger.info(f"✅ Fetched {len(df)} candles for {symbol}")
         return df
     except Exception as e:
         logger.error(f"Error fetching CoinDCX candles: {e}")
         return pd.DataFrame()
+
+
+def coindcx_ohlcv_indexed(
+    symbol: str,
+    resolution: str,
+    limit: int = 1000,
+    *,
+    start_ts: float | int | None = None,
+    end_ts: float | int | None = None,
+) -> pd.DataFrame:
+    """CoinDCX futures OHLCV with a datetime index (open/high/low/close/volume)."""
+    from app.market_pulse.data_source_ctx import mark_source
+
+    raw = fetch_coindcx_ohlcv(symbol, resolution, limit=limit, start_ts=start_ts, end_ts=end_ts)
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+
+    df = raw.copy()
+    if "time" in df.columns:
+        df["date"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_localize(None)
+        df = df.set_index("date")
+        df = df.drop(columns=["time"], errors="ignore")
+    else:
+        df.index = pd.to_datetime(df.index)
+
+    for col in ("open", "high", "low", "close", "volume"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    out = df.dropna(subset=["close"])
+    if out.empty:
+        return pd.DataFrame()
+    keep = [c for c in ("open", "high", "low", "close", "volume") if c in out.columns]
+    return mark_source(out[keep].sort_index(), "coindcx")
 
 def _coindcx_sym_key(sym: str) -> str:
     """Canonical key for matching B-BTCUSDT vs B-BTC_USDT."""
