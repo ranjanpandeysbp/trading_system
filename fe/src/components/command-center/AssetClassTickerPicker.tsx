@@ -369,7 +369,15 @@ export function AssetClassTickerPicker({
 
       {resolvedTickers.length > 0 && (
         <p className="text-xs text-slate-500">
-          Resolved: <span className="text-slate-300">{resolvedTickers.join(', ')}</span>
+          Resolved:{' '}
+          <span className="text-slate-300">
+            {resolvedTickers
+              .map((sym) => {
+                const hit = (universe.commodities ?? []).find((c) => c.symbol === sym)
+                return hit ? `${hit.name} (${hit.symbol})` : sym
+              })
+              .join(', ')}
+          </span>
         </p>
       )}
     </div>

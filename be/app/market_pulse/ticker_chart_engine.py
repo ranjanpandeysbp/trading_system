@@ -22,6 +22,13 @@ INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "1h"}
 _INTRADAY_MAX_LOOKBACK_DAYS = {"1m": 7, "2m": 60, "5m": 60, "15m": 60, "30m": 60, "60m": 60, "1h": 60}
 
 
+def _commodity_label(symbol: str, asset_class: str) -> str:
+    from app.market_pulse.asset_class_config import ticker_display_label
+
+    return ticker_display_label(symbol, asset_class) or symbol
+
+
+
 def _parse_date(value: str) -> datetime:
     return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d")
 
@@ -921,7 +928,7 @@ def compute_ticker_chart(
         else:
             how_to.insert(1, "India / US / Commodities use Yahoo Finance OHLC (Groww/IndMoney where wired elsewhere).")
 
-        return attach_data_source({
+        payload = {
             "ticker": resolved,
             "yf_symbol": display_sym,
             "source_symbol": display_sym,
@@ -955,13 +962,16 @@ def compute_ticker_chart(
             "rise_count": move_forecasts.get("rise_count"),
             "signal_description": signal_description,
             "summary": (
-                f"{resolved} ({display_sym}"
+                f"{_commodity_label(resolved, ac)} ({display_sym}"
                 + (" · CoinDCX futures" if is_crypto else "")
                 + f") · {range_txt}"
                 + (f" · Δ {change_pct:+.2f}%" if change_pct is not None else "")
             ),
             "plain_english": signal_description,
             "how_to_read": how_to,
-        })
+        }
+        from app.market_pulse.asset_class_config import attach_ticker_name
+
+        return attach_data_source(attach_ticker_name(payload, asset_class=ac))
     finally:
         clear_tracking()

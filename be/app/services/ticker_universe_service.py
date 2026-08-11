@@ -9,6 +9,7 @@ from app.market_pulse.asset_class_config import (
     ASSET_CLASS_CONFIG,
     COMMODITY_PICKER,
     resolve_tickers,
+    ticker_suggestion_items,
     ticker_suggestions,
 )
 from app.market_pulse.ticker_utils_src import (
@@ -33,7 +34,7 @@ CUSTOM_DEFAULTS = {
     "india": "RELIANCE,HDFCBANK,TCS,INFY",
     "us": "AAPL,MSFT,NVDA,AMZN,META",
     "crypto": "BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT",
-    "commodity": "CL=F,GC=F,SI=F,HG=F,NG=F",
+    "commodity": "CL=F,GC=F,SI=F,HG=F,NG=F,ZW=F",
 }
 
 
@@ -105,6 +106,9 @@ class TickerUniverseService:
 
     def suggest(self, asset_class: str, query: str = "", limit: int = 80) -> list[str]:
         return ticker_suggestions(asset_class, query, limit=limit)
+
+    def suggest_items(self, asset_class: str, query: str = "", limit: int = 80) -> list[dict[str, str]]:
+        return ticker_suggestion_items(asset_class, query, limit=limit)
 
     def resolve(self, asset_class: str, tickers: list[str]) -> list[str]:
         return resolve_tickers(asset_class, tickers)

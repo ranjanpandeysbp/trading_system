@@ -23,6 +23,7 @@ import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAll
 import { VolumeProfileChart, type VpChartBar } from '../components/pro-trade/VolumeProfileChart'
 import { TradeSetupBanner, tradeSetupFromResult } from '../components/pro-trade/TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from '../components/pro-trade/FallRiseForecastCards'
+import { tickerDisplayLabel, tickerNameOnly } from '../components/ui/tickerDisplay'
 
 type Row = Record<string, unknown>
 
@@ -155,7 +156,12 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
       >
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-white">{String(row.ticker)}</span>
+            <span className="font-semibold text-white">
+              {tickerNameOnly(row) || String(row.ticker)}
+            </span>
+            {tickerNameOnly(row) && (
+              <span className="text-[10px] text-slate-500">{String(row.ticker)}</span>
+            )}
             <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-300">
               {String(row.fall_count ?? 0)} falls
             </span>
@@ -659,7 +665,12 @@ export default function FallingKnife() {
                         >
                           <Td>{i + 1}</Td>
                           <Td>
-                            <span className="font-semibold text-white">{String(r.ticker)}</span>
+                            <span className="font-semibold text-white">
+                              {tickerNameOnly(r) || String(r.ticker)}
+                            </span>
+                            {tickerNameOnly(r) && (
+                              <div className="text-[10px] text-slate-500">{String(r.ticker)}</div>
+                            )}
                             {r.direction != null && (
                               <span className="ml-2 text-[10px] uppercase text-slate-500">{String(r.direction)}</span>
                             )}
@@ -718,7 +729,7 @@ export default function FallingKnife() {
                 {selectedLiveBars.length > 0 && selectedLiveRow && (
                   <div className="mt-4 border-t border-slate-800/60 pt-4">
                     <p className="mb-2 text-sm font-medium text-white">
-                      Chart · {String(selectedLiveRow.ticker)}
+                      Chart · {tickerDisplayLabel(selectedLiveRow)}
                     </p>
                     <div className="mb-3">
                       <TradeSetupBanner setup={tradeSetupFromResult(selectedLiveRow)} />

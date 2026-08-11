@@ -24,6 +24,7 @@ import { CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
 import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from './FallRiseForecastCards'
+import { tickerDisplayLabel } from '../ui/tickerDisplay'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
 type Row = Record<string, unknown>
@@ -164,7 +165,7 @@ function fmtNum(v: unknown, digits = 2): string {
 function placeholderFor(ac: AssetClass): string {
   if (ac === 'us') return 'e.g. AAPL'
   if (ac === 'crypto') return 'e.g. B-BTCUSDT'
-  if (ac === 'commodity') return 'e.g. GC=F'
+  if (ac === 'commodity') return 'e.g. Gold, Silver, GC=F'
   return 'e.g. RELIANCE'
 }
 

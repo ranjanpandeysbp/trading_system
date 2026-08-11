@@ -39,7 +39,7 @@ ASSET_CLASS_CONFIG: dict[str, dict[str, Any]] = {
         "market": US_MARKET,
         "scenario": "Swing / positional",
         "default_durations": ["1h", "4h", "1d"],
-        "default_tickers": ["CL=F", "GC=F", "SI=F", "HG=F", "NG=F"],
+        "default_tickers": ["CL=F", "GC=F", "SI=F", "HG=F", "NG=F", "ZW=F"],
         "exchange": "NASDAQ",
     },
 }
@@ -48,6 +48,68 @@ COMMODITY_PICKER: list[tuple[str, str]] = [
     (str(meta["yf"]), str(meta["name"]))
     for meta in COMMODITY_META.values()
 ]
+
+# Yahoo symbol → friendly name (GC=F → Gold)
+_COMMODITY_YF_TO_NAME: dict[str, str] = {
+    str(meta["yf"]).upper(): str(meta["name"]) for meta in COMMODITY_META.values()
+}
+# Short keys too (GOLD → Gold)
+_COMMODITY_KEY_TO_NAME: dict[str, str] = {
+    key.upper(): str(meta["name"]) for key, meta in COMMODITY_META.items()
+}
+
+
+def commodity_name(symbol: str | None) -> str | None:
+    """Human-readable commodity name for a Yahoo futures symbol or short key."""
+    key = (symbol or "").strip().upper()
+    if not key:
+        return None
+    if key in _COMMODITY_YF_TO_NAME:
+        return _COMMODITY_YF_TO_NAME[key]
+    if key in _COMMODITY_KEY_TO_NAME:
+        return _COMMODITY_KEY_TO_NAME[key]
+    # Strip common suffixes users might type
+    bare = key.replace("=F", "").replace(".F", "")
+    for sym, name in _COMMODITY_YF_TO_NAME.items():
+        if sym.replace("=F", "") == bare:
+            return name
+    return None
+
+
+def ticker_display_label(symbol: str | None, asset_class: str = "") -> str:
+    """e.g. 'Gold (GC=F)' for commodities; otherwise the symbol alone."""
+    sym = (symbol or "").strip()
+    if not sym:
+        return ""
+    ac = (asset_class or "").strip().lower()
+    if ac == "commodity" or "=F" in sym.upper() or sym.upper() in _COMMODITY_KEY_TO_NAME:
+        name = commodity_name(sym)
+        if name:
+            # Avoid "Gold (Gold)" if someone already passed the name
+            if name.upper() == sym.upper():
+                yf = next(
+                    (str(m["yf"]) for m in COMMODITY_META.values() if str(m["name"]).upper() == name.upper()),
+                    sym,
+                )
+                return f"{name} ({yf})"
+            return f"{name} ({sym})"
+    return sym
+
+
+def attach_ticker_name(row: dict[str, Any], *, asset_class: str = "") -> dict[str, Any]:
+    """Add name / display_name / display_label onto a result row (in place)."""
+    if not isinstance(row, dict):
+        return row
+    sym = str(row.get("ticker") or row.get("symbol") or "")
+    ac = (asset_class or row.get("asset_class") or "").strip().lower()
+    name = commodity_name(sym) if ac == "commodity" or commodity_name(sym) else None
+    if name:
+        row["name"] = name
+        row["display_name"] = name
+        row["display_label"] = ticker_display_label(sym, "commodity")
+    elif sym and "display_label" not in row:
+        row["display_label"] = sym
+    return row
 
 
 def resolve_tickers(asset_class: str, raw: list[str]) -> list[str]:
@@ -72,10 +134,21 @@ def resolve_tickers(asset_class: str, raw: list[str]) -> list[str]:
                 out.append(sym_to_yf[key])
             elif key in name_to_yf:
                 out.append(name_to_yf[key])
+            elif key in _COMMODITY_YF_TO_NAME:
+                out.append(key)
             elif "=" in t or t.endswith("F"):
                 out.append(t.upper())
             else:
-                out.append(t.upper())
+                # Allow typing "gold", "wheat", "crude", etc.
+                hit = next(
+                    (
+                        yf
+                        for yf, name in COMMODITY_PICKER
+                        if key in name.upper() or name.upper() in key or key in yf.upper()
+                    ),
+                    None,
+                )
+                out.append(hit or t.upper())
         else:
             out.append(t.upper().replace(".NS", "").replace(".US", ""))
     return list(dict.fromkeys(out))
@@ -98,11 +171,11 @@ def ticker_suggestions(asset_class: str, query: str = "", limit: int = 80) -> li
         except Exception:
             return ASSET_CLASS_CONFIG["crypto"]["default_tickers"]
     if asset_class == "commodity":
-        pool = [yf for yf, _ in COMMODITY_PICKER]
+        pool = list(COMMODITY_PICKER)
         if not q:
-            return pool
+            return [yf for yf, _ in pool][:limit]
         return [
-            yf for yf, name in COMMODITY_PICKER
+            yf for yf, name in pool
             if q in yf.upper() or q in name.upper()
         ][:limit]
     if asset_class == "india":
@@ -117,3 +190,27 @@ def ticker_suggestions(asset_class: str, query: str = "", limit: int = 80) -> li
     if not q:
         return pool[:limit]
     return [t for t in pool if q in t.upper()][:limit]
+
+
+def ticker_suggestion_items(asset_class: str, query: str = "", limit: int = 80) -> list[dict[str, str]]:
+    """Suggestions with optional display names (commodities show Gold, Silver, …)."""
+    ac = (asset_class or "india").strip().lower()
+    q = (query or "").strip().upper()
+    if ac == "commodity":
+        items: list[dict[str, str]] = []
+        for yf, name in COMMODITY_PICKER:
+            if q and q not in yf.upper() and q not in name.upper():
+                continue
+            items.append({
+                "symbol": yf,
+                "name": name,
+                "label": f"{name} ({yf})",
+            })
+            if len(items) >= limit:
+                break
+        return items
+    # Fallback: plain symbols
+    return [
+        {"symbol": t, "name": t, "label": t}
+        for t in ticker_suggestions(ac, query, limit=limit)
+    ]

@@ -7,6 +7,7 @@ import { AskAIPanel } from '../ai/AskAIPanel'
 import { VolumeProfileChart, type VpChartBar, type VpLevel, type VpSeries } from './VolumeProfileChart'
 import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from './FallRiseForecastCards'
+import { tickerNameOnly } from '../ui/tickerDisplay'
 
 type Row = Record<string, unknown>
 
@@ -94,7 +95,12 @@ function TickerResultCard({
       <div className="flex w-full flex-wrap items-center gap-3 px-4 py-3">
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 flex-wrap items-center gap-3 text-left">
           {open ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-500" />}
-          <span className="font-semibold text-white">{String(result.ticker)}</span>
+          <span className="font-semibold text-white">
+            {tickerNameOnly(result) || String(result.ticker)}
+          </span>
+          {tickerNameOnly(result) && (
+            <span className="text-[11px] text-slate-500">{String(result.ticker)}</span>
+          )}
           {result.timeframe != null && (
             <span className="rounded-md border border-slate-700/60 bg-slate-800/50 px-1.5 py-0.5 text-[11px] text-slate-400">
               {String(result.timeframe)}

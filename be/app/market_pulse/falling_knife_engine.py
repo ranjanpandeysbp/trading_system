@@ -553,7 +553,9 @@ def scan_falling_knives(
         for fut in as_completed(futs):
             row = fut.result()
             if row:
-                results.append(row)
+                from app.market_pulse.asset_class_config import attach_ticker_name
+
+                results.append(attach_ticker_name(row, asset_class=ac))
 
     knives = [r for r in results if r.get("matched")]
     knives.sort(key=lambda r: float(r.get("match_score") or 0), reverse=True)
@@ -1382,7 +1384,9 @@ def scan_falling_knife_history(
         for fut in as_completed(futs):
             row = fut.result()
             if row:
-                results.append(row)
+                from app.market_pulse.asset_class_config import attach_ticker_name
+
+                results.append(attach_ticker_name(row, asset_class=ac))
 
     results.sort(
         key=lambda r: (
@@ -1401,7 +1405,7 @@ def scan_falling_knife_history(
     for r in with_forecast[:6]:
         pf = r["primary_forecast"]
         bits.append(
-            f"{r['ticker']}: next {pf.get('direction')} ~{str(pf.get('predicted_next_time') or '')[:16]} "
+            f"{r.get('display_label') or r['ticker']}: next {pf.get('direction')} ~{str(pf.get('predicted_next_time') or '')[:16]} "
             f"({pf.get('confidence_pct')}% conf, move {pf.get('predicted_move_pct')}%)"
         )
 

@@ -650,6 +650,10 @@ def analyze_ticker(
         out["forecast"] = {}
         out["primary_forecast"] = None
 
+    from app.market_pulse.asset_class_config import attach_ticker_name
+
+    attach_ticker_name(out)
+
     direction: str | None = None
     if buy_setup and (not cfg.require_ema_cross_close or close_above_9):
         if cfg.require_sr and not near_sup:

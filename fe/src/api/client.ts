@@ -573,7 +573,12 @@ export const fetchTickerUniverse = (asset_class: string) =>
   api.get('/command-center/ticker-universe', { params: { asset_class } }).then((r) => r.data)
 
 export const fetchTickerSuggestions = (asset_class: string, q: string, limit = 20) =>
-  api.get<{ tickers: string[] }>('/command-center/ticker-suggestions', { params: { asset_class, q, limit } }).then((r) => r.data)
+  api
+    .get<{ tickers: string[]; items?: Array<{ symbol: string; name: string; label: string }> }>(
+      '/command-center/ticker-suggestions',
+      { params: { asset_class, q, limit } },
+    )
+    .then((r) => r.data)
 
 export const runBuySellAdvisor = (payload: {
   tickers: string[]

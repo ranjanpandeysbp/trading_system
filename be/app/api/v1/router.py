@@ -1261,7 +1261,11 @@ async def command_center_ticker_suggestions(
     if asset_class not in {"india", "us", "crypto", "commodity"}:
         raise HTTPException(status_code=400, detail=f"Unknown asset class: {asset_class}")
     svc = TickerUniverseService()
-    return {"tickers": svc.suggest(asset_class, q, limit=min(limit, 200))}
+    items = svc.suggest_items(asset_class, q, limit=min(limit, 200))
+    return {
+        "tickers": [i["symbol"] for i in items],
+        "items": items,
+    }
 
 
 @router.get("/command-center/tomorrow-outlook")

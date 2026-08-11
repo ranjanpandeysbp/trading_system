@@ -20,11 +20,19 @@ logger = logging.getLogger(__name__)
 
 COMMODITY_META: dict[str, dict[str, str | float]] = {
     "OIL": {"name": "WTI Crude Oil", "unit": "$/bbl", "yf": "CL=F"},
-    "GOLD": {"name": "Gold Spot", "unit": "$/oz", "yf": "GC=F"},
-    "SILVER": {"name": "Silver Spot", "unit": "$/oz", "yf": "SI=F"},
+    "BRENT": {"name": "Brent Crude", "unit": "$/bbl", "yf": "BZ=F"},
+    "GOLD": {"name": "Gold", "unit": "$/oz", "yf": "GC=F"},
+    "SILVER": {"name": "Silver", "unit": "$/oz", "yf": "SI=F"},
+    "PLATINUM": {"name": "Platinum", "unit": "$/oz", "yf": "PL=F"},
+    "PALLADIUM": {"name": "Palladium", "unit": "$/oz", "yf": "PA=F"},
     "NATGAS": {"name": "Natural Gas", "unit": "$/MMBtu", "yf": "NG=F"},
     "COPPER": {"name": "Copper", "unit": "$/lb", "yf": "HG=F"},
     "WHEAT": {"name": "Wheat", "unit": "¢/bu", "yf": "ZW=F"},
+    "CORN": {"name": "Corn", "unit": "¢/bu", "yf": "ZC=F"},
+    "SOYBEANS": {"name": "Soybeans", "unit": "¢/bu", "yf": "ZS=F"},
+    "COFFEE": {"name": "Coffee", "unit": "¢/lb", "yf": "KC=F"},
+    "COTTON": {"name": "Cotton", "unit": "¢/lb", "yf": "CT=F"},
+    "SUGAR": {"name": "Sugar", "unit": "¢/lb", "yf": "SB=F"},
     "IRON": {"name": "Iron Ore (BHP proxy)", "unit": "$/t proxy", "yf": "BHP"},
 }
 
