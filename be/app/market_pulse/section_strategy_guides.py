@@ -182,18 +182,22 @@ Click **Refresh Market Data** — not auto-fetched on every load.
 
     "falling_knife": """
 ### Falling Knife
-Find tickers that dropped **≥ X% from their session-window high** over the last **N hours**.
+Three modes:
 
-| Asset | Session used |
+1. **Live** — tickers down **≥ X% from session-window high** (or up from low) over the last **N hours**.
+2. **History** — every ≥X% rise/fall in a date range with recovery timing + next-move forecast.
+3. **From top** — names **≥ X% below their high in the last Y years**, with **reverse vs continue** odds, expected bounce %, and confidence.
+
+| Asset | Session used (live) |
 |-------|----------------|
 | India | Mon–Fri 09:15–15:30 IST |
 | US | Mon–Fri 09:30–16:00 ET |
 | Crypto | 24×7 |
 | Commodities | ~24×5 futures (Sun–Fri ET) |
 
-Shows fall %, window high/low, high→low range %, and bar count. Educational screener only.
+Educational screener only.
 
-**When to use:** Spot sharp session drawdowns for mean-reversion / capitulation watchlists.
+**When to use:** Live for sharp session knives; From top for multi-year peak drawdowns and rebound/continuation odds.
 """,
 
     "nifty_breadth": """

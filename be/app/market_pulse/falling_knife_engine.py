@@ -4,7 +4,9 @@ falling_knife_engine.py
 Scan an asset-class universe for names that have fallen ≥ X% from their
 session-window high and/or risen ≥ X% from their session-window low
 (live), plus date-range history of threshold rise/fall events with
-recovery timing and next-move forecast.
+recovery timing and next-move forecast, plus a from-top mode that finds
+names ≥ X% below their high over the last Y years with reverse vs
+continue odds and confidence.
 
 Session hours (regular / primary):
   India      Mon–Fri 09:15–15:30 Asia/Kolkata
@@ -637,6 +639,7 @@ def _how_to() -> list[str]:
         "Live match: fall = last ≥ X% below window high · rise = last ≥ X% above window low.",
         "Live also builds Fall/Rise next-move forecasts (same as History) from ~90d daily history — Conf %, SL %, TP %.",
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
+        "From top mode: find names down ≥ X% from their high in the last Y years; estimate reverse vs continue odds + upside % + confidence.",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
         "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",
         "Net change % = (last - window open) / open (risen + / fallen -).",
@@ -1446,5 +1449,465 @@ def scan_falling_knife_history(
         "disclaimer": (
             "Research / education only — not financial advice. "
             "Predicted datetimes and move sizes are historical medians, not guarantees."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# From-top mode: peak drawdown ≥ X% over Y years + reverse / continue odds
+# ---------------------------------------------------------------------------
+
+_FROM_TOP_FORWARD_BARS = 63  # ~3 months of daily bars for outcome window
+_FROM_TOP_ANALOGUE_SPACING = 10
+_FROM_TOP_DD_BAND_PCT = 8.0  # match historical drawdowns within ±8 pp of current
+
+
+def _from_top_confidence(n: int, reverse_rate: float | None, continue_rate: float | None) -> float:
+    """Sample-size + conviction (how far rates sit from a coin-flip)."""
+    if n <= 0:
+        return 12.0
+    base = min(52.0, 16.0 + n * 4.5)
+    r = float(reverse_rate or 50.0)
+    c = float(continue_rate or 50.0)
+    edge = abs(max(r, c) - 50.0) / 50.0
+    base += edge * 28.0
+    if n < 3:
+        base = min(base, 32.0)
+    return round(float(np.clip(base, 12.0, 88.0)), 1)
+
+
+def _collect_drawdown_analogues(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    *,
+    current_dd: float,
+    threshold_pct: float,
+    peak_window: int,
+    forward_bars: int = _FROM_TOP_FORWARD_BARS,
+    band_pct: float = _FROM_TOP_DD_BAND_PCT,
+    spacing: int = _FROM_TOP_ANALOGUE_SPACING,
+) -> list[dict[str, Any]]:
+    """
+    Find past bars where rolling-peak drawdown was similar to *current_dd*
+    and measure forward max bounce vs further decline.
+    """
+    n = len(closes)
+    if n < peak_window + forward_bars + 20:
+        return []
+
+    thr = float(max(0.5, threshold_pct))
+    lo = max(thr, current_dd - band_pct)
+    hi = current_dd + band_pct
+    analogues: list[dict[str, Any]] = []
+    last_i = -spacing
+
+    for i in range(peak_window - 1, n - forward_bars):
+        if i - last_i < spacing:
+            continue
+        window_high = float(np.nanmax(highs[i - peak_window + 1 : i + 1]))
+        c = float(closes[i])
+        if not np.isfinite(window_high) or window_high <= 0 or not np.isfinite(c) or c <= 0:
+            continue
+        dd = ((window_high - c) / window_high) * 100.0
+        if dd < lo or dd > hi:
+            continue
+
+        fwd_high = float(np.nanmax(highs[i + 1 : i + 1 + forward_bars]))
+        fwd_low = float(np.nanmin(lows[i + 1 : i + 1 + forward_bars]))
+        fwd_close = float(closes[i + forward_bars])
+        if not all(np.isfinite(x) for x in (fwd_high, fwd_low, fwd_close)):
+            continue
+
+        max_up = max(0.0, ((fwd_high - c) / c) * 100.0)
+        max_down = max(0.0, ((c - fwd_low) / c) * 100.0)
+        end_ret = ((fwd_close - c) / c) * 100.0
+        # Meaningful reverse: bounce at least ~30% of the then-drawdown or ≥5%
+        reverse_floor = max(5.0, dd * 0.30)
+        continue_floor = max(4.0, dd * 0.20)
+        if max_up >= reverse_floor and max_up >= max_down:
+            outcome = "reverse"
+        elif max_down >= continue_floor and max_down > max_up:
+            outcome = "continue"
+        else:
+            outcome = "mixed"
+
+        # Upside toward the then-peak (capped recovery % of the drawdown)
+        room_to_peak = max(0.0, ((window_high - c) / c) * 100.0)
+        recovered_to_peak = fwd_high >= window_high * 0.995
+
+        analogues.append({
+            "index": i,
+            "drawdown_pct": _r(dd, 2),
+            "max_up_pct": _r(max_up, 2),
+            "max_down_pct": _r(max_down, 2),
+            "end_return_pct": _r(end_ret, 2),
+            "outcome": outcome,
+            "room_to_peak_pct": _r(room_to_peak, 2),
+            "recovered_to_peak": recovered_to_peak,
+        })
+        last_i = i
+
+    return analogues
+
+
+def analyze_from_top_ticker(
+    symbol: str,
+    *,
+    asset_class: str,
+    market: str,
+    drop_pct: float,
+    lookback_years: float,
+    groww_token: str = "",
+    exchange: str = "NSE",
+) -> dict[str, Any]:
+    """One ticker: peak drawdown in last Y years + reverse/continue forecast."""
+    years = float(max(0.5, min(lookback_years, 5.0)))
+    thr = float(max(0.5, min(drop_pct, 90.0)))
+    peak_window = max(60, int(round(years * 252)))
+    # Extra history so analogues can form before the current window
+    fetch_bars = int(min(1260, max(peak_window + 280, peak_window * 2)))
+
+    out: dict[str, Any] = {
+        "ticker": symbol,
+        "matched": False,
+        "lookback_years": years,
+        "threshold_pct": thr,
+    }
+
+    try:
+        raw = fetch_data_for_gap_scan(
+            symbol,
+            "1d",
+            market,
+            groww_token=groww_token,
+            exchange=exchange,
+            limit=fetch_bars,
+        )
+        df = normalize_ohlcv(raw) if raw is not None else pd.DataFrame()
+        if df is None or df.empty or len(df) < max(80, peak_window // 2):
+            out["error"] = "Insufficient daily history"
+            return out
+
+        work = df.copy()
+        for col in ("open", "high", "low", "close"):
+            if col in work.columns:
+                work[col] = pd.to_numeric(work[col], errors="coerce")
+        work = work.dropna(subset=["high", "low", "close"])
+        if len(work) < max(80, peak_window // 2):
+            out["error"] = "Insufficient clean bars"
+            return out
+
+        # Peak over the trailing lookback window (use available bars if shorter)
+        win = work.tail(min(len(work), peak_window + 5))
+        peak_high = float(win["high"].max())
+        peak_ts = win["high"].idxmax()
+        last = float(work["close"].iloc[-1])
+        last_ts = work.index[-1]
+        if peak_high <= 0 or last <= 0:
+            out["error"] = "Invalid peak/last"
+            return out
+
+        fall_from_top = ((peak_high - last) / peak_high) * 100.0
+        matched = fall_from_top >= thr
+        days_since_peak = None
+        try:
+            days_since_peak = max(0, int((pd.Timestamp(last_ts) - pd.Timestamp(peak_ts)).days))
+        except Exception:
+            days_since_peak = None
+
+        highs = work["high"].astype(float).values
+        lows = work["low"].astype(float).values
+        closes = work["close"].astype(float).values
+        # Use a peak window capped by available history for analogues
+        analogue_peak_win = min(peak_window, max(60, len(work) // 2))
+        analogues = _collect_drawdown_analogues(
+            highs,
+            lows,
+            closes,
+            current_dd=fall_from_top,
+            threshold_pct=thr,
+            peak_window=analogue_peak_win,
+        )
+
+        n = len(analogues)
+        rev_n = sum(1 for a in analogues if a["outcome"] == "reverse")
+        cont_n = sum(1 for a in analogues if a["outcome"] == "continue")
+        mix_n = n - rev_n - cont_n
+        reverse_pct = (100.0 * rev_n / n) if n else None
+        continue_pct = (100.0 * cont_n / n) if n else None
+        mixed_pct = (100.0 * mix_n / n) if n else None
+
+        rev_ups = [float(a["max_up_pct"]) for a in analogues if a["outcome"] == "reverse"]
+        all_ups = [float(a["max_up_pct"]) for a in analogues]
+        cont_downs = [float(a["max_down_pct"]) for a in analogues if a["outcome"] == "continue"]
+        all_downs = [float(a["max_down_pct"]) for a in analogues]
+        end_rets = [float(a["end_return_pct"]) for a in analogues]
+        peak_hits = sum(1 for a in analogues if a.get("recovered_to_peak"))
+
+        upside_if_reverse = _median(rev_ups) if rev_ups else _median(all_ups)
+        further_fall_if_continue = _median(cont_downs) if cont_downs else _median(all_downs)
+        typical_end_return = _median(end_rets)
+        room_to_peak = ((peak_high - last) / last) * 100.0 if last > 0 else None
+        # Cap suggested reverse upside at remaining room to the peak (can't bounce more than that to reclaim top)
+        if upside_if_reverse is not None and room_to_peak is not None:
+            upside_to_peak = min(float(upside_if_reverse), float(room_to_peak))
+        else:
+            upside_to_peak = upside_if_reverse
+
+        conf = _from_top_confidence(n, reverse_pct, continue_pct)
+
+        if n == 0:
+            bias = "unknown"
+            bias_label = "Insufficient analogues"
+        elif (reverse_pct or 0) >= (continue_pct or 0) + 5:
+            bias = "reverse"
+            bias_label = "Likely reverse / bounce"
+        elif (continue_pct or 0) >= (reverse_pct or 0) + 5:
+            bias = "continue"
+            bias_label = "Likely continued fall"
+        else:
+            bias = "mixed"
+            bias_label = "Mixed / no clear edge"
+
+        plain = (
+            f"{symbol} is −{fall_from_top:.1f}% from its {years:g}y high "
+            f"({_fmt_ts(peak_ts)[:10]} @ {_r(peak_high, 4)}). "
+        )
+        if n:
+            plain += (
+                f"At similar −{thr:g}%+ drawdowns historically ({n} analogues, ~{_FROM_TOP_FORWARD_BARS}d forward): "
+                f"reverse {reverse_pct:.0f}% · continue {continue_pct:.0f}%"
+                + (f" · mixed {mixed_pct:.0f}%" if mix_n else "")
+                + f". If reverse, typical bounce ~{upside_if_reverse or 0:.1f}% "
+                f"(~{upside_to_peak or 0:.1f}% toward peak room). "
+                f"If continue, typical further decline ~{further_fall_if_continue or 0:.1f}%. "
+                f"Bias: {bias_label} · confidence {conf:.0f}%."
+            )
+        else:
+            plain += "Not enough similar historical drawdowns to score reverse vs continue odds."
+
+        from app.market_pulse.pro_trade_shared import atr as atr_ind, pack_trade_setup, atr_sane_stop_target
+
+        atr_s = atr_ind(work)
+        atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
+        trade_setup = None
+        if matched and bias == "reverse" and upside_to_peak and upside_to_peak > 0:
+            stop = float(work["low"].tail(20).min())
+            target = last * (1.0 + float(upside_to_peak) / 100.0)
+            stop, target, adjusted = atr_sane_stop_target(
+                "LONG", last, stop, target, atr_v, default_rr=1.6
+            )
+            trade_setup = pack_trade_setup(
+                direction="LONG",
+                entry=last,
+                stop=stop,
+                target=target,
+                confidence_pct=conf,
+                reason=f"From-top bounce bias · −{fall_from_top:.1f}% off {years:g}y high",
+                plain_english=plain,
+                timeframe="1d",
+                stop_adjusted=adjusted,
+            )
+        elif matched and bias == "continue" and further_fall_if_continue and further_fall_if_continue > 0:
+            stop = float(work["high"].tail(20).max())
+            target = last * (1.0 - float(further_fall_if_continue) / 100.0)
+            stop, target, adjusted = atr_sane_stop_target(
+                "SHORT", last, stop, target, atr_v, default_rr=1.6
+            )
+            trade_setup = pack_trade_setup(
+                direction="SHORT",
+                entry=last,
+                stop=stop,
+                target=target,
+                confidence_pct=conf,
+                reason=f"From-top continuation bias · −{fall_from_top:.1f}% off {years:g}y high",
+                plain_english=plain,
+                timeframe="1d",
+                stop_adjusted=adjusted,
+            )
+        else:
+            trade_setup = pack_trade_setup(
+                direction="WAIT",
+                entry=last,
+                stop=None,
+                target=None,
+                confidence_pct=conf if matched else 15.0,
+                reason="No clear from-top trade bias" if matched else "Below threshold / not matched",
+                plain_english=plain,
+                timeframe="1d",
+            )
+
+        out.update({
+            "matched": matched,
+            "last": _r(last, 4),
+            "peak_high": _r(peak_high, 4),
+            "peak_time": _fmt_ts(peak_ts),
+            "peak_time_ist": _fmt_ts_ist(peak_ts),
+            "as_of": _fmt_ts(last_ts),
+            "as_of_ist": _fmt_ts_ist(last_ts),
+            "days_since_peak": days_since_peak,
+            "fall_from_top_pct": _r(fall_from_top, 2),
+            "room_to_peak_pct": _r(room_to_peak, 2) if room_to_peak is not None else None,
+            "bars_used": int(len(work)),
+            "peak_window_bars": analogue_peak_win,
+            "forward_bars": _FROM_TOP_FORWARD_BARS,
+            "analogues": n,
+            "reverse_count": rev_n,
+            "continue_count": cont_n,
+            "mixed_count": mix_n,
+            "reverse_chance_pct": _r(reverse_pct, 1) if reverse_pct is not None else None,
+            "continue_chance_pct": _r(continue_pct, 1) if continue_pct is not None else None,
+            "mixed_chance_pct": _r(mixed_pct, 1) if mixed_pct is not None else None,
+            "upside_if_reverse_pct": _r(upside_if_reverse, 2) if upside_if_reverse is not None else None,
+            "upside_toward_peak_pct": _r(upside_to_peak, 2) if upside_to_peak is not None else None,
+            "further_fall_if_continue_pct": (
+                _r(further_fall_if_continue, 2) if further_fall_if_continue is not None else None
+            ),
+            "typical_end_return_pct": _r(typical_end_return, 2) if typical_end_return is not None else None,
+            "recovered_to_peak_rate_pct": _r(100.0 * peak_hits / n, 1) if n else None,
+            "bias": bias,
+            "bias_label": bias_label,
+            "confidence_pct": conf,
+            "plain_english": plain,
+            "trade_setup": trade_setup,
+            "chart_data": _session_chart_bars(win, max_bars=300),
+            "recent_analogues": analogues[-8:],
+        })
+        return out
+    except Exception as exc:
+        logger.debug("From-top scan failed for %s: %s", symbol, exc, exc_info=True)
+        out["error"] = str(exc)[:180]
+        return out
+
+
+def scan_falling_knife_from_top(
+    *,
+    asset_class: str,
+    tickers: list[str],
+    drop_pct: float = 20.0,
+    lookback_years: float = 1.0,
+    groww_token: str = "",
+    exchange: str = "NSE",
+    max_workers: int = 6,
+) -> dict[str, Any]:
+    """Universe scan: names ≥ X% below their high in the last Y years."""
+    ac = (asset_class or "india").strip().lower()
+    if ac not in ASSET_CLASS_CONFIG:
+        ac = "india"
+    cfg = ASSET_CLASS_CONFIG[ac]
+    market = str(cfg["market"])
+    exchange = exchange or str(cfg.get("exchange") or "NSE")
+
+    symbols = resolve_tickers(ac, tickers)
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for s in symbols:
+        if s and s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    symbols = uniq[:80]
+
+    thr = float(max(0.5, min(drop_pct, 90.0)))
+    years = float(max(0.5, min(lookback_years, 5.0)))
+    sess = session_info(ac)
+
+    results: list[dict[str, Any]] = []
+    if not symbols:
+        return {
+            "strategy": STRATEGY_ID,
+            "strategy_label": f"{STRATEGY_NAME} · From top",
+            "mode": "from_top",
+            "asset_class": ac,
+            "drop_pct": thr,
+            "lookback_years": years,
+            "session": sess,
+            "scanned": 0,
+            "matched": 0,
+            "results": [],
+            "knives": [],
+            "plain_english": "No tickers selected.",
+            "how_to_read": _how_to(),
+        }
+
+    with ThreadPoolExecutor(max_workers=max(2, min(max_workers, 10))) as pool:
+        futs = {
+            pool.submit(
+                analyze_from_top_ticker,
+                sym,
+                asset_class=ac,
+                market=market,
+                drop_pct=thr,
+                lookback_years=years,
+                groww_token=groww_token,
+                exchange=exchange,
+            ): sym
+            for sym in symbols
+        }
+        for fut in as_completed(futs):
+            row = fut.result()
+            if row:
+                from app.market_pulse.asset_class_config import attach_ticker_name
+
+                results.append(attach_ticker_name(row, asset_class=ac))
+
+    results.sort(
+        key=lambda r: (
+            0 if r.get("matched") else 1,
+            -(float(r.get("fall_from_top_pct") or 0)),
+            -(float(r.get("confidence_pct") or 0)),
+            str(r.get("ticker") or ""),
+        )
+    )
+    knives = [r for r in results if r.get("matched")]
+    errors = sum(1 for r in results if r.get("error"))
+
+    bits = []
+    for r in knives[:6]:
+        bits.append(
+            f"{r.get('display_label') or r['ticker']}: −{r.get('fall_from_top_pct')}% off top · "
+            f"rev {r.get('reverse_chance_pct')}% / cont {r.get('continue_chance_pct')}% · "
+            f"conf {r.get('confidence_pct')}%"
+            + (
+                f" · upside ~{r.get('upside_if_reverse_pct')}%"
+                if r.get("upside_if_reverse_pct") is not None
+                else ""
+            )
+        )
+
+    return {
+        "strategy": STRATEGY_ID,
+        "strategy_label": f"{STRATEGY_NAME} · From top",
+        "mode": "from_top",
+        "asset_class": ac,
+        "asset_label": cfg.get("label"),
+        "drop_pct": thr,
+        "threshold_pct": thr,
+        "lookback_years": years,
+        "forward_bars": _FROM_TOP_FORWARD_BARS,
+        "session": sess,
+        "scanned": len(results),
+        "matched": len(knives),
+        "errors": errors,
+        "results": results,
+        "knives": knives,
+        "summary": {
+            "scanned": len(results),
+            "matched": len(knives),
+            "errors": errors,
+            "threshold": f">= {thr:g}% below {years:g}y high",
+            "lookback": f"last {years:g} year(s)",
+            "forward": f"~{_FROM_TOP_FORWARD_BARS} trading days outcome window",
+        },
+        "plain_english": (
+            f"Falling Knife · From top · {cfg.get('label')} · "
+            f"≥{thr:g}% below high in last {years:g}y. "
+            f"Matched {len(knives)} / {len(results)}."
+            + ((" Top: " + " · ".join(bits) + ".") if bits else "")
+        ),
+        "how_to_read": _how_to(),
+        "disclaimer": (
+            "Research / education only — not financial advice. "
+            "Reverse/continue odds are historical analogue rates, not guarantees."
         ),
     }

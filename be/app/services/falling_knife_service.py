@@ -1,4 +1,4 @@
-"""Falling Knife scanner service — live drops + date-range history/forecast."""
+"""Falling Knife scanner service — live drops, date-range history/forecast, from-top peak drawdowns."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from app.market_pulse.falling_knife_engine import (
+    scan_falling_knife_from_top,
     scan_falling_knife_history,
     scan_falling_knives,
     session_info,
@@ -41,6 +42,15 @@ class FallingKnifeService:
 
         def _run():
             set_groww_token(token)
+            if mode == "from_top":
+                return scan_falling_knife_from_top(
+                    asset_class=asset_class,
+                    tickers=tickers,
+                    drop_pct=thr,
+                    lookback_years=float(payload.get("lookback_years") or 1.0),
+                    groww_token=token,
+                    exchange=exchange,
+                )
             if mode == "history" or payload.get("from_date"):
                 return scan_falling_knife_history(
                     asset_class=asset_class,

@@ -53,6 +53,14 @@ History & forecast
    hours/days to recover back to the start of that pump/dump, plus a next-event
    forecast (datetime, confidence %, typical move %, SL %, TP %).
 
+From top (multi-year peak)
+1. Switch to From top mode.
+2. Set fall threshold % (X) and lookback years (Y).
+3. Finds names currently ≥ X% below their high in the last Y years.
+4. For each match: chance of reverse vs continued fall (from similar historical
+   drawdowns), expected bounce % if it reverses, further-fall % if it continues,
+   and a confidence score.
+
 Sessions
 · India — Mon–Fri 09:15–15:30 IST
 · US — Mon–Fri 09:30–16:00 America/New_York
@@ -64,6 +72,7 @@ Educational only — not a buy/sell signal.
 Trade setup
 · Live: matched falls → mean-reversion BUY (knife catch); rises → SELL fade.
 · History: next-event forecast includes % confidence, %SL, and %TP (ATR-sane).
+· From top: reverse bias → long bounce; continue bias → short fade (when clear).
 · Always shown as Conf % · SL % · TP %.`
 
 function fmtNum(v: unknown, digits = 2) {
@@ -309,16 +318,153 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
   )
 }
 
+function biasClass(bias: unknown) {
+  const b = String(bias || '')
+  if (b === 'reverse') return 'text-emerald-300'
+  if (b === 'continue') return 'text-rose-300'
+  if (b === 'mixed') return 'text-amber-300'
+  return 'text-slate-400'
+}
+
+function FromTopTickerCard({ row, assetClass }: { row: Row; assetClass: AssetClass }) {
+  const [open, setOpen] = useState(false)
+  const chartBars = useMemo(() => toVpBars(row.chart_data), [row.chart_data])
+  const tradeSetup = useMemo(() => tradeSetupFromResult(row), [row])
+  const matched = Boolean(row.matched)
+
+  return (
+    <div className="rounded-xl border border-slate-800/70 bg-slate-950/40">
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-white">
+              {tickerNameOnly(row) || String(row.ticker)}
+            </span>
+            {tickerNameOnly(row) && (
+              <span className="text-[10px] text-slate-500">{String(row.ticker)}</span>
+            )}
+            {matched ? (
+              <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-300">
+                −{fmtNum(row.fall_from_top_pct)}% off top
+              </span>
+            ) : (
+              <span className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] text-slate-400">
+                below threshold
+              </span>
+            )}
+            <span className={`rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] ${biasClass(row.bias)}`}>
+              {String(row.bias_label ?? row.bias ?? '—')}
+            </span>
+            <span className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] text-slate-300">
+              Conf {fmtNum(row.confidence_pct, 0)}%
+            </span>
+            {tradeSetup?.sl_pct != null && tradeSetup?.tp_pct != null && (
+              <span className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] text-slate-300">
+                SL {fmtNum(tradeSetup.sl_pct, 1)}% · TP {fmtNum(tradeSetup.tp_pct, 1)}%
+              </span>
+            )}
+          </div>
+          {row.error ? (
+            <p className="mt-1 text-xs text-amber-400">{String(row.error)}</p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-400">
+              Reverse{' '}
+              <span className="text-emerald-300">{fmtNum(row.reverse_chance_pct, 0)}%</span>
+              {' · Continue '}
+              <span className="text-rose-300">{fmtNum(row.continue_chance_pct, 0)}%</span>
+              {row.upside_if_reverse_pct != null && (
+                <>
+                  {' · Upside if reverse '}
+                  <span className="text-emerald-300">~{fmtNum(row.upside_if_reverse_pct)}%</span>
+                </>
+              )}
+              {row.further_fall_if_continue_pct != null && (
+                <>
+                  {' · Further fall if continue '}
+                  <span className="text-rose-300">~{fmtNum(row.further_fall_if_continue_pct)}%</span>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        <span className="shrink-0 text-xs text-slate-500">{open ? 'Hide' : 'Details'}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-3 border-t border-slate-800/60 px-4 py-3">
+          {row.plain_english != null && (
+            <p className="text-sm text-slate-300">{String(row.plain_english)}</p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+            <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-3 py-2">
+              <div className="text-slate-500">Peak high</div>
+              <div className="mt-0.5 text-slate-200">{fmtPx(row.peak_high, assetClass)}</div>
+              <div className="text-[10px] text-slate-500">{fmtWhen(row.peak_time_ist ?? row.peak_time)}</div>
+            </div>
+            <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-3 py-2">
+              <div className="text-slate-500">Last</div>
+              <div className="mt-0.5 text-slate-200">{fmtPx(row.last, assetClass)}</div>
+              <div className="text-[10px] text-slate-500">
+                {row.days_since_peak != null ? `${String(row.days_since_peak)}d since peak` : '—'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-3 py-2">
+              <div className="text-slate-500">Reverse chance</div>
+              <div className="mt-0.5 text-emerald-300">{fmtNum(row.reverse_chance_pct, 0)}%</div>
+              <div className="text-[10px] text-slate-500">
+                Upside ~{fmtNum(row.upside_if_reverse_pct)}%
+                {row.upside_toward_peak_pct != null
+                  ? ` (≤${fmtNum(row.upside_toward_peak_pct)}% to peak)`
+                  : ''}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-3 py-2">
+              <div className="text-slate-500">Continue chance</div>
+              <div className="mt-0.5 text-rose-300">{fmtNum(row.continue_chance_pct, 0)}%</div>
+              <div className="text-[10px] text-slate-500">
+                Further fall ~{fmtNum(row.further_fall_if_continue_pct)}%
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[10px] text-slate-500">
+            <span>{String(row.analogues ?? 0)} analogues</span>
+            <span>· conf {fmtNum(row.confidence_pct, 0)}%</span>
+            {row.recovered_to_peak_rate_pct != null && (
+              <span>· hit peak again {fmtNum(row.recovered_to_peak_rate_pct, 0)}%</span>
+            )}
+            {row.room_to_peak_pct != null && (
+              <span>· room to peak +{fmtNum(row.room_to_peak_pct)}%</span>
+            )}
+          </div>
+          <TradeSetupBanner setup={tradeSetup} />
+          {chartBars.length > 0 && (
+            <VolumeProfileChart
+              chartData={chartBars}
+              readingGuide="Daily bars over the lookback. Peak high drives the from-top drawdown; odds use similar historical drawdowns."
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function FallingKnife() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
-  const [mode, setMode] = useState<'live' | 'history'>('live')
+  const [mode, setMode] = useState<'live' | 'history' | 'from_top'>('live')
   const [dropPct, setDropPct] = useState(10)
   const [lookbackHours, setLookbackHours] = useState(24)
+  const [lookbackYears, setLookbackYears] = useState(1)
   const [fromDate, setFromDate] = useState(defaultFromDate(90))
   const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10))
   const [moveSide, setMoveSide] = useState<'fall' | 'rise' | 'both'>('both')
   const [thresholdPct, setThresholdPct] = useState(10)
+  const [fromTopPct, setFromTopPct] = useState(20)
   const [error, setError] = useState('')
   const [showMatchedOnly, setShowMatchedOnly] = useState(true)
   const [selectedLiveTicker, setSelectedLiveTicker] = useState<string | null>(null)
@@ -332,6 +478,16 @@ export default function FallingKnife() {
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker / universe')
+      if (mode === 'from_top') {
+        return runFallingKnifeScan({
+          asset_class: assetClass,
+          tickers: picker.tickers,
+          mode: 'from_top',
+          drop_pct: fromTopPct,
+          threshold_pct: fromTopPct,
+          lookback_years: lookbackYears,
+        })
+      }
       if (mode === 'history') {
         if (!fromDate) throw new Error('Set a from date for history mode')
         return runFallingKnifeScan({
@@ -359,11 +515,14 @@ export default function FallingKnife() {
   })
 
   const data = runMut.data as Row | undefined
-  const isHistory = String(data?.mode ?? mode) === 'history'
+  const dataMode = String(data?.mode ?? mode)
+  const isHistory = dataMode === 'history'
+  const isFromTop = dataMode === 'from_top'
   const knives = (data?.knives as Row[] | undefined) ?? []
   const results = (data?.results as Row[] | undefined) ?? []
   const session = ((data?.session as Row | undefined) ?? (sessionQ.data as Row | undefined)?.session) as Row | undefined
   const liveRows = showMatchedOnly ? knives : results
+  const fromTopRows = showMatchedOnly ? knives : results
   const selectedLiveRow = useMemo(() => {
     if (!liveRows.length) return null
     if (selectedLiveTicker) {
@@ -388,11 +547,42 @@ export default function FallingKnife() {
     [],
   )
 
+  const fromTopPresets = useMemo(
+    () => [
+      { label: '20% / 1y', pct: 20, years: 1 },
+      { label: '30% / 1y', pct: 30, years: 1 },
+      { label: '40% / 2y', pct: 40, years: 2 },
+      { label: '50% / 3y', pct: 50, years: 3 },
+    ],
+    [],
+  )
+
+  const scanButtonLabel = (() => {
+    if (runMut.isPending) {
+      if (mode === 'history') return 'Analyzing history…'
+      if (mode === 'from_top') return 'Scanning from tops…'
+      return 'Scanning…'
+    }
+    if (mode === 'history') return `Analyze history (${picker.tickers.length} · ≥${thresholdPct}%)`
+    if (mode === 'from_top') {
+      return `Scan from top (≥${fromTopPct}% / ${lookbackYears}y · ${picker.tickers.length})`
+    }
+    return `Scan (≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`
+  })()
+
+  const loadingMessage = (() => {
+    if (mode === 'history') return `Counting ≥${thresholdPct}% rises/falls and building forecasts…`
+    if (mode === 'from_top') {
+      return `Finding names ≥${fromTopPct}% below their ${lookbackYears}y high and scoring reverse/continue odds…`
+    }
+    return `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
+  })()
+
   return (
     <div>
       <PageHeader
         title="Falling Knife"
-        description="Live session rises & falls + history of ≥X% moves with recovery time and next-move forecast"
+        description="Live session rises & falls, history of ≥X% moves, and multi-year peak drawdowns with reverse/continue odds"
       />
 
       <div className="mb-4 space-y-2">
@@ -408,6 +598,9 @@ export default function FallingKnife() {
           </Chip>
           <Chip selected={mode === 'history'} onClick={() => setMode('history')}>
             History & forecast
+          </Chip>
+          <Chip selected={mode === 'from_top'} onClick={() => setMode('from_top')}>
+            From top
           </Chip>
         </div>
 
@@ -436,7 +629,7 @@ export default function FallingKnife() {
         <AssetClassTickerPicker
           assetClass={assetClass}
           showDurations={false}
-          defaultSelectCount={mode === 'history' ? 12 : 50}
+          defaultSelectCount={mode === 'history' || mode === 'from_top' ? 12 : 50}
           onChange={setPicker}
         />
 
@@ -487,6 +680,50 @@ export default function FallingKnife() {
               ))}
             </div>
           </>
+        ) : mode === 'from_top' ? (
+          <>
+            <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
+              <FormField label="Fallen from top ≥ % (X)">
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={90}
+                  step={0.5}
+                  value={fromTopPct}
+                  onChange={(e) => setFromTopPct(Number(e.target.value) || 20)}
+                />
+              </FormField>
+              <FormField label="Lookback years (Y)">
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={5}
+                  step={0.5}
+                  value={lookbackYears}
+                  onChange={(e) => setLookbackYears(Number(e.target.value) || 1)}
+                />
+              </FormField>
+            </div>
+            <p className="text-xs text-slate-500">
+              Finds tickers currently ≥ X% below their high in the last Y years, then scores reverse vs
+              continue odds from similar historical drawdowns (~63 trading days forward).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {fromTopPresets.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  className="rounded-lg border border-slate-700/80 px-2.5 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                  onClick={() => {
+                    setFromTopPct(p.pct)
+                    setLookbackYears(p.years)
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <FormField label="From date">
@@ -521,15 +758,9 @@ export default function FallingKnife() {
             disabled={runMut.isPending || !picker.tickers.length}
           >
             <TrendingDown size={16} className="mr-1.5" />
-            {runMut.isPending
-              ? mode === 'history'
-                ? 'Analyzing history…'
-                : 'Scanning…'
-              : mode === 'history'
-                ? `Analyze history (${picker.tickers.length} · ≥${thresholdPct}%)`
-                : `Scan (≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`}
+            {scanButtonLabel}
           </Button>
-          {mode === 'live' && (
+          {(mode === 'live' || mode === 'from_top') && (
             <Chip selected={showMatchedOnly} onClick={() => setShowMatchedOnly((v) => !v)}>
               {showMatchedOnly ? 'Matched only' : 'Show all scanned'}
             </Chip>
@@ -539,14 +770,41 @@ export default function FallingKnife() {
         {error && <Alert type="error">{error}</Alert>}
       </Card>
 
-      {runMut.isPending && (
-        <Loading
-          message={
-            mode === 'history'
-              ? `Counting ≥${thresholdPct}% rises/falls and building forecasts…`
-              : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
-          }
-        />
+      {runMut.isPending && <Loading message={loadingMessage} />}
+
+      {data && !runMut.isPending && isFromTop && (
+        <>
+          <Card className="mb-4">
+            <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
+                {String((data.summary as Row | undefined)?.matched ?? knives.length)} matched
+              </span>
+              <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
+                {String((data.summary as Row | undefined)?.scanned ?? results.length)} scanned · ≥
+                {String(data.drop_pct ?? fromTopPct)}% / {String(data.lookback_years ?? lookbackYears)}y
+              </span>
+            </div>
+          </Card>
+
+          <div className="mb-4 space-y-3">
+            {!fromTopRows.length ? (
+              <Card>
+                <p className="text-sm text-slate-400">
+                  {showMatchedOnly
+                    ? `No tickers ≥${fromTopPct}% below their ${lookbackYears}y high.`
+                    : 'No results.'}
+                </p>
+              </Card>
+            ) : (
+              fromTopRows.map((r) => (
+                <FromTopTickerCard key={String(r.ticker)} row={r} assetClass={assetClass} />
+              ))
+            )}
+          </div>
+
+          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+        </>
       )}
 
       {data && !runMut.isPending && isHistory && (
@@ -583,7 +841,7 @@ export default function FallingKnife() {
         </>
       )}
 
-      {data && !runMut.isPending && !isHistory && (
+      {data && !runMut.isPending && !isHistory && !isFromTop && (
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>

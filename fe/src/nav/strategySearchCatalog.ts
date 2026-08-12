@@ -73,7 +73,7 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   { label: 'Big Whale', to: '/technical-analysis?tab=big_whale', group: 'Technical Analysis' },
 
   // Prediction
-  { label: 'Falling Knife History', to: '/prediction/falling-knife', group: 'Prediction', keywords: 'dump pump recovery forecast' },
+  { label: 'Falling Knife History', to: '/prediction/falling-knife', group: 'Prediction', keywords: 'dump pump recovery forecast from top peak drawdown reverse' },
 
   // Market Pulse common
   { label: 'Market Pulse Intelligence', to: '/market-pulse?section=intelligence', group: 'Market Pulse' },
