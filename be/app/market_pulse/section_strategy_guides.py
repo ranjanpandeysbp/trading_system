@@ -2756,6 +2756,23 @@ Outputs **% confidence**, **%SL**, **%TP**. Also available in the Backtester.
 **When to use:** Range / chop fades — not clean trending markets.
 """,
 
+    "ema9_bb_rsi_vol": """
+### 9 EMA Cross — EMA9 · Bollinger · RSI · Volume
+
+Momentum desk: trade the **fresh close cross** of the 9 EMA, filtered by band room, RSI zone, and volume.
+
+| Side | Setup |
+|------|--------|
+| **LONG** | Close crosses **above** 9 EMA · RSI mid-bull (~42–72) · prefer vol > MA20 · not hugging Upper BB |
+| **SHORT** | Close crosses **below** 9 EMA · RSI mid-bear (~28–58) · prefer vol > MA20 · not hugging Lower BB |
+
+Holding above/below without a fresh cross → **WATCH** only (unless “allow hold” is on).
+
+**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA9 (ATR-sane). Outputs **% confidence**, **%SL**, **%TP**.
+
+**When to use:** Short-term trend resumes after a pullback into the 9 EMA — Stocks, Indices, Crypto, Commodities.
+""",
+
     "etf_28_sma": """
 ### ETF 28 SMA Momentum (FIRE in India)
 

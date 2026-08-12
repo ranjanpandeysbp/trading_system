@@ -118,6 +118,12 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "ema9_bb_rsi_vol",
+                    "label": "9 EMA Cross",
+                    "path": "/pro-trade/ema9-cross",
+                    "youtube": None,
+                },
+                {
                     "id": "btst",
                     "label": "Buy Today Sell Tomorrow",
                     "path": "/pro-trade/btst",
@@ -745,6 +751,64 @@ class ProTradeService:
         payload["ai_system_prompt"] = BB_RSI_VOL_AI_SYSTEM
         payload = await maybe_refine_trade_setups_ai(
             self.settings, payload, use_ai=use_ai, section="pro_trade/bb_rsi_vol",
+        )
+        return json_safe(payload)
+
+    async def ema9_bb_rsi_vol(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        timeframes: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+        use_ai: bool = False,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ema9_bb_rsi_vol_engine import (
+            EMA9_BB_RSI_VOL_AI_SYSTEM,
+            Ema9BbRsiVolConfig,
+            build_ema9_bb_rsi_vol_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+        if not timeframes:
+            return {"error": "Select at least one timeframe", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = Ema9BbRsiVolConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "ema_period", "bb_period", "bb_std",
+                "rsi_period", "rsi_long_min", "rsi_long_max", "rsi_short_min", "rsi_short_max",
+                "rsi_long_block", "rsi_short_block", "vol_ma_period", "min_rr", "sl_atr_mult",
+                "take_confidence_threshold", "min_bars", "chart_bars",
+                "require_volume_expand", "require_fresh_cross",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange, timeframes=timeframes,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_ema9_bb_rsi_vol_ai_prompt(r)
+        payload["ai_system_prompt"] = EMA9_BB_RSI_VOL_AI_SYSTEM
+        payload = await maybe_refine_trade_setups_ai(
+            self.settings, payload, use_ai=use_ai, section="pro_trade/ema9_bb_rsi_vol",
         )
         return json_safe(payload)
 

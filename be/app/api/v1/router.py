@@ -114,6 +114,7 @@ from app.models.schemas import (
     ProTradeThreeInOneRequest,
     ProTradeSimpleEffectiveRequest,
     ProTradeBbRsiVolRequest,
+    ProTradeEma9CrossRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
@@ -5026,6 +5027,32 @@ async def pro_trade_bb_rsi_vol(
             "rsi_sell": payload.rsi_sell,
             "min_rr": payload.min_rr,
             "require_sr": payload.require_sr,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/ema9-cross")
+async def pro_trade_ema9_cross(
+    payload: ProTradeEma9CrossRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).ema9_bb_rsi_vol(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "ema_period": payload.ema_period,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "min_rr": payload.min_rr,
+            "require_volume_expand": payload.require_volume_expand,
+            "require_fresh_cross": payload.require_fresh_cross,
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },

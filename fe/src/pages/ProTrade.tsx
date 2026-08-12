@@ -16,6 +16,7 @@ import {
   runProTradeThreeInOne,
   runProTradeSimpleEffective,
   runProTradeBbRsiVol,
+  runProTradeEma9Cross,
   runProTradeBtst,
   runProTradeElliottWave,
   runProTradeFibonacciPro,
@@ -45,6 +46,7 @@ import { RlbBreakoutPanel } from '../components/pro-trade/RlbBreakoutPanel'
 import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTradeSystemPanel'
 import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
 import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
+import { Ema9CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
@@ -2964,6 +2966,175 @@ function BbRsiVolPage() {
   )
 }
 
+const EMA9_HOW_TO = `How to use 9 EMA Cross
+
+1. Pick asset class + timeframes + tickers.
+2. Defaults: EMA9 · BB(20,2) · RSI(14) · Vol MA20.
+3. Scan — TAKE only on a fresh close cross of the 9 EMA with confirming filters.
+4. Long: cross above 9 EMA · RSI momentum · volume expand preferred · not hugging Upper BB.
+5. Short: cross below 9 EMA · RSI mid-low · volume expand preferred · not hugging Lower BB.
+6. T1 = mid BB · T2 = outer band · invalidate on close back through 9 EMA.
+7. Optional Use AI to refine Conf % / SL % / TP %. Research only — not advice.`
+
+const EMA9_OVERVIEW = `9 EMA Cross — strategy matrix
+
+LONG: Close crosses above 9 EMA · RSI in momentum zone · volume preferably expanding · room under Upper BB
+SHORT: Close crosses below 9 EMA · RSI mid-low · volume preferably expanding · room above Lower BB
+
+Holding above/below without a fresh cross → WATCH only.
+Outputs: % confidence · %SL · %TP · grade A/B/C.`
+
+const EMA9_LAYMAN = `In plain English
+
+Buy when price closes back above the 9 EMA with buyers showing up (volume) and RSI not already blown out — aiming toward the middle of the Bollinger Band first.
+Sell when price closes back under the 9 EMA with selling volume and RSI not already crushed.
+If price is already above/below the 9 EMA but did not just cross, wait — that is only a watch.`
+
+function Ema9CrossPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(300)
+  const [requireVol, setRequireVol] = useState(false)
+  const [freshCrossOnly, setFreshCrossOnly] = useState(true)
+  const [showCharts, setShowCharts] = useState(true)
+  const { useAi, setUseAi } = useTradeSetupAi()
+  const bg = useAnalysisBackground('pro_trade', 'ema9_bb_rsi_vol')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations.length ? picker.durations : ['15m'],
+    lookback_bars: lookback,
+    require_volume_expand: requireVol,
+    require_fresh_cross: freshCrossOnly,
+    use_ai: useAi,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      return runProTradeEma9Cross(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('9 EMA Cross', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="9 EMA Cross"
+        description="Close above 9 EMA → long · below → short · filtered by Bollinger Bands, RSI & volume · conf% / SL% / TP%"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={EMA9_HOW_TO}>
+          {EMA9_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {EMA9_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {EMA9_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Fresh cross only</Chip>
+          <Chip selected={!freshCrossOnly} onClick={() => setFreshCrossOnly(false)}>Allow hold above/below</Chip>
+          <Chip selected={requireVol} onClick={() => setRequireVol(true)}>Require volume expand</Chip>
+          <Chip selected={!requireVol} onClick={() => setRequireVol(false)}>Volume optional</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? useAi
+                ? 'Scanning + AI refine…'
+                : 'Scanning…'
+              : `Scan 9 EMA Cross (${picker.tickers.length} × ${picker.durations.length || 1})`}
+          </Button>
+        </div>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`9 EMA Cross · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking 9 EMA cross · BB · RSI · volume…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <Ema9CrossPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/ema9-cross" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
   { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
   { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
@@ -3564,6 +3735,7 @@ export default function ProTrade() {
     { id: '3-in-1-trade-system', label: '3-in-1 Trade System' },
     { id: 'simple-effective', label: 'Simple Effective' },
     { id: 'bb-rsi-vol', label: 'BB-RSI-VOL' },
+    { id: 'ema9-cross', label: '9 EMA Cross' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
@@ -3585,6 +3757,7 @@ export default function ProTrade() {
   else if (tab === '3-in-1-trade-system') page = <ThreeInOneTradeSystemPage />
   else if (tab === 'simple-effective') page = <SimpleEffectivePage />
   else if (tab === 'bb-rsi-vol') page = <BbRsiVolPage />
+  else if (tab === 'ema9-cross') page = <Ema9CrossPage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />
