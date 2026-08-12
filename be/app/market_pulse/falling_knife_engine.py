@@ -5,7 +5,7 @@ Scan an asset-class universe for names that have fallen ≥ X% from their
 session-window high and/or risen ≥ X% from their session-window low
 (live), plus date-range history of threshold rise/fall events with
 recovery timing and next-move forecast, plus a from-top mode that finds
-names ≥ X% below their high over the last Y years with reverse vs
+names ≥ X% below their high over loop hours with reverse vs
 continue odds and confidence.
 
 Session hours (regular / primary):
@@ -639,7 +639,7 @@ def _how_to() -> list[str]:
         "Live match: fall = last ≥ X% below window high · rise = last ≥ X% above window low.",
         "Live also builds Fall/Rise next-move forecasts (same as History) from ~90d daily history — Conf %, SL %, TP %.",
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
-        "From top mode: find names down ≥ X% from their high in the last Y years; estimate reverse vs continue odds + upside % + confidence.",
+        "From top mode: find names down ≥ X% from their high in the last loop hours; estimate reverse vs continue odds + upside % + confidence.",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
         "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",
         "Net change % = (last - window open) / open (risen + / fallen -).",
@@ -1454,12 +1454,19 @@ def scan_falling_knife_history(
 
 
 # ---------------------------------------------------------------------------
-# From-top mode: peak drawdown ≥ X% over Y years + reverse / continue odds
+# From-top mode: peak drawdown ≥ X% over loop hours + reverse / continue odds
 # ---------------------------------------------------------------------------
 
-_FROM_TOP_FORWARD_BARS = 63  # ~3 months of daily bars for outcome window
-_FROM_TOP_ANALOGUE_SPACING = 10
+_FROM_TOP_ANALOGUE_SPACING = 8
 _FROM_TOP_DD_BAND_PCT = 8.0  # match historical drawdowns within ±8 pp of current
+
+
+def _from_top_forward_bars(peak_window: int, interval: str) -> int:
+    """Outcome window ≈ half the loop (capped) so intraday scans stay responsive."""
+    base = max(6, min(int(peak_window * 0.5), 80))
+    if interval == "1d":
+        return max(10, min(base, 63))
+    return base
 
 
 def _from_top_confidence(n: int, reverse_rate: float | None, continue_rate: float | None) -> float:
@@ -1484,16 +1491,18 @@ def _collect_drawdown_analogues(
     current_dd: float,
     threshold_pct: float,
     peak_window: int,
-    forward_bars: int = _FROM_TOP_FORWARD_BARS,
+    forward_bars: int,
     band_pct: float = _FROM_TOP_DD_BAND_PCT,
     spacing: int = _FROM_TOP_ANALOGUE_SPACING,
+    min_reverse_pct: float = 1.5,
+    min_continue_pct: float = 1.0,
 ) -> list[dict[str, Any]]:
     """
     Find past bars where rolling-peak drawdown was similar to *current_dd*
     and measure forward max bounce vs further decline.
     """
     n = len(closes)
-    if n < peak_window + forward_bars + 20:
+    if n < peak_window + forward_bars + 10:
         return []
 
     thr = float(max(0.5, threshold_pct))
@@ -1522,9 +1531,8 @@ def _collect_drawdown_analogues(
         max_up = max(0.0, ((fwd_high - c) / c) * 100.0)
         max_down = max(0.0, ((c - fwd_low) / c) * 100.0)
         end_ret = ((fwd_close - c) / c) * 100.0
-        # Meaningful reverse: bounce at least ~30% of the then-drawdown or ≥5%
-        reverse_floor = max(5.0, dd * 0.30)
-        continue_floor = max(4.0, dd * 0.20)
+        reverse_floor = max(min_reverse_pct, dd * 0.30)
+        continue_floor = max(min_continue_pct, dd * 0.20)
         if max_up >= reverse_floor and max_up >= max_down:
             outcome = "reverse"
         elif max_down >= continue_floor and max_down > max_up:
@@ -1532,7 +1540,6 @@ def _collect_drawdown_analogues(
         else:
             outcome = "mixed"
 
-        # Upside toward the then-peak (capped recovery % of the drawdown)
         room_to_peak = max(0.0, ((window_high - c) / c) * 100.0)
         recovered_to_peak = fwd_high >= window_high * 0.995
 
@@ -1557,36 +1564,42 @@ def analyze_from_top_ticker(
     asset_class: str,
     market: str,
     drop_pct: float,
-    lookback_years: float,
+    lookback_hours: float,
     groww_token: str = "",
     exchange: str = "NSE",
 ) -> dict[str, Any]:
-    """One ticker: peak drawdown in last Y years + reverse/continue forecast."""
-    years = float(max(0.5, min(lookback_years, 5.0)))
+    """One ticker: peak drawdown in last loop hours + reverse/continue forecast."""
+    hours = float(max(1.0, min(lookback_hours, 336.0)))
     thr = float(max(0.5, min(drop_pct, 90.0)))
-    peak_window = max(60, int(round(years * 252)))
-    # Extra history so analogues can form before the current window
-    fetch_bars = int(min(1260, max(peak_window + 280, peak_window * 2)))
+    interval = choose_interval(hours)
+    # Extra history so analogues can form before the current loop window
+    hist_hours = min(336.0 * 3, max(hours * 12, hours + 72.0))
+    limit = bars_needed(hist_hours, interval)
+    end_utc = datetime.now(UTC)
+    start_utc = end_utc - timedelta(hours=hours)
+    hist_start = end_utc - timedelta(hours=hist_hours)
 
     out: dict[str, Any] = {
         "ticker": symbol,
         "matched": False,
-        "lookback_years": years,
+        "lookback_hours": hours,
+        "loop_hours": hours,
         "threshold_pct": thr,
+        "interval": interval,
     }
 
     try:
         raw = fetch_data_for_gap_scan(
             symbol,
-            "1d",
+            interval,
             market,
             groww_token=groww_token,
             exchange=exchange,
-            limit=fetch_bars,
+            limit=limit,
         )
         df = normalize_ohlcv(raw) if raw is not None else pd.DataFrame()
-        if df is None or df.empty or len(df) < max(80, peak_window // 2):
-            out["error"] = "Insufficient daily history"
+        if df is None or df.empty or len(df) < 8:
+            out["error"] = "Insufficient bars"
             return out
 
         work = df.copy()
@@ -1594,33 +1607,46 @@ def analyze_from_top_ticker(
             if col in work.columns:
                 work[col] = pd.to_numeric(work[col], errors="coerce")
         work = work.dropna(subset=["high", "low", "close"])
-        if len(work) < max(80, peak_window // 2):
+        if len(work) < 8:
             out["error"] = "Insufficient clean bars"
             return out
 
-        # Peak over the trailing lookback window (use available bars if shorter)
-        win = work.tail(min(len(work), peak_window + 5))
+        hist = filter_session_bars(work, asset_class, start_utc=hist_start, end_utc=end_utc)
+        if hist is None or hist.empty or len(hist) < 8:
+            hist = work.tail(min(len(work), limit))
+
+        win = filter_session_bars(hist, asset_class, start_utc=start_utc, end_utc=end_utc)
+        if win is None or win.empty or len(win) < 2:
+            # Fall back to last N bars approximating the loop length
+            approx = max(4, min(len(hist), bars_needed(hours, interval) // 2))
+            win = hist.tail(approx)
+
         peak_high = float(win["high"].max())
         peak_ts = win["high"].idxmax()
-        last = float(work["close"].iloc[-1])
-        last_ts = work.index[-1]
+        last = float(hist["close"].iloc[-1])
+        last_ts = hist.index[-1]
         if peak_high <= 0 or last <= 0:
             out["error"] = "Invalid peak/last"
             return out
 
         fall_from_top = ((peak_high - last) / peak_high) * 100.0
         matched = fall_from_top >= thr
-        days_since_peak = None
-        try:
-            days_since_peak = max(0, int((pd.Timestamp(last_ts) - pd.Timestamp(peak_ts)).days))
-        except Exception:
-            days_since_peak = None
+        hours_since_peak = _hours_between(peak_ts, last_ts)
 
-        highs = work["high"].astype(float).values
-        lows = work["low"].astype(float).values
-        closes = work["close"].astype(float).values
-        # Use a peak window capped by available history for analogues
-        analogue_peak_win = min(peak_window, max(60, len(work) // 2))
+        peak_window = max(4, len(win))
+        forward_bars = _from_top_forward_bars(peak_window, interval)
+        # Need enough history for rolling peak + forward outcomes
+        min_hist = peak_window + forward_bars + 15
+        if len(hist) < min_hist:
+            # Use whatever we have; analogues may be sparse
+            pass
+
+        highs = hist["high"].astype(float).values
+        lows = hist["low"].astype(float).values
+        closes = hist["close"].astype(float).values
+        analogue_peak_win = min(peak_window, max(4, len(hist) // 3))
+        min_rev = 5.0 if interval == "1d" else 1.5
+        min_cont = 4.0 if interval == "1d" else 1.0
         analogues = _collect_drawdown_analogues(
             highs,
             lows,
@@ -1628,6 +1654,9 @@ def analyze_from_top_ticker(
             current_dd=fall_from_top,
             threshold_pct=thr,
             peak_window=analogue_peak_win,
+            forward_bars=forward_bars,
+            min_reverse_pct=min_rev,
+            min_continue_pct=min_cont,
         )
 
         n = len(analogues)
@@ -1649,7 +1678,6 @@ def analyze_from_top_ticker(
         further_fall_if_continue = _median(cont_downs) if cont_downs else _median(all_downs)
         typical_end_return = _median(end_rets)
         room_to_peak = ((peak_high - last) / last) * 100.0 if last > 0 else None
-        # Cap suggested reverse upside at remaining room to the peak (can't bounce more than that to reclaim top)
         if upside_if_reverse is not None and room_to_peak is not None:
             upside_to_peak = min(float(upside_if_reverse), float(room_to_peak))
         else:
@@ -1670,13 +1698,14 @@ def analyze_from_top_ticker(
             bias = "mixed"
             bias_label = "Mixed / no clear edge"
 
+        fwd_label = _duration_label(forward_bars * (hours / max(peak_window, 1))) or f"{forward_bars} bars"
         plain = (
-            f"{symbol} is −{fall_from_top:.1f}% from its {years:g}y high "
-            f"({_fmt_ts(peak_ts)[:10]} @ {_r(peak_high, 4)}). "
+            f"{symbol} is −{fall_from_top:.1f}% from its {hours:g}h loop high "
+            f"({_fmt_ts(peak_ts)[:16]} @ {_r(peak_high, 4)}). "
         )
         if n:
             plain += (
-                f"At similar −{thr:g}%+ drawdowns historically ({n} analogues, ~{_FROM_TOP_FORWARD_BARS}d forward): "
+                f"At similar −{thr:g}%+ drawdowns historically ({n} analogues, ~{fwd_label} forward): "
                 f"reverse {reverse_pct:.0f}% · continue {continue_pct:.0f}%"
                 + (f" · mixed {mixed_pct:.0f}%" if mix_n else "")
                 + f". If reverse, typical bounce ~{upside_if_reverse or 0:.1f}% "
@@ -1689,11 +1718,11 @@ def analyze_from_top_ticker(
 
         from app.market_pulse.pro_trade_shared import atr as atr_ind, pack_trade_setup, atr_sane_stop_target
 
-        atr_s = atr_ind(work)
+        atr_s = atr_ind(hist)
         atr_v = float(atr_s.iloc[-1]) if len(atr_s) and pd.notna(atr_s.iloc[-1]) else None
-        trade_setup = None
+        tail_n = min(20, len(hist))
         if matched and bias == "reverse" and upside_to_peak and upside_to_peak > 0:
-            stop = float(work["low"].tail(20).min())
+            stop = float(hist["low"].tail(tail_n).min())
             target = last * (1.0 + float(upside_to_peak) / 100.0)
             stop, target, adjusted = atr_sane_stop_target(
                 "LONG", last, stop, target, atr_v, default_rr=1.6
@@ -1704,13 +1733,13 @@ def analyze_from_top_ticker(
                 stop=stop,
                 target=target,
                 confidence_pct=conf,
-                reason=f"From-top bounce bias · −{fall_from_top:.1f}% off {years:g}y high",
+                reason=f"From-top bounce bias · −{fall_from_top:.1f}% off {hours:g}h high",
                 plain_english=plain,
-                timeframe="1d",
+                timeframe=interval,
                 stop_adjusted=adjusted,
             )
         elif matched and bias == "continue" and further_fall_if_continue and further_fall_if_continue > 0:
-            stop = float(work["high"].tail(20).max())
+            stop = float(hist["high"].tail(tail_n).max())
             target = last * (1.0 - float(further_fall_if_continue) / 100.0)
             stop, target, adjusted = atr_sane_stop_target(
                 "SHORT", last, stop, target, atr_v, default_rr=1.6
@@ -1721,9 +1750,9 @@ def analyze_from_top_ticker(
                 stop=stop,
                 target=target,
                 confidence_pct=conf,
-                reason=f"From-top continuation bias · −{fall_from_top:.1f}% off {years:g}y high",
+                reason=f"From-top continuation bias · −{fall_from_top:.1f}% off {hours:g}h high",
                 plain_english=plain,
-                timeframe="1d",
+                timeframe=interval,
                 stop_adjusted=adjusted,
             )
         else:
@@ -1735,7 +1764,7 @@ def analyze_from_top_ticker(
                 confidence_pct=conf if matched else 15.0,
                 reason="No clear from-top trade bias" if matched else "Below threshold / not matched",
                 plain_english=plain,
-                timeframe="1d",
+                timeframe=interval,
             )
 
         out.update({
@@ -1746,12 +1775,14 @@ def analyze_from_top_ticker(
             "peak_time_ist": _fmt_ts_ist(peak_ts),
             "as_of": _fmt_ts(last_ts),
             "as_of_ist": _fmt_ts_ist(last_ts),
-            "days_since_peak": days_since_peak,
+            "hours_since_peak": hours_since_peak,
+            "hours_since_peak_label": _duration_label(hours_since_peak),
             "fall_from_top_pct": _r(fall_from_top, 2),
             "room_to_peak_pct": _r(room_to_peak, 2) if room_to_peak is not None else None,
-            "bars_used": int(len(work)),
+            "bars_used": int(len(hist)),
+            "bars_in_loop": int(len(win)),
             "peak_window_bars": analogue_peak_win,
-            "forward_bars": _FROM_TOP_FORWARD_BARS,
+            "forward_bars": forward_bars,
             "analogues": n,
             "reverse_count": rev_n,
             "continue_count": cont_n,
@@ -1786,12 +1817,12 @@ def scan_falling_knife_from_top(
     asset_class: str,
     tickers: list[str],
     drop_pct: float = 20.0,
-    lookback_years: float = 1.0,
+    lookback_hours: float = 24.0,
     groww_token: str = "",
     exchange: str = "NSE",
     max_workers: int = 6,
 ) -> dict[str, Any]:
-    """Universe scan: names ≥ X% below their high in the last Y years."""
+    """Universe scan: names ≥ X% below their high in the last loop hours."""
     ac = (asset_class or "india").strip().lower()
     if ac not in ASSET_CLASS_CONFIG:
         ac = "india"
@@ -1809,7 +1840,8 @@ def scan_falling_knife_from_top(
     symbols = uniq[:80]
 
     thr = float(max(0.5, min(drop_pct, 90.0)))
-    years = float(max(0.5, min(lookback_years, 5.0)))
+    hours = float(max(1.0, min(lookback_hours, 336.0)))
+    interval = choose_interval(hours)
     sess = session_info(ac)
 
     results: list[dict[str, Any]] = []
@@ -1820,7 +1852,9 @@ def scan_falling_knife_from_top(
             "mode": "from_top",
             "asset_class": ac,
             "drop_pct": thr,
-            "lookback_years": years,
+            "lookback_hours": hours,
+            "loop_hours": hours,
+            "interval": interval,
             "session": sess,
             "scanned": 0,
             "matched": 0,
@@ -1838,7 +1872,7 @@ def scan_falling_knife_from_top(
                 asset_class=ac,
                 market=market,
                 drop_pct=thr,
-                lookback_years=years,
+                lookback_hours=hours,
                 groww_token=groww_token,
                 exchange=exchange,
             ): sym
@@ -1883,8 +1917,9 @@ def scan_falling_knife_from_top(
         "asset_label": cfg.get("label"),
         "drop_pct": thr,
         "threshold_pct": thr,
-        "lookback_years": years,
-        "forward_bars": _FROM_TOP_FORWARD_BARS,
+        "lookback_hours": hours,
+        "loop_hours": hours,
+        "interval": interval,
         "session": sess,
         "scanned": len(results),
         "matched": len(knives),
@@ -1895,13 +1930,13 @@ def scan_falling_knife_from_top(
             "scanned": len(results),
             "matched": len(knives),
             "errors": errors,
-            "threshold": f">= {thr:g}% below {years:g}y high",
-            "lookback": f"last {years:g} year(s)",
-            "forward": f"~{_FROM_TOP_FORWARD_BARS} trading days outcome window",
+            "threshold": f">= {thr:g}% below {hours:g}h high",
+            "lookback": f"last {hours:g}h (loop)",
+            "interval": interval,
         },
         "plain_english": (
             f"Falling Knife · From top · {cfg.get('label')} · "
-            f"≥{thr:g}% below high in last {years:g}y. "
+            f"≥{thr:g}% below high in last {hours:g}h loop. "
             f"Matched {len(knives)} / {len(results)}."
             + ((" Top: " + " · ".join(bits) + ".") if bits else "")
         ),

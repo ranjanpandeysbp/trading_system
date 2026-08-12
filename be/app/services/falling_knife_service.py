@@ -47,7 +47,7 @@ class FallingKnifeService:
                     asset_class=asset_class,
                     tickers=tickers,
                     drop_pct=thr,
-                    lookback_years=float(payload.get("lookback_years") or 1.0),
+                    lookback_hours=float(payload.get("lookback_hours") or payload.get("loop_hours") or 24.0),
                     groww_token=token,
                     exchange=exchange,
                 )

@@ -53,10 +53,10 @@ History & forecast
    hours/days to recover back to the start of that pump/dump, plus a next-event
    forecast (datetime, confidence %, typical move %, SL %, TP %).
 
-From top (multi-year peak)
+From top (loop hours)
 1. Switch to From top mode.
-2. Set fall threshold % (X) and lookback years (Y).
-3. Finds names currently ≥ X% below their high in the last Y years.
+2. Set fall threshold % (X) and Loop hours.
+3. Finds names currently ≥ X% below their high in that loop window.
 4. For each match: chance of reverse vs continued fall (from similar historical
    drawdowns), expected bounce % if it reverses, further-fall % if it continues,
    and a confidence score.
@@ -409,7 +409,11 @@ function FromTopTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
               <div className="text-slate-500">Last</div>
               <div className="mt-0.5 text-slate-200">{fmtPx(row.last, assetClass)}</div>
               <div className="text-[10px] text-slate-500">
-                {row.days_since_peak != null ? `${String(row.days_since_peak)}d since peak` : '—'}
+                {row.hours_since_peak_label != null
+                  ? `${String(row.hours_since_peak_label)} since peak`
+                  : row.days_since_peak != null
+                    ? `${String(row.days_since_peak)}d since peak`
+                    : '—'}
               </div>
             </div>
             <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-3 py-2">
@@ -459,12 +463,12 @@ export default function FallingKnife() {
   const [mode, setMode] = useState<'live' | 'history' | 'from_top'>('live')
   const [dropPct, setDropPct] = useState(10)
   const [lookbackHours, setLookbackHours] = useState(24)
-  const [lookbackYears, setLookbackYears] = useState(1)
+  const [loopHours, setLoopHours] = useState(24)
   const [fromDate, setFromDate] = useState(defaultFromDate(90))
   const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10))
   const [moveSide, setMoveSide] = useState<'fall' | 'rise' | 'both'>('both')
   const [thresholdPct, setThresholdPct] = useState(10)
-  const [fromTopPct, setFromTopPct] = useState(20)
+  const [fromTopPct, setFromTopPct] = useState(10)
   const [error, setError] = useState('')
   const [showMatchedOnly, setShowMatchedOnly] = useState(true)
   const [selectedLiveTicker, setSelectedLiveTicker] = useState<string | null>(null)
@@ -485,7 +489,7 @@ export default function FallingKnife() {
           mode: 'from_top',
           drop_pct: fromTopPct,
           threshold_pct: fromTopPct,
-          lookback_years: lookbackYears,
+          lookback_hours: loopHours,
         })
       }
       if (mode === 'history') {
@@ -549,10 +553,10 @@ export default function FallingKnife() {
 
   const fromTopPresets = useMemo(
     () => [
-      { label: '20% / 1y', pct: 20, years: 1 },
-      { label: '30% / 1y', pct: 30, years: 1 },
-      { label: '40% / 2y', pct: 40, years: 2 },
-      { label: '50% / 3y', pct: 50, years: 3 },
+      { label: '10% / 24h', pct: 10, hours: 24 },
+      { label: '8% / 48h', pct: 8, hours: 48 },
+      { label: '15% / 72h', pct: 15, hours: 72 },
+      { label: '20% / 168h', pct: 20, hours: 168 },
     ],
     [],
   )
@@ -565,7 +569,7 @@ export default function FallingKnife() {
     }
     if (mode === 'history') return `Analyze history (${picker.tickers.length} · ≥${thresholdPct}%)`
     if (mode === 'from_top') {
-      return `Scan from top (≥${fromTopPct}% / ${lookbackYears}y · ${picker.tickers.length})`
+      return `Scan from top (≥${fromTopPct}% / ${loopHours}h · ${picker.tickers.length})`
     }
     return `Scan (≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`
   })()
@@ -573,7 +577,7 @@ export default function FallingKnife() {
   const loadingMessage = (() => {
     if (mode === 'history') return `Counting ≥${thresholdPct}% rises/falls and building forecasts…`
     if (mode === 'from_top') {
-      return `Finding names ≥${fromTopPct}% below their ${lookbackYears}y high and scoring reverse/continue odds…`
+      return `Finding names ≥${fromTopPct}% below their ${loopHours}h high and scoring reverse/continue odds…`
     }
     return `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
   })()
@@ -582,7 +586,7 @@ export default function FallingKnife() {
     <div>
       <PageHeader
         title="Falling Knife"
-        description="Live session rises & falls, history of ≥X% moves, and multi-year peak drawdowns with reverse/continue odds"
+        description="Live session rises & falls, history of ≥X% moves, and loop-hour peak drawdowns with reverse/continue odds"
       />
 
       <div className="mb-4 space-y-2">
@@ -690,23 +694,23 @@ export default function FallingKnife() {
                   max={90}
                   step={0.5}
                   value={fromTopPct}
-                  onChange={(e) => setFromTopPct(Number(e.target.value) || 20)}
+                  onChange={(e) => setFromTopPct(Number(e.target.value) || 10)}
                 />
               </FormField>
-              <FormField label="Lookback years (Y)">
+              <FormField label="Loop hours">
                 <Input
                   type="number"
-                  min={0.5}
-                  max={5}
-                  step={0.5}
-                  value={lookbackYears}
-                  onChange={(e) => setLookbackYears(Number(e.target.value) || 1)}
+                  min={1}
+                  max={336}
+                  step={1}
+                  value={loopHours}
+                  onChange={(e) => setLoopHours(Number(e.target.value) || 24)}
                 />
               </FormField>
             </div>
             <p className="text-xs text-slate-500">
-              Finds tickers currently ≥ X% below their high in the last Y years, then scores reverse vs
-              continue odds from similar historical drawdowns (~63 trading days forward).
+              Finds tickers currently ≥ X% below their high in the last loop hours, then scores reverse vs
+              continue odds from similar historical drawdowns.
             </p>
             <div className="flex flex-wrap gap-2">
               {fromTopPresets.map((p) => (
@@ -716,7 +720,7 @@ export default function FallingKnife() {
                   className="rounded-lg border border-slate-700/80 px-2.5 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
                   onClick={() => {
                     setFromTopPct(p.pct)
-                    setLookbackYears(p.years)
+                    setLoopHours(p.hours)
                   }}
                 >
                   {p.label}
@@ -782,7 +786,7 @@ export default function FallingKnife() {
               </span>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
                 {String((data.summary as Row | undefined)?.scanned ?? results.length)} scanned · ≥
-                {String(data.drop_pct ?? fromTopPct)}% / {String(data.lookback_years ?? lookbackYears)}y
+                {String(data.drop_pct ?? fromTopPct)}% / {String(data.loop_hours ?? data.lookback_hours ?? loopHours)}h
               </span>
             </div>
           </Card>
@@ -792,7 +796,7 @@ export default function FallingKnife() {
               <Card>
                 <p className="text-sm text-slate-400">
                   {showMatchedOnly
-                    ? `No tickers ≥${fromTopPct}% below their ${lookbackYears}y high.`
+                    ? `No tickers ≥${fromTopPct}% below their ${loopHours}h high.`
                     : 'No results.'}
                 </p>
               </Card>

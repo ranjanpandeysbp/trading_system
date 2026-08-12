@@ -186,7 +186,7 @@ Three modes:
 
 1. **Live** — tickers down **≥ X% from session-window high** (or up from low) over the last **N hours**.
 2. **History** — every ≥X% rise/fall in a date range with recovery timing + next-move forecast.
-3. **From top** — names **≥ X% below their high in the last Y years**, with **reverse vs continue** odds, expected bounce %, and confidence.
+3. **From top** — names **≥ X% below their high in the last loop hours**, with **reverse vs continue** odds, expected bounce %, and confidence.
 
 | Asset | Session used (live) |
 |-------|----------------|
@@ -197,7 +197,7 @@ Three modes:
 
 Educational screener only.
 
-**When to use:** Live for sharp session knives; From top for multi-year peak drawdowns and rebound/continuation odds.
+**When to use:** Live for sharp session knives; From top for loop-hour peak drawdowns and rebound/continuation odds.
 """,
 
     "nifty_breadth": """

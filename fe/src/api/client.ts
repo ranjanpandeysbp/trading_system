@@ -231,7 +231,6 @@ export const runFallingKnifeScan = (payload: {
   to_date?: string
   move_side?: 'fall' | 'rise' | 'both'
   threshold_pct?: number
-  lookback_years?: number
 }) => api.post('/falling-knife/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchFallingKnifeSession = (asset_class: string) =>
