@@ -14,6 +14,7 @@ from app.market_pulse.falling_knife_engine import (
 from app.market_pulse.groww_auth import set_groww_token
 from app.market_pulse.serialize import json_safe
 from app.services.settings_service import SettingsService
+from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
 
 
 class FallingKnifeService:
@@ -39,6 +40,7 @@ class FallingKnifeService:
         drop_pct = float(payload.get("drop_pct") or 10.0)
         threshold = payload.get("threshold_pct")
         thr = float(threshold) if threshold is not None else drop_pct
+        use_ai = bool(payload.get("use_ai"))
 
         def _run():
             set_groww_token(token)
@@ -72,4 +74,10 @@ class FallingKnifeService:
                 exchange=exchange,
             )
 
-        return json_safe(await asyncio.to_thread(_run))
+        result = json_safe(await asyncio.to_thread(_run))
+        return await maybe_refine_trade_setups_ai(
+            self.settings,
+            result,
+            use_ai=use_ai,
+            section=f"falling_knife/{mode}",
+        )

@@ -5029,6 +5029,7 @@ async def pro_trade_bb_rsi_vol(
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },
+        use_ai=bool(getattr(payload, "use_ai", False)),
     )
 
 
@@ -5073,6 +5074,7 @@ async def pro_trade_ticker_chart(
         session_date=payload.session_date,
         interval=payload.interval,
         indicators=payload.indicators,
+        use_ai=bool(getattr(payload, "use_ai", False)),
     )
 
 

@@ -47,6 +47,7 @@ import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePan
 import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
+import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { ElliottWavePanel } from '../components/pro-trade/ElliottWavePanel'
 import { FibonacciProPanel } from '../components/pro-trade/FibonacciProPanel'
@@ -2821,6 +2822,7 @@ function BbRsiVolPage() {
   const [rsiSell, setRsiSell] = useState(70)
   const [requireSr, setRequireSr] = useState(true)
   const [showCharts, setShowCharts] = useState(true)
+  const { useAi, setUseAi } = useTradeSetupAi()
   const bg = useAnalysisBackground('pro_trade', 'bb_rsi_vol')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
@@ -2833,6 +2835,7 @@ function BbRsiVolPage() {
     rsi_buy: rsiBuy,
     rsi_sell: rsiSell,
     require_sr: requireSr,
+    use_ai: useAi,
   })
 
   const runMut = useMutation({
@@ -2921,10 +2924,13 @@ function BbRsiVolPage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
             {runMut.isPending
-              ? 'Scanning…'
+              ? useAi
+                ? 'Scanning + AI refine…'
+                : 'Scanning…'
               : `Scan BB-RSI-VOL (${picker.tickers.length} × ${picker.durations.length || 1})`}
           </Button>
         </div>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
         <AnalysisBackgroundControls
           bg={bg}
           placeholder={`BB-RSI-VOL · ${new Date().toLocaleDateString()}`}

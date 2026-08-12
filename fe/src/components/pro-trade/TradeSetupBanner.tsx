@@ -55,6 +55,11 @@ export function TradeSetupBanner({
             grade {grade}
           </span>
         )}
+        {(setup.ai_refined || setup.ai_refined === true) && (
+          <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] text-violet-300">
+            AI refined
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
         {conf != null && (
@@ -109,6 +114,8 @@ export function tradeSetupFromResult(row: Row | null | undefined): Row | null {
       entry_price: row.entry_price,
       stop_price: row.stop_price,
       target_price: row.target_price,
+      ai_refined: row.ai_refined,
+      ai_rationale: row.ai_rationale,
     }
   }
   return null

@@ -681,6 +681,10 @@ class FallingKnifeScanRequest(BaseModel):
         le=90.0,
         description="History mode: min % rise/fall to count as an event (defaults to drop_pct).",
     )
+    use_ai: bool = Field(
+        default=False,
+        description="When true, AI refines confidence / SL / TP and reverse-continue odds.",
+    )
 
 
 class Etf28SmaLotInput(BaseModel):
@@ -1406,6 +1410,7 @@ class ProTradeBbRsiVolRequest(BaseModel):
     min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
     require_sr: bool = True
     take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    use_ai: bool = False
 
 
 class ProTradeBtstRequest(BaseModel):
@@ -1442,6 +1447,7 @@ class ProTradeTickerChartRequest(BaseModel):
         default_factory=lambda: ["volume", "ema_9", "ema_50"],
         description="Selected overlays: rsi, macd, supertrend, vwap, volume, bollinger, fibonacci, ema_5/9/20/50/200",
     )
+    use_ai: bool = False
 
 
 class PredictionPatternAnalogueRequest(BaseModel):

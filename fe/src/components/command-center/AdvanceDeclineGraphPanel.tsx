@@ -133,12 +133,26 @@ function AdRatioChart({
   const latestRsi = latest?.rsi != null ? Number(latest.rsi) : null
   const latestStrength = latest?.strength != null ? Number(latest.strength) : null
   const latestTrend = latest?.trend != null ? String(latest.trend) : null
+  const latestAdv = latest?.advances != null ? Number(latest.advances) : null
+  const latestDec = latest?.declines != null ? Number(latest.declines) : null
+  const latestUnch = latest?.unchanged != null ? Number(latest.unchanged) : null
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slate-200">{title}</p>
         <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+          {(latestAdv != null || latestDec != null) && (
+            <span>
+              Adv/Dec:{' '}
+              <strong className="text-emerald-300">{fmtNum(latestAdv)}</strong>
+              <span className="text-slate-500"> / </span>
+              <strong className="text-rose-300">{fmtNum(latestDec)}</strong>
+              {latestUnch != null && (
+                <span className="text-slate-500"> · flat {fmtNum(latestUnch)}</span>
+              )}
+            </span>
+          )}
           {latestRatio != null && (
             <span>
               A/D:{' '}
@@ -599,8 +613,22 @@ export function AdvanceDeclineGraphPanel() {
                 )
               })()}
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
                 <StatCard label="Universe" value={fmtNum(data.universe_size)} />
+                <StatCard
+                  label="Advances"
+                  value={latest?.advances != null ? fmtNum(latest.advances) : '—'}
+                  trend="up"
+                />
+                <StatCard
+                  label="Declines"
+                  value={latest?.declines != null ? fmtNum(latest.declines) : '—'}
+                  trend="down"
+                />
+                <StatCard
+                  label="Unchanged"
+                  value={latest?.unchanged != null ? fmtNum(latest.unchanged) : '—'}
+                />
                 <StatCard
                   label="Latest A/D ratio"
                   value={latest?.ad_ratio != null ? fmtNum(latest.ad_ratio, 2) : '—'}

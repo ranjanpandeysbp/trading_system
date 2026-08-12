@@ -697,6 +697,7 @@ class ProTradeService:
         exchange: str | None = None,
         timeframes: list[str] | None = None,
         cfg_overrides: dict[str, Any] | None = None,
+        use_ai: bool = False,
     ) -> dict[str, Any]:
         from app.market_pulse.bb_rsi_vol_engine import (
             BB_RSI_VOL_AI_SYSTEM,
@@ -705,6 +706,7 @@ class ProTradeService:
             scan_universe,
         )
         from app.market_pulse.ticker_utils import market_currency
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
 
         if not tickers:
             return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
@@ -741,6 +743,9 @@ class ProTradeService:
             if isinstance(r, dict):
                 r["ai_context"] = build_bb_rsi_vol_ai_prompt(r)
         payload["ai_system_prompt"] = BB_RSI_VOL_AI_SYSTEM
+        payload = await maybe_refine_trade_setups_ai(
+            self.settings, payload, use_ai=use_ai, section="pro_trade/bb_rsi_vol",
+        )
         return json_safe(payload)
 
     async def btst(
@@ -791,8 +796,10 @@ class ProTradeService:
         session_date: str | None = None,
         interval: str = "1d",
         indicators: list[str] | None = None,
+        use_ai: bool = False,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_chart_engine import compute_ticker_chart
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
 
         market, _ = await self._asset_ctx(asset_class)
 
@@ -809,7 +816,10 @@ class ProTradeService:
                 indicators=indicators,
             )
 
-        return json_safe(await asyncio.to_thread(_run))
+        payload = json_safe(await asyncio.to_thread(_run))
+        return await maybe_refine_trade_setups_ai(
+            self.settings, payload, use_ai=use_ai, section="pro_trade/ticker_chart",
+        )
 
     # ------------------------------------------------------------------
     # Saved BTST/STBT reports — shares the SavedBacktestReport table

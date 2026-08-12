@@ -23,6 +23,7 @@ import { CollapsibleGuide as CollapsibleSection } from '../components/ui/CopyAll
 import { VolumeProfileChart, type VpChartBar } from '../components/pro-trade/VolumeProfileChart'
 import { TradeSetupBanner, tradeSetupFromResult } from '../components/pro-trade/TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from '../components/pro-trade/FallRiseForecastCards'
+import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
 import { tickerDisplayLabel, tickerNameOnly } from '../components/ui/tickerDisplay'
 
 type Row = Record<string, unknown>
@@ -73,7 +74,9 @@ Trade setup
 · Live: matched falls → mean-reversion BUY (knife catch); rises → SELL fade.
 · History: next-event forecast includes % confidence, %SL, and %TP (ATR-sane).
 · From top: reverse bias → long bounce; continue bias → short fade (when clear).
-· Always shown as Conf % · SL % · TP %.`
+· Always shown as Conf % · SL % · TP %.
+· Optional Use AI checkbox: after the rule-based scan, AI re-scores Conf/SL/TP
+  and reverse/continue odds (falls back to rules if no API key).`
 
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
@@ -472,6 +475,7 @@ export default function FallingKnife() {
   const [error, setError] = useState('')
   const [showMatchedOnly, setShowMatchedOnly] = useState(true)
   const [selectedLiveTicker, setSelectedLiveTicker] = useState<string | null>(null)
+  const { useAi, setUseAi } = useTradeSetupAi()
 
   const sessionQ = useQuery({
     queryKey: ['falling-knife-session', assetClass],
@@ -490,6 +494,7 @@ export default function FallingKnife() {
           drop_pct: fromTopPct,
           threshold_pct: fromTopPct,
           lookback_hours: loopHours,
+          use_ai: useAi,
         })
       }
       if (mode === 'history') {
@@ -503,6 +508,7 @@ export default function FallingKnife() {
           move_side: moveSide,
           threshold_pct: thresholdPct,
           drop_pct: thresholdPct,
+          use_ai: useAi,
         })
       }
       return runFallingKnifeScan({
@@ -512,6 +518,7 @@ export default function FallingKnife() {
         drop_pct: dropPct,
         lookback_hours: lookbackHours,
         move_side: moveSide,
+        use_ai: useAi,
       })
     },
     onSuccess: () => setError(''),
@@ -577,9 +584,13 @@ export default function FallingKnife() {
   const loadingMessage = (() => {
     if (mode === 'history') return `Counting ≥${thresholdPct}% rises/falls and building forecasts…`
     if (mode === 'from_top') {
-      return `Finding names ≥${fromTopPct}% below their ${loopHours}h high and scoring reverse/continue odds…`
+      return useAi
+        ? `Finding names ≥${fromTopPct}% below their ${loopHours}h high + AI refining odds…`
+        : `Finding names ≥${fromTopPct}% below their ${loopHours}h high and scoring reverse/continue odds…`
     }
-    return `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
+    return useAi
+      ? `Scanning ${picker.tickers.length} tickers + AI refining Conf/SL/TP…`
+      : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
   })()
 
   return (
@@ -771,6 +782,8 @@ export default function FallingKnife() {
           )}
         </div>
 
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-1" />
+
         {error && <Alert type="error">{error}</Alert>}
       </Card>
 
@@ -780,6 +793,11 @@ export default function FallingKnife() {
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
+            {data.ai_refinement != null && (
+              <p className="mt-2 text-xs text-violet-300/90">
+                AI: {String((data.ai_refinement as Row).reason ?? '')}
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
                 {String((data.summary as Row | undefined)?.matched ?? knives.length)} matched
@@ -815,6 +833,11 @@ export default function FallingKnife() {
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
+            {data.ai_refinement != null && (
+              <p className="mt-2 text-xs text-violet-300/90">
+                AI: {String((data.ai_refinement as Row).reason ?? '')}
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
                 {String((data.summary as Row | undefined)?.fall_events ?? data.total_fall_events ?? 0)} falls
@@ -849,6 +872,11 @@ export default function FallingKnife() {
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
+            {data.ai_refinement != null && (
+              <p className="mt-2 text-xs text-violet-300/90">
+                AI: {String((data.ai_refinement as Row).reason ?? '')}
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
                 {String((data.summary as Row | undefined)?.matched_falls ?? data.matched_falls ?? 0)} falls

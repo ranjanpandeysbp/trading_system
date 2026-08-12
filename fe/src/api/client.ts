@@ -231,6 +231,7 @@ export const runFallingKnifeScan = (payload: {
   to_date?: string
   move_side?: 'fall' | 'rise' | 'both'
   threshold_pct?: number
+  use_ai?: boolean
 }) => api.post('/falling-knife/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const fetchFallingKnifeSession = (asset_class: string) =>
@@ -2348,6 +2349,7 @@ export const runProTradeBbRsiVol = (payload: {
   min_rr?: number
   require_sr?: boolean
   take_confidence_threshold?: number
+  use_ai?: boolean
 }) => api.post('/pro-trade/bb-rsi-vol', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const runProTradeBtst = (payload: {
@@ -2377,6 +2379,7 @@ export const runProTradeTickerChart = (payload: {
   interval?: string
   exchange?: string
   indicators?: string[]
+  use_ai?: boolean
 }) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export const startBtstJob = (payload: {

@@ -24,6 +24,7 @@ import { CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
 import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from './FallRiseForecastCards'
+import { UseAiCheckbox, useTradeSetupAi } from './UseAiCheckbox'
 import { tickerDisplayLabel } from '../ui/tickerDisplay'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
@@ -645,6 +646,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
   const [interval, setInterval] = useState('15m')
   const [selectedIndicators, setSelectedIndicators] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
   const [error, setError] = useState('')
+  const { useAi, setUseAi } = useTradeSetupAi()
 
   const runMut = useMutation({
     mutationFn: () =>
@@ -657,6 +659,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         session_date: mode === 'intraday' ? sessionDate : undefined,
         interval: mode === 'intraday' ? interval : '1d',
         indicators: selectedIndicators,
+        use_ai: useAi,
       }),
     onSuccess: (data) => {
       setError(data?.error ? String(data.error) : '')
@@ -676,7 +679,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
     }, 350)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: refetch on control changes only
-  }, [ready, ticker, assetClass, mode, fromDate, toDate, sessionDate, interval, selectedIndicators])
+  }, [ready, ticker, assetClass, mode, fromDate, toDate, sessionDate, interval, selectedIndicators, useAi])
 
   const data = runMut.data as Row | undefined
   const points = (data?.points as Row[] | undefined) ?? []
@@ -873,6 +876,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
           Chart loads automatically once a ticker and date range (or intraday session) are set. Toggle
           indicators to update overlays and the signal description — no reload needed.
         </p>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
       </Card>
 
       {error && (
@@ -881,7 +885,15 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         </div>
       )}
 
-      {runMut.isPending && <Loading message="Drawing chart with support & resistance…" />}
+      {runMut.isPending && (
+        <Loading
+          message={
+            useAi
+              ? 'Drawing chart + AI-refining trade setup…'
+              : 'Drawing chart with support & resistance…'
+          }
+        />
+      )}
 
       {data && !runMut.isPending && (
         <Card className="mb-4">
