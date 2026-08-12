@@ -148,6 +148,8 @@ export const appNav: NavEntry[] = [
       { to: '/pro-trade/simple-effective', label: 'Simple Effective' },
       { to: '/pro-trade/bb-rsi-vol', label: 'BB-RSI-VOL' },
       { to: '/pro-trade/ema9-cross', label: '9 EMA Cross' },
+      { to: '/pro-trade/ema5-cross', label: '5 EMA Cross' },
+      { to: '/pro-trade/ema5-9-cross', label: '5/9 EMA Cross' },
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
       { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },
       { to: '/pro-trade/ticker-chart', label: 'Ticker Chart' },

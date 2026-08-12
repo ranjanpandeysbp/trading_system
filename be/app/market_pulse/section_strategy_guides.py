@@ -2773,6 +2773,40 @@ Holding above/below without a fresh cross → **WATCH** only (unless “allow ho
 **When to use:** Short-term trend resumes after a pullback into the 9 EMA — Stocks, Indices, Crypto, Commodities.
 """,
 
+    "ema5_bb_rsi_vol": """
+### 5 EMA Cross — EMA5 · Bollinger · RSI · Volume
+
+Same desk as 9 EMA Cross, but on the **faster 5 EMA** — more signals, more noise.
+
+| Side | Setup |
+|------|--------|
+| **LONG** | Close crosses **above** 5 EMA · RSI mid-bull (~42–72) · prefer vol > MA20 · not hugging Upper BB |
+| **SHORT** | Close crosses **below** 5 EMA · RSI mid-bear (~28–58) · prefer vol > MA20 · not hugging Lower BB |
+
+Holding above/below without a fresh cross → **WATCH** only. Prefer **Require volume expand** on choppy lower TFs.
+
+**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA5 (ATR-sane).
+
+**When to use:** Scalps / tight momentum after a pullback into the 5 EMA — liquid names preferred.
+""",
+
+    "ema5_9_crossover": """
+### 5/9 EMA Cross — EMA5 × EMA9 · Bollinger · RSI · Volume
+
+Classic **fast/slow EMA crossover**: EMA5 flips through EMA9, filtered by price confirmation, band room, RSI, and volume.
+
+| Side | Setup |
+|------|--------|
+| **LONG** | EMA5 crosses **above** EMA9 · prefer close **above both** · RSI mid-bull · vol > MA20 · room under Upper BB |
+| **SHORT** | EMA5 crosses **below** EMA9 · prefer close **below both** · RSI mid-bear · vol > MA20 · room above Lower BB |
+
+Holding a bull/bear stack without a fresh cross → **WATCH** only.
+
+**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA9. Invalidate on opposite 5/9 re-cross.
+
+**When to use:** Momentum flip after consolidation — Stocks, Indices, Crypto, Commodities.
+""",
+
     "etf_28_sma": """
 ### ETF 28 SMA Momentum (FIRE in India)
 

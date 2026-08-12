@@ -53,6 +53,8 @@ function TickerResultCard({
   assetClass,
   showCharts,
   aiSystemPrompt,
+  emaPeriod,
+  mode,
 }: {
   result: Row
   index: number
@@ -60,6 +62,8 @@ function TickerResultCard({
   assetClass: WatchlistMarket
   showCharts: boolean
   aiSystemPrompt: string
+  emaPeriod: number
+  mode: 'price' | 'crossover'
 }) {
   const [open, setOpen] = useState(index === 0 || Boolean(result.take_trade) || String(result.signal) === 'WATCH')
   const take = Boolean(result.take_trade)
@@ -67,6 +71,12 @@ function TickerResultCard({
   const metrics = (result.metrics as Row | undefined) ?? {}
   const action = String((result.trade_suggestion as Row | undefined)?.action ?? result.action ?? 'WAIT')
   const tips = (result.pro_checklist as string[] | undefined) ?? []
+  const period = Number(result.ema_period ?? metrics.ema_period ?? emaPeriod) || emaPeriod
+  const sectionBase = mode === 'crossover' ? 'ema5-9-cross' : `ema${period}-cross`
+  const emaValue =
+    mode === 'crossover'
+      ? metrics.ema5
+      : (metrics[`ema${period}`] ?? metrics.ema ?? metrics.ema9)
 
   const chartData = useMemo(
     () => ((result.chart_data as VpChartBar[]) ?? []).filter((b) => b && b.time != null),
@@ -74,18 +84,44 @@ function TickerResultCard({
   )
   const series = useMemo<VpSeries[]>(() => {
     const fromApi = (result.chart_series as VpSeries[] | undefined) ?? []
-    return fromApi.length
-      ? fromApi
-      : [
-          { key: 'bb_upper', label: 'BB Upper', color: '#94a3b8' },
-          { key: 'bb_mid', label: 'BB Mid', color: '#38bdf8' },
-          { key: 'bb_lower', label: 'BB Lower', color: '#94a3b8' },
-          { key: 'ema9', label: 'EMA9', color: '#fbbf24' },
-        ]
-  }, [result.chart_series])
+    if (fromApi.length) return fromApi
+    if (mode === 'crossover') {
+      return [
+        { key: 'bb_upper', label: 'BB Upper', color: '#94a3b8' },
+        { key: 'bb_mid', label: 'BB Mid', color: '#38bdf8' },
+        { key: 'bb_lower', label: 'BB Lower', color: '#94a3b8' },
+        { key: 'ema5', label: 'EMA5', color: '#34d399' },
+        { key: 'ema9', label: 'EMA9', color: '#fbbf24' },
+      ]
+    }
+    return [
+      { key: 'bb_upper', label: 'BB Upper', color: '#94a3b8' },
+      { key: 'bb_mid', label: 'BB Mid', color: '#38bdf8' },
+      { key: 'bb_lower', label: 'BB Lower', color: '#94a3b8' },
+      { key: `ema${period}`, label: `EMA${period}`, color: '#fbbf24' },
+    ]
+  }, [result.chart_series, mode, period])
   const levels = useMemo<VpLevel[]>(() => {
     return ((result.chart_levels as VpLevel[] | undefined) ?? []).filter((l) => l && l.price != null)
   }, [result.chart_levels])
+
+  const crossLabel =
+    mode === 'crossover'
+      ? Boolean(metrics.cross_up)
+        ? '↑ 5/9 cross'
+        : Boolean(metrics.cross_down)
+          ? '↓ 5/9 cross'
+          : null
+      : Boolean(metrics.cross_up)
+        ? `↑ cross ${period}EMA`
+        : Boolean(metrics.cross_down)
+          ? `↓ cross ${period}EMA`
+          : null
+
+  const readingGuide =
+    mode === 'crossover'
+      ? 'Green = EMA5 · Gold = EMA9 · Grey = BB · Blue mid. Long: EMA5 crosses above EMA9 with price above both + RSI/volume. Short: opposite. T1 mid BB · T2 outer.'
+      : `Gold = ${period} EMA · Grey = BB · Blue mid. Long: close crosses above ${period} EMA with RSI momentum + volume. Short: cross below. T1 mid BB · T2 outer band.`
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -115,11 +151,10 @@ function TickerResultCard({
           {result.confidence_pct != null && (
             <span className="text-xs font-medium text-slate-300">{fmtNum(result.confidence_pct, 0)}% conf</span>
           )}
-          {Boolean(metrics.cross_up) && (
-            <span className="text-[11px] text-emerald-300">↑ cross 9EMA</span>
-          )}
-          {Boolean(metrics.cross_down) && (
-            <span className="text-[11px] text-rose-300">↓ cross 9EMA</span>
+          {crossLabel && (
+            <span className={`text-[11px] ${String(crossLabel).startsWith('↑') ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {crossLabel}
+            </span>
           )}
           {result.sl_pct != null && result.tp_pct != null && (
             <span className="text-xs text-slate-400">
@@ -176,9 +211,14 @@ function TickerResultCard({
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">RR · RSI · EMA9</p>
+              <p className="text-xs text-slate-500">
+                {mode === 'crossover' ? 'RR · RSI · 5/9' : `RR · RSI · EMA${period}`}
+              </p>
               <p className="font-medium text-slate-200">
-                {result.rr != null ? `1:${fmtNum(result.rr, 1)}` : '—'} · {fmtNum(metrics.rsi, 1)} · {fmtNum(metrics.ema9)}
+                {result.rr != null ? `1:${fmtNum(result.rr, 1)}` : '—'} · {fmtNum(metrics.rsi, 1)} ·{' '}
+                {mode === 'crossover'
+                  ? `${fmtNum(metrics.ema5)} / ${fmtNum(metrics.ema9)}`
+                  : fmtNum(emaValue)}
               </p>
             </div>
           </div>
@@ -222,13 +262,13 @@ function TickerResultCard({
               chartData={chartData}
               series={series}
               levels={levels}
-              readingGuide="Gold = 9 EMA · Grey = BB · Blue mid. Long: close crosses above 9 EMA with RSI momentum + volume. Short: cross below. T1 mid BB · T2 outer band."
+              readingGuide={readingGuide}
             />
           )}
 
           <AskAIPanel
             context={String(result.ai_context ?? '')}
-            section={`pro-trade/ema9-cross/${String(result.ticker ?? '')}`}
+            section={`pro-trade/${sectionBase}/${String(result.ticker ?? '')}`}
             systemPrompt={aiSystemPrompt}
           />
         </div>
@@ -237,7 +277,15 @@ function TickerResultCard({
   )
 }
 
-export function Ema9CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
+export function EmaPriceCrossPanel({
+  data,
+  showCharts = false,
+  emaPeriod = 9,
+}: {
+  data: Row
+  showCharts?: boolean
+  emaPeriod?: number
+}) {
   const results = (data.results as Row[] | undefined) ?? []
   const currency = String(data.currency ?? '₹')
   const assetClass = (data.asset_class as WatchlistMarket) || 'india'
@@ -275,6 +323,64 @@ export function Ema9CrossPanel({ data, showCharts = false }: { data: Row; showCh
           assetClass={assetClass}
           showCharts={showCharts}
           aiSystemPrompt={aiSystemPrompt}
+          emaPeriod={emaPeriod}
+          mode="price"
+        />
+      ))}
+      {!filtered.length && <p className="text-sm text-slate-400">No rows for this filter.</p>}
+    </div>
+  )
+}
+
+/** @deprecated prefer EmaPriceCrossPanel — kept for existing imports */
+export function Ema9CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
+  return <EmaPriceCrossPanel data={data} showCharts={showCharts} emaPeriod={9} />
+}
+
+export function Ema5CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
+  return <EmaPriceCrossPanel data={data} showCharts={showCharts} emaPeriod={5} />
+}
+
+export function Ema59CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
+  const results = (data.results as Row[] | undefined) ?? []
+  const currency = String(data.currency ?? '₹')
+  const assetClass = (data.asset_class as WatchlistMarket) || 'india'
+  const aiSystemPrompt = String(data.ai_system_prompt ?? '')
+  const [filter, setFilter] = useState<'all' | 'actionable' | 'watch'>('all')
+
+  const filtered = useMemo(() => {
+    if (filter === 'actionable') return results.filter((r) => r.take_trade)
+    if (filter === 'watch') return results.filter((r) => String(r.signal) === 'WATCH')
+    return results
+  }, [results, filter])
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span>
+          Scanned {String(data.scanned ?? results.length)} · Entries {String(data.entry_count ?? 0)}
+        </span>
+        <button type="button" className={`rounded-full border px-2.5 py-1 ${filter === 'all' ? 'border-sky-500/40 text-sky-200' : 'border-slate-700'}`} onClick={() => setFilter('all')}>
+          All
+        </button>
+        <button type="button" className={`rounded-full border px-2.5 py-1 ${filter === 'actionable' ? 'border-emerald-500/40 text-emerald-200' : 'border-slate-700'}`} onClick={() => setFilter('actionable')}>
+          Take
+        </button>
+        <button type="button" className={`rounded-full border px-2.5 py-1 ${filter === 'watch' ? 'border-amber-500/40 text-amber-200' : 'border-slate-700'}`} onClick={() => setFilter('watch')}>
+          Watch
+        </button>
+      </div>
+      {filtered.map((r, i) => (
+        <TickerResultCard
+          key={`${r.ticker}-${r.timeframe}-${i}`}
+          result={r}
+          index={i}
+          currency={currency}
+          assetClass={assetClass}
+          showCharts={showCharts}
+          aiSystemPrompt={aiSystemPrompt}
+          emaPeriod={5}
+          mode="crossover"
         />
       ))}
       {!filtered.length && <p className="text-sm text-slate-400">No rows for this filter.</p>}

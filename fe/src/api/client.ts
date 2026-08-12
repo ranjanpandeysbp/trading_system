@@ -2368,6 +2368,40 @@ export const runProTradeEma9Cross = (payload: {
   use_ai?: boolean
 }) => api.post('/pro-trade/ema9-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeEma5Cross = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  ema_period?: number
+  bb_period?: number
+  bb_std?: number
+  min_rr?: number
+  require_volume_expand?: boolean
+  require_fresh_cross?: boolean
+  take_confidence_threshold?: number
+  use_ai?: boolean
+}) => api.post('/pro-trade/ema5-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runProTradeEma59Cross = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  fast_period?: number
+  slow_period?: number
+  bb_period?: number
+  bb_std?: number
+  min_rr?: number
+  require_volume_expand?: boolean
+  require_fresh_cross?: boolean
+  require_price_confirm?: boolean
+  take_confidence_threshold?: number
+  use_ai?: boolean
+}) => api.post('/pro-trade/ema5-9-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeBtst = (payload: {
   tickers: string[]
   asset_class?: string

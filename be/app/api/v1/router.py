@@ -115,6 +115,8 @@ from app.models.schemas import (
     ProTradeSimpleEffectiveRequest,
     ProTradeBbRsiVolRequest,
     ProTradeEma9CrossRequest,
+    ProTradeEma5CrossRequest,
+    ProTradeEma59CrossRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
@@ -5053,6 +5055,60 @@ async def pro_trade_ema9_cross(
             "min_rr": payload.min_rr,
             "require_volume_expand": payload.require_volume_expand,
             "require_fresh_cross": payload.require_fresh_cross,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/ema5-cross")
+async def pro_trade_ema5_cross(
+    payload: ProTradeEma5CrossRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).ema5_bb_rsi_vol(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "ema_period": payload.ema_period or 5,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "min_rr": payload.min_rr,
+            "require_volume_expand": payload.require_volume_expand,
+            "require_fresh_cross": payload.require_fresh_cross,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/ema5-9-cross")
+async def pro_trade_ema5_9_cross(
+    payload: ProTradeEma59CrossRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).ema5_9_crossover(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "fast_period": payload.fast_period,
+            "slow_period": payload.slow_period,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "min_rr": payload.min_rr,
+            "require_volume_expand": payload.require_volume_expand,
+            "require_fresh_cross": payload.require_fresh_cross,
+            "require_price_confirm": payload.require_price_confirm,
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },
