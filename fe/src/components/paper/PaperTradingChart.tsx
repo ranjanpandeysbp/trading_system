@@ -39,8 +39,6 @@ type TrendLine = {
   i2: number
   p1: number
   p2: number
-  label1: string
-  label2: string
 }
 
 type IndicatorId =
@@ -68,6 +66,9 @@ const INDICATOR_OPTIONS: { id: IndicatorId; label: string }[] = [
 
 const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_20', 'bollinger', 'rsi']
 
+const BAR_COUNT_OPTIONS = [40, 60, 80, 100, 120, 150, 200, 300] as const
+const RIGHT_PAD_BARS = 8
+
 const OVERLAY_COLORS: Record<string, string> = {
   ema_5: '#fbbf24',
   ema_9: '#a78bfa',
@@ -90,6 +91,10 @@ const INTERVALS = [
   { value: '1h', label: '1h' },
   { value: '1d', label: '1d' },
 ] as const
+
+/** Must match ComposedChart margin + YAxis widths used below */
+const PLOT_MARGIN = { top: 12, right: 72, left: 8, bottom: 28 }
+const PRICE_AXIS_WIDTH = 56
 
 function fmtNum(v: unknown, digits = 2): string {
   if (v == null || v === '') return '—'
@@ -115,6 +120,7 @@ function CandlestickShape(props: {
   payload?: Record<string, unknown>
 }) {
   const { x = 0, y = 0, width = 0, height = 0, payload } = props
+  if (payload?.__pad) return null
   const open = Number(payload?.open)
   const high = Number(payload?.high)
   const low = Number(payload?.low)
@@ -139,6 +145,56 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+function DrawOverlay({
+  active,
+  yMin,
+  yMax,
+  realBarCount,
+  totalSlots,
+  onPick,
+}: {
+  active: boolean
+  yMin: number
+  yMax: number
+  realBarCount: number
+  totalSlots: number
+  onPick: (idx: number, price: number) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  if (!active || !(yMax > yMin) || realBarCount <= 0) return null
+
+  return (
+    <div
+      ref={ref}
+      className="absolute inset-0 z-20 cursor-crosshair"
+      title="Click to place drawing"
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const el = ref.current
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        const leftPad = PLOT_MARGIN.left + PRICE_AXIS_WIDTH
+        const rightPad = PLOT_MARGIN.right
+        const topPad = PLOT_MARGIN.top
+        const bottomPad = PLOT_MARGIN.bottom
+        const plotW = rect.width - leftPad - rightPad
+        const plotH = rect.height - topPad - bottomPad
+        const x = e.clientX - rect.left - leftPad
+        const y = e.clientY - rect.top - topPad
+        if (plotW <= 0 || plotH <= 0 || x < 0 || y < 0 || x > plotW || y > plotH) return
+
+        const price = yMax - (y / plotH) * (yMax - yMin)
+        // Map into full slot range (including right pad), then clamp to real bars
+        const slot = Math.round((x / plotW) * Math.max(totalSlots - 1, 1))
+        const idx = Math.max(0, Math.min(realBarCount - 1, slot))
+        if (!Number.isFinite(price)) return
+        onPick(idx, price)
+      }}
+    />
+  )
+}
+
 export function PaperTradingChart({
   ticker,
   assetClass,
@@ -149,12 +205,13 @@ export function PaperTradingChart({
   liveLtp?: number | null
 }) {
   const [interval, setIntervalTf] = useState('15m')
+  const [barCount, setBarCount] = useState(80)
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const [selected, setSelected] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
   const [drawMode, setDrawMode] = useState<DrawMode>('none')
   const [customSr, setCustomSr] = useState<CustomSr[]>([])
   const [trendLines, setTrendLines] = useState<TrendLine[]>([])
-  const [pendingTrend, setPendingTrend] = useState<{ i: number; price: number; label: string } | null>(null)
+  const [pendingTrend, setPendingTrend] = useState<{ i: number; price: number } | null>(null)
   const [manualSr, setManualSr] = useState<number | ''>('')
   const [streamOn, setStreamOn] = useState(true)
   const lastTicker = useRef(ticker)
@@ -162,16 +219,24 @@ export function PaperTradingChart({
   const isDaily = interval === '1d'
   const mode = isDaily ? 'daily' : 'intraday'
 
-  // Reset drawings when ticker changes
+  const clearDrawings = useCallback(() => {
+    setCustomSr([])
+    setTrendLines([])
+    setPendingTrend(null)
+    setDrawMode('none')
+  }, [])
+
   useEffect(() => {
     if (lastTicker.current !== ticker) {
       lastTicker.current = ticker
-      setCustomSr([])
-      setTrendLines([])
-      setPendingTrend(null)
-      setDrawMode('none')
+      clearDrawings()
     }
-  }, [ticker])
+  }, [ticker, clearDrawings])
+
+  useEffect(() => {
+    // Indices are relative to the visible window — reset drawings when window changes
+    clearDrawings()
+  }, [barCount, interval, clearDrawings])
 
   const chartQuery = useQuery({
     queryKey: ['paper-chart', assetClass, ticker, interval, selected.join(',')],
@@ -180,7 +245,7 @@ export function PaperTradingChart({
         ticker: ticker.trim(),
         asset_class: assetClass,
         mode,
-        from_date: isDaily ? isoDaysAgo(120) : undefined,
+        from_date: isDaily ? isoDaysAgo(180) : undefined,
         to_date: isDaily ? todayIso() : undefined,
         session_date: isDaily ? undefined : todayIso(),
         interval: isDaily ? '1d' : interval,
@@ -203,7 +268,6 @@ export function PaperTradingChart({
   })
 
   const ltp = liveLtp ?? priceQuery.data?.price ?? null
-
   const data = chartQuery.data as Row | undefined
   const points = (data?.points as Row[] | undefined) ?? []
   const candles = (data?.candles as Candle[] | undefined) ?? []
@@ -213,13 +277,13 @@ export function PaperTradingChart({
       ? String(data.error)
       : ''
 
-  const chartRows = useMemo(() => {
+  const fullRows = useMemo(() => {
     const byT = new Map<string, Candle>()
     for (const c of candles) {
       if (c?.t) byT.set(String(c.t), c)
       if (c?.label) byT.set(String(c.label), c)
     }
-    const rows = points.map((p, idx) => {
+    return points.map((p) => {
       const t = String(p.t ?? '')
       const label = String(p.label ?? '')
       const c = byT.get(t) || byT.get(label)
@@ -227,8 +291,28 @@ export function PaperTradingChart({
       let open = Number(c?.open ?? close)
       let high = Number(c?.high ?? Math.max(open, close))
       let low = Number(c?.low ?? Math.min(open, close))
-      // Stream: update forming candle with live LTP
-      if (idx === points.length - 1 && ltp != null && Number.isFinite(ltp)) {
+      return {
+        ...p,
+        open,
+        high,
+        low,
+        close,
+        value: close,
+        range: [low, high] as [number, number],
+        __pad: false,
+      } as Row
+    })
+  }, [points, candles])
+
+  const chartRows = useMemo(() => {
+    const sliced = fullRows.slice(-Math.max(10, barCount))
+    // Stream: update forming (last real) candle with live LTP
+    const rows = sliced.map((p, idx) => {
+      let close = Number(p.close)
+      let open = Number(p.open)
+      let high = Number(p.high)
+      let low = Number(p.low)
+      if (idx === sliced.length - 1 && ltp != null && Number.isFinite(ltp)) {
         close = Number(ltp)
         high = Math.max(high, close, open)
         low = Math.min(low, close, open)
@@ -242,8 +326,8 @@ export function PaperTradingChart({
         close,
         value: close,
         range: [low, high] as [number, number],
+        __pad: false,
       }
-      // Inject trendline values for each drawn line
       for (const tl of trendLines) {
         const lo = Math.min(tl.i1, tl.i2)
         const hi = Math.max(tl.i1, tl.i2)
@@ -260,8 +344,28 @@ export function PaperTradingChart({
       }
       return row
     })
+
+    // Empty slots on the right so candles aren't glued to the edge
+    for (let i = 0; i < RIGHT_PAD_BARS; i++) {
+      const pad: Row = {
+        label: '',
+        idx: rows.length + i,
+        open: null,
+        high: null,
+        low: null,
+        close: null,
+        value: null,
+        volume: null,
+        range: null,
+        __pad: true,
+      }
+      for (const tl of trendLines) pad[`tl_${tl.id}`] = null
+      rows.push(pad)
+    }
     return rows
-  }, [points, candles, ltp, trendLines])
+  }, [fullRows, barCount, ltp, trendLines])
+
+  const realBarCount = Math.max(0, chartRows.length - RIGHT_PAD_BARS)
 
   const overlayKeys = useMemo(() => {
     const keys: { key: string; color: string; label: string; dash?: string }[] = []
@@ -286,19 +390,20 @@ export function PaperTradingChart({
   const showVolume = selected.includes('volume')
   const showRsi = selected.includes('rsi')
   const hasVolumeData = useMemo(
-    () => chartRows.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
+    () => chartRows.some((p) => !p.__pad && p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
     [chartRows],
   )
   const hasCandles = useMemo(
-    () => chartRows.some((r) => Number(r.high) !== Number(r.low) && Number.isFinite(Number(r.open))),
+    () => chartRows.some((r) => !r.__pad && Number(r.high) !== Number(r.low) && Number.isFinite(Number(r.open))),
     [chartRows],
   )
   const effectiveStyle: ChartStyle = chartStyle === 'candles' && hasCandles ? 'candles' : 'line'
 
-  const yDomain = useMemo((): [number | string, number | string] => {
-    if (!chartRows.length) return ['auto', 'auto']
+  const yDomainNums = useMemo((): [number, number] | null => {
+    if (!realBarCount) return null
     const vals: number[] = []
     for (const p of chartRows) {
+      if (p.__pad) continue
       if (effectiveStyle === 'candles') {
         if (Number.isFinite(Number(p.high))) vals.push(Number(p.high))
         if (Number.isFinite(Number(p.low))) vals.push(Number(p.low))
@@ -307,33 +412,31 @@ export function PaperTradingChart({
       }
     }
     for (const sr of customSr) vals.push(sr.price)
+    for (const tl of trendLines) {
+      vals.push(tl.p1, tl.p2)
+    }
     for (const ov of overlayKeys) {
       for (const p of chartRows) {
+        if (p.__pad) continue
         const n = Number(p[ov.key])
         if (Number.isFinite(n)) vals.push(n)
       }
     }
-    if (!vals.length) return ['auto', 'auto']
+    if (!vals.length) return null
     const lo = Math.min(...vals)
     const hi = Math.max(...vals)
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [chartRows, customSr, overlayKeys, effectiveStyle])
+  }, [chartRows, customSr, trendLines, overlayKeys, effectiveStyle, realBarCount])
+
+  const yDomain = (yDomainNums ?? ['auto', 'auto']) as [number | string, number | string]
 
   const toggleIndicator = (id: IndicatorId) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const handleChartClick = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (state: any) => {
-      if (drawMode === 'none' || !state?.activePayload?.[0]) return
-      const row = state.activePayload[0].payload as Row
-      const price = Number(row.close ?? row.value)
-      const label = String(row.label ?? '')
-      const idx = Number(row.idx)
-      if (!Number.isFinite(price) || !Number.isFinite(idx)) return
-
+  const handlePick = useCallback(
+    (idx: number, price: number) => {
       if (drawMode === 'sr') {
         setCustomSr((prev) => [
           ...prev,
@@ -342,22 +445,13 @@ export function PaperTradingChart({
         setDrawMode('none')
         return
       }
-
       if (drawMode === 'trendline') {
         if (!pendingTrend) {
-          setPendingTrend({ i: idx, price, label })
+          setPendingTrend({ i: idx, price })
         } else {
           setTrendLines((prev) => [
             ...prev,
-            {
-              id: uid(),
-              i1: pendingTrend.i,
-              i2: idx,
-              p1: pendingTrend.price,
-              p2: price,
-              label1: pendingTrend.label,
-              label2: label,
-            },
+            { id: uid(), i1: pendingTrend.i, i2: idx, p1: pendingTrend.price, p2: price },
           ])
           setPendingTrend(null)
           setDrawMode('none')
@@ -390,19 +484,39 @@ export function PaperTradingChart({
           {ltp != null && (
             <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-sm font-medium text-emerald-300">
               LTP {fmtNum(ltp)}
-              {streamOn && <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-emerald-400/80"><Wifi size={10} /> live</span>}
+              {streamOn && (
+                <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-emerald-400/80">
+                  <Wifi size={10} /> live
+                </span>
+              )}
             </span>
           )}
           {data?.change_pct != null && (
             <span className={`text-xs ${Number(data.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {Number(data.change_pct) >= 0 ? '+' : ''}{fmtNum(data.change_pct, 2)}%
+              {Number(data.change_pct) >= 0 ? '+' : ''}
+              {fmtNum(data.change_pct, 2)}%
             </span>
           )}
+          <span className="text-[11px] text-slate-500">
+            showing {realBarCount} / {fullRows.length || 0} bars
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
             {streamOn ? 'Streaming on' : 'Streaming off'}
           </Chip>
+          <label className="flex items-center gap-1.5 text-xs text-slate-400">
+            Bars
+            <Select
+              value={String(barCount)}
+              onChange={(e) => setBarCount(Number(e.target.value) || 80)}
+              className="!w-auto !py-1.5 text-xs"
+            >
+              {BAR_COUNT_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </label>
           <Select
             value={interval}
             onChange={(e) => setIntervalTf(e.target.value)}
@@ -429,14 +543,20 @@ export function PaperTradingChart({
         <Button
           size="sm"
           variant={drawMode === 'sr' ? 'primary' : 'secondary'}
-          onClick={() => { setDrawMode((m) => (m === 'sr' ? 'none' : 'sr')); setPendingTrend(null) }}
+          onClick={() => {
+            setDrawMode((m) => (m === 'sr' ? 'none' : 'sr'))
+            setPendingTrend(null)
+          }}
         >
           <Pencil size={14} /> Draw S/R
         </Button>
         <Button
           size="sm"
           variant={drawMode === 'trendline' ? 'primary' : 'secondary'}
-          onClick={() => { setDrawMode((m) => (m === 'trendline' ? 'none' : 'trendline')); setPendingTrend(null) }}
+          onClick={() => {
+            setDrawMode((m) => (m === 'trendline' ? 'none' : 'trendline'))
+            setPendingTrend(null)
+          }}
         >
           <Pencil size={14} /> Trendline
         </Button>
@@ -453,21 +573,19 @@ export function PaperTradingChart({
           </div>
           <Button size="sm" variant="secondary" onClick={addManualSr}>Add</Button>
         </div>
-        {(customSr.length > 0 || trendLines.length > 0) && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => { setCustomSr([]); setTrendLines([]); setPendingTrend(null); setDrawMode('none') }}
-          >
+        {(customSr.length > 0 || trendLines.length > 0 || pendingTrend) && (
+          <Button size="sm" variant="ghost" onClick={clearDrawings}>
             <Trash2 size={14} /> Clear drawings
           </Button>
         )}
         {drawMode === 'sr' && (
-          <span className="text-xs text-amber-300">Click chart to place S/R at that candle’s close</span>
+          <span className="text-xs text-amber-300">Crosshair on — click chart height to place S/R</span>
         )}
         {drawMode === 'trendline' && (
           <span className="text-xs text-amber-300">
-            {pendingTrend ? 'Click second point to finish trendline' : 'Click first point of trendline'}
+            {pendingTrend
+              ? `Point 1 set @ ${fmtNum(pendingTrend.price)} — click second point`
+              : 'Crosshair on — click first trendline point'}
           </span>
         )}
       </div>
@@ -477,20 +595,34 @@ export function PaperTradingChart({
 
       {chartRows.length > 0 && (
         <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-          <div className="h-[420px] w-full">
+          <div className="relative h-[380px] w-full">
+            {yDomainNums && (
+              <DrawOverlay
+                active={drawMode !== 'none'}
+                yMin={yDomainNums[0]}
+                yMax={yDomainNums[1]}
+                realBarCount={realBarCount}
+                totalSlots={chartRows.length}
+                onPick={handlePick}
+              />
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartRows}
-                margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
-                onClick={handleChartClick}
+                margin={{
+                  top: PLOT_MARGIN.top,
+                  right: PLOT_MARGIN.right,
+                  left: PLOT_MARGIN.left,
+                  bottom: PLOT_MARGIN.bottom,
+                }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={32} />
+                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={28} />
                 <YAxis
                   yAxisId="price"
                   domain={yDomain}
                   tick={{ fill: '#94a3b8', fontSize: 10 }}
-                  width={56}
+                  width={PRICE_AXIS_WIDTH}
                   tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
                 />
                 {showVolume && hasVolumeData && (
@@ -507,32 +639,34 @@ export function PaperTradingChart({
                     }}
                   />
                 )}
-                <Tooltip
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  content={({ active, payload, label }: any) => {
-                    if (!active || !payload?.length) return null
-                    const row = payload[0]?.payload
-                    if (!row) return null
-                    return (
-                      <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11, padding: '8px 10px' }}>
-                        <p style={{ color: '#e2e8f0', marginBottom: 4 }}>{String(label)}</p>
-                        {effectiveStyle === 'candles' ? (
-                          <>
-                            <p style={{ color: '#94a3b8' }}>O: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.open)}</span></p>
-                            <p style={{ color: '#94a3b8' }}>H: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.high)}</span></p>
-                            <p style={{ color: '#94a3b8' }}>L: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.low)}</span></p>
-                            <p style={{ color: '#94a3b8' }}>C: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.close)}</span></p>
-                          </>
-                        ) : (
-                          <p style={{ color: '#94a3b8' }}>Close: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.close)}</span></p>
-                        )}
-                        {row.volume != null && (
-                          <p style={{ color: '#94a3b8' }}>Vol: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.volume, 0)}</span></p>
-                        )}
-                      </div>
-                    )
-                  }}
-                />
+                {drawMode === 'none' && (
+                  <Tooltip
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    content={({ active, payload, label }: any) => {
+                      if (!active || !payload?.length) return null
+                      const row = payload[0]?.payload
+                      if (!row || row.__pad) return null
+                      return (
+                        <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11, padding: '8px 10px' }}>
+                          <p style={{ color: '#e2e8f0', marginBottom: 4 }}>{String(label)}</p>
+                          {effectiveStyle === 'candles' ? (
+                            <>
+                              <p style={{ color: '#94a3b8' }}>O: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.open)}</span></p>
+                              <p style={{ color: '#94a3b8' }}>H: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.high)}</span></p>
+                              <p style={{ color: '#94a3b8' }}>L: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.low)}</span></p>
+                              <p style={{ color: '#94a3b8' }}>C: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.close)}</span></p>
+                            </>
+                          ) : (
+                            <p style={{ color: '#94a3b8' }}>Close: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.close)}</span></p>
+                          )}
+                          {row.volume != null && (
+                            <p style={{ color: '#94a3b8' }}>Vol: <span style={{ color: '#e2e8f0' }}>{fmtNum(row.volume, 0)}</span></p>
+                          )}
+                        </div>
+                      )
+                    }}
+                  />
+                )}
                 {customSr.map((sr) => (
                   <ReferenceLine
                     key={sr.id}
@@ -545,6 +679,17 @@ export function PaperTradingChart({
                     label={{ value: sr.label, position: 'insideTopRight', fill: '#fbbf24', fontSize: 10 }}
                   />
                 ))}
+                {pendingTrend && (
+                  <ReferenceLine
+                    yAxisId="price"
+                    y={pendingTrend.price}
+                    stroke="#38bdf8"
+                    strokeWidth={1}
+                    strokeDasharray="2 2"
+                    ifOverflow="extendDomain"
+                    label={{ value: 'P1', position: 'insideTopLeft', fill: '#38bdf8', fontSize: 10 }}
+                  />
+                )}
                 {showVolume && hasVolumeData && (
                   <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" isAnimationActive={false} />
                 )}
@@ -559,6 +704,7 @@ export function PaperTradingChart({
                     strokeWidth={2}
                     dot={false}
                     name="Close"
+                    connectNulls={false}
                     isAnimationActive={false}
                   />
                 )}
@@ -585,8 +731,7 @@ export function PaperTradingChart({
                     dataKey={`tl_${tl.id}`}
                     stroke="#38bdf8"
                     strokeWidth={2}
-                    strokeDasharray="0"
-                    dot={false}
+                    dot={{ r: 3, fill: '#38bdf8' }}
                     connectNulls
                     name="Trendline"
                     isAnimationActive={false}
@@ -629,9 +774,9 @@ export function PaperTradingChart({
           {showRsi && (
             <div className="mt-3 rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
               <p className="mb-2 text-xs font-medium text-slate-300">RSI (14)</p>
-              <div className="h-32 w-full">
+              <div className="h-28 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartRows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <ComposedChart data={chartRows} margin={{ top: 8, right: 72, left: 8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                     <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={40} />
                     <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} width={36} />

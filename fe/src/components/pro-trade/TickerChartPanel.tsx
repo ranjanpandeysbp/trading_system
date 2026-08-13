@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
   CartesianGrid,
@@ -11,7 +11,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiErrorMessage, runProTradeTickerChart } from '../../api/client'
+import { Wifi } from 'lucide-react'
+import { apiErrorMessage, fetchPaperPrice, runProTradeTickerChart } from '../../api/client'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Card } from '../ui/Card'
@@ -92,6 +93,9 @@ const INDICATOR_OPTIONS: { id: IndicatorId; label: string }[] = [
 
 const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_50']
 
+const BAR_COUNT_OPTIONS = [40, 60, 80, 100, 120, 150, 200, 300] as const
+const RIGHT_PAD_BARS = 6
+
 const OVERLAY_COLORS: Record<string, string> = {
   ema_5: '#fbbf24',
   ema_9: '#a78bfa',
@@ -116,6 +120,7 @@ function CandlestickShape(props: {
   payload?: Record<string, unknown>
 }) {
   const { x = 0, y = 0, width = 0, height = 0, payload } = props
+  if (payload?.__pad) return null
   const open = Number(payload?.open)
   const high = Number(payload?.high)
   const low = Number(payload?.low)
@@ -289,6 +294,8 @@ function PriceChart({
   volumeSrSummary,
   selected,
   fibLevels,
+  liveLtp,
+  maxBars,
 }: {
   points: Row[]
   candles?: Candle[]
@@ -297,6 +304,8 @@ function PriceChart({
   volumeSrSummary?: VolumeSrSummary | null
   selected: IndicatorId[]
   fibLevels?: SrLevel[]
+  liveLtp?: number | null
+  maxBars?: number
 }) {
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const showVolume = selected.includes('volume')
@@ -335,11 +344,6 @@ function PriceChart({
       .filter((lv) => Number.isFinite(lv.price))
   }, [fibLevels, showFib])
 
-  const hasVolumeData = useMemo(
-    () => points.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
-    [points],
-  )
-
   const overlayKeys = useMemo(() => {
     const keys: { key: string; color: string; label: string; dash?: string }[] = []
     for (const id of ['ema_5', 'ema_9', 'ema_20', 'ema_50', 'ema_200'] as IndicatorId[]) {
@@ -367,7 +371,7 @@ function PriceChart({
       if (c?.t) byT.set(String(c.t), c)
       if (c?.label) byT.set(String(c.label), c)
     }
-    return points.map((p) => {
+    let rows = points.map((p) => {
       const t = String(p.t ?? '')
       const label = String(p.label ?? '')
       const c = byT.get(t) || byT.get(label)
@@ -382,12 +386,48 @@ function PriceChart({
         low,
         close,
         range: [low, high] as [number, number],
+        __pad: false,
       }
     })
-  }, [points, candles])
+    if (maxBars && maxBars > 0 && rows.length > maxBars) {
+      rows = rows.slice(-maxBars)
+    }
+    // Live LTP updates the forming candle
+    if (rows.length && liveLtp != null && Number.isFinite(liveLtp)) {
+      const last = { ...rows[rows.length - 1] }
+      const close = Number(liveLtp)
+      const open = Number(last.open)
+      last.close = close
+      last.value = close
+      last.high = Math.max(Number(last.high), close, open)
+      last.low = Math.min(Number(last.low), close, open)
+      last.range = [Number(last.low), Number(last.high)] as [number, number]
+      rows = [...rows.slice(0, -1), last]
+    }
+    // Right-side breathing room
+    for (let i = 0; i < RIGHT_PAD_BARS; i++) {
+      rows.push({
+        label: '',
+        open: null,
+        high: null,
+        low: null,
+        close: null,
+        value: null,
+        volume: null,
+        range: null,
+        __pad: true,
+      })
+    }
+    return rows
+  }, [points, candles, liveLtp, maxBars])
+
+  const hasVolumeData = useMemo(
+    () => chartRows.some((p) => !p.__pad && p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
+    [chartRows],
+  )
 
   const hasCandles = useMemo(
-    () => chartRows.some((r) => Number(r.high) !== Number(r.low) && Number.isFinite(Number(r.open))),
+    () => chartRows.some((r) => !r.__pad && Number(r.high) !== Number(r.low) && Number.isFinite(Number(r.open))),
     [chartRows],
   )
   const effectiveStyle: ChartStyle = chartStyle === 'candles' && hasCandles ? 'candles' : 'line'
@@ -396,6 +436,7 @@ function PriceChart({
     if (!chartRows.length) return ['auto', 'auto']
     const vals: number[] = []
     for (const p of chartRows) {
+      if (p.__pad) continue
       if (effectiveStyle === 'candles') {
         const hi = Number(p.high)
         const lo = Number(p.low)
@@ -419,6 +460,7 @@ function PriceChart({
     }
     for (const ov of overlayKeys) {
       for (const p of chartRows) {
+        if (p.__pad) continue
         const n = Number(p[ov.key])
         if (Number.isFinite(n)) {
           lo = Math.min(lo, n)
@@ -458,7 +500,7 @@ function PriceChart({
       </div>
       <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartRows} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartRows} margin={{ top: 12, right: 64, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={32} />
             <YAxis
@@ -497,7 +539,7 @@ function PriceChart({
               content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null
                 const row = payload[0]?.payload
-                if (!row) return null
+                if (!row || row.__pad) return null
                 return (
                   <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11, padding: '8px 10px' }}>
                     <p style={{ color: '#e2e8f0', marginBottom: 4 }}>{String(label)}</p>
@@ -557,7 +599,7 @@ function PriceChart({
               />
             ))}
             {showVolume && hasVolumeData && (
-              <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" />
+              <Bar yAxisId="vol" dataKey="volume" fill="#334155" opacity={0.55} name="volume" isAnimationActive={false} />
             )}
             {effectiveStyle === 'candles' ? (
               <Bar yAxisId="price" dataKey="range" name="Price" shape={CandlestickShape} isAnimationActive={false} />
@@ -570,6 +612,8 @@ function PriceChart({
                 strokeWidth={2}
                 dot={false}
                 name="Close"
+                connectNulls={false}
+                isAnimationActive={false}
               />
             )}
             {overlayKeys.map((ov) => (
@@ -584,6 +628,7 @@ function PriceChart({
                 dot={false}
                 name={ov.label}
                 connectNulls
+                isAnimationActive={false}
               />
             ))}
           </ComposedChart>
@@ -609,7 +654,7 @@ function PriceChart({
       <VolumeSrSummaryCard data={volumeSrSummary} />
       {showRsi && (
         <OscillatorChart
-          points={points}
+          points={chartRows.filter((r) => !r.__pad)}
           title="RSI (14)"
           lines={[{ key: 'rsi', color: '#c084fc', label: 'RSI' }]}
           referenceYs={[
@@ -622,7 +667,7 @@ function PriceChart({
       )}
       {showMacd && (
         <OscillatorChart
-          points={points}
+          points={chartRows.filter((r) => !r.__pad)}
           title="MACD (12, 26, 9)"
           lines={[
             { key: 'macd', color: '#38bdf8', label: 'MACD' },
@@ -645,11 +690,40 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
   const [sessionDate, setSessionDate] = useState(isoDaysAgo(0))
   const [interval, setInterval] = useState('15m')
   const [selectedIndicators, setSelectedIndicators] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
+  const [streamOn, setStreamOn] = useState(true)
+  const [barCount, setBarCount] = useState(100)
   const [error, setError] = useState('')
   const { useAi, setUseAi } = useTradeSetupAi()
 
-  const runMut = useMutation({
-    mutationFn: () =>
+  const ready =
+    ticker.trim().length >= 1 &&
+    (mode === 'daily' ? Boolean(fromDate && toDate) : Boolean(sessionDate && interval))
+
+  const chartPollMs =
+    !streamOn
+      ? false
+      : mode === 'intraday'
+        ? interval === '1m'
+          ? 8_000
+          : interval === '5m'
+            ? 12_000
+            : 20_000
+        : 45_000
+
+  const chartQuery = useQuery({
+    queryKey: [
+      'ticker-chart',
+      assetClass,
+      ticker.trim(),
+      mode,
+      fromDate,
+      toDate,
+      sessionDate,
+      interval,
+      selectedIndicators.join(','),
+      streamOn ? 'no-ai' : useAi ? 'ai' : 'no-ai',
+    ],
+    queryFn: () =>
       runProTradeTickerChart({
         ticker: ticker.trim(),
         asset_class: assetClass,
@@ -659,29 +733,36 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         session_date: mode === 'intraday' ? sessionDate : undefined,
         interval: mode === 'intraday' ? interval : '1d',
         indicators: selectedIndicators,
-        use_ai: useAi,
+        use_ai: streamOn ? false : useAi,
       }),
-    onSuccess: (data) => {
-      setError(data?.error ? String(data.error) : '')
-    },
-    onError: (e) => setError(apiErrorMessage(e)),
+    enabled: ready,
+    refetchInterval: chartPollMs,
+    refetchIntervalInBackground: true,
+    staleTime: 4_000,
+    retry: 1,
   })
 
-  const ready =
-    ticker.trim().length >= 1 &&
-    (mode === 'daily' ? Boolean(fromDate && toDate) : Boolean(sessionDate && interval))
+  const priceQuery = useQuery({
+    queryKey: ['ticker-chart-ltp', assetClass, ticker.trim()],
+    queryFn: () => fetchPaperPrice(ticker.trim(), assetClass),
+    enabled: ready && streamOn,
+    refetchInterval: streamOn ? 2_500 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 1_000,
+    retry: false,
+  })
 
-  // Auto-draw as soon as ticker + date range (or intraday session) are set
   useEffect(() => {
-    if (!ready) return
-    const handle = window.setTimeout(() => {
-      runMut.mutate()
-    }, 350)
-    return () => window.clearTimeout(handle)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: refetch on control changes only
-  }, [ready, ticker, assetClass, mode, fromDate, toDate, sessionDate, interval, selectedIndicators, useAi])
+    if (chartQuery.isError) {
+      setError(apiErrorMessage(chartQuery.error))
+    } else if (chartQuery.data?.error) {
+      setError(String(chartQuery.data.error))
+    } else if (chartQuery.data) {
+      setError('')
+    }
+  }, [chartQuery.isError, chartQuery.error, chartQuery.data])
 
-  const data = runMut.data as Row | undefined
+  const data = chartQuery.data as Row | undefined
   const points = (data?.points as Row[] | undefined) ?? []
   const candles = (data?.candles as Candle[] | undefined) ?? []
   const sr = (data?.support_resistance as SupportResistance | null | undefined) ?? null
@@ -689,6 +770,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
   const howTo = (data?.how_to_read as string[] | undefined) ?? []
   const readings = (data?.indicator_readings as Record<string, IndicatorReading> | undefined) ?? {}
   const fibLevels = (data?.fib_levels as SrLevel[] | undefined) ?? []
+  const liveLtp = priceQuery.data?.price ?? (data?.last != null ? Number(data.last) : null)
 
   const rangeTxt = useMemo(() => {
     if (!data) return ''
@@ -726,14 +808,14 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
       {!embedded && (
         <PageHeader
           title="Ticker Chart"
-          description="India · US · Crypto · Commodities — pick a ticker, date range, and indicators (RSI, MACD, EMAs…) — chart and signal text update together"
+          description="Live streaming OHLC — India · US · Crypto · Commodities · S1/S2 · R1/R2 · RSI / EMA / Bollinger / Supertrend"
         />
       )}
       {embedded && (
         <div className="mb-3">
           <h2 className="text-lg font-semibold text-white">Ticker Chart</h2>
           <p className="text-sm text-slate-400">
-            Quick ticker check — OHLC with S/R, indicators, and signal description
+            Live streaming ticker check — OHLC with S/R, indicators, and signal description
           </p>
         </div>
       )}
@@ -774,6 +856,25 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
           <Chip selected={mode === 'intraday'} onClick={() => setMode('intraday')}>
             Same-day intraday
           </Chip>
+          <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
+            {streamOn ? (
+              <span className="inline-flex items-center gap-1"><Wifi size={12} /> Streaming on</span>
+            ) : (
+              'Streaming off'
+            )}
+          </Chip>
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            Bars
+            <Select
+              value={String(barCount)}
+              onChange={(e) => setBarCount(Number(e.target.value) || 100)}
+              className="!w-auto !py-1.5 text-xs"
+            >
+              {BAR_COUNT_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </label>
         </div>
 
         {mode === 'daily' ? (
@@ -873,10 +974,21 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         </div>
 
         <p className="mt-3 text-xs text-slate-500">
-          Chart loads automatically once a ticker and date range (or intraday session) are set. Toggle
-          indicators to update overlays and the signal description — no reload needed.
+          Chart loads automatically once a ticker and date range (or intraday session) are set.
+          With <span className="text-slate-300">Streaming on</span>, LTP updates the forming candle every ~2.5s
+          and bars refresh on a short poll. Turn streaming off to use AI refine.
         </p>
-        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
+        <UseAiCheckbox
+          checked={useAi && !streamOn}
+          onChange={(v) => {
+            if (v) setStreamOn(false)
+            setUseAi(v)
+          }}
+          className="mt-3"
+        />
+        {useAi && streamOn && (
+          <p className="mt-1 text-[11px] text-amber-400/90">Turn streaming off to enable AI refine.</p>
+        )}
       </Card>
 
       {error && (
@@ -885,21 +997,31 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         </div>
       )}
 
-      {runMut.isPending && (
+      {chartQuery.isLoading && !data && (
         <Loading
           message={
-            useAi
+            useAi && !streamOn
               ? 'Drawing chart + AI-refining trade setup…'
               : 'Drawing chart with support & resistance…'
           }
         />
       )}
 
-      {data && !runMut.isPending && (
+      {data && (
         <Card className="mb-4">
           <StrategyDataSourceBar data={data} assetClass={assetClass} />
           <div className="mb-3 flex flex-wrap items-center gap-2">
             {data.summary != null && <p className="text-sm text-slate-300">{String(data.summary)}</p>}
+            {liveLtp != null && (
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-emerald-300 ring-1 ring-emerald-500/30">
+                LTP {fmtNum(liveLtp, 2)}
+                {streamOn && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-emerald-400/80">
+                    <Wifi size={10} /> live
+                  </span>
+                )}
+              </span>
+            )}
             {data.change_pct != null && (
               <span
                 className={`inline-flex rounded-lg px-2.5 py-0.5 text-xs font-semibold tabular-nums ring-1 ${
@@ -912,12 +1034,13 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
                 {fmtNum(data.change_pct, 2)}%
               </span>
             )}
-            {data.last != null && (
-              <span className="text-xs tabular-nums text-slate-400">Last {fmtNum(data.last, 2)}</span>
+            {chartQuery.isFetching && streamOn && (
+              <span className="text-[11px] text-slate-500">refreshing…</span>
             )}
             {data.yf_symbol != null && (
               <span className="text-xs text-slate-500">{String(data.yf_symbol)}</span>
             )}
+            <span className="text-[11px] text-slate-500">bars ≤ {barCount}</span>
           </div>
 
           {tradeSetup && (
@@ -989,6 +1112,8 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
             volumeSrSummary={volSr}
             selected={selectedIndicators}
             fibLevels={fibLevels}
+            liveLtp={streamOn ? liveLtp : null}
+            maxBars={barCount}
           />
         </Card>
       )}

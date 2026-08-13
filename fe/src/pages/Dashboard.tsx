@@ -33,7 +33,7 @@ const quickLinks = [
     to: '/pro-trade/ticker-chart',
     title: 'Ticker Chart',
     description:
-      'Quick ticker check — India / US / Crypto / Commodities OHLC with S1/S2 · R1/R2, indicators, and signal description.',
+      'Live streaming OHLC — India / US / Crypto / Commodities with S1/S2 · R1/R2, indicators, and signal description.',
     icon: LineChart,
     color: 'text-sky-400',
     bg: 'bg-sky-500/10',
@@ -171,7 +171,7 @@ export default function Dashboard() {
   const { data: account, isLoading: accLoading } = useQuery({
     queryKey: ['account'],
     queryFn: getAccount,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
     refetchIntervalInBackground: true,
   })
   const { data: strategies } = useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
@@ -191,7 +191,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title="Dashboard"
-        description="Paper trading demo for Indian equities — scanner, backtester, and 15 rule-based strategies"
+        description="Live streaming ticker chart + paper portfolio — LTP and positions refresh automatically"
       />
 
       <Card className="mb-8">
