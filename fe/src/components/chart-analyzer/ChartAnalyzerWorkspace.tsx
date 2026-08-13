@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ChartCandlestick,
   History,
+  Maximize2,
+  Minimize2,
   PanelRightClose,
   PanelRightOpen,
   Wifi,
@@ -15,6 +17,7 @@ import {
   useChartDrawings,
 } from '../charts/ChartDrawingLayer'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
+import { useLayoutChrome } from '../layout/LayoutChromeContext'
 import { PriceChart } from '../pro-trade/TickerChartPanel'
 import { FallRiseForecastCards, forecastFromResult } from '../pro-trade/FallRiseForecastCards'
 import { TradeSetupBanner, tradeSetupFromResult } from '../pro-trade/TradeSetupBanner'
@@ -189,6 +192,11 @@ export function ChartAnalyzerWorkspace() {
   })
   const [recent, setRecent] = useState<RecentItem[]>(() => loadRecent())
   const drawingsApi = useChartDrawings()
+  const { immersive, setImmersive, toggleImmersive } = useLayoutChrome()
+
+  useEffect(() => {
+    return () => setImmersive(false)
+  }, [setImmersive])
 
   const tf = TIMEFRAMES.find((t) => t.id === tfId) ?? TIMEFRAMES[2]
   const mode = tf.mode
@@ -326,9 +334,15 @@ export function ChartAnalyzerWorkspace() {
   }
 
   return (
-    <div className="-mx-4 -mb-4 flex min-h-[calc(100dvh-7.5rem)] flex-col sm:-mx-6 lg:-mx-8 lg:min-h-[calc(100dvh-6rem)]">
+    <div
+      className={
+        immersive
+          ? 'flex h-dvh min-h-0 flex-col bg-slate-950'
+          : '-mx-4 -mb-4 flex min-h-[calc(100dvh-7.5rem)] flex-col sm:-mx-6 lg:-mx-8 lg:min-h-[calc(100dvh-6rem)]'
+      }
+    >
       {/* Top symbol / timeframe bar */}
-      <div className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/95 px-3 py-2 backdrop-blur-xl sm:px-4">
+      <div className="sticky top-0 z-20 shrink-0 border-b border-slate-800/80 bg-slate-950/95 px-3 py-2 backdrop-blur-xl sm:px-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 text-slate-200">
             <ChartCandlestick size={18} className="text-sky-400" />
@@ -403,11 +417,24 @@ export function ChartAnalyzerWorkspace() {
           <button
             type="button"
             onClick={() => setRightOpen((v) => !v)}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-800 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-200"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-800 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-200"
             title={rightOpen ? 'Hide side panel' : 'Show side panel'}
           >
             {rightOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
             Panel
+          </button>
+          <button
+            type="button"
+            onClick={toggleImmersive}
+            className={`ml-auto inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium ring-1 transition-colors ${
+              immersive
+                ? 'bg-amber-500/15 text-amber-200 ring-amber-500/40 hover:bg-amber-500/25'
+                : 'border border-slate-800 bg-slate-900/60 text-slate-300 ring-transparent hover:border-sky-500/40 hover:text-sky-200'
+            }`}
+            title={immersive ? 'Exit fullscreen (Esc) — restore sidebar & ticker' : 'Fullscreen — hide sidebar & top ticker'}
+          >
+            {immersive ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {immersive ? 'Exit fullscreen' : 'Fullscreen'}
           </button>
         </div>
 
@@ -437,14 +464,16 @@ export function ChartAnalyzerWorkspace() {
               />
             </div>
           )}
-          <span className="ml-auto text-[10px] text-slate-600">
-            Ctrl+scroll zoom · right-click chart menu · drawings on left
+          <span className="ml-auto text-[10px] text-slate-600 sm:ml-0">
+            {immersive
+              ? 'Fullscreen · Esc exits · Ctrl+scroll zoom · right-click chart'
+              : 'Ctrl+scroll zoom · right-click chart · Fullscreen hides sidebar'}
           </span>
         </div>
       </div>
 
       {/* Workspace body */}
-      <div className="flex min-h-0 flex-1">
+      <div className={`flex min-h-0 flex-1 ${immersive ? 'overflow-hidden' : ''}`}>
         {/* Left drawing tools */}
         <aside className="hidden w-12 shrink-0 flex-col items-center gap-2 border-r border-slate-800/80 bg-slate-950/60 py-3 sm:flex">
           <p className="mb-1 rotate-0 text-[9px] font-medium uppercase tracking-wider text-slate-600">
@@ -463,7 +492,7 @@ export function ChartAnalyzerWorkspace() {
         </aside>
 
         {/* Main chart */}
-        <div className="min-w-0 flex-1 overflow-auto p-2 sm:p-3">
+        <div className={`min-w-0 flex-1 overflow-auto p-2 sm:p-3 ${immersive ? 'min-h-0' : ''}`}>
           {error && (
             <div className="mb-3">
               <Alert type="error">{error}</Alert>

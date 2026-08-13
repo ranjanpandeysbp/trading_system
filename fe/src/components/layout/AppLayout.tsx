@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, X, TrendingUp, LogOut, User, ArrowUp, ChevronDown, Search } from 'lucide-react'
+import { Menu, X, TrendingUp, LogOut, User, ArrowUp, ChevronDown } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { IndexMarquee } from './IndexMarquee'
 import { appNav, type NavEntry } from '../../nav/appNav'
 import { GlobalStrategySearch, GlobalStrategySearchTrigger } from './GlobalStrategySearch'
+import { LayoutChromeProvider, useLayoutChrome } from './LayoutChromeContext'
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation()
@@ -132,12 +133,21 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function AppLayout({ children }: { children: ReactNode }) {
+  return (
+    <LayoutChromeProvider>
+      <AppLayoutInner>{children}</AppLayoutInner>
+    </LayoutChromeProvider>
+  )
+}
+
+function AppLayoutInner({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { immersive, setImmersive } = useLayoutChrome()
 
   const handleLogout = async () => {
     await logout()
@@ -148,12 +158,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
     setMenuOpen(false)
   }, [location.pathname])
 
+  // Leave chart focus mode when navigating away from Chart Analyzer
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? 'hidden' : ''
+    if (!location.pathname.startsWith('/chart-analyzer') && immersive) {
+      setImmersive(false)
+    }
+  }, [location.pathname, immersive, setImmersive])
+
+  useEffect(() => {
+    document.body.style.overflow = menuOpen && !immersive ? 'hidden' : immersive ? 'hidden' : ''
     return () => {
       document.body.style.overflow = ''
     }
-  }, [menuOpen])
+  }, [menuOpen, immersive])
 
   // The layout grows with content (min-h-screen, not h-screen), so the
   // window/document scrolls rather than <main> internally — track that.
@@ -168,9 +185,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
     setShowScrollTop(false)
   }, [location.pathname])
 
-  // Global hotkey: Ctrl/Cmd+K or "/" (when not typing)
+  // Global hotkey: Ctrl/Cmd+K or "/" (when not typing) — opens sidebar search
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (immersive) return
       const isMod = e.metaKey || e.ctrlKey
       if (isMod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -192,12 +210,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [searchOpen])
+  }, [searchOpen, immersive])
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row">
+    <div className={`flex min-h-screen flex-col ${immersive ? '' : 'lg:flex-row'}`}>
       {/* Mobile overlay */}
-      {menuOpen && (
+      {!immersive && menuOpen && (
         <button
           type="button"
           aria-label="Close menu"
@@ -206,7 +224,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar — drawer on mobile, fixed on desktop */}
+      {/* Sidebar — hidden in Chart Analyzer focus / fullscreen */}
+      {!immersive && (
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-[min(100vw-3rem,18rem)] flex-col border-r border-slate-800/80 bg-slate-900/95 p-5 backdrop-blur-xl transition-transform duration-300 ease-out lg:static lg:z-auto lg:w-64 lg:translate-x-0 lg:bg-slate-900/40 lg:backdrop-blur-xl xl:w-72 ${
           menuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -272,10 +291,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </footer>
         </div>
       </aside>
+      )}
 
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+      <div className={`flex min-w-0 flex-1 flex-col ${immersive ? 'h-dvh min-h-0' : 'min-h-screen'}`}>
+        {!immersive && (
         <div className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
-          {/* Mobile top bar */}
+          {/* Mobile top bar — no top-right search */}
           <header className="flex items-center justify-between gap-3 px-4 py-3 lg:hidden">
             <button
               type="button"
@@ -293,38 +314,27 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 {appNav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`))?.label ?? 'QueryMe'}
               </span>
             </div>
-            <button
-              type="button"
-              aria-label="Search strategies"
-              className="rounded-lg p-2 text-slate-300 hover:bg-slate-800"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Search size={20} />
-            </button>
+            <div className="w-10 shrink-0" aria-hidden />
           </header>
-
-          {/* Desktop quick search */}
-          <div className="hidden items-center justify-end gap-3 px-6 py-2 lg:flex">
-            <button
-              type="button"
-              onClick={() => setSearchOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-700 hover:text-slate-200"
-            >
-              <Search size={13} />
-              Search strategies
-              <kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-500">Ctrl K</kbd>
-            </button>
-          </div>
 
           <IndexMarquee />
         </div>
+        )}
 
-        <main className="flex-1 overflow-x-hidden p-4 pb-safe sm:p-6 lg:p-8 lg:pb-8">
-          <div className="mx-auto w-full max-w-7xl">{children}</div>
+        <main
+          className={
+            immersive
+              ? 'min-h-0 flex-1 overflow-hidden p-0'
+              : 'flex-1 overflow-x-hidden p-4 pb-safe sm:p-6 lg:p-8 lg:pb-8'
+          }
+        >
+          <div className={immersive ? 'h-full w-full' : 'mx-auto w-full max-w-7xl'}>
+            {children}
+          </div>
         </main>
 
         {/* Mobile scroll-to-top */}
-        {showScrollTop && (
+        {!immersive && showScrollTop && (
           <button
             type="button"
             aria-label="Scroll to top"
@@ -336,7 +346,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         )}
       </div>
 
-      <GlobalStrategySearch open={searchOpen} onOpenChange={setSearchOpen} />
+      {!immersive && <GlobalStrategySearch open={searchOpen} onOpenChange={setSearchOpen} />}
     </div>
   )
 }
