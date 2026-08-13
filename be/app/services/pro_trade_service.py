@@ -136,6 +136,12 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "flat_retest",
+                    "label": "Flat Retest",
+                    "path": "/pro-trade/flat-retest",
+                    "youtube": None,
+                },
+                {
                     "id": "btst",
                     "label": "Buy Today Sell Tomorrow",
                     "path": "/pro-trade/btst",
@@ -905,6 +911,63 @@ class ProTradeService:
         payload["ai_system_prompt"] = EMA5_9_CROSSOVER_AI_SYSTEM
         payload = await maybe_refine_trade_setups_ai(
             self.settings, payload, use_ai=use_ai, section="pro_trade/ema5_9_crossover",
+        )
+        return json_safe(payload)
+
+    async def flat_retest(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        timeframes: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+        use_ai: bool = False,
+    ) -> dict[str, Any]:
+        from app.market_pulse.flat_retest_engine import (
+            FLAT_RETEST_AI_SYSTEM,
+            FlatRetestConfig,
+            build_flat_retest_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+        if not timeframes:
+            return {"error": "Select at least one timeframe", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = FlatRetestConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "lookback_bars", "flat_min_bars", "flat_max_bars", "flat_atr_mult",
+                "flat_body_atr_max", "vol_ma_period", "vol_expand_mult", "touch_atr_mult",
+                "hold_close_atr_buffer", "break_lookback", "min_rr", "sl_atr_mult", "tp_atr_mult",
+                "take_confidence_threshold", "min_bars", "chart_bars",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange, timeframes=timeframes,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_flat_retest_ai_prompt(r)
+        payload["ai_system_prompt"] = FLAT_RETEST_AI_SYSTEM
+        payload = await maybe_refine_trade_setups_ai(
+            self.settings, payload, use_ai=use_ai, section="pro_trade/flat_retest",
         )
         return json_safe(payload)
 

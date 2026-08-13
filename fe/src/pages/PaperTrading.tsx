@@ -7,6 +7,7 @@ import {
   type PaperOrderRow, type PlaceOrderPayload,
 } from '../api/client'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
+import { PaperTradingChart } from '../components/paper/PaperTradingChart'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -98,14 +99,16 @@ export default function PaperTrading() {
     queryKey: ['paper-price', assetClass, ticker],
     queryFn: () => fetchPaperPrice(ticker, assetClass),
     enabled: ticker.length > 0,
-    staleTime: 10_000,
+    staleTime: 1_500,
+    refetchInterval: ticker.length > 0 ? 2_500 : false,
+    refetchIntervalInBackground: true,
     retry: false,
   })
 
   const { data: account, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['account'],
     queryFn: getAccount,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
     refetchIntervalInBackground: true,
   })
 
@@ -234,7 +237,7 @@ export default function PaperTrading() {
     <div>
       <PageHeader
         title="Paper Trading"
-        description="Demo portfolio with virtual capital — execute trades manually or from scanner signals"
+        description="Demo portfolio with live streaming chart — candles/line, RSI, EMAs, Bollinger, Supertrend, custom S/R & trendlines"
       />
 
       {account && (
@@ -253,6 +256,16 @@ export default function PaperTrading() {
             trend={account.win_rate_pct == null ? 'neutral' : account.win_rate_pct >= 50 ? 'up' : 'down'}
           />
         </div>
+      )}
+
+      {ticker.trim().length > 0 && (
+        <Card className="mt-6">
+          <PaperTradingChart
+            ticker={ticker}
+            assetClass={assetClass}
+            liveLtp={livePrice?.price ?? null}
+          />
+        </Card>
       )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -429,7 +442,19 @@ export default function PaperTrading() {
                         onChange={() => toggleSelected(selectedPositions, setSelectedPositions, p.id)}
                       />
                     </Td>
-                    <Td className="font-medium text-white">{p.ticker}</Td>
+                    <Td className="font-medium text-white">
+                      <button
+                        type="button"
+                        className="hover:text-sky-300 hover:underline"
+                        title="Load chart"
+                        onClick={() => {
+                          setAssetClass((p.asset_class as PaperAssetClass) || 'india')
+                          setTicker(p.ticker)
+                        }}
+                      >
+                        {p.ticker}
+                      </button>
+                    </Td>
                     <Td className="text-xs text-slate-400">{ASSET_CLASS_LABEL[p.asset_class ?? 'india'] ?? p.asset_class}</Td>
                     <Td>{p.quantity}</Td>
                     <Td>{currencySymbol(p.asset_class)}{p.avg_price}</Td>

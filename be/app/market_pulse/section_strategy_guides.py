@@ -2807,6 +2807,21 @@ Holding a bull/bear stack without a fresh cross → **WATCH** only.
 **When to use:** Momentum flip after consolidation — Stocks, Indices, Crypto, Commodities.
 """,
 
+    "flat_retest": """
+### Flat Retest — post-flat break / reject / retest
+
+Edge is **after** flat candles. Do **not** predict the next bar inside the box.
+
+| Side | Sequence (closed bars only) |
+|------|-----------------------------|
+| **LONG** | Flat box → **break resistance** (close above + volume expand) → **retest** → resistance **holds as support** |
+| **SHORT** | Flat box → **reject resistance** (bearish + volume) → **break cons low** → **retest fails** |
+
+Mid-sequence → **WATCH**. Full sequence → TAKE when conf / RR pass.
+
+**When to use:** After quiet consolidations on any TF — Stocks, Indices, Crypto, Commodities.
+""",
+
     "etf_28_sma": """
 ### ETF 28 SMA Momentum (FIRE in India)
 

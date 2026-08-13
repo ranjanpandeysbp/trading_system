@@ -1466,6 +1466,22 @@ class ProTradeEma59CrossRequest(BaseModel):
     use_ai: bool = False
 
 
+class ProTradeFlatRetestRequest(BaseModel):
+    """Flat Retest — after flat candles: break→retest hold = LONG; reject→break low→failed retest = SHORT."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframes: list[str] = Field(default_factory=lambda: ["15m"])
+    lookback_bars: int = Field(default=300, ge=80, le=1200)
+    flat_min_bars: int = Field(default=6, ge=4, le=20)
+    flat_max_bars: int = Field(default=12, ge=6, le=30)
+    flat_atr_mult: float = Field(default=1.2, ge=0.5, le=3.0)
+    vol_expand_mult: float = Field(default=1.05, ge=1.0, le=2.5)
+    min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    use_ai: bool = False
+
+
 class ProTradeBtstRequest(BaseModel):
     """Buy Today Sell Tomorrow / Sell Today Buy Tomorrow — closing-strength (CLV) signature confirmed by
     trend, volume, relative strength vs Nifty, VWAP, RSI chase-risk guard, options OI buildup, late-session

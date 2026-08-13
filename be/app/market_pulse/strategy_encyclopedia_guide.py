@@ -191,6 +191,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("ema9_bb_rsi_vol", "9 EMA Cross — close above 9EMA long · below short · BB/RSI/Vol filters"),
         ("ema5_bb_rsi_vol", "5 EMA Cross — close above 5EMA long · below short · BB/RSI/Vol filters"),
         ("ema5_9_crossover", "5/9 EMA Cross — EMA5×EMA9 crossover · price confirm · BB/RSI/Vol"),
+        ("flat_retest", "Flat Retest — post-flat break→retest hold / reject→break low→failed retest"),
         ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
         ("buy_low_sell_high", "Buy Low Sell High — 25 DL GTT ladder · avg+5% exit · no SL"),
         ("rlb_breakout", "RLB - Breakout — Rocket Launcher · 7 confirmations"),
@@ -911,6 +912,9 @@ Also available on the **Dashboard**.
 """,
     "ema5_9_crossover": """
 **When to use:** Trade a fresh EMA5/EMA9 crossover with close confirming both EMAs, Bollinger room, RSI zone, and volume; invalidate on opposite re-cross.
+""",
+    "flat_retest": """
+**When to use:** After flat candles — LONG on break→retest hold as support; SHORT on reject→break cons low→failed retest. Never invent the next candle inside the box.
 """,
     "traffic_light_indicator": """
 **When to use:** Swing buy when SMA200>50>20 and daily close is under all three; sell when stack flips and close is above all three. Prefer large-caps; optional MTF Trend & Strength.

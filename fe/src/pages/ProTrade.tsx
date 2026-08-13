@@ -19,6 +19,7 @@ import {
   runProTradeEma9Cross,
   runProTradeEma5Cross,
   runProTradeEma59Cross,
+  runProTradeFlatRetest,
   runProTradeBtst,
   runProTradeElliottWave,
   runProTradeFibonacciPro,
@@ -49,6 +50,7 @@ import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTr
 import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
 import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
 import { Ema9CrossPanel, Ema5CrossPanel, Ema59CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
+import { FlatRetestPanel } from '../components/pro-trade/FlatRetestPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
@@ -3479,6 +3481,177 @@ function Ema59CrossPage() {
   )
 }
 
+const FLAT_RETEST_HOW_TO = `How to use Flat Retest
+
+1. Pick asset class + one or more timeframes + tickers.
+2. The scanner looks for flat candles (tight consolidation box) first.
+3. Do NOT predict the next candle inside the box — wait for post-flat action.
+4. LONG sequence: break resistance + volume expand + close above → retest → resistance holds as support.
+5. SHORT sequence: reject resistance + bearish + volume → break consolidation low → retest fails.
+6. Mid-sequence rows stay WATCH. TAKE only when the full sequence is already on closed bars.
+7. Optional Use AI to refine Conf % / SL % / TP %. Research only — not advice.`
+
+const FLAT_RETEST_OVERVIEW = `Flat Retest — strategy matrix
+
+LONG: Flat box → resistance breaks (close above + volume expand) → retest → resistance becomes support
+SHORT: Flat box → resistance rejects (bearish + volume expand) → breaks cons low → retest fails
+
+Incomplete sequences → WATCH only.
+Outputs: phase · % confidence · %SL · %TP · grade A/B/C.`
+
+const FLAT_RETEST_LAYMAN = `In plain English
+
+First find quiet flat candles that form a box. Then watch what happens after — not inside the box.
+
+For a buy: price punches through the top with volume, comes back to that old top, and it holds as a floor.
+For a sell: price gets rejected at the top with a red candle and volume, then breaks the bottom of the box, then fails when it tries to reclaim that bottom.
+
+If any step is missing, wait.`
+
+function FlatRetestPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(300)
+  const [flatMin, setFlatMin] = useState(6)
+  const [flatMax, setFlatMax] = useState(12)
+  const [showCharts, setShowCharts] = useState(true)
+  const { useAi, setUseAi } = useTradeSetupAi()
+  const bg = useAnalysisBackground('pro_trade', 'flat_retest')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations.length ? picker.durations : ['15m'],
+    lookback_bars: lookback,
+    flat_min_bars: flatMin,
+    flat_max_bars: Math.max(flatMin, flatMax),
+    use_ai: useAi,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      return runProTradeFlatRetest(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Flat Retest', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="Flat Retest"
+        description="After flat candles: break → retest hold = LONG · reject → break low → failed retest = SHORT · multi-TF"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={FLAT_RETEST_HOW_TO}>
+          {FLAT_RETEST_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {FLAT_RETEST_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {FLAT_RETEST_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-3">
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          </FormField>
+          <FormField label="Flat min bars">
+            <Input type="number" min={4} max={20} value={flatMin} onChange={(e) => setFlatMin(Number(e.target.value) || 6)} />
+          </FormField>
+          <FormField label="Flat max bars">
+            <Input type="number" min={6} max={30} value={flatMax} onChange={(e) => setFlatMax(Number(e.target.value) || 12)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? useAi
+                ? 'Scanning + AI refine…'
+                : 'Scanning…'
+              : `Scan Flat Retest (${picker.tickers.length} × ${picker.durations.length || 1})`}
+          </Button>
+        </div>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Flat Retest · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Mapping flat boxes · break / reject · retest…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <FlatRetestPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/flat-retest" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
   { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
   { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
@@ -4082,6 +4255,7 @@ export default function ProTrade() {
     { id: 'ema9-cross', label: '9 EMA Cross' },
     { id: 'ema5-cross', label: '5 EMA Cross' },
     { id: 'ema5-9-cross', label: '5/9 EMA Cross' },
+    { id: 'flat-retest', label: 'Flat Retest' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
@@ -4106,6 +4280,7 @@ export default function ProTrade() {
   else if (tab === 'ema9-cross') page = <Ema9CrossPage />
   else if (tab === 'ema5-cross') page = <Ema5CrossPage />
   else if (tab === 'ema5-9-cross') page = <Ema59CrossPage />
+  else if (tab === 'flat-retest') page = <FlatRetestPage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />

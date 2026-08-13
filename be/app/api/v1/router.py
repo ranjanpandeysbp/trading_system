@@ -117,6 +117,7 @@ from app.models.schemas import (
     ProTradeEma9CrossRequest,
     ProTradeEma5CrossRequest,
     ProTradeEma59CrossRequest,
+    ProTradeFlatRetestRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
@@ -5109,6 +5110,31 @@ async def pro_trade_ema5_9_cross(
             "require_volume_expand": payload.require_volume_expand,
             "require_fresh_cross": payload.require_fresh_cross,
             "require_price_confirm": payload.require_price_confirm,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/flat-retest")
+async def pro_trade_flat_retest(
+    payload: ProTradeFlatRetestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).flat_retest(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "flat_min_bars": payload.flat_min_bars,
+            "flat_max_bars": payload.flat_max_bars,
+            "flat_atr_mult": payload.flat_atr_mult,
+            "vol_expand_mult": payload.vol_expand_mult,
+            "min_rr": payload.min_rr,
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
         },

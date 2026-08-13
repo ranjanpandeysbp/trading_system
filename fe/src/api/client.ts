@@ -2402,6 +2402,21 @@ export const runProTradeEma59Cross = (payload: {
   use_ai?: boolean
 }) => api.post('/pro-trade/ema5-9-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeFlatRetest = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  flat_min_bars?: number
+  flat_max_bars?: number
+  flat_atr_mult?: number
+  vol_expand_mult?: number
+  min_rr?: number
+  take_confidence_threshold?: number
+  use_ai?: boolean
+}) => api.post('/pro-trade/flat-retest', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeBtst = (payload: {
   tickers: string[]
   asset_class?: string

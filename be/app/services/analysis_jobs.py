@@ -230,6 +230,14 @@ async def _execute_analysis_body(
                 tickers=tickers, asset_class=ac, exchange=exchange, timeframes=tfs, cfg_overrides=cfg or None,
                 use_ai=bool(payload.get("use_ai", False)),
             )
+        if section == "flat_retest":
+            tfs = None
+            if isinstance(cfg, dict):
+                tfs = cfg.get("timeframes")
+            return await svc.flat_retest(
+                tickers=tickers, asset_class=ac, exchange=exchange, timeframes=tfs, cfg_overrides=cfg or None,
+                use_ai=bool(payload.get("use_ai", False)),
+            )
         if section == "btst":
             return await svc.btst(tickers, asset_class=ac, cfg_overrides=cfg or None)
         raise ValueError(f"Unknown Pro Trade section: {section}")
