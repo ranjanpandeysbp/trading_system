@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -17,6 +17,14 @@ import {
   type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+import {
+  ChartContextMenu,
+  ChartZoomControls,
+  copyChartImage,
+  useChartContextMenu,
+  useChartPointerZoom,
+  useIndexZoom,
+} from '../charts/chartZoom'
 
 const SR_PLOT_INSETS: PlotInsets = { top: 8, right: 16, bottom: 32, left: 68 }
 
@@ -129,12 +137,14 @@ export function SupportResistanceChart({
 }) {
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
-  const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [style, setStyle] = useState<'candles' | 'line'>(chartType)
   const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
   const drawingsApi = useChartDrawings()
   const expand = useChartExpand()
+  const chartRef = useRef<HTMLDivElement>(null)
+  const ctxMenu = useChartContextMenu()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const {
     tool: drawTool,
     drawings,
@@ -193,6 +203,15 @@ export function SupportResistanceChart({
     [enriched, emas],
   )
 
+  const {
+    zoomRange,
+    setZoomRange,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed,
+  } = useIndexZoom(merged.length)
+
   // Reset any in-flight/applied zoom whenever the underlying series changes
   // (new ticker, new date range, refreshed data) so a stale index range
   // can't be applied to a differently-sized dataset.
@@ -202,9 +221,11 @@ export function SupportResistanceChart({
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
-    if (zoomRange) setZoomRange(null)
+    if (zoomRange) resetZoom()
     if (refLeft || refRight) { setRefLeft(null); setRefRight(null) }
   }
+
+  useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
 
   const timeIndex = useMemo(() => {
     const m = new Map<string, number>()
@@ -234,7 +255,18 @@ export function SupportResistanceChart({
     setRefLeft(null)
     setRefRight(null)
   }
-  const resetZoom = () => setZoomRange(null)
+
+  const handleCopyChart = async () => {
+    const result = await copyChartImage(chartRef.current)
+    setCopyStatus(result === 'ok' ? 'Chart copied' : 'Copy failed')
+    window.setTimeout(() => setCopyStatus(null), 1800)
+  }
+
+  const handleResetChart = () => {
+    resetZoom()
+    expand.setSize('normal')
+    expand.setFullscreen(false)
+  }
 
   if (!chartData?.length) return null
 
@@ -305,6 +337,15 @@ export function SupportResistanceChart({
           fullscreen={expand.fullscreen}
           setFullscreen={expand.setFullscreen}
         />
+        <ChartZoomControls
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onReset={resetZoom}
+          isZoomed={isZoomed}
+        />
+        {copyStatus && (
+          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+        )}
       </div>
       <ChartDrawingToolbar
         tool={drawTool}
@@ -315,7 +356,7 @@ export function SupportResistanceChart({
         removeSelected={removeSelectedDrawing}
         clear={clearDrawings}
       />
-      <div className={`relative w-full select-none ${expand.heightClass}`}>
+      <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
         <ChartDrawingLayer
           insets={SR_PLOT_INSETS}
           yMin={yMin}
@@ -328,7 +369,7 @@ export function SupportResistanceChart({
           onChange={setDrawings}
           setTool={setDrawTool}
         />
-        {zoomRange && (
+        {isZoomed && (
           <button
             type="button"
             onClick={resetZoom}
@@ -635,6 +676,15 @@ export function SupportResistanceChart({
         </p>
       )}
     </div>
+    <ChartContextMenu
+      menu={ctxMenu.menu}
+      onClose={ctxMenu.close}
+      onCopy={handleCopyChart}
+      onResetZoom={resetZoom}
+      onFullscreen={expand.toggleFullscreen}
+      fullscreen={expand.fullscreen}
+      onResetChart={handleResetChart}
+    />
     </ChartExpandFrame>
   )
 }

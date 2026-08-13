@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
   Bar,
@@ -30,6 +30,14 @@ import { FormField, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 import { ChartStreamControls } from '../charts/chartStreaming'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+import {
+  ChartContextMenu,
+  ChartZoomControls,
+  copyChartImage,
+  useChartContextMenu,
+  useChartPointerZoom,
+  useIndexZoom,
+} from '../charts/chartZoom'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
@@ -112,6 +120,9 @@ function SeriesChart({
   const [streamOn, setStreamOn] = useState(true)
   const [barCount, setBarCount] = useState(100)
   const expand = useChartExpand()
+  const chartRef = useRef<HTMLDivElement>(null)
+  const ctxMenu = useChartContextMenu()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -132,10 +143,37 @@ function SeriesChart({
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
 
-  const viewPoints = useMemo(() => {
+  const windowPoints = useMemo(() => {
     if (barCount > 0 && points.length > barCount) return points.slice(-barCount)
     return points
   }, [points, barCount])
+
+  const {
+    zoomRange,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed,
+  } = useIndexZoom(windowPoints.length)
+
+  useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+
+  const viewPoints = useMemo(() => {
+    if (!zoomRange) return windowPoints
+    return windowPoints.slice(zoomRange[0], zoomRange[1] + 1)
+  }, [windowPoints, zoomRange])
+
+  const handleCopyChart = async () => {
+    const result = await copyChartImage(chartRef.current)
+    setCopyStatus(result === 'ok' ? 'Chart copied' : 'Copy failed')
+    window.setTimeout(() => setCopyStatus(null), 1800)
+  }
+
+  const handleResetChart = () => {
+    resetZoom()
+    expand.setSize('normal')
+    expand.setFullscreen(false)
+  }
 
   const hasVolume = useMemo(
     () => viewPoints.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
@@ -189,8 +227,29 @@ function SeriesChart({
           fullscreen={expand.fullscreen}
           setFullscreen={expand.setFullscreen}
         />
+        <ChartZoomControls
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onReset={resetZoom}
+          isZoomed={isZoomed}
+        />
+        {copyStatus && (
+          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+        )}
       </div>
-      <div className={`w-full ${expand.fullscreen || expand.size !== 'normal' ? expand.heightClass : hasVolume ? 'h-60' : 'h-52'}`}>
+      <div
+        ref={chartRef}
+        className={`relative w-full ${expand.fullscreen || expand.size !== 'normal' ? expand.heightClass : hasVolume ? 'h-60' : 'h-52'}`}
+      >
+        {isZoomed && (
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="absolute right-2 top-0 z-10 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+          >
+            Reset zoom
+          </button>
+        )}
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={viewPoints} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -280,6 +339,15 @@ function SeriesChart({
       )}
       <VolumeSrSummaryCard data={volumeSrSummary} />
     </div>
+    <ChartContextMenu
+      menu={ctxMenu.menu}
+      onClose={ctxMenu.close}
+      onCopy={handleCopyChart}
+      onResetZoom={resetZoom}
+      onFullscreen={expand.toggleFullscreen}
+      fullscreen={expand.fullscreen}
+      onResetChart={handleResetChart}
+    />
     </ChartExpandFrame>
   )
 }

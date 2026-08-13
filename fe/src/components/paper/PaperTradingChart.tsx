@@ -20,6 +20,14 @@ import {
   type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+import {
+  ChartContextMenu,
+  ChartZoomControls,
+  copyChartImage,
+  useChartContextMenu,
+  useChartPointerZoom,
+  useIndexZoom,
+} from '../charts/chartZoom'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
 import { Input, Select } from '../ui/Form'
@@ -166,6 +174,9 @@ export function PaperTradingChart({
   const lastTicker = useRef(ticker)
   const drawingsApi = useChartDrawings()
   const expand = useChartExpand('large')
+  const chartRef = useRef<HTMLDivElement>(null)
+  const ctxMenu = useChartContextMenu()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const {
     tool: drawTool,
     drawings,
@@ -259,10 +270,10 @@ export function PaperTradingChart({
     })
   }, [points, candles])
 
-  const chartRows = useMemo(() => {
+  const windowRows = useMemo(() => {
     const sliced = fullRows.slice(-Math.max(10, barCount))
     // Stream: update forming (last real) candle with live LTP
-    const rows = sliced.map((p, idx) => {
+    return sliced.map((p, idx) => {
       let close = Number(p.close)
       let open = Number(p.open)
       let high = Number(p.high)
@@ -284,7 +295,23 @@ export function PaperTradingChart({
         __pad: false,
       } as Row
     })
+  }, [fullRows, barCount, ltp])
 
+  const {
+    zoomRange,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed,
+  } = useIndexZoom(windowRows.length)
+
+  useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+
+  const chartRows = useMemo(() => {
+    const real = zoomRange
+      ? windowRows.slice(zoomRange[0], zoomRange[1] + 1)
+      : windowRows
+    const rows = real.map((p, idx) => ({ ...p, idx })) as Row[]
     // Empty slots on the right so candles aren't glued to the edge
     for (let i = 0; i < RIGHT_PAD_BARS; i++) {
       rows.push({
@@ -301,7 +328,7 @@ export function PaperTradingChart({
       })
     }
     return rows
-  }, [fullRows, barCount, ltp])
+  }, [windowRows, zoomRange])
 
   const realBarCount = Math.max(0, chartRows.length - RIGHT_PAD_BARS)
 
@@ -389,6 +416,18 @@ export function PaperTradingChart({
     setManualSr('')
   }
 
+  const handleCopyChart = async () => {
+    const result = await copyChartImage(chartRef.current)
+    setCopyStatus(result === 'ok' ? 'Chart copied' : 'Copy failed')
+    window.setTimeout(() => setCopyStatus(null), 1800)
+  }
+
+  const handleResetChart = () => {
+    resetZoom()
+    expand.setSize('large')
+    expand.setFullscreen(false)
+  }
+
   if (!ticker.trim()) {
     return (
       <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-8 text-center text-sm text-slate-500">
@@ -437,6 +476,15 @@ export function PaperTradingChart({
             fullscreen={expand.fullscreen}
             setFullscreen={expand.setFullscreen}
           />
+          <ChartZoomControls
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            isZoomed={isZoomed}
+          />
+          {copyStatus && (
+            <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+          )}
           <label className="flex items-center gap-1.5 text-xs text-slate-400">
             Bars
             <Select
@@ -501,7 +549,7 @@ export function PaperTradingChart({
 
       {chartRows.length > 0 && (
         <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-          <div className={`relative w-full select-none ${expand.heightClass}`}>
+          <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
             {yDomainNums && (
               <ChartDrawingLayer
                 insets={PAPER_PLOT_INSETS}
@@ -515,6 +563,15 @@ export function PaperTradingChart({
                 onChange={setDrawings}
                 setTool={setDrawTool}
               />
+            )}
+            {isZoomed && (
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="absolute right-2 top-0 z-10 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+              >
+                Reset zoom
+              </button>
             )}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
@@ -646,6 +703,15 @@ export function PaperTradingChart({
         <p className="py-6 text-center text-sm text-slate-500">No bars available for this ticker / interval</p>
       )}
     </div>
+    <ChartContextMenu
+      menu={ctxMenu.menu}
+      onClose={ctxMenu.close}
+      onCopy={handleCopyChart}
+      onResetZoom={resetZoom}
+      onFullscreen={expand.toggleFullscreen}
+      fullscreen={expand.fullscreen}
+      onResetChart={handleResetChart}
+    />
     </ChartExpandFrame>
   )
 }

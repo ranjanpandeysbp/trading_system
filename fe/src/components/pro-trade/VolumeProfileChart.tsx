@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -26,6 +26,14 @@ import {
   type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+import {
+  ChartContextMenu,
+  ChartZoomControls,
+  copyChartImage,
+  useChartContextMenu,
+  useChartPointerZoom,
+  useIndexZoom,
+} from '../charts/chartZoom'
 
 const VP_PLOT_INSETS: PlotInsets = { top: 8, right: 12, bottom: 32, left: 64 }
 
@@ -210,10 +218,12 @@ export function VolumeProfileChart({
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
-  const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
   const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
   const drawingsApi = useChartDrawings()
   const expand = useChartExpand()
+  const chartRef = useRef<HTMLDivElement>(null)
+  const ctxMenu = useChartContextMenu()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const {
     tool: drawTool,
     drawings,
@@ -256,6 +266,15 @@ export function VolumeProfileChart({
     })
   }, [enriched, waves])
 
+  const {
+    zoomRange,
+    setZoomRange,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed,
+  } = useIndexZoom(merged.length)
+
   // Reset any in-flight/applied zoom whenever the underlying series changes
   // (new ticker, refreshed scan) so a stale index range never gets applied
   // to a differently-sized dataset.
@@ -265,9 +284,11 @@ export function VolumeProfileChart({
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
-    if (zoomRange) setZoomRange(null)
+    if (zoomRange) resetZoom()
     if (refLeft || refRight) { setRefLeft(null); setRefRight(null) }
   }
+
+  useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
 
   const timeIndex = useMemo(() => {
     const m = new Map<string, number>()
@@ -294,7 +315,18 @@ export function VolumeProfileChart({
     setRefLeft(null)
     setRefRight(null)
   }
-  const resetZoom = () => setZoomRange(null)
+
+  const handleCopyChart = async () => {
+    const result = await copyChartImage(chartRef.current)
+    setCopyStatus(result === 'ok' ? 'Chart copied' : 'Copy failed')
+    window.setTimeout(() => setCopyStatus(null), 1800)
+  }
+
+  const handleResetChart = () => {
+    resetZoom()
+    expand.setSize('normal')
+    expand.setFullscreen(false)
+  }
 
   const toggleHidden = (key: string) => {
     setHidden((prev) => {
@@ -388,6 +420,15 @@ export function VolumeProfileChart({
           fullscreen={expand.fullscreen}
           setFullscreen={expand.setFullscreen}
         />
+        <ChartZoomControls
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onReset={resetZoom}
+          isZoomed={isZoomed}
+        />
+        {copyStatus && (
+          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+        )}
         {anyHideable && (
           <>
             <button
@@ -481,7 +522,7 @@ export function VolumeProfileChart({
       />
 
       <div className={`grid gap-3 ${expand.fullscreen ? 'lg:grid-cols-[1fr_200px]' : 'lg:grid-cols-[1fr_160px]'}`}>
-        <div className={`relative w-full select-none ${expand.heightClass}`}>
+        <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
           <ChartDrawingLayer
             insets={VP_PLOT_INSETS}
             yMin={yMin}
@@ -494,7 +535,7 @@ export function VolumeProfileChart({
             onChange={setDrawings}
             setTool={setDrawTool}
           />
-          {zoomRange && (
+          {isZoomed && (
             <button
               type="button"
               onClick={resetZoom}
@@ -675,7 +716,7 @@ export function VolumeProfileChart({
         </div>
       ) : null}
       <p className="text-[10px] text-slate-600">
-        Drag across the chart to zoom into a section. Click a line's chip above to hide/show it.
+        Zoom In/Out or Ctrl+scroll · drag to select a range · right-click for Copy / Fullscreen / Reset.
       </p>
       {readingGuide && (
         <p className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs leading-relaxed text-slate-400">
@@ -683,6 +724,15 @@ export function VolumeProfileChart({
         </p>
       )}
     </div>
+    <ChartContextMenu
+      menu={ctxMenu.menu}
+      onClose={ctxMenu.close}
+      onCopy={handleCopyChart}
+      onResetZoom={resetZoom}
+      onFullscreen={expand.toggleFullscreen}
+      fullscreen={expand.fullscreen}
+      onResetChart={handleResetChart}
+    />
     </ChartExpandFrame>
   )
 }

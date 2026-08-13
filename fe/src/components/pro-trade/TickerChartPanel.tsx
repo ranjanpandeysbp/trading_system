@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -20,6 +20,14 @@ import {
   type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+import {
+  ChartContextMenu,
+  ChartZoomControls,
+  copyChartImage,
+  useChartContextMenu,
+  useChartPointerZoom,
+  useIndexZoom,
+} from '../charts/chartZoom'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Card } from '../ui/Card'
@@ -318,6 +326,9 @@ function PriceChart({
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const drawingsApi = useChartDrawings()
   const expand = useChartExpand()
+  const chartRef = useRef<HTMLDivElement>(null)
+  const ctxMenu = useChartContextMenu()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const {
     tool: drawTool,
     drawings,
@@ -386,7 +397,7 @@ function PriceChart({
     return keys
   }, [selected, showBb])
 
-  const chartRows = useMemo(() => {
+  const chartRowsBase = useMemo(() => {
     const byT = new Map<string, Candle>()
     for (const c of candles ?? []) {
       if (c?.t) byT.set(String(c.t), c)
@@ -426,6 +437,24 @@ function PriceChart({
       last.range = [Number(last.low), Number(last.high)] as [number, number]
       rows = [...rows.slice(0, -1), last]
     }
+    return rows
+  }, [points, candles, liveLtp, maxBars])
+
+  const {
+    zoomRange,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed,
+  } = useIndexZoom(chartRowsBase.length)
+
+  useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+
+  const chartRows = useMemo(() => {
+    const real = zoomRange
+      ? chartRowsBase.slice(zoomRange[0], zoomRange[1] + 1)
+      : chartRowsBase
+    const rows = [...real]
     // Right-side breathing room
     for (let i = 0; i < RIGHT_PAD_BARS; i++) {
       rows.push({
@@ -441,7 +470,19 @@ function PriceChart({
       })
     }
     return rows
-  }, [points, candles, liveLtp, maxBars])
+  }, [chartRowsBase, zoomRange])
+
+  const handleCopyChart = async () => {
+    const result = await copyChartImage(chartRef.current)
+    setCopyStatus(result === 'ok' ? 'Chart copied' : 'Copy failed')
+    window.setTimeout(() => setCopyStatus(null), 1800)
+  }
+
+  const handleResetChart = () => {
+    resetZoom()
+    expand.setSize('normal')
+    expand.setFullscreen(false)
+  }
 
   const hasVolumeData = useMemo(
     () => chartRows.some((p) => !p.__pad && p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
@@ -543,6 +584,15 @@ function PriceChart({
             fullscreen={expand.fullscreen}
             setFullscreen={expand.setFullscreen}
           />
+          <ChartZoomControls
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            isZoomed={isZoomed}
+          />
+          {copyStatus && (
+            <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+          )}
           <span className="text-[10px] text-slate-500">
             green = support · red = resistance
             {showVolume ? ' · grey = volume' : ''}
@@ -559,7 +609,7 @@ function PriceChart({
         removeSelected={removeSelectedDrawing}
         clear={clearDrawings}
       />
-      <div className={`relative mt-2 w-full select-none ${expand.heightClass}`}>
+      <div ref={chartRef} className={`relative mt-2 w-full select-none ${expand.heightClass}`}>
         {yDomainNums && (
           <ChartDrawingLayer
             insets={TICKER_PRICE_PLOT_INSETS}
@@ -573,6 +623,15 @@ function PriceChart({
             onChange={setDrawings}
             setTool={setDrawTool}
           />
+        )}
+        {isZoomed && (
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="absolute right-2 top-0 z-10 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+          >
+            Reset zoom
+          </button>
         )}
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartRows} margin={{ top: 12, right: 64, left: 0, bottom: 0 }}>
@@ -756,6 +815,15 @@ function PriceChart({
         />
       )}
     </div>
+    <ChartContextMenu
+      menu={ctxMenu.menu}
+      onClose={ctxMenu.close}
+      onCopy={handleCopyChart}
+      onResetZoom={resetZoom}
+      onFullscreen={expand.toggleFullscreen}
+      fullscreen={expand.fullscreen}
+      onResetChart={handleResetChart}
+    />
     </ChartExpandFrame>
   )
 }
