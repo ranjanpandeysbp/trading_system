@@ -228,7 +228,9 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
             </div>
           )}
           {showCharts && chartData.length > 0 && (
-            <VolumeProfileChart chartData={chartData} series={series} levels={levels} />
+            <VolumeProfileChart
+  ticker={String(result.ticker ?? '')}
+  assetClass={'india'}  chartData={chartData} series={series} levels={levels} />
           )}
           {result.ai_context != null && (
             <AskAIPanel

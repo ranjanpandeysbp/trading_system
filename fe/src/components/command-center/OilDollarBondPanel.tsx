@@ -28,6 +28,7 @@ import { Card } from '../ui/Card'
 import { Chip } from '../ui/Chip'
 import { FormField, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
+import { ChartStreamControls } from '../charts/chartStreaming'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
@@ -96,6 +97,7 @@ function SeriesChart({
   unit,
   supportResistance,
   volumeSrSummary,
+  streamTicker,
 }: {
   title: string
   subtitle?: string
@@ -104,7 +106,11 @@ function SeriesChart({
   unit?: string
   supportResistance?: SupportResistance | null
   volumeSrSummary?: VolumeSrSummary | null
+  streamTicker?: string | null
 }) {
+  const [streamOn, setStreamOn] = useState(true)
+  const [barCount, setBarCount] = useState(100)
+
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
     if (raw?.length) {
@@ -124,14 +130,19 @@ function SeriesChart({
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
 
+  const viewPoints = useMemo(() => {
+    if (barCount > 0 && points.length > barCount) return points.slice(-barCount)
+    return points
+  }, [points, barCount])
+
   const hasVolume = useMemo(
-    () => points.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
-    [points],
+    () => viewPoints.some((p) => p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
+    [viewPoints],
   )
 
   const yDomain = useMemo((): [number | string, number | string] => {
-    if (!points.length) return ['auto', 'auto']
-    const vals = points.map((p) => Number(p.value)).filter((n) => Number.isFinite(n))
+    if (!viewPoints.length) return ['auto', 'auto']
+    const vals = viewPoints.map((p) => Number(p.value)).filter((n) => Number.isFinite(n))
     if (!vals.length) return ['auto', 'auto']
     let lo = Math.min(...vals)
     let hi = Math.max(...vals)
@@ -141,7 +152,7 @@ function SeriesChart({
     }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [points, levels])
+  }, [viewPoints, levels])
 
   if (!points.length) {
     return (
@@ -160,9 +171,19 @@ function SeriesChart({
         </div>
         {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
       </div>
+      <div className="mb-2">
+        <ChartStreamControls
+          streamOn={streamOn}
+          setStreamOn={setStreamOn}
+          barCount={barCount}
+          setBarCount={setBarCount}
+          canStream={Boolean(streamTicker)}
+          liveLtp={null}
+        />
+      </div>
       <div className={`${hasVolume ? 'h-60' : 'h-52'} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={points} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+          <ComposedChart data={viewPoints} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={28} />
             <YAxis
@@ -190,12 +211,13 @@ function SeriesChart({
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number, name: string) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={((value: number, name: string) => {
                 if (name === 'volume') {
                   return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
                 }
                 return [Number(value).toFixed(3), title]
-              }}
+              }) as any}
             />
             {levels.map((lv) => {
               const isSupport = lv.kind === 'support'
@@ -271,10 +293,11 @@ function OverlayChart({ chart, seriesMeta }: { chart: Row[]; seriesMeta: Row[] }
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number, name: string) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={((value: number, name: string) => {
                 const meta = seriesMeta.find((s) => String(s.id) === name)
                 return [`${Number(value).toFixed(2)}%`, String(meta?.short ?? name)]
-              }}
+              }) as any}
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             {seriesMeta.map((s) => {

@@ -258,6 +258,8 @@ function HistoryTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
           {chartBars.length > 0 && (
             <VolumeProfileChart
               chartData={chartBars}
+              ticker={String(row.ticker ?? '')}
+              assetClass={assetClass}
               readingGuide="Toggle Candles / Line above the chart. Session OHLC for this ticker over the selected history window."
             />
           )}
@@ -451,6 +453,8 @@ function FromTopTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
           {chartBars.length > 0 && (
             <VolumeProfileChart
               chartData={chartBars}
+              ticker={String(row.ticker ?? '')}
+              assetClass={assetClass}
               readingGuide="Daily bars over the lookback. Peak high drives the from-top drawdown; odds use similar historical drawdowns."
             />
           )}
@@ -1029,6 +1033,8 @@ export default function FallingKnife() {
                     </div>
                     <VolumeProfileChart
                       chartData={selectedLiveBars}
+                      ticker={String(selectedLiveTicker ?? '')}
+                      assetClass={assetClass}
                       readingGuide="Use Candles or Line. Live session window high/low drive the fall/rise match. Forecast cards use ~90d daily history."
                     />
                   </div>

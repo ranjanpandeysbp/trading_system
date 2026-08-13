@@ -194,6 +194,8 @@ function TickerResultCard({
             <div className="overflow-hidden rounded-lg border border-slate-800/60">
               <SupportResistanceChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 supportZone={null}
                 resistanceZone={null}
                 trendlines={[]}

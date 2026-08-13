@@ -1,5 +1,4 @@
-import { useEffect } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { apiErrorMessage, fetchBramhastraChart } from '../../api/client'
 import { SupportResistanceChart } from './SupportResistanceChart'
 import { Button } from '../ui/Button'
@@ -30,30 +29,29 @@ export function BramhastraChartPanel({
   assetClass: string
   config?: Record<string, unknown>
 }) {
-  const mut = useMutation({
-    mutationFn: () => fetchBramhastraChart({ ticker, asset_class: assetClass, config }),
+  const q = useQuery({
+    queryKey: ['bramhastra-chart', ticker, assetClass, config],
+    queryFn: () => fetchBramhastraChart({ ticker, asset_class: assetClass, config }),
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+    staleTime: 8_000,
   })
 
-  useEffect(() => {
-    mut.mutate()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, assetClass])
-
-  const data = mut.data
+  const data = q.data
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">1H range + 5m two-stage breakout chart</p>
-        <Button size="sm" variant="ghost" onClick={() => mut.mutate()} disabled={mut.isPending}>
-          {mut.isPending ? 'Loading…' : 'Refresh'}
+        <p className="text-xs text-slate-500">1H range + 5m two-stage breakout chart · live refresh ~15s</p>
+        <Button size="sm" variant="ghost" onClick={() => q.refetch()} disabled={q.isFetching}>
+          {q.isFetching ? 'Loading…' : 'Refresh'}
         </Button>
       </div>
 
-      {mut.isPending && <Loading message="Loading chart…" />}
-      {mut.isError && <Alert type="error">{apiErrorMessage(mut.error)}</Alert>}
+      {q.isLoading && <Loading message="Loading chart…" />}
+      {q.isError && <Alert type="error">{apiErrorMessage(q.error)}</Alert>}
 
-      {data && !mut.isPending && (
+      {data && (
         <>
           <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -81,6 +79,8 @@ export function BramhastraChartPanel({
 
           <SupportResistanceChart
             chartData={data.chart_data}
+            ticker={ticker}
+            assetClass={assetClass}
             supportZone={data.support_zone}
             resistanceZone={data.resistance_zone}
             trendlines={[]}

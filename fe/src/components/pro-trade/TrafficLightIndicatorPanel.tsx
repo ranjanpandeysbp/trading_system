@@ -201,6 +201,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={levels}
                 series={series}
                 readingGuide="Toggle Candles / Line above. Red = SMA200, Yellow = SMA50, Green = SMA20. BUY when Red>Yellow>Green and price closes under all three; SELL when Green>Yellow>Red and price closes above all three. Entry/SL/TP lines appear when a trade is suggested."

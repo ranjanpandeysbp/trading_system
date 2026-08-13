@@ -26,7 +26,6 @@ import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummary
 import { TradeSetupBanner, tradeSetupFromResult } from './TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from './FallRiseForecastCards'
 import { UseAiCheckbox, useTradeSetupAi } from './UseAiCheckbox'
-import { tickerDisplayLabel } from '../ui/tickerDisplay'
 import type { AssetClass } from '../command-center/AssetClassTickerPicker'
 
 type Row = Record<string, unknown>
@@ -91,7 +90,7 @@ const INDICATOR_OPTIONS: { id: IndicatorId; label: string }[] = [
   { id: 'ema_200', label: 'EMA 200' },
 ]
 
-const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_50']
+const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_20', 'bollinger', 'rsi']
 
 const BAR_COUNT_OPTIONS = [40, 60, 80, 100, 120, 150, 200, 300] as const
 const RIGHT_PAD_BARS = 6
@@ -371,7 +370,7 @@ function PriceChart({
       if (c?.t) byT.set(String(c.t), c)
       if (c?.label) byT.set(String(c.label), c)
     }
-    let rows = points.map((p) => {
+    let rows: Row[] = points.map((p) => {
       const t = String(p.t ?? '')
       const label = String(p.label ?? '')
       const c = byT.get(t) || byT.get(label)
@@ -385,6 +384,7 @@ function PriceChart({
         high,
         low,
         close,
+        value: close,
         range: [low, high] as [number, number],
         __pad: false,
       }
@@ -528,13 +528,14 @@ function PriceChart({
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
-              formatter={(value: number, name: string) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={((value: number, name: string) => {
                 if (name === 'volume') {
                   return [Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Volume']
                 }
                 if (name === 'Price' || name === 'range') return null
                 return [Number(value).toFixed(3), name]
-              }}
+              }) as any}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null

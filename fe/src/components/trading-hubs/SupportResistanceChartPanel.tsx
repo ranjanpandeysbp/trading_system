@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiErrorMessage, fetchSupportResistanceChart } from '../../api/client'
 import { SupportResistanceChart, type SRChartBar, type SRTrendline } from './SupportResistanceChart'
 import { Badge } from '../ui/Badge'
@@ -43,23 +43,34 @@ export function SupportResistanceChartPanel({
   const [includeSupplyDemand, setIncludeSupplyDemand] = useState(false)
   const [includeOrderBlocks, setIncludeOrderBlocks] = useState(false)
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
+  const [streamOn, setStreamOn] = useState(true)
+
+  const chartParams = {
+    ticker,
+    asset_class: assetClass,
+    timeframe: chartTf,
+    ltf: entryTf,
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+    include_volume: includeVolume,
+    ema_periods: emaPeriods,
+    include_rsi: includeRsi,
+    include_fibonacci: includeFibonacci,
+    include_supply_demand: includeSupplyDemand,
+    include_order_blocks: includeOrderBlocks,
+  }
 
   const mut = useMutation({
-    mutationFn: () =>
-      fetchSupportResistanceChart({
-        ticker,
-        asset_class: assetClass,
-        timeframe: chartTf,
-        ltf: entryTf,
-        start_date: startDate || undefined,
-        end_date: endDate || undefined,
-        include_volume: includeVolume,
-        ema_periods: emaPeriods,
-        include_rsi: includeRsi,
-        include_fibonacci: includeFibonacci,
-        include_supply_demand: includeSupplyDemand,
-        include_order_blocks: includeOrderBlocks,
-      }),
+    mutationFn: () => fetchSupportResistanceChart(chartParams),
+  })
+
+  const liveQ = useQuery({
+    queryKey: ['sr-chart-live', chartParams],
+    queryFn: () => fetchSupportResistanceChart(chartParams),
+    enabled: streamOn && Boolean(ticker),
+    refetchInterval: streamOn ? 20_000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 10_000,
   })
 
   // Load once with sensible defaults so there's a chart to look at
@@ -72,7 +83,7 @@ export function SupportResistanceChartPanel({
   const toggleEma = (p: number) =>
     setEmaPeriods((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p].sort((a, b) => a - b)))
 
-  const data = mut.data
+  const data = (streamOn && liveQ.data) ? liveQ.data : (mut.data ?? liveQ.data)
   const setup = data?.trade_setup
 
   return (
@@ -95,9 +106,12 @@ export function SupportResistanceChartPanel({
           <FormField label="To">
             <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
           </FormField>
-          <Button size="sm" onClick={() => mut.mutate()} disabled={mut.isPending}>
-            {mut.isPending ? 'Loading…' : 'Update chart'}
+          <Button size="sm" onClick={() => { mut.mutate(); void liveQ.refetch() }} disabled={mut.isPending || liveQ.isFetching}>
+            {mut.isPending || liveQ.isFetching ? 'Loading…' : 'Update chart'}
           </Button>
+          <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
+            {streamOn ? 'Streaming on' : 'Streaming off'}
+          </Chip>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-500">Chart:</span>
@@ -286,6 +300,8 @@ export function SupportResistanceChartPanel({
 
       <SupportResistanceChart
         chartData={data?.chart_data ?? fallback.chartData}
+        ticker={ticker}
+        assetClass={assetClass}
         supportZone={data ? data.support_zone : fallback.supportZone}
         resistanceZone={data ? data.resistance_zone : fallback.resistanceZone}
         trendlines={data ? data.trendlines : fallback.trendlines}

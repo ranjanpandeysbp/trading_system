@@ -12,7 +12,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Chip } from '../ui/Chip'
+import { ChartStreamControls, useLiveChartData } from '../charts/chartStreaming'
+import {
+  ChartStyleIndicatorControls,
+  enrichBarsWithIndicators,
+  overlayKeysFor,
+  useChartIndicators,
+} from '../charts/chartIndicators'
 
 export type VpChartBar = {
   time: string
@@ -176,6 +182,8 @@ export function VolumeProfileChart({
   waves = [],
   series = [],
   readingGuide,
+  ticker,
+  assetClass,
 }: {
   chartData: VpChartBar[]
   levels?: VpLevel[]
@@ -185,15 +193,34 @@ export function VolumeProfileChart({
   series?: VpSeries[]
   /** Short laymen "how to read this chart" caption, shown below it. */
   readingGuide?: string
+  /** When set, enables live LTP streaming (on by default). */
+  ticker?: string | null
+  assetClass?: string | null
 }) {
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
+  const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
+
+  const {
+    bars: liveChartData,
+    streamOn,
+    setStreamOn,
+    barCount,
+    setBarCount,
+    liveLtp,
+    canStream,
+  } = useLiveChartData(chartData, { ticker, assetClass, defaultBars: 100, defaultStreamOn: true })
+
+  const enriched = useMemo(() => enrichBarsWithIndicators(liveChartData), [liveChartData])
+  const indOverlays = useMemo(() => overlayKeysFor(indicators), [indicators])
+  const showVolume = indicators.includes('volume')
+  const showRsi = indicators.includes('rsi')
 
   const merged = useMemo(() => {
-    const base = chartData.map((b) => ({ ...b, range: [b.low, b.high] as [number, number] }))
+    const base = enriched.map((b) => ({ ...b, range: [b.low, b.high] as [number, number] }))
     if (!waves.length) return base
     return base.map((row) => {
       const extra: Record<string, number | null> = {}
@@ -205,12 +232,14 @@ export function VolumeProfileChart({
       })
       return { ...row, ...extra }
     })
-  }, [chartData, waves])
+  }, [enriched, waves])
 
   // Reset any in-flight/applied zoom whenever the underlying series changes
   // (new ticker, refreshed scan) so a stale index range never gets applied
   // to a differently-sized dataset.
-  const dataKeyForReset = chartData.length ? `${chartData[0].time}|${chartData[chartData.length - 1].time}|${chartData.length}` : ''
+  const dataKeyForReset = liveChartData.length
+    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}|${barCount}`
+    : ''
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
@@ -272,9 +301,19 @@ export function VolumeProfileChart({
       .map((b) => Number((b as Record<string, unknown>)[s.key]))
       .filter((n) => Number.isFinite(n)),
   )
+  const indPrices = indOverlays.flatMap((ov) =>
+    view
+      .map((b) => Number((b as Record<string, unknown>)[ov.key]))
+      .filter((n) => Number.isFinite(n)),
+  )
+  const liveExtras = liveLtp != null ? [liveLtp] : []
   const pad = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices, ...seriesPrices) - pad
-  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices, ...seriesPrices) + pad
+  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras) - pad
+  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras) + pad
+
+  const hasVolumeData = view.some(
+    (b) => b.volume != null && Number.isFinite(Number(b.volume)) && Number(b.volume) > 0,
+  )
 
   const histSorted = useMemo(
     () => [...histogram].sort((a, b) => a.price - b.price),
@@ -290,12 +329,20 @@ export function VolumeProfileChart({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Chip selected={chartType === 'candles'} onClick={() => setChartType('candles')}>
-          Candles
-        </Chip>
-        <Chip selected={chartType === 'line'} onClick={() => setChartType('line')}>
-          Line
-        </Chip>
+        <ChartStyleIndicatorControls
+          chartType={chartType}
+          setChartType={setChartType}
+          selected={indicators}
+          toggle={toggleIndicator}
+        />
+        <ChartStreamControls
+          streamOn={streamOn}
+          setStreamOn={setStreamOn}
+          barCount={barCount}
+          setBarCount={setBarCount}
+          canStream={canStream}
+          liveLtp={liveLtp}
+        />
         {anyHideable && (
           <>
             <button
@@ -457,6 +504,20 @@ export function VolumeProfileChart({
                   name={s.label}
                 />
               ))}
+              {indOverlays.map((ov) => (
+                <Line
+                  key={ov.key}
+                  type="monotone"
+                  dataKey={ov.key}
+                  stroke={ov.color}
+                  strokeWidth={ov.key.startsWith('bb_') ? 1 : 1.5}
+                  strokeDasharray={ov.dash}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                  name={ov.label}
+                />
+              ))}
               {visibleWaves.map((w) => {
                 const i = waves.indexOf(w)
                 const key = `__wave_${i}`
@@ -510,6 +571,42 @@ export function VolumeProfileChart({
           </div>
         )}
       </div>
+      {(showVolume && hasVolumeData) || showRsi ? (
+        <div className="space-y-2">
+          {showVolume && hasVolumeData && (
+            <div className="h-20 w-full">
+              <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Volume</p>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={view} margin={{ top: 0, right: 12, left: 4, bottom: 0 }}>
+                  <XAxis dataKey="time" hide allowDataOverflow />
+                  <YAxis
+                    tick={{ fill: '#94a3b8', fontSize: 9 }}
+                    width={48}
+                    tickFormatter={(v: number) =>
+                      v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v)
+                    }
+                  />
+                  <Bar dataKey="volume" fill="#334155" opacity={0.7} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {showRsi && (
+            <div className="h-24 w-full">
+              <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">RSI (14)</p>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={view} margin={{ top: 0, right: 12, left: 4, bottom: 0 }}>
+                  <XAxis dataKey="time" hide allowDataOverflow />
+                  <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} width={36} />
+                  <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="3 3" strokeOpacity={0.6} />
+                  <ReferenceLine y={30} stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.6} />
+                  <Line type="monotone" dataKey="rsi" stroke="#c084fc" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      ) : null}
       <p className="text-[10px] text-slate-600">
         Drag across the chart to zoom into a section. Click a line's chip above to hide/show it.
       </p>

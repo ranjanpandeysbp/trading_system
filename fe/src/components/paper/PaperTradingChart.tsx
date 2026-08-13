@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Pencil, Trash2, Wifi } from 'lucide-react'
+import { Pencil, Trash2, Wifi, MoveDiagonal2 } from 'lucide-react'
 import { apiErrorMessage, fetchPaperPrice, runProTradeTickerChart } from '../../api/client'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
@@ -33,13 +33,29 @@ type Candle = {
 }
 
 type CustomSr = { id: string; price: number; label: string }
+/** Fractional bar indices so endpoints can slide smoothly (TradingView-style). */
 type TrendLine = {
   id: string
-  i1: number
-  i2: number
-  p1: number
-  p2: number
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  extendLeft: boolean
+  extendRight: boolean
 }
+
+type Selection =
+  | { kind: 'sr'; id: string }
+  | { kind: 'tl'; id: string }
+  | null
+
+type DragSession =
+  | { type: 'create-sr'; price: number }
+  | { type: 'create-tl'; x1: number; y1: number; x2: number; y2: number }
+  | { type: 'move-sr'; id: string }
+  | { type: 'move-tl'; id: string; ox1: number; oy1: number; ox2: number; oy2: number; startX: number; startY: number }
+  | { type: 'tl-p1'; id: string }
+  | { type: 'tl-p2'; id: string }
 
 type IndicatorId =
   | 'rsi'
@@ -145,53 +161,626 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function DrawOverlay({
-  active,
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n))
+}
+
+type PlotGeom = {
+  left: number
+  top: number
+  width: number
+  height: number
+  yMin: number
+  yMax: number
+  nSlots: number
+}
+
+function plotFromClient(
+  rect: DOMRect,
+  clientX: number,
+  clientY: number,
+  yMin: number,
+  yMax: number,
+  nSlots: number,
+): { x: number; price: number; px: number; py: number } | null {
+  const left = PLOT_MARGIN.left + PRICE_AXIS_WIDTH
+  const right = PLOT_MARGIN.right
+  const top = PLOT_MARGIN.top
+  const bottom = PLOT_MARGIN.bottom
+  const plotW = rect.width - left - right
+  const plotH = rect.height - top - bottom
+  if (plotW <= 0 || plotH <= 0 || !(yMax > yMin) || nSlots < 1) return null
+  const px = clientX - rect.left - left
+  const py = clientY - rect.top - top
+  const price = yMax - (py / plotH) * (yMax - yMin)
+  const x = nSlots <= 1 ? 0 : (px / plotW) * (nSlots - 1)
+  return { x, price, px, py }
+}
+
+function toSvg(geom: PlotGeom, xIdx: number, price: number) {
+  const { left, top, width, height, yMin, yMax, nSlots } = geom
+  const sx = left + (nSlots <= 1 ? 0 : (xIdx / Math.max(nSlots - 1, 1)) * width)
+  const sy = top + ((yMax - price) / (yMax - yMin)) * height
+  return { x: sx, y: sy }
+}
+
+/** Clip infinite/extended line to plot rectangle; returns SVG endpoints. */
+function clipTrendline(
+  geom: PlotGeom,
+  tl: TrendLine,
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  const a = toSvg(geom, tl.x1, tl.y1)
+  const b = toSvg(geom, tl.x2, tl.y2)
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }
+
+  const left = geom.left
+  const right = geom.left + geom.width
+  const top = geom.top
+  const bottom = geom.top + geom.height
+
+  // Parametric: P = A + t*(B-A). Segment is t in [0,1]; extend expands range.
+  let t0 = tl.extendLeft ? -1e6 : 0
+  let t1 = tl.extendRight ? 1e6 : 1
+
+  // Clip against plot box (Liang-Barsky style on t)
+  const clipT = (p: number, q: number, tMin: number, tMax: number): [number, number] | null => {
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return null
+      return [tMin, tMax]
+    }
+    const r = q / p
+    if (p < 0) {
+      if (r > tMax) return null
+      return [Math.max(tMin, r), tMax]
+    }
+    if (r < tMin) return null
+    return [tMin, Math.min(tMax, r)]
+  }
+
+  let tMin = t0
+  let tMax = t1
+  const edges: [number, number][] = [
+    [-dx, a.x - left],
+    [dx, right - a.x],
+    [-dy, a.y - top],
+    [dy, bottom - a.y],
+  ]
+  for (const [p, q] of edges) {
+    const next = clipT(p, q, tMin, tMax)
+    if (!next) return null
+    ;[tMin, tMax] = next
+  }
+  if (tMin > tMax) return null
+  return {
+    x1: a.x + tMin * dx,
+    y1: a.y + tMin * dy,
+    x2: a.x + tMax * dx,
+    y2: a.y + tMax * dy,
+  }
+}
+
+function distPointToSeg(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len2 = dx * dx + dy * dy
+  if (len2 < 1e-8) return Math.hypot(px - x1, py - y1)
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2
+  t = clamp(t, 0, 1)
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
+
+function DrawingCanvas({
+  drawMode,
   yMin,
   yMax,
   realBarCount,
   totalSlots,
-  onPick,
+  customSr,
+  trendLines,
+  selection,
+  onSelect,
+  onChangeSr,
+  onChangeTl,
+  onCreateSr,
+  onCreateTl,
 }: {
-  active: boolean
+  drawMode: DrawMode
   yMin: number
   yMax: number
   realBarCount: number
   totalSlots: number
-  onPick: (idx: number, price: number) => void
+  customSr: CustomSr[]
+  trendLines: TrendLine[]
+  selection: Selection
+  onSelect: (s: Selection) => void
+  onChangeSr: (id: string, price: number) => void
+  onChangeTl: (id: string, patch: Partial<TrendLine>) => void
+  onCreateSr: (price: number) => void
+  onCreateTl: (tl: Omit<TrendLine, 'id'>) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  if (!active || !(yMax > yMin) || realBarCount <= 0) return null
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  const [drag, setDrag] = useState<DragSession | null>(null)
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const dragRef = useRef<DragSession | null>(null)
+  dragRef.current = drag
+
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect()
+      setSize({ w: r.width, h: r.height })
+    })
+    ro.observe(el)
+    const r = el.getBoundingClientRect()
+    setSize({ w: r.width, h: r.height })
+    return () => ro.disconnect()
+  }, [])
+
+  const geom: PlotGeom | null = useMemo(() => {
+    if (size.w < 40 || size.h < 40 || !(yMax > yMin) || totalSlots < 1) return null
+    return {
+      left: PLOT_MARGIN.left + PRICE_AXIS_WIDTH,
+      top: PLOT_MARGIN.top,
+      width: size.w - PLOT_MARGIN.left - PRICE_AXIS_WIDTH - PLOT_MARGIN.right,
+      height: size.h - PLOT_MARGIN.top - PLOT_MARGIN.bottom,
+      yMin,
+      yMax,
+      nSlots: totalSlots,
+    }
+  }, [size, yMin, yMax, totalSlots])
+
+  const readPlot = useCallback(
+    (clientX: number, clientY: number) => {
+      const el = rootRef.current
+      if (!el || !geom) return null
+      return plotFromClient(el.getBoundingClientRect(), clientX, clientY, yMin, yMax, totalSlots)
+    },
+    [geom, yMin, yMax, totalSlots],
+  )
+
+  const hitTest = useCallback(
+    (clientX: number, clientY: number): Selection => {
+      if (!geom) return null
+      const el = rootRef.current
+      if (!el) return null
+      const rect = el.getBoundingClientRect()
+      const px = clientX - rect.left
+      const py = clientY - rect.top
+      const HIT = 8
+
+      // Prefer handles of selected item
+      if (selection?.kind === 'tl') {
+        const tl = trendLines.find((t) => t.id === selection.id)
+        if (tl) {
+          const p1 = toSvg(geom, tl.x1, tl.y1)
+          const p2 = toSvg(geom, tl.x2, tl.y2)
+          if (Math.hypot(px - p1.x, py - p1.y) <= HIT + 2) return selection
+          if (Math.hypot(px - p2.x, py - p2.y) <= HIT + 2) return selection
+        }
+      }
+      if (selection?.kind === 'sr') {
+        const sr = customSr.find((s) => s.id === selection.id)
+        if (sr) {
+          const mid = toSvg(geom, (totalSlots - 1) / 2, sr.price)
+          if (Math.abs(py - mid.y) <= HIT) return selection
+        }
+      }
+
+      for (const tl of [...trendLines].reverse()) {
+        const clipped = clipTrendline(geom, { ...tl, extendLeft: tl.extendLeft, extendRight: tl.extendRight })
+        if (!clipped) continue
+        if (distPointToSeg(px, py, clipped.x1, clipped.y1, clipped.x2, clipped.y2) <= HIT) {
+          return { kind: 'tl', id: tl.id }
+        }
+      }
+      for (const sr of [...customSr].reverse()) {
+        const y = toSvg(geom, 0, sr.price).y
+        if (Math.abs(py - y) <= HIT && px >= geom.left && px <= geom.left + geom.width) {
+          return { kind: 'sr', id: sr.id }
+        }
+      }
+      return null
+    },
+    [geom, trendLines, customSr, selection, totalSlots],
+  )
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current
+      if (!d) {
+        if (drawMode === 'none') {
+          const hit = hitTest(e.clientX, e.clientY)
+          setHoverId(hit ? hit.id : null)
+        }
+        return
+      }
+      const pt = readPlot(e.clientX, e.clientY)
+      if (!pt) return
+      const xClamped = clamp(pt.x, -0.5, Math.max(totalSlots - 1, 0))
+      if (d.type === 'create-sr') {
+        setDrag({ type: 'create-sr', price: pt.price })
+      } else if (d.type === 'create-tl') {
+        setDrag({ ...d, x2: xClamped, y2: pt.price })
+      } else if (d.type === 'move-sr') {
+        onChangeSr(d.id, pt.price)
+      } else if (d.type === 'tl-p1') {
+        onChangeTl(d.id, { x1: xClamped, y1: pt.price })
+      } else if (d.type === 'tl-p2') {
+        onChangeTl(d.id, { x2: xClamped, y2: pt.price })
+      } else if (d.type === 'move-tl') {
+        const dx = xClamped - d.startX
+        const dy = pt.price - d.startY
+        onChangeTl(d.id, {
+          x1: clamp(d.ox1 + dx, -0.5, Math.max(totalSlots - 1, 0)),
+          y1: d.oy1 + dy,
+          x2: clamp(d.ox2 + dx, -0.5, Math.max(totalSlots - 1, 0)),
+          y2: d.oy2 + dy,
+        })
+      }
+    }
+    const onUp = (e: PointerEvent) => {
+      const d = dragRef.current
+      if (!d) return
+      const pt = readPlot(e.clientX, e.clientY)
+      if (d.type === 'create-sr') {
+        const price = pt?.price ?? d.price
+        if (Number.isFinite(price)) onCreateSr(price)
+      } else if (d.type === 'create-tl') {
+        const x2 = pt ? clamp(pt.x, -0.5, Math.max(totalSlots - 1, 0)) : d.x2
+        const y2 = pt?.price ?? d.y2
+        const moved = Math.hypot(x2 - d.x1, y2 - d.y1) > 0.15 || Math.abs(y2 - d.y1) > Math.abs(yMax - yMin) * 0.002
+        if (moved) {
+          onCreateTl({
+            x1: d.x1,
+            y1: d.y1,
+            x2,
+            y2,
+            extendLeft: false,
+            extendRight: false,
+          })
+        }
+      }
+      setDrag(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [drawMode, hitTest, readPlot, onChangeSr, onChangeTl, onCreateSr, onCreateTl, totalSlots, yMin, yMax])
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (!geom) return
+    const pt = readPlot(e.clientX, e.clientY)
+    if (!pt) return
+    // Only interact inside plot (with small pad)
+    if (pt.px < -4 || pt.py < -4 || pt.px > geom.width + 4 || pt.py > geom.height + 4) {
+      if (drawMode === 'none') onSelect(null)
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (drawMode === 'sr') {
+      onSelect(null)
+      setDrag({ type: 'create-sr', price: pt.price })
+      return
+    }
+    if (drawMode === 'trendline') {
+      onSelect(null)
+      const x = clamp(pt.x, -0.5, Math.max(totalSlots - 1, 0))
+      setDrag({ type: 'create-tl', x1: x, y1: pt.price, x2: x, y2: pt.price })
+      return
+    }
+
+    // Edit mode
+    const hit = hitTest(e.clientX, e.clientY)
+    if (!hit) {
+      onSelect(null)
+      return
+    }
+    onSelect(hit)
+    const el = rootRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+
+    if (hit.kind === 'sr') {
+      setDrag({ type: 'move-sr', id: hit.id })
+      return
+    }
+    const tl = trendLines.find((t) => t.id === hit.id)
+    if (!tl) return
+    const p1 = toSvg(geom, tl.x1, tl.y1)
+    const p2 = toSvg(geom, tl.x2, tl.y2)
+    if (Math.hypot(px - p1.x, py - p1.y) <= 10) {
+      setDrag({ type: 'tl-p1', id: tl.id })
+    } else if (Math.hypot(px - p2.x, py - p2.y) <= 10) {
+      setDrag({ type: 'tl-p2', id: tl.id })
+    } else {
+      const x = clamp(pt.x, -0.5, Math.max(totalSlots - 1, 0))
+      setDrag({
+        type: 'move-tl',
+        id: tl.id,
+        ox1: tl.x1,
+        oy1: tl.y1,
+        ox2: tl.x2,
+        oy2: tl.y2,
+        startX: x,
+        startY: pt.price,
+      })
+    }
+  }
+
+  if (!(yMax > yMin) || realBarCount <= 0 || !geom) {
+    return <div ref={rootRef} className="absolute inset-0 z-20 pointer-events-none" />
+  }
+
+  const creating = drawMode !== 'none'
+  const cursor = creating ? 'crosshair' : hoverId ? 'move' : 'default'
+
+  const previewSr = drag?.type === 'create-sr' ? drag.price : null
+  const previewTl = drag?.type === 'create-tl' ? drag : null
+  const captureAll = creating || !!drag
 
   return (
     <div
-      ref={ref}
-      className="absolute inset-0 z-20 cursor-crosshair"
-      title="Click to place drawing"
-      onClick={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        const el = ref.current
-        if (!el) return
-        const rect = el.getBoundingClientRect()
-        const leftPad = PLOT_MARGIN.left + PRICE_AXIS_WIDTH
-        const rightPad = PLOT_MARGIN.right
-        const topPad = PLOT_MARGIN.top
-        const bottomPad = PLOT_MARGIN.bottom
-        const plotW = rect.width - leftPad - rightPad
-        const plotH = rect.height - topPad - bottomPad
-        const x = e.clientX - rect.left - leftPad
-        const y = e.clientY - rect.top - topPad
-        if (plotW <= 0 || plotH <= 0 || x < 0 || y < 0 || x > plotW || y > plotH) return
+      ref={rootRef}
+      className="absolute inset-0 z-20"
+      style={{ cursor, pointerEvents: captureAll ? 'auto' : 'none' }}
+      onPointerDown={captureAll ? onPointerDown : undefined}
+      onPointerLeave={() => setHoverId(null)}
+    >
+      {/* Hit targets when editing (pass-through elsewhere so chart tooltip still works) */}
+      {!captureAll && (customSr.length > 0 || trendLines.length > 0) && (
+        <svg
+          width={size.w}
+          height={size.h}
+          className="absolute inset-0 overflow-visible"
+          style={{ pointerEvents: 'none' }}
+          onPointerMove={(e) => {
+            const hit = hitTest(e.clientX, e.clientY)
+            setHoverId(hit ? hit.id : null)
+          }}
+        >
+          {customSr.map((sr) => {
+            const y = toSvg(geom, 0, sr.price).y
+            return (
+              <line
+                key={`hit-sr-${sr.id}`}
+                x1={geom.left}
+                y1={y}
+                x2={geom.left + geom.width}
+                y2={y}
+                stroke="transparent"
+                strokeWidth={14}
+                style={{ pointerEvents: 'stroke', cursor: 'ns-resize' }}
+                onPointerDown={onPointerDown}
+              />
+            )
+          })}
+          {trendLines.map((tl) => {
+            const clipped = clipTrendline(geom, tl)
+            if (!clipped) return null
+            return (
+              <g key={`hit-tl-${tl.id}`}>
+                <line
+                  x1={clipped.x1}
+                  y1={clipped.y1}
+                  x2={clipped.x2}
+                  y2={clipped.y2}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  style={{ pointerEvents: 'stroke', cursor: 'move' }}
+                  onPointerDown={onPointerDown}
+                />
+                {selection?.kind === 'tl' && selection.id === tl.id && (
+                  <>
+                    <circle
+                      cx={toSvg(geom, tl.x1, tl.y1).x}
+                      cy={toSvg(geom, tl.x1, tl.y1).y}
+                      r={10}
+                      fill="transparent"
+                      style={{ pointerEvents: 'all', cursor: 'grab' }}
+                      onPointerDown={onPointerDown}
+                    />
+                    <circle
+                      cx={toSvg(geom, tl.x2, tl.y2).x}
+                      cy={toSvg(geom, tl.x2, tl.y2).y}
+                      r={10}
+                      fill="transparent"
+                      style={{ pointerEvents: 'all', cursor: 'grab' }}
+                      onPointerDown={onPointerDown}
+                    />
+                  </>
+                )}
+              </g>
+            )
+          })}
+          {selection?.kind === 'sr' && (() => {
+            const sr = customSr.find((s) => s.id === selection.id)
+            if (!sr) return null
+            const y = toSvg(geom, 0, sr.price).y
+            return (
+              <circle
+                cx={geom.left + geom.width / 2}
+                cy={y}
+                r={10}
+                fill="transparent"
+                style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                onPointerDown={onPointerDown}
+              />
+            )
+          })()}
+        </svg>
+      )}
+      <svg
+        width={size.w}
+        height={size.h}
+        className="absolute inset-0 overflow-visible"
+        style={{ pointerEvents: 'none' }}
+      >
+        {/* S/R levels */}
+        {customSr.map((sr) => {
+          const y = toSvg(geom, 0, sr.price).y
+          const selected = selection?.kind === 'sr' && selection.id === sr.id
+          const hot = hoverId === sr.id || selected
+          return (
+            <g key={sr.id}>
+              <line
+                x1={geom.left}
+                y1={y}
+                x2={geom.left + geom.width}
+                y2={y}
+                stroke="#fbbf24"
+                strokeWidth={hot ? 2 : 1.5}
+                strokeDasharray="6 3"
+              />
+              <text
+                x={geom.left + geom.width - 4}
+                y={y - 4}
+                fill="#fbbf24"
+                fontSize={10}
+                textAnchor="end"
+                style={{ userSelect: 'none' }}
+              >
+                {sr.label}
+              </text>
+              {selected && (
+                <circle
+                  cx={geom.left + geom.width / 2}
+                  cy={y}
+                  r={5}
+                  fill="#0f172a"
+                  stroke="#fbbf24"
+                  strokeWidth={2}
+                />
+              )}
+            </g>
+          )
+        })}
 
-        const price = yMax - (y / plotH) * (yMax - yMin)
-        // Map into full slot range (including right pad), then clamp to real bars
-        const slot = Math.round((x / plotW) * Math.max(totalSlots - 1, 1))
-        const idx = Math.max(0, Math.min(realBarCount - 1, slot))
-        if (!Number.isFinite(price)) return
-        onPick(idx, price)
-      }}
-    />
+        {/* Trendlines */}
+        {trendLines.map((tl) => {
+          const clipped = clipTrendline(geom, tl)
+          if (!clipped) return null
+          const selected = selection?.kind === 'tl' && selection.id === tl.id
+          const hot = hoverId === tl.id || selected
+          const p1 = toSvg(geom, tl.x1, tl.y1)
+          const p2 = toSvg(geom, tl.x2, tl.y2)
+          return (
+            <g key={tl.id}>
+              <line
+                x1={clipped.x1}
+                y1={clipped.y1}
+                x2={clipped.x2}
+                y2={clipped.y2}
+                stroke="#38bdf8"
+                strokeWidth={hot ? 2.5 : 2}
+              />
+              {selected && (
+                <>
+                  <circle
+                    cx={(p1.x + p2.x) / 2}
+                    cy={(p1.y + p2.y) / 2}
+                    r={4}
+                    fill="#0f172a"
+                    stroke="#7dd3fc"
+                    strokeWidth={1.5}
+                  />
+                  <circle
+                    cx={p1.x}
+                    cy={p1.y}
+                    r={6}
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                  />
+                  <circle
+                    cx={p2.x}
+                    cy={p2.y}
+                    r={6}
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                  />
+                </>
+              )}
+            </g>
+          )
+        })}
+
+        {/* Create preview */}
+        {previewSr != null && (
+          <g>
+            <line
+              x1={geom.left}
+              y1={toSvg(geom, 0, previewSr).y}
+              x2={geom.left + geom.width}
+              y2={toSvg(geom, 0, previewSr).y}
+              stroke="#fbbf24"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              opacity={0.9}
+            />
+            <text
+              x={geom.left + 6}
+              y={toSvg(geom, 0, previewSr).y - 6}
+              fill="#fbbf24"
+              fontSize={11}
+            >
+              {fmtNum(previewSr, previewSr >= 100 ? 1 : 3)}
+            </text>
+          </g>
+        )}
+        {previewTl && (
+          <g>
+            {(() => {
+              const clip = clipTrendline(geom, {
+                id: 'preview',
+                x1: previewTl.x1,
+                y1: previewTl.y1,
+                x2: previewTl.x2,
+                y2: previewTl.y2,
+                extendLeft: false,
+                extendRight: false,
+              })
+              if (!clip) return null
+              const a = toSvg(geom, previewTl.x1, previewTl.y1)
+              const b = toSvg(geom, previewTl.x2, previewTl.y2)
+              return (
+                <>
+                  <line
+                    x1={clip.x1}
+                    y1={clip.y1}
+                    x2={clip.x2}
+                    y2={clip.y2}
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                  />
+                  <circle cx={a.x} cy={a.y} r={4} fill="#38bdf8" />
+                  <circle cx={b.x} cy={b.y} r={4} fill="#38bdf8" />
+                </>
+              )
+            })()}
+          </g>
+        )}
+      </svg>
+    </div>
   )
 }
 
@@ -211,7 +800,7 @@ export function PaperTradingChart({
   const [drawMode, setDrawMode] = useState<DrawMode>('none')
   const [customSr, setCustomSr] = useState<CustomSr[]>([])
   const [trendLines, setTrendLines] = useState<TrendLine[]>([])
-  const [pendingTrend, setPendingTrend] = useState<{ i: number; price: number } | null>(null)
+  const [selection, setSelection] = useState<Selection>(null)
   const [manualSr, setManualSr] = useState<number | ''>('')
   const [streamOn, setStreamOn] = useState(true)
   const lastTicker = useRef(ticker)
@@ -222,7 +811,7 @@ export function PaperTradingChart({
   const clearDrawings = useCallback(() => {
     setCustomSr([])
     setTrendLines([])
-    setPendingTrend(null)
+    setSelection(null)
     setDrawMode('none')
   }, [])
 
@@ -237,6 +826,29 @@ export function PaperTradingChart({
     // Indices are relative to the visible window — reset drawings when window changes
     clearDrawings()
   }, [barCount, interval, clearDrawings])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelection(null)
+        setDrawMode('none')
+        return
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (!selection) return
+      e.preventDefault()
+      if (selection.kind === 'sr') {
+        setCustomSr((prev) => prev.filter((x) => x.id !== selection.id))
+      } else {
+        setTrendLines((prev) => prev.filter((x) => x.id !== selection.id))
+      }
+      setSelection(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selection])
 
   const chartQuery = useQuery({
     queryKey: ['paper-chart', assetClass, ticker, interval, selected.join(',')],
@@ -317,7 +929,7 @@ export function PaperTradingChart({
         high = Math.max(high, close, open)
         low = Math.min(low, close, open)
       }
-      const row: Row = {
+      return {
         ...p,
         idx,
         open,
@@ -327,27 +939,12 @@ export function PaperTradingChart({
         value: close,
         range: [low, high] as [number, number],
         __pad: false,
-      }
-      for (const tl of trendLines) {
-        const lo = Math.min(tl.i1, tl.i2)
-        const hi = Math.max(tl.i1, tl.i2)
-        if (idx < lo || idx > hi) {
-          row[`tl_${tl.id}`] = null
-        } else if (hi === lo) {
-          row[`tl_${tl.id}`] = tl.p1
-        } else {
-          const t = (idx - lo) / (hi - lo)
-          const pStart = tl.i1 <= tl.i2 ? tl.p1 : tl.p2
-          const pEnd = tl.i1 <= tl.i2 ? tl.p2 : tl.p1
-          row[`tl_${tl.id}`] = pStart + (pEnd - pStart) * t
-        }
-      }
-      return row
+      } as Row
     })
 
     // Empty slots on the right so candles aren't glued to the edge
     for (let i = 0; i < RIGHT_PAD_BARS; i++) {
-      const pad: Row = {
+      rows.push({
         label: '',
         idx: rows.length + i,
         open: null,
@@ -358,12 +955,10 @@ export function PaperTradingChart({
         volume: null,
         range: null,
         __pad: true,
-      }
-      for (const tl of trendLines) pad[`tl_${tl.id}`] = null
-      rows.push(pad)
+      })
     }
     return rows
-  }, [fullRows, barCount, ltp, trendLines])
+  }, [fullRows, barCount, ltp])
 
   const realBarCount = Math.max(0, chartRows.length - RIGHT_PAD_BARS)
 
@@ -413,7 +1008,7 @@ export function PaperTradingChart({
     }
     for (const sr of customSr) vals.push(sr.price)
     for (const tl of trendLines) {
-      vals.push(tl.p1, tl.p2)
+      vals.push(tl.y1, tl.y2)
     }
     for (const ov of overlayKeys) {
       for (const p of chartRows) {
@@ -435,37 +1030,53 @@ export function PaperTradingChart({
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const handlePick = useCallback(
-    (idx: number, price: number) => {
-      if (drawMode === 'sr') {
-        setCustomSr((prev) => [
-          ...prev,
-          { id: uid(), price, label: `S/R ${fmtNum(price, price >= 100 ? 1 : 3)}` },
-        ])
-        setDrawMode('none')
-        return
-      }
-      if (drawMode === 'trendline') {
-        if (!pendingTrend) {
-          setPendingTrend({ i: idx, price })
-        } else {
-          setTrendLines((prev) => [
-            ...prev,
-            { id: uid(), i1: pendingTrend.i, i2: idx, p1: pendingTrend.price, p2: price },
-          ])
-          setPendingTrend(null)
-          setDrawMode('none')
-        }
-      }
-    },
-    [drawMode, pendingTrend],
-  )
+  const handleCreateSr = useCallback((price: number) => {
+    const id = uid()
+    setCustomSr((prev) => [
+      ...prev,
+      { id, price, label: `S/R ${fmtNum(price, price >= 100 ? 1 : 3)}` },
+    ])
+    setSelection({ kind: 'sr', id })
+    setDrawMode('none')
+  }, [])
+
+  const handleCreateTl = useCallback((tl: Omit<TrendLine, 'id'>) => {
+    const id = uid()
+    setTrendLines((prev) => [...prev, { ...tl, id }])
+    setSelection({ kind: 'tl', id })
+    setDrawMode('none')
+  }, [])
+
+  const handleChangeSr = useCallback((id: string, price: number) => {
+    setCustomSr((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, price, label: `S/R ${fmtNum(price, price >= 100 ? 1 : 3)}` }
+          : s,
+      ),
+    )
+  }, [])
+
+  const handleChangeTl = useCallback((id: string, patch: Partial<TrendLine>) => {
+    setTrendLines((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }, [])
+
+  const selectedTl = selection?.kind === 'tl' ? trendLines.find((t) => t.id === selection.id) : null
 
   const addManualSr = () => {
     if (manualSr === '' || !Number.isFinite(Number(manualSr))) return
     const price = Number(manualSr)
-    setCustomSr((prev) => [...prev, { id: uid(), price, label: `S/R ${fmtNum(price, price >= 100 ? 1 : 3)}` }])
+    const id = uid()
+    setCustomSr((prev) => [...prev, { id, price, label: `S/R ${fmtNum(price, price >= 100 ? 1 : 3)}` }])
+    setSelection({ kind: 'sr', id })
     setManualSr('')
+  }
+
+  const deleteSelected = () => {
+    if (!selection) return
+    if (selection.kind === 'sr') setCustomSr((prev) => prev.filter((x) => x.id !== selection.id))
+    else setTrendLines((prev) => prev.filter((x) => x.id !== selection.id))
+    setSelection(null)
   }
 
   if (!ticker.trim()) {
@@ -545,7 +1156,7 @@ export function PaperTradingChart({
           variant={drawMode === 'sr' ? 'primary' : 'secondary'}
           onClick={() => {
             setDrawMode((m) => (m === 'sr' ? 'none' : 'sr'))
-            setPendingTrend(null)
+            setSelection(null)
           }}
         >
           <Pencil size={14} /> Draw S/R
@@ -555,10 +1166,10 @@ export function PaperTradingChart({
           variant={drawMode === 'trendline' ? 'primary' : 'secondary'}
           onClick={() => {
             setDrawMode((m) => (m === 'trendline' ? 'none' : 'trendline'))
-            setPendingTrend(null)
+            setSelection(null)
           }}
         >
-          <Pencil size={14} /> Trendline
+          <MoveDiagonal2 size={14} /> Trendline
         </Button>
         <div className="flex items-end gap-1.5">
           <div>
@@ -573,20 +1184,46 @@ export function PaperTradingChart({
           </div>
           <Button size="sm" variant="secondary" onClick={addManualSr}>Add</Button>
         </div>
-        {(customSr.length > 0 || trendLines.length > 0 || pendingTrend) && (
+        {selectedTl && (
+          <>
+            <Chip
+              selected={selectedTl.extendLeft}
+              onClick={() => handleChangeTl(selectedTl.id, { extendLeft: !selectedTl.extendLeft })}
+            >
+              Extend ←
+            </Chip>
+            <Chip
+              selected={selectedTl.extendRight}
+              onClick={() => handleChangeTl(selectedTl.id, { extendRight: !selectedTl.extendRight })}
+            >
+              Extend →
+            </Chip>
+          </>
+        )}
+        {selection && (
+          <Button size="sm" variant="ghost" onClick={deleteSelected}>
+            <Trash2 size={14} /> Delete selected
+          </Button>
+        )}
+        {(customSr.length > 0 || trendLines.length > 0) && (
           <Button size="sm" variant="ghost" onClick={clearDrawings}>
-            <Trash2 size={14} /> Clear drawings
+            <Trash2 size={14} /> Clear all
           </Button>
         )}
         {drawMode === 'sr' && (
-          <span className="text-xs text-amber-300">Crosshair on — click chart height to place S/R</span>
+          <span className="text-xs text-amber-300">Drag on chart to place S/R — release to lock</span>
         )}
         {drawMode === 'trendline' && (
-          <span className="text-xs text-amber-300">
-            {pendingTrend
-              ? `Point 1 set @ ${fmtNum(pendingTrend.price)} — click second point`
-              : 'Crosshair on — click first trendline point'}
-          </span>
+          <span className="text-xs text-amber-300">Click-drag to draw — then drag ends to rotate / extend</span>
+        )}
+        {drawMode === 'none' && !selection && (customSr.length > 0 || trendLines.length > 0) && (
+          <span className="text-xs text-slate-500">Click a line to select · drag body/ends · Del to remove</span>
+        )}
+        {selection?.kind === 'sr' && (
+          <span className="text-xs text-amber-300">Drag handle / line up-down to move S/R</span>
+        )}
+        {selection?.kind === 'tl' && (
+          <span className="text-xs text-sky-300">Drag ends to rotate/skew · middle to move · Extend ←/→</span>
         )}
       </div>
 
@@ -597,13 +1234,20 @@ export function PaperTradingChart({
         <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
           <div className="relative h-[380px] w-full">
             {yDomainNums && (
-              <DrawOverlay
-                active={drawMode !== 'none'}
+              <DrawingCanvas
+                drawMode={drawMode}
                 yMin={yDomainNums[0]}
                 yMax={yDomainNums[1]}
                 realBarCount={realBarCount}
                 totalSlots={chartRows.length}
-                onPick={handlePick}
+                customSr={customSr}
+                trendLines={trendLines}
+                selection={selection}
+                onSelect={setSelection}
+                onChangeSr={handleChangeSr}
+                onChangeTl={handleChangeTl}
+                onCreateSr={handleCreateSr}
+                onCreateTl={handleCreateTl}
               />
             )}
             <ResponsiveContainer width="100%" height="100%">
@@ -639,7 +1283,7 @@ export function PaperTradingChart({
                     }}
                   />
                 )}
-                {drawMode === 'none' && (
+                {drawMode === 'none' && !selection && (
                   <Tooltip
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     content={({ active, payload, label }: any) => {
@@ -665,29 +1309,6 @@ export function PaperTradingChart({
                         </div>
                       )
                     }}
-                  />
-                )}
-                {customSr.map((sr) => (
-                  <ReferenceLine
-                    key={sr.id}
-                    yAxisId="price"
-                    y={sr.price}
-                    stroke="#fbbf24"
-                    strokeWidth={1.5}
-                    strokeDasharray="6 3"
-                    ifOverflow="extendDomain"
-                    label={{ value: sr.label, position: 'insideTopRight', fill: '#fbbf24', fontSize: 10 }}
-                  />
-                ))}
-                {pendingTrend && (
-                  <ReferenceLine
-                    yAxisId="price"
-                    y={pendingTrend.price}
-                    stroke="#38bdf8"
-                    strokeWidth={1}
-                    strokeDasharray="2 2"
-                    ifOverflow="extendDomain"
-                    label={{ value: 'P1', position: 'insideTopLeft', fill: '#38bdf8', fontSize: 10 }}
                   />
                 )}
                 {showVolume && hasVolumeData && (
@@ -723,20 +1344,6 @@ export function PaperTradingChart({
                     isAnimationActive={false}
                   />
                 ))}
-                {trendLines.map((tl) => (
-                  <Line
-                    key={tl.id}
-                    yAxisId="price"
-                    type="linear"
-                    dataKey={`tl_${tl.id}`}
-                    stroke="#38bdf8"
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: '#38bdf8' }}
-                    connectNulls
-                    name="Trendline"
-                    isAnimationActive={false}
-                  />
-                ))}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -747,22 +1354,31 @@ export function PaperTradingChart({
                 <button
                   key={sr.id}
                   type="button"
-                  className="text-amber-300 hover:text-amber-200"
-                  onClick={() => setCustomSr((prev) => prev.filter((x) => x.id !== sr.id))}
-                  title="Remove"
+                  className={`hover:text-amber-200 ${selection?.kind === 'sr' && selection.id === sr.id ? 'text-amber-200 underline' : 'text-amber-300'}`}
+                  onClick={() => setSelection({ kind: 'sr', id: sr.id })}
+                  onDoubleClick={() => {
+                    setCustomSr((prev) => prev.filter((x) => x.id !== sr.id))
+                    setSelection(null)
+                  }}
+                  title="Click to select · double-click to remove"
                 >
-                  {sr.label} ✕
+                  {sr.label}
                 </button>
               ))}
               {trendLines.map((tl) => (
                 <button
                   key={tl.id}
                   type="button"
-                  className="text-sky-300 hover:text-sky-200"
-                  onClick={() => setTrendLines((prev) => prev.filter((x) => x.id !== tl.id))}
-                  title="Remove"
+                  className={`hover:text-sky-200 ${selection?.kind === 'tl' && selection.id === tl.id ? 'text-sky-200 underline' : 'text-sky-300'}`}
+                  onClick={() => setSelection({ kind: 'tl', id: tl.id })}
+                  onDoubleClick={() => {
+                    setTrendLines((prev) => prev.filter((x) => x.id !== tl.id))
+                    setSelection(null)
+                  }}
+                  title="Click to select · double-click to remove"
                 >
-                  TL {fmtNum(tl.p1)}→{fmtNum(tl.p2)} ✕
+                  TL {fmtNum(tl.y1)}→{fmtNum(tl.y2)}
+                  {(tl.extendLeft || tl.extendRight) && ' ∞'}
                 </button>
               ))}
               {overlayKeys.map((ov) => (

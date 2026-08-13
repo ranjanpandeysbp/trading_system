@@ -308,6 +308,8 @@ function TickerResultCard({
           {showCharts && chartData.length > 0 && (
             <VolumeProfileChart
               chartData={chartData}
+              ticker={String(result.ticker ?? '')}
+              assetClass={assetClass}
               series={series}
               levels={levels}
               readingGuide="Grey = BB · Blue mid · Teal EMA5 · Gold EMA9 · Purple EMA50. Buy: lower band + RSI≤35 + low vol at support, close above EMA9. Sell: upper + RSI≥70 + high vol at resistance, close below EMA9. Continuation uses ~100d EMA analogues for next-2 candles."

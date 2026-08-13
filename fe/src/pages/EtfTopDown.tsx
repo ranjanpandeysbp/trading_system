@@ -193,6 +193,8 @@ function ResultCard({ result, index, showCharts }: { result: Row; index: number;
           {showCharts && chartData.length > 0 && (
             <VolumeProfileChart
               chartData={chartData}
+              ticker={String(result.ticker ?? '')}
+              assetClass={'india'}
               series={series}
               levels={levels}
               readingGuide="Purple line ≈ D-Smart 10 (EMA on price; Renko cross drives BUY/SELL). Prefer weekly Friday checks."

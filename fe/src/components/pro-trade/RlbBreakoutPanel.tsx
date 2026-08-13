@@ -200,6 +200,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={levels}
                 series={series}
                 readingGuide="RLB wants a green breakout day through the prior high, above EMA20 and EMA50, with RSI strength, >2% daily gain, and volume above the 5-day average. Blue = EMA20, orange = EMA50, purple = prior high."

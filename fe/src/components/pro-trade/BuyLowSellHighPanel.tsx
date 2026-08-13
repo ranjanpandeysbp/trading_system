@@ -176,6 +176,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={chartLevels}
                 series={series}
                 readingGuide="Grey = 25-day low. Green = buy GTT (25 DL + 5%). Amber = sell-all at average + 5% when in a simulated position. Update the GTT whenever a new 25 DL prints before fill. No stop-loss — exit is the +5% average target."

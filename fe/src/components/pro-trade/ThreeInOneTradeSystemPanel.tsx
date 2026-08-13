@@ -183,6 +183,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={levels}
                 series={series}
                 readingGuide="Blue/purple/amber = SMA50/100/200. Pink = CAR (cumulative average from 52w high). Buy when price is above all DMAs, not more than 10% above the 200, and CAR has risen for N days. Prefer names closest to the 200 DMA. Exit all at average + 6.28%."

@@ -3,6 +3,13 @@ import {
   Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import { ChartStreamControls, useLiveChartData } from '../charts/chartStreaming'
+import {
+  ChartStyleIndicatorControls,
+  enrichBarsWithIndicators,
+  overlayKeysFor,
+  useChartIndicators,
+} from '../charts/chartIndicators'
 
 export type SRChartBar = { time: string; open: number; high: number; low: number; close: number; volume?: number | null }
 export type SRTrendlinePoint = { time: string; price: number }
@@ -90,6 +97,7 @@ function CandlestickShape(props: any) {
 export function SupportResistanceChart({
   chartData, supportZone = null, resistanceZone = null, trendlines = [], lastClose, emas = {}, rsi, chartType = 'candles', fibonacci = null,
   supplyDemandZones = [], orderBlocks = [], levels = [], readingGuide,
+  ticker, assetClass,
 }: {
   chartData: Bar_[]
   supportZone?: [number, number] | null
@@ -106,11 +114,16 @@ export function SupportResistanceChart({
   levels?: SRLevel[]
   /** Short laymen "how to read this chart" caption, shown below it. */
   readingGuide?: string
+  /** When set, enables live LTP streaming (on by default). */
+  ticker?: string | null
+  assetClass?: string | null
 }) {
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [style, setStyle] = useState<'candles' | 'line'>(chartType)
+  const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
   const toggleHidden = (key: string) => {
     setHidden((prev) => {
       const next = new Set(prev)
@@ -120,6 +133,21 @@ export function SupportResistanceChart({
     })
   }
   const isHidden = (key: string) => hidden.has(key)
+
+  const {
+    bars: liveChartData,
+    streamOn,
+    setStreamOn,
+    barCount,
+    setBarCount,
+    liveLtp,
+    canStream,
+  } = useLiveChartData(chartData, { ticker, assetClass, defaultBars: 100, defaultStreamOn: true })
+
+  const enriched = useMemo(() => enrichBarsWithIndicators(liveChartData), [liveChartData])
+  const indOverlays = useMemo(() => overlayKeysFor(indicators), [indicators])
+  const showVolumeInd = indicators.includes('volume')
+  const showRsiInd = indicators.includes('rsi')
 
   const emaPeriods = Object.keys(emas).sort((a, b) => Number(a) - Number(b))
   // Merge each EMA series into the same row-per-timestamp shape the price
@@ -133,15 +161,22 @@ export function SupportResistanceChart({
     }
   }
   const merged = useMemo(
-    () => chartData.map((bar) => ({ ...bar, ...(emaByTime[bar.time] || {}), range: [bar.low, bar.high] })),
+    () =>
+      enriched.map((bar) => ({
+        ...bar,
+        ...(emaByTime[bar.time] || {}),
+        range: [bar.low, bar.high] as [number, number],
+      })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chartData, emas],
+    [enriched, emas],
   )
 
   // Reset any in-flight/applied zoom whenever the underlying series changes
   // (new ticker, new date range, refreshed data) so a stale index range
   // can't be applied to a differently-sized dataset.
-  const dataKeyForReset = chartData.length ? `${chartData[0].time}|${chartData[chartData.length - 1].time}|${chartData.length}` : ''
+  const dataKeyForReset = liveChartData.length
+    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}|${barCount}`
+    : ''
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
@@ -158,10 +193,7 @@ export function SupportResistanceChart({
   const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged
   const viewStart = view[0]?.time
   const viewEnd = view[view.length - 1]?.time
-  const viewChartData = zoomRange ? chartData.slice(zoomRange[0], zoomRange[1] + 1) : chartData
-  const viewRsi = rsi && viewStart != null && viewEnd != null
-    ? rsi.filter((p) => p.time >= viewStart && p.time <= viewEnd)
-    : rsi
+  const viewChartData = zoomRange ? liveChartData.slice(zoomRange[0], zoomRange[1] + 1) : liveChartData
 
   const handleMouseDown = (e: any) => {
     if (e?.activeLabel != null) setRefLeft(e.activeLabel)
@@ -184,6 +216,7 @@ export function SupportResistanceChart({
 
   if (!chartData?.length) return null
 
+  const effectiveLastClose = liveLtp ?? lastClose ?? null
   const lows = view.map((b) => b.low)
   const highs = view.map((b) => b.high)
   const visibleEmaPeriods = emaPeriods.filter((p) => !isHidden(`ema:${p}`))
@@ -197,15 +230,37 @@ export function SupportResistanceChart({
   const visibleSupportZone = supportZone && !isHidden('supportZone') ? supportZone : null
   const visibleResistanceZone = resistanceZone && !isHidden('resistanceZone') ? resistanceZone : null
   const visibleTrendlines = isHidden('trendlines') ? [] : (trendlines ?? [])
+  const liveExtras = effectiveLastClose != null ? [effectiveLastClose] : []
+  const indPrices = indOverlays.flatMap((ov) =>
+    view
+      .map((b) => Number((b as Record<string, unknown>)[ov.key]))
+      .filter((n) => Number.isFinite(n)),
+  )
   const padding = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
-  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
+  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
+  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
 
-  const hasVolume = chartData.some((b) => b.volume != null)
-  const hasRsi = Boolean(rsi && rsi.length)
+  const hasVolume = showVolumeInd && liveChartData.some((b) => b.volume != null && Number(b.volume) > 0)
+  const hasRsi = showRsiInd
 
   return (
     <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <ChartStyleIndicatorControls
+          chartType={style}
+          setChartType={setStyle}
+          selected={indicators}
+          toggle={toggleIndicator}
+        />
+        <ChartStreamControls
+          streamOn={streamOn}
+          setStreamOn={setStreamOn}
+          barCount={barCount}
+          setBarCount={setBarCount}
+          canStream={canStream}
+          liveLtp={liveLtp}
+        />
+      </div>
       <div className="relative h-72 w-full select-none">
         {zoomRange && (
           <button
@@ -233,7 +288,7 @@ export function SupportResistanceChart({
               tickFormatter={fmtNum}
               allowDataOverflow
             />
-            <Tooltip content={<PriceTooltip chartType={chartType} />} />
+            <Tooltip content={<PriceTooltip chartType={style} />} />
 
             {visibleSupportZone && (
               <ReferenceArea
@@ -315,12 +370,12 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {lastClose != null && !isHidden('lastClose') && (
+            {effectiveLastClose != null && !isHidden('lastClose') && (
               <ReferenceLine
-                y={lastClose}
+                y={effectiveLastClose}
                 stroke="#e2e8f0"
                 strokeDasharray="2 2"
-                label={{ value: `Now ${fmtNum(lastClose)}`, position: 'insideTopRight', fill: '#e2e8f0', fontSize: 11 }}
+                label={{ value: `Now ${fmtNum(effectiveLastClose)}`, position: 'insideTopRight', fill: '#e2e8f0', fontSize: 11 }}
               />
             )}
 
@@ -350,7 +405,22 @@ export function SupportResistanceChart({
               />
             ))}
 
-            {chartType === 'candles' ? (
+            {indOverlays.map((ov) => (
+              <Line
+                key={ov.key}
+                type="monotone"
+                dataKey={ov.key}
+                stroke={ov.color}
+                strokeWidth={ov.key.startsWith('bb_') ? 1 : 1.5}
+                strokeDasharray={ov.dash}
+                dot={false}
+                connectNulls
+                isAnimationActive={false}
+                name={ov.label}
+              />
+            ))}
+
+            {style === 'candles' ? (
               <Bar dataKey="range" name="Price" shape={CandlestickShape} isAnimationActive={false} />
             ) : (
               <Line type="monotone" dataKey="close" stroke="#f8fafc" strokeWidth={1.5} dot={false} name="Close" isAnimationActive={false} />
@@ -388,7 +458,7 @@ export function SupportResistanceChart({
         <div className="h-24 w-full">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">RSI (14)</p>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={viewRsi ?? []} margin={{ top: 0, right: 16, left: 4, bottom: 0 }}>
+            <ComposedChart data={view} margin={{ top: 0, right: 16, left: 4, bottom: 0 }}>
               <XAxis dataKey="time" hide allowDataOverflow />
               <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} width={64} />
               <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="3 3" strokeOpacity={0.6} />
@@ -398,7 +468,7 @@ export function SupportResistanceChart({
                 labelStyle={{ color: '#e2e8f0' }}
                 formatter={(value) => [Number(value).toFixed(1), 'RSI']}
               />
-              <Line type="monotone" dataKey="value" stroke="#c084fc" strokeWidth={1.5} dot={false} name="RSI" isAnimationActive={false} />
+              <Line type="monotone" dataKey="rsi" stroke="#c084fc" strokeWidth={1.5} dot={false} connectNulls name="RSI" isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -425,7 +495,7 @@ export function SupportResistanceChart({
                 if (fibonacci) all.add('fibonacci')
                 if (supplyDemandZones.length) all.add('supplyDemand')
                 if (orderBlocks.length) all.add('orderBlocks')
-                if (lastClose != null) all.add('lastClose')
+                if (effectiveLastClose != null) all.add('lastClose')
                 emaPeriods.forEach((p) => all.add(`ema:${p}`))
                 levels.forEach((lv) => all.add(`level:${lv.label}`))
                 setHidden(all)
@@ -436,7 +506,7 @@ export function SupportResistanceChart({
             </button>
           </>
         )}
-        {chartType === 'candles' ? (
+        {style === 'candles' ? (
           <>
             <span className="inline-flex items-center gap-1 text-slate-500"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BULL_COLOR }} /> Bullish candle</span>
             <span className="inline-flex items-center gap-1 text-slate-500"><span className="h-2 w-2 rounded-sm" style={{ backgroundColor: BEAR_COLOR }} /> Bearish candle</span>
@@ -477,7 +547,7 @@ export function SupportResistanceChart({
             Order blocks
           </LegendToggle>
         )}
-        {lastClose != null && (
+        {effectiveLastClose != null && (
           <LegendToggle active={!isHidden('lastClose')} color="#e2e8f0" onClick={() => toggleHidden('lastClose')}>
             Now line
           </LegendToggle>

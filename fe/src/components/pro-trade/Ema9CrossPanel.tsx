@@ -260,6 +260,8 @@ function TickerResultCard({
           {showCharts && chartData.length > 0 && (
             <VolumeProfileChart
               chartData={chartData}
+              ticker={String(result.ticker ?? '')}
+              assetClass={assetClass}
               series={series}
               levels={levels}
               readingGuide={readingGuide}

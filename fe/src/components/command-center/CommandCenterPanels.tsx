@@ -1630,6 +1630,8 @@ function EmaPositionPanel({ data, showCharts = false }: { data: Row; showCharts?
               </div>
               <SupportResistanceChart
                 chartData={r.chart_data as SRChartBar[]}
+                ticker={String(r.ticker ?? '')}
+                assetClass={String(data.asset_class ?? 'india')}
                 supportZone={(r.support_zone as [number, number] | null | undefined) ?? null}
                 resistanceZone={(r.resistance_zone as [number, number] | null | undefined) ?? null}
                 trendlines={[]}

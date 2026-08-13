@@ -159,6 +159,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={levels}
                 histogram={histogram}
                 readingGuide="Candles show price; the yellow POC line is where the most volume traded (a magnet price often returns to), with green VAL/red VAH marking the value area's lower/upper edge — price holding above VAL is bullish, breaking below is bearish. The bars on the right show volume traded at each price level. The green/red Support/Resistance band marks the nearest swing-based zone: a bounce off Support favors longs, a rejection at Resistance favors shorts."

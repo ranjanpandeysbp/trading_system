@@ -166,6 +166,8 @@ function TickerResultCard({
             <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
               <VolumeProfileChart
                 chartData={chartData}
+                ticker={String(result.ticker ?? '')}
+                assetClass={assetClass}
                 levels={chartLevels}
                 histogram={histogram}
                 readingGuide="Candles show price action (the pattern of highs/lows/closes); the yellow POC line and green/red VAL/VAH lines mark the volume profile's value area — where most trading actually happened. The bars on the right show volume at each price. A candle rejecting a level with a long wick, or closing strongly through it, is more meaningful than one that just drifts across it."
