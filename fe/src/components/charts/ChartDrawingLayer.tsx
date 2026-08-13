@@ -396,6 +396,7 @@ export function ChartDrawingToolbar({
   patch,
   removeSelected,
   clear,
+  orientation = 'horizontal',
 }: {
   tool: DrawTool
   setTool: (t: DrawTool) => void
@@ -404,13 +405,15 @@ export function ChartDrawingToolbar({
   patch: (id: string, partial: Partial<ChartDrawing>) => void
   removeSelected: () => void
   clear: () => void
+  orientation?: 'horizontal' | 'vertical'
 }) {
   const selected = selectedId ? drawings.find((d) => d.id === selectedId) : null
   const canExtend =
     selected != null && (selected.kind === 'trend' || selected.kind === 'fib')
+  const vertical = orientation === 'vertical'
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className={vertical ? 'flex flex-col items-stretch gap-1' : 'flex flex-wrap items-center gap-1.5'}>
       {TOOL_BUTTONS.map((t) => {
         const Icon = t.icon
         return (
@@ -420,9 +423,9 @@ export function ChartDrawingToolbar({
             onClick={() => setTool(t.id)}
             title={t.title}
           >
-            <span className="inline-flex items-center gap-1">
+            <span className={`inline-flex items-center ${vertical ? 'justify-center' : 'gap-1'}`}>
               <Icon size={13} />
-              {t.label}
+              {!vertical && t.label}
             </span>
           </Chip>
         )
@@ -435,14 +438,14 @@ export function ChartDrawingToolbar({
             onClick={() => patch(selected.id, { extendLeft: !selected.extendLeft })}
             title="Extend left"
           >
-            Extend←
+            {vertical ? '←' : 'Extend←'}
           </Chip>
           <Chip
             selected={selected.extendRight}
             onClick={() => patch(selected.id, { extendRight: !selected.extendRight })}
             title="Extend right"
           >
-            Extend→
+            {vertical ? '→' : 'Extend→'}
           </Chip>
         </>
       )}
@@ -453,9 +456,10 @@ export function ChartDrawingToolbar({
         disabled={!selectedId}
         onClick={removeSelected}
         title="Delete selected"
+        className={vertical ? '!px-2' : undefined}
       >
         <Trash2 size={14} />
-        Delete
+        {!vertical && 'Delete'}
       </Button>
       <Button
         size="sm"
@@ -463,21 +467,25 @@ export function ChartDrawingToolbar({
         disabled={drawings.length === 0}
         onClick={clear}
         title="Clear all drawings"
+        className={vertical ? '!px-2' : undefined}
       >
-        Clear
+        {!vertical && 'Clear'}
+        {vertical && <span className="text-[10px]">Clr</span>}
       </Button>
 
-      <span className="ml-1 text-[11px] text-slate-500">
-        {tool === 'select'
-          ? 'Click to select · drag handles · Esc deselect · Del remove'
-          : tool === 'fib'
-            ? 'Click-drag from swing high → low (or reverse)'
-            : tool === 'trend' || tool === 'rect'
-              ? 'Click-drag to place'
-              : tool === 'hline' || tool === 'hray'
-                ? 'Click (or drag) at price level'
-                : 'Click (or drag) to place'}
-      </span>
+      {!vertical && (
+        <span className="ml-1 text-[11px] text-slate-500">
+          {tool === 'select'
+            ? 'Click to select · drag handles · Esc deselect · Del remove'
+            : tool === 'fib'
+              ? 'Click-drag from swing high → low (or reverse)'
+              : tool === 'trend' || tool === 'rect'
+                ? 'Click-drag to place'
+                : tool === 'hline' || tool === 'hray'
+                  ? 'Click (or drag) at price level'
+                  : 'Click (or drag) to place'}
+        </span>
+      )}
     </div>
   )
 }

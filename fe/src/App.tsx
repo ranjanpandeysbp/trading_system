@@ -5,6 +5,7 @@ import StrategyLab from './pages/StrategyLab'
 import Seasonality from './pages/Seasonality'
 import YoutubeAnalysis from './pages/YoutubeAnalysis'
 import InvestingAgent from './pages/InvestingAgent'
+import ChartAnalyzer from './pages/ChartAnalyzer'
 import Alerts from './pages/Alerts'
 import WatchlistPage from './pages/Watchlist'
 import TodosPage from './pages/Todos'
@@ -99,6 +100,7 @@ export default function App() {
                 <Route path="/seasonality" element={<Seasonality />} />
                 <Route path="/youtube-analysis" element={<YoutubeAnalysis />} />
                 <Route path="/investing-agent" element={<InvestingAgent />} />
+                <Route path="/chart-analyzer" element={<ChartAnalyzer />} />
                 <Route path="/workflow" element={<Navigate to="/workflow/india" replace />} />
                 <Route path="/workflow/:market" element={<Workflow />} />
                 <Route path="/best-strategies" element={<Navigate to="/best-strategies/india" replace />} />

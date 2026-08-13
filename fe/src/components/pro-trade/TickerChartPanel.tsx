@@ -302,7 +302,7 @@ function OscillatorChart({
   )
 }
 
-function PriceChart({
+export function PriceChart({
   points,
   candles,
   supportResistance,
@@ -312,6 +312,9 @@ function PriceChart({
   fibLevels,
   liveLtp,
   maxBars,
+  workspace = false,
+  hideDrawingToolbar = false,
+  externalDrawings,
 }: {
   points: Row[]
   candles?: Candle[]
@@ -322,10 +325,15 @@ function PriceChart({
   fibLevels?: SrLevel[]
   liveLtp?: number | null
   maxBars?: number
+  /** TradingView-style workspace: taller chart, quieter chrome */
+  workspace?: boolean
+  hideDrawingToolbar?: boolean
+  externalDrawings?: ReturnType<typeof useChartDrawings>
 }) {
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
-  const drawingsApi = useChartDrawings()
-  const expand = useChartExpand()
+  const localDrawings = useChartDrawings()
+  const drawingsApi = externalDrawings ?? localDrawings
+  const expand = useChartExpand(workspace ? 'xl' : 'normal')
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
@@ -568,47 +576,53 @@ function PriceChart({
       onClose={() => expand.setFullscreen(false)}
       title={title}
     >
-    <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+    <div className={workspace ? 'p-0' : 'rounded-xl border border-slate-800/60 bg-slate-950/40 p-3'}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-white">{title}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>
-            Candles
-          </Chip>
-          <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>
-            Line
-          </Chip>
-          <ChartExpandControls
-            size={expand.size}
-            setSize={expand.setSize}
-            fullscreen={expand.fullscreen}
-            setFullscreen={expand.setFullscreen}
-          />
-          <ChartZoomControls
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onReset={resetZoom}
-            isZoomed={isZoomed}
-          />
-          {copyStatus && (
-            <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+        {!workspace && <p className="text-sm font-medium text-white">{title}</p>}
+        <div className={`flex flex-wrap items-center gap-2 ${workspace ? 'w-full justify-between' : ''}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>
+              Candles
+            </Chip>
+            <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>
+              Line
+            </Chip>
+            <ChartExpandControls
+              size={expand.size}
+              setSize={expand.setSize}
+              fullscreen={expand.fullscreen}
+              setFullscreen={expand.setFullscreen}
+            />
+            <ChartZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={resetZoom}
+              isZoomed={isZoomed}
+            />
+            {copyStatus && (
+              <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+            )}
+          </div>
+          {!workspace && (
+            <span className="text-[10px] text-slate-500">
+              green = support · red = resistance
+              {showVolume ? ' · grey = volume' : ''}
+              {showFib ? ' · amber = fib' : ''}
+            </span>
           )}
-          <span className="text-[10px] text-slate-500">
-            green = support · red = resistance
-            {showVolume ? ' · grey = volume' : ''}
-            {showFib ? ' · amber = fib' : ''}
-          </span>
         </div>
       </div>
-      <ChartDrawingToolbar
-        tool={drawTool}
-        setTool={setDrawTool}
-        selectedId={drawSelectedId}
-        drawings={drawings}
-        patch={patchDrawing}
-        removeSelected={removeSelectedDrawing}
-        clear={clearDrawings}
-      />
+      {!hideDrawingToolbar && (
+        <ChartDrawingToolbar
+          tool={drawTool}
+          setTool={setDrawTool}
+          selectedId={drawSelectedId}
+          drawings={drawings}
+          patch={patchDrawing}
+          removeSelected={removeSelectedDrawing}
+          clear={clearDrawings}
+        />
+      )}
       <div ref={chartRef} className={`relative mt-2 w-full select-none ${expand.heightClass}`}>
         {yDomainNums && (
           <ChartDrawingLayer

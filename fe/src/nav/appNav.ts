@@ -30,6 +30,7 @@ import {
   Medal,
   Building2,
   Flame,
+  ChartCandlestick,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -46,6 +47,7 @@ export type NavEntry = {
 export const appNav: NavEntry[] = [
   { to: '/trading-agent', label: 'Trading Agent (TA)', shortLabel: 'TA', icon: MessageSquare },
   { to: '/investing-agent', label: 'Investing Agent (FA)', shortLabel: 'FA', icon: Bot },
+  { to: '/chart-analyzer', label: 'Chart Analyzer', shortLabel: 'Chart', icon: ChartCandlestick },
   {
     to: '/workflow',
     label: 'Workflow',
