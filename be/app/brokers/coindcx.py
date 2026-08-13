@@ -137,8 +137,38 @@ class CoinDCXBrokerAdapter:
                 currency="INR" if available else "USDT",
                 raw={"count": len(holdings)},
             ),
-            message=f"Loaded {len(holdings)} CoinDCX balances.",
+            message=f"Loaded {len(holdings)} CoinDCX balances (docs: https://docs.coindcx.com/).",
         )
+
+    async def list_day_orders(self) -> list[dict[str, Any]]:
+        status, data = await self._signed_post("/exchange/v1/orders/active_orders", {})
+        if status != 200:
+            return []
+        rows = data if isinstance(data, list) else data.get("orders") if isinstance(data, dict) else []
+        if not isinstance(rows, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            out.append(
+                {
+                    "id": -(i + 1),
+                    "broker": self.id,
+                    "broker_order_id": str(row.get("id") or row.get("order_id") or ""),
+                    "ticker": row.get("market") or row.get("pair"),
+                    "side": str(row.get("side") or "").lower(),
+                    "quantity": row.get("total_quantity") or row.get("remaining_quantity"),
+                    "order_type": str(row.get("order_type") or "").lower(),
+                    "status": str(row.get("status") or "open").lower(),
+                    "limit_price": row.get("price_per_unit"),
+                    "product": "crypto",
+                    "exchange": "CoinDCX",
+                    "created_at": None,
+                    "source": "broker",
+                }
+            )
+        return out
 
     async def place_order(
         self,

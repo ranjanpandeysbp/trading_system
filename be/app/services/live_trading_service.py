@@ -44,12 +44,30 @@ class LiveTradingService:
         else:
             error = {"code": "not_configured", "message": status.message}
 
-        orders = await self._recent_orders(broker_id)
+        local_orders = await self._recent_orders(broker_id)
+        broker_day_orders: list[dict[str, Any]] = []
+        if status.connected and hasattr(adapter, "list_day_orders"):
+            try:
+                broker_day_orders = await adapter.list_day_orders()  # type: ignore[attr-defined]
+            except Exception as exc:
+                if error is None:
+                    error = {"code": "order_book_error", "message": f"Day order book: {exc}"}
+
+        # Prefer local audit rows; append broker day orders not already mirrored
+        seen_ids = {str(o.get("broker_order_id") or "") for o in local_orders if o.get("broker_order_id")}
+        merged = list(local_orders)
+        for bo in broker_day_orders or []:
+            bid = str(bo.get("broker_order_id") or "")
+            if bid and bid in seen_ids:
+                continue
+            merged.append(bo)
+
         return {
             "broker": status.as_dict(),
             "portfolio": portfolio,
             "error": error,
-            "recent_orders": orders,
+            "recent_orders": merged,
+            "broker_day_orders": broker_day_orders,
         }
 
     async def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -348,7 +348,7 @@ export default function LiveTrade() {
                 </thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id}>
+                    <tr key={`${o.id}-${o.broker_order_id || ''}`}>
                       <Td className="text-[11px] text-slate-500">
                         {o.created_at ? new Date(o.created_at).toLocaleString() : '—'}
                       </Td>
@@ -365,7 +365,11 @@ export default function LiveTrade() {
                         {o.broker_order_id || '—'}
                       </Td>
                       <Td>
-                        {o.broker_order_id && !['cancelled', 'rejected', 'error'].includes(o.status) && (
+                        {o.id > 0 &&
+                          o.broker_order_id &&
+                          !['cancelled', 'rejected', 'error', 'success', 'filled'].includes(
+                            String(o.status || '').toLowerCase(),
+                          ) && (
                           <Button
                             size="sm"
                             variant="ghost"

@@ -382,6 +382,7 @@ export const getLiveAccount = (broker: LiveBrokerId | string) =>
       } | null
       error?: { code: string; message: string } | null
       recent_orders: LiveOrderRow[]
+      broker_day_orders?: LiveOrderRow[]
     }>('/live/account', { params: { broker } })
     .then((r) => r.data)
 
