@@ -25,6 +25,7 @@ import {
   ChartZoomControls,
   copyChartImage,
   useChartContextMenu,
+  useChartPanDrag,
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
@@ -302,10 +303,18 @@ export function PaperTradingChart({
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed,
   } = useIndexZoom(windowRows.length)
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+  useChartPanDrag(chartRef, {
+    enabled: drawTool === 'select' && !drawSelectedId,
+    totalLength: windowRows.length,
+    zoomRange,
+    panBy,
+    primaryPan: true,
+  })
 
   const chartRows = useMemo(() => {
     const real = zoomRange

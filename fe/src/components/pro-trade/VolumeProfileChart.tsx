@@ -31,9 +31,11 @@ import {
   ChartZoomControls,
   copyChartImage,
   useChartContextMenu,
+  useChartPanDrag,
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
 
 const VP_PLOT_INSETS: PlotInsets = { top: 8, right: 12, bottom: 32, left: 64 }
 
@@ -224,6 +226,7 @@ export function VolumeProfileChart({
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const { showSr, toggleSr } = useAutoSrVisible(true)
   const {
     tool: drawTool,
     drawings,
@@ -272,6 +275,7 @@ export function VolumeProfileChart({
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed,
   } = useIndexZoom(merged.length)
 
@@ -289,6 +293,14 @@ export function VolumeProfileChart({
   }
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+  useChartPanDrag(chartRef, {
+    enabled: drawTool === 'select' && !drawSelectedId,
+    totalLength: merged.length,
+    zoomRange,
+    panBy,
+    // When zoomed, drag pans; when not, Shift/middle still pans (left-drag keeps range-select zoom)
+    primaryPan: isZoomed,
+  })
 
   const timeIndex = useMemo(() => {
     const m = new Map<string, number>()
@@ -341,7 +353,9 @@ export function VolumeProfileChart({
     return <p className="text-xs text-slate-500">No chart data for this ticker.</p>
   }
 
-  const visibleLevels = levels.filter((l) => !hidden.has(`level:${l.label}`))
+  const visibleLevels = showSr
+    ? levels.filter((l) => !hidden.has(`level:${l.label}`))
+    : []
   const visibleWaves = waves.filter((_, i) => !hidden.has(`wave:${i}`))
   const visibleSeries = series.filter((s) => !hidden.has(`series:${s.key}`))
   const anyHideable = levels.length > 0 || waves.length > 0 || series.length > 0
@@ -426,6 +440,9 @@ export function VolumeProfileChart({
           onReset={resetZoom}
           isZoomed={isZoomed}
         />
+        {levels.length > 0 && (
+          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+        )}
         {copyStatus && (
           <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
         )}
@@ -548,9 +565,9 @@ export function VolumeProfileChart({
             <ComposedChart
               data={view}
               margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
-              onMouseDown={drawTool === 'select' && !drawSelectedId ? handleMouseDown : undefined}
-              onMouseMove={drawTool === 'select' && !drawSelectedId ? handleMouseMove : undefined}
-              onMouseUp={drawTool === 'select' && !drawSelectedId ? handleMouseUp : undefined}
+              onMouseDown={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseDown : undefined}
+              onMouseMove={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseMove : undefined}
+              onMouseUp={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseUp : undefined}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={36} allowDataOverflow />

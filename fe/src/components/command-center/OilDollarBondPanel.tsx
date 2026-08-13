@@ -35,9 +35,11 @@ import {
   ChartZoomControls,
   copyChartImage,
   useChartContextMenu,
+  useChartPanDrag,
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
@@ -123,6 +125,7 @@ function SeriesChart({
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const { showSr, toggleSr } = useAutoSrVisible(true)
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -143,6 +146,8 @@ function SeriesChart({
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
 
+  const visibleSrLevels = showSr ? levels : []
+
   const windowPoints = useMemo(() => {
     if (barCount > 0 && points.length > barCount) return points.slice(-barCount)
     return points
@@ -153,10 +158,17 @@ function SeriesChart({
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed,
   } = useIndexZoom(windowPoints.length)
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+  useChartPanDrag(chartRef, {
+    totalLength: windowPoints.length,
+    zoomRange,
+    panBy,
+    primaryPan: true,
+  })
 
   const viewPoints = useMemo(() => {
     if (!zoomRange) return windowPoints
@@ -186,13 +198,13 @@ function SeriesChart({
     if (!vals.length) return ['auto', 'auto']
     let lo = Math.min(...vals)
     let hi = Math.max(...vals)
-    for (const lv of levels) {
+    for (const lv of visibleSrLevels) {
       lo = Math.min(lo, lv.price)
       hi = Math.max(hi, lv.price)
     }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [viewPoints, levels])
+  }, [viewPoints, visibleSrLevels])
 
   if (!points.length) {
     return (
@@ -233,6 +245,9 @@ function SeriesChart({
           onReset={resetZoom}
           isZoomed={isZoomed}
         />
+        {levels.length > 0 && (
+          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+        )}
         {copyStatus && (
           <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
         )}
@@ -287,7 +302,7 @@ function SeriesChart({
                 return [Number(value).toFixed(3), title]
               }) as any}
             />
-            {levels.map((lv) => {
+            {visibleSrLevels.map((lv) => {
               const isSupport = lv.kind === 'support'
               const stroke = isSupport ? '#34d399' : '#f87171'
               return (
@@ -323,9 +338,9 @@ function SeriesChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {levels.length > 0 && (
+      {visibleSrLevels.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800/50 pt-2 text-[10px]">
-          {levels.map((lv) => (
+          {visibleSrLevels.map((lv) => (
             <span
               key={`legend-${lv.label}-${lv.price}`}
               className={lv.kind === 'support' ? 'text-emerald-400' : 'text-rose-400'}

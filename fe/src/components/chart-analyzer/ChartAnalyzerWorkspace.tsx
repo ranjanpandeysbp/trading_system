@@ -466,8 +466,8 @@ export function ChartAnalyzerWorkspace() {
           )}
           <span className="ml-auto text-[10px] text-slate-600 sm:ml-0">
             {immersive
-              ? 'Fullscreen · Esc exits · Ctrl+scroll zoom · right-click chart'
-              : 'Ctrl+scroll zoom · right-click chart · Fullscreen hides sidebar'}
+              ? 'Fullscreen · Esc exits · drag to pan · Ctrl+scroll zoom'
+              : 'Hold & drag to pan · Ctrl+scroll zoom · Fullscreen hides sidebar'}
           </span>
         </div>
       </div>
@@ -752,21 +752,26 @@ function RightPanelBody({
             {srLevels.length === 0 ? (
               <p className="text-xs text-slate-500">Load a chart to see S/R levels.</p>
             ) : (
-              <div className="space-y-1">
-                {srLevels.map((lv) => (
-                  <div
-                    key={`${lv.label}-${lv.price}`}
-                    className="flex items-center justify-between rounded-lg border border-slate-800/60 bg-slate-900/40 px-2.5 py-1.5 text-xs"
-                  >
-                    <span className={lv.kind === 'support' ? 'text-emerald-400' : 'text-rose-400'}>
-                      {lv.label}
-                    </span>
-                    <span className="tabular-nums text-slate-200">
-                      {fmtNum(lv.price, lv.price >= 100 ? 2 : 4)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <p className="text-[11px] text-slate-500">
+                  Use the <span className="text-slate-300">S/R on/off</span> chip on the chart toolbar to hide or show automatic support &amp; resistance lines.
+                </p>
+                <div className="space-y-1">
+                  {srLevels.map((lv) => (
+                    <div
+                      key={`${lv.label}-${lv.price}`}
+                      className="flex items-center justify-between rounded-lg border border-slate-800/60 bg-slate-900/40 px-2.5 py-1.5 text-xs"
+                    >
+                      <span className={lv.kind === 'support' ? 'text-emerald-400' : 'text-rose-400'}>
+                        {lv.label}
+                      </span>
+                      <span className="tabular-nums text-slate-200">
+                        {fmtNum(lv.price, lv.price >= 100 ? 2 : 4)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
             {fibLevels.length > 0 && (
               <div>

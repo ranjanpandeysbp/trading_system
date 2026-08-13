@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { Copy, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { Copy, HandGrab, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { Chip } from '../ui/Chip'
 
 const MIN_BARS = 12
@@ -16,9 +16,10 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n))
 }
 
-/** Index-window zoom for OHLC series (TradingView-like zoom in/out). */
+/** Index-window zoom for OHLC series (TradingView-like zoom in/out + pan). */
 export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
+  const panFracRef = useRef(0)
 
   // Keep range valid when data length changes
   useEffect(() => {
@@ -36,6 +37,7 @@ export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
   const zoomIn = useCallback(() => {
     const len = totalLength
     if (len <= minBars) return
+    panFracRef.current = 0
     if (!zoomRange) {
       const span = Math.max(minBars, Math.floor(len * 0.55))
       const start = Math.max(0, len - span)
@@ -57,6 +59,7 @@ export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
     const [a, b] = zoomRange
     const span = b - a + 1
     const next = Math.min(len, Math.ceil(span * 1.55))
+    panFracRef.current = 0
     if (next >= len - 1) {
       setZoomRange(null)
       return
@@ -66,7 +69,37 @@ export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
     setZoomRange([start, start + next - 1])
   }, [totalLength, zoomRange])
 
-  const resetZoom = useCallback(() => setZoomRange(null), [])
+  const resetZoom = useCallback(() => {
+    panFracRef.current = 0
+    setZoomRange(null)
+  }, [])
+
+  /** Drag right → older bars (indices decrease). Accepts fractional bar deltas. */
+  const panBy = useCallback(
+    (deltaBars: number) => {
+      const len = totalLength
+      if (len <= minBars || !Number.isFinite(deltaBars) || deltaBars === 0) return
+
+      panFracRef.current += deltaBars
+      const shift = Math.trunc(panFracRef.current)
+      if (shift === 0) return
+      panFracRef.current -= shift
+
+      let a: number
+      let b: number
+      if (!zoomRange) {
+        const span = Math.max(minBars, Math.floor(len * 0.55))
+        a = Math.max(0, len - span)
+        b = len - 1
+      } else {
+        ;[a, b] = zoomRange
+      }
+      const span = b - a + 1
+      const start = clamp(a - shift, 0, Math.max(0, len - span))
+      setZoomRange([start, start + span - 1])
+    },
+    [totalLength, zoomRange, minBars],
+  )
 
   return {
     zoomRange,
@@ -74,6 +107,7 @@ export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed: zoomRange != null,
   }
 }
@@ -110,8 +144,143 @@ export function ChartZoomControls({
           <RotateCcw size={12} /> Reset zoom
         </span>
       </Chip>
+      <span
+        className="inline-flex items-center gap-1 rounded-full border border-slate-800/80 px-2 py-0.5 text-[10px] text-slate-500"
+        title="Hold and drag the chart left/right to pan. Shift+drag also pans."
+      >
+        <HandGrab size={11} /> Drag to pan
+      </span>
     </div>
   )
+}
+
+/**
+ * Hold + drag horizontally to pan the visible bar window.
+ * - primaryPan: left-drag always pans (auto-zooms into a window if needed)
+ * - otherwise: pans when already zoomed, or with Shift / middle mouse
+ */
+export function useChartPanDrag(
+  chartRef: RefObject<HTMLElement | null>,
+  opts: {
+    enabled?: boolean
+    totalLength: number
+    zoomRange: [number, number] | null
+    panBy: (deltaBars: number) => void
+    /** When true, plain left-drag pans (Price / Paper / Oil charts). */
+    primaryPan?: boolean
+  },
+) {
+  const { enabled = true, totalLength, zoomRange, panBy, primaryPan = false } = opts
+  const panByRef = useRef(panBy)
+  panByRef.current = panBy
+  const zoomRangeRef = useRef(zoomRange)
+  zoomRangeRef.current = zoomRange
+  const primaryPanRef = useRef(primaryPan)
+  primaryPanRef.current = primaryPan
+  const totalLengthRef = useRef(totalLength)
+  totalLengthRef.current = totalLength
+
+  useEffect(() => {
+    const el = chartRef.current
+    if (!el || !enabled) return
+
+    let active = false
+    let panning = false
+    let startX = 0
+    let lastX = 0
+    let pointerId: number | null = null
+    const prevCursor = el.style.cursor
+
+    const visibleBars = () => {
+      const zr = zoomRangeRef.current
+      const len = totalLengthRef.current
+      if (zr) return Math.max(1, zr[1] - zr[0] + 1)
+      return Math.max(1, Math.floor(len * 0.55))
+    }
+
+    const canStartPan = (e: PointerEvent) => {
+      if (e.button === 1) return true // middle mouse
+      if (e.button !== 0) return false
+      if (e.shiftKey) return true
+      if (primaryPanRef.current) return true
+      if (zoomRangeRef.current != null) return true
+      return false
+    }
+
+    const onDown = (e: PointerEvent) => {
+      if (!canStartPan(e)) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('button, input, select, textarea, a')) return
+      active = true
+      panning = false
+      startX = e.clientX
+      lastX = e.clientX
+      pointerId = e.pointerId
+      try {
+        el.setPointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const onMove = (e: PointerEvent) => {
+      if (!active) return
+      if (!panning) {
+        if (Math.abs(e.clientX - startX) < 5) return
+        panning = true
+        el.style.cursor = 'grabbing'
+        el.classList.add('select-none')
+      }
+      const dx = e.clientX - lastX
+      lastX = e.clientX
+      if (dx === 0) return
+      const w = Math.max(1, el.getBoundingClientRect().width)
+      const deltaBars = (dx / w) * visibleBars()
+      panByRef.current(deltaBars)
+      e.preventDefault()
+    }
+
+    const onUp = (e: PointerEvent) => {
+      if (!active) return
+      active = false
+      panning = false
+      el.style.cursor = primaryPanRef.current || zoomRangeRef.current ? 'grab' : prevCursor
+      el.classList.remove('select-none')
+      if (pointerId != null) {
+        try {
+          el.releasePointerCapture(pointerId)
+        } catch {
+          /* ignore */
+        }
+      }
+      pointerId = null
+      if (e.button === 1) e.preventDefault()
+    }
+
+    el.style.cursor = primaryPan || zoomRange ? 'grab' : prevCursor
+    el.addEventListener('pointerdown', onDown)
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+    el.addEventListener('lostpointercapture', onUp)
+    const onAux = (e: MouseEvent) => {
+      if (e.button === 1) e.preventDefault()
+    }
+    el.addEventListener('auxclick', onAux)
+    el.addEventListener('mousedown', onAux)
+
+    return () => {
+      el.style.cursor = prevCursor
+      el.classList.remove('select-none')
+      el.removeEventListener('pointerdown', onDown)
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      el.removeEventListener('lostpointercapture', onUp)
+      el.removeEventListener('auxclick', onAux)
+      el.removeEventListener('mousedown', onAux)
+    }
+  }, [chartRef, enabled, primaryPan, zoomRange])
 }
 
 /** Serialize chart SVG → PNG blob for clipboard / download. */
@@ -125,7 +294,6 @@ export async function chartElementToPngBlob(root: HTMLElement): Promise<Blob | n
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   clone.setAttribute('width', String(w))
   clone.setAttribute('height', String(h))
-  // Dark background so copied chart isn't transparent on white paste targets
   const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
   bg.setAttribute('width', '100%')
   bg.setAttribute('height', '100%')

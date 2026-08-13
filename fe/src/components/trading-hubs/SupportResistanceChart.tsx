@@ -22,9 +22,11 @@ import {
   ChartZoomControls,
   copyChartImage,
   useChartContextMenu,
+  useChartPanDrag,
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
 
 const SR_PLOT_INSETS: PlotInsets = { top: 8, right: 16, bottom: 32, left: 68 }
 
@@ -145,6 +147,7 @@ export function SupportResistanceChart({
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const { showSr, toggleSr } = useAutoSrVisible(true)
   const {
     tool: drawTool,
     drawings,
@@ -209,6 +212,7 @@ export function SupportResistanceChart({
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed,
   } = useIndexZoom(merged.length)
 
@@ -226,6 +230,13 @@ export function SupportResistanceChart({
   }
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+  useChartPanDrag(chartRef, {
+    enabled: drawTool === 'select' && !drawSelectedId,
+    totalLength: merged.length,
+    zoomRange,
+    panBy,
+    primaryPan: isZoomed,
+  })
 
   const timeIndex = useMemo(() => {
     const m = new Map<string, number>()
@@ -279,10 +290,12 @@ export function SupportResistanceChart({
   const visibleSupplyDemand = isHidden('supplyDemand') ? [] : (supplyDemandZones ?? [])
   const visibleOrderBlocks = isHidden('orderBlocks') ? [] : (orderBlocks ?? [])
   const zoneValues = [...visibleSupplyDemand, ...visibleOrderBlocks].flatMap((z) => [z.top, z.bottom])
-  const visibleLevels = (levels ?? []).filter((lv) => !isHidden(`level:${lv.label}`))
+  const visibleLevels = showSr
+    ? (levels ?? []).filter((lv) => !isHidden(`level:${lv.label}`))
+    : []
   const levelValues = visibleLevels.map((lv) => lv.price)
-  const visibleSupportZone = supportZone && !isHidden('supportZone') ? supportZone : null
-  const visibleResistanceZone = resistanceZone && !isHidden('resistanceZone') ? resistanceZone : null
+  const visibleSupportZone = showSr && supportZone && !isHidden('supportZone') ? supportZone : null
+  const visibleResistanceZone = showSr && resistanceZone && !isHidden('resistanceZone') ? resistanceZone : null
   const visibleTrendlines = isHidden('trendlines') ? [] : (trendlines ?? [])
   const liveExtras = effectiveLastClose != null ? [effectiveLastClose] : []
   const indPrices = indOverlays.flatMap((ov) =>
@@ -343,6 +356,9 @@ export function SupportResistanceChart({
           onReset={resetZoom}
           isZoomed={isZoomed}
         />
+        {(Boolean(supportZone) || Boolean(resistanceZone) || (levels?.length ?? 0) > 0) && (
+          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+        )}
         {copyStatus && (
           <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
         )}
@@ -382,9 +398,9 @@ export function SupportResistanceChart({
           <ComposedChart
             data={view}
             margin={{ top: 8, right: 16, left: 4, bottom: 4 }}
-            onMouseDown={drawTool === 'select' && !drawSelectedId ? handleMouseDown : undefined}
-            onMouseMove={drawTool === 'select' && !drawSelectedId ? handleMouseMove : undefined}
-            onMouseUp={drawTool === 'select' && !drawSelectedId ? handleMouseUp : undefined}
+            onMouseDown={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseDown : undefined}
+            onMouseMove={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseMove : undefined}
+            onMouseUp={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseUp : undefined}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={40} allowDataOverflow />

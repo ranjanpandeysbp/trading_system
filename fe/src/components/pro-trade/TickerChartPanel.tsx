@@ -25,9 +25,11 @@ import {
   ChartZoomControls,
   copyChartImage,
   useChartContextMenu,
+  useChartPanDrag,
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Card } from '../ui/Card'
@@ -337,6 +339,7 @@ export function PriceChart({
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const { showSr, toggleSr } = useAutoSrVisible(true)
   const {
     tool: drawTool,
     drawings,
@@ -372,6 +375,8 @@ export function PriceChart({
     if (supportResistance?.r2 != null) fallback.push({ label: 'R2', kind: 'resistance', price: Number(supportResistance.r2) })
     return fallback.filter((lv) => Number.isFinite(lv.price))
   }, [supportResistance])
+
+  const visibleSrLevels = showSr ? levels : []
 
   const fibRefs = useMemo(() => {
     if (!showFib) return []
@@ -453,10 +458,18 @@ export function PriceChart({
     zoomIn,
     zoomOut,
     resetZoom,
+    panBy,
     isZoomed,
   } = useIndexZoom(chartRowsBase.length)
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
+  useChartPanDrag(chartRef, {
+    enabled: drawTool === 'select' && !drawSelectedId,
+    totalLength: chartRowsBase.length,
+    zoomRange,
+    panBy,
+    primaryPan: true,
+  })
 
   const chartRows = useMemo(() => {
     const real = zoomRange
@@ -521,7 +534,7 @@ export function PriceChart({
     if (!vals.length) return null
     let lo = Math.min(...vals)
     let hi = Math.max(...vals)
-    for (const lv of levels) {
+    for (const lv of visibleSrLevels) {
       lo = Math.min(lo, lv.price)
       hi = Math.max(hi, lv.price)
     }
@@ -558,7 +571,7 @@ export function PriceChart({
     }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [chartRows, levels, fibRefs, overlayKeys, effectiveStyle, drawings])
+  }, [chartRows, visibleSrLevels, fibRefs, overlayKeys, effectiveStyle, drawings])
 
   const yDomain = (yDomainNums ?? ['auto', 'auto']) as [number | string, number | string]
 
@@ -599,6 +612,9 @@ export function PriceChart({
               onReset={resetZoom}
               isZoomed={isZoomed}
             />
+            {levels.length > 0 && (
+              <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+            )}
             {copyStatus && (
               <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
             )}
@@ -711,7 +727,7 @@ export function PriceChart({
               }}
             />
             )}
-            {levels.map((lv) => {
+            {visibleSrLevels.map((lv) => {
               const isSupport = lv.kind === 'support'
               const stroke = isSupport ? '#34d399' : '#f87171'
               return (
@@ -785,9 +801,9 @@ export function PriceChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {(levels.length > 0 || overlayKeys.length > 0) && (
+      {(visibleSrLevels.length > 0 || overlayKeys.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800/50 pt-2 text-[11px]">
-          {levels.map((lv) => (
+          {visibleSrLevels.map((lv) => (
             <span
               key={`legend-${lv.label}-${lv.price}`}
               className={lv.kind === 'support' ? 'text-emerald-400' : 'text-rose-400'}
