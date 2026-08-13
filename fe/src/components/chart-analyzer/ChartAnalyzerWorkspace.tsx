@@ -112,15 +112,29 @@ const INDICATOR_OPTIONS: { id: IndicatorId; label: string; group: 'overlay' | 'o
   { id: 'volume', label: 'Volume', group: 'overlay' },
   { id: 'vwap', label: 'VWAP', group: 'overlay' },
   { id: 'supertrend', label: 'Supertrend', group: 'overlay' },
-  { id: 'bollinger', label: 'Bollinger Bands', group: 'overlay' },
+  { id: 'bollinger', label: 'Bollinger Band', group: 'overlay' },
   { id: 'ema_5', label: 'EMA 5', group: 'overlay' },
   { id: 'ema_9', label: 'EMA 9', group: 'overlay' },
   { id: 'ema_20', label: 'EMA 20', group: 'overlay' },
   { id: 'ema_50', label: 'EMA 50', group: 'overlay' },
   { id: 'ema_200', label: 'EMA 200', group: 'overlay' },
-  { id: 'rsi', label: 'RSI (14)', group: 'oscillator' },
+  { id: 'rsi', label: 'RSI', group: 'oscillator' },
   { id: 'macd', label: 'MACD', group: 'oscillator' },
   { id: 'fibonacci', label: 'Fibonacci', group: 'levels' },
+]
+
+/** Primary analysis indicators shown as quick-toggle chips on the chart toolbar. */
+const TOOLBAR_INDICATORS: { id: IndicatorId; label: string }[] = [
+  { id: 'rsi', label: 'RSI' },
+  { id: 'macd', label: 'MACD' },
+  { id: 'supertrend', label: 'Supertrend' },
+  { id: 'vwap', label: 'VWAP' },
+  { id: 'bollinger', label: 'Bollinger Band' },
+  { id: 'ema_5', label: 'EMA 5' },
+  { id: 'ema_9', label: 'EMA 9' },
+  { id: 'ema_20', label: 'EMA 20' },
+  { id: 'ema_50', label: 'EMA 50' },
+  { id: 'ema_200', label: 'EMA 200' },
 ]
 
 const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_20', 'bollinger', 'rsi']
@@ -469,6 +483,69 @@ export function ChartAnalyzerWorkspace() {
               ? 'Fullscreen · Esc exits · drag to pan · Ctrl+scroll zoom'
               : 'Hold & drag to pan · Ctrl+scroll zoom · Fullscreen hides sidebar'}
           </span>
+        </div>
+
+        {/* Indicator quick toggles — apply one or more */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-800/60 pt-2">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Indicators
+          </span>
+          {TOOLBAR_INDICATORS.map((opt) => (
+            <Chip
+              key={opt.id}
+              selected={selectedIndicators.includes(opt.id)}
+              onClick={() => toggleIndicator(opt.id)}
+              title={
+                selectedIndicators.includes(opt.id)
+                  ? `Remove ${opt.label}`
+                  : `Apply ${opt.label}`
+              }
+            >
+              {opt.label}
+            </Chip>
+          ))}
+          <span className="mx-1 hidden h-4 w-px bg-slate-800 sm:inline-block" />
+          <Chip
+            selected={selectedIndicators.includes('volume')}
+            onClick={() => toggleIndicator('volume')}
+            title="Volume bars"
+          >
+            Volume
+          </Chip>
+          <Chip
+            selected={selectedIndicators.includes('fibonacci')}
+            onClick={() => toggleIndicator('fibonacci')}
+            title="Fibonacci levels"
+          >
+            Fib
+          </Chip>
+          <button
+            type="button"
+            className="rounded-md px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-300"
+            onClick={() => setSelectedIndicators(DEFAULT_INDICATORS)}
+            title="Reset to default indicators"
+          >
+            Defaults
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-300"
+            onClick={() =>
+              setSelectedIndicators((prev) => {
+                const ids = TOOLBAR_INDICATORS.map((o) => o.id)
+                const allOn = ids.every((id) => prev.includes(id))
+                if (allOn) return prev.filter((id) => !ids.includes(id))
+                const next = new Set(prev)
+                ids.forEach((id) => next.add(id))
+                return Array.from(next)
+              })
+            }
+            title="Toggle all analysis indicators"
+          >
+            {TOOLBAR_INDICATORS.every((o) => selectedIndicators.includes(o.id))
+              ? 'Clear indicators'
+              : 'All indicators'}
+          </button>
         </div>
       </div>
 
