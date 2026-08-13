@@ -31,6 +31,7 @@ import {
   Building2,
   Flame,
   ChartCandlestick,
+  Radio,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -183,5 +184,6 @@ export const appNav: NavEntry[] = [
   { to: '/scanner', label: 'Scanner', shortLabel: 'Scan', icon: Search },
   { to: '/backtester', label: 'Backtester', shortLabel: 'Test', icon: LineChart },
   { to: '/paper', label: 'Paper Trading', shortLabel: 'Paper', icon: Wallet },
+  { to: '/live', label: 'Live Trade', shortLabel: 'Live', icon: Radio },
   { to: '/settings', label: 'Manage', shortLabel: 'Settings', icon: Settings },
 ]

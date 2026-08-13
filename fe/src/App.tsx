@@ -32,6 +32,7 @@ import Workflow from './pages/Workflow'
 import BestStrategies from './pages/BestStrategies'
 import InstitutionalAccuracy from './pages/InstitutionalAccuracy'
 import PaperTrading from './pages/PaperTrading'
+import LiveTrade from './pages/LiveTrade'
 import ManageSettings from './pages/ManageSettings'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -128,6 +129,7 @@ export default function App() {
                 <Route path="/falling-knife" element={<Navigate to="/prediction/falling-knife" replace />} />
                 <Route path="/backtester" element={<Backtester />} />
                 <Route path="/paper" element={<PaperTrading />} />
+                <Route path="/live" element={<LiveTrade />} />
                 <Route path="/settings" element={<ManageSettings />} />
               </Routes>
             </AppLayout>

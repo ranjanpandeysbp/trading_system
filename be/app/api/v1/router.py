@@ -122,6 +122,7 @@ from app.models.schemas import (
     ProTradeTickerChartRequest,
     DashboardTradingChatRequest,
     PlaceOrderRequest,
+    LivePlaceOrderRequest,
     PredictionPatternAnalogueRequest,
     PredictionAstroFinanceRequest,
     ResetPasswordRequest,
@@ -170,6 +171,7 @@ from app.services.ai_service import AIService
 from app.services.backtest_service import BacktestService
 from app.services.market_pulse_service import MarketPulseService
 from app.services.paper_trading_service import PaperTradingService
+from app.services.live_trading_service import LiveTradingService
 from app.services.scanner_service import ScannerService
 from app.services.seasonality_service import SeasonalityService
 from app.services.strategy_lab_service import StrategyLabService
@@ -938,6 +940,66 @@ async def reset_paper_account(
     settings = SettingsService(db)
     service = PaperTradingService(db, settings, user_id=current_user.id)
     return await service.reset_account()
+
+
+@router.get("/live/brokers")
+async def live_brokers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = LiveTradingService(db, settings, user_id=current_user.id)
+    return await service.list_brokers()
+
+
+@router.get("/live/account")
+async def live_account(
+    broker: str = "indmoney",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = LiveTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.get_account(broker)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/live/orders")
+async def live_place_order(
+    request: LivePlaceOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = LiveTradingService(db, settings, user_id=current_user.id)
+    result = await service.place_order(request.model_dump())
+    if not result.get("ok"):
+        # Still 200 with ok:false so UI can show broker message; use 400 for validation
+        err = (result.get("error") or {}).get("code")
+        if err == "invalid_request":
+            raise HTTPException(status_code=400, detail=(result.get("error") or {}).get("message") or "Invalid order")
+    return result
+
+
+@router.post("/live/orders/{order_id}/cancel")
+async def live_cancel_order(
+    order_id: int,
+    broker: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = SettingsService(db)
+    service = LiveTradingService(db, settings, user_id=current_user.id)
+    try:
+        return await service.cancel_order(broker, order_id)
+    except Exception as exc:
+        from app.brokers.base import BrokerError
+
+        if isinstance(exc, BrokerError):
+            raise HTTPException(status_code=400, detail=exc.message) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/market-pulse/sections")

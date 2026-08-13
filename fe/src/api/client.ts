@@ -310,6 +310,9 @@ export const getSettings = () => api.get<{
   youtube_api_key_set: boolean
   youtube_channel_ids: string
   superinvesting_token_set: boolean
+  coindcx_api_key_set: boolean
+  coindcx_api_secret_set: boolean
+  live_default_broker: string
 }>('/settings').then((r) => r.data)
 export const updateSettings = (payload: Record<string, unknown>) => api.put('/settings', payload).then((r) => r.data)
 export const testProvider = () => api.post('/settings/test-provider').then((r) => r.data)
@@ -321,6 +324,96 @@ export const refreshGrowwToken = () =>
   api.post<{ ok: boolean; error?: string; groww_token_expires_at?: string }>(
     '/settings/groww/refresh-token',
   ).then((r) => r.data)
+
+export type LiveBrokerId = 'indmoney' | 'groww' | 'coindcx'
+
+export type LiveBrokerInfo = {
+  id: string
+  label: string
+  description?: string
+  asset_focus?: string
+  broker_id: string
+  credentials_configured: boolean
+  connected: boolean
+  trading_enabled: boolean
+  message: string
+  details?: Record<string, unknown>
+}
+
+export type LiveOrderRow = {
+  id: number
+  broker: string
+  broker_order_id?: string | null
+  ticker: string
+  side: string
+  quantity: number
+  order_type: string
+  status: string
+  limit_price?: number | null
+  trigger_price?: number | null
+  product?: string | null
+  exchange?: string | null
+  notes?: string | null
+  message?: string | null
+  created_at?: string | null
+  filled_at?: string | null
+  cancelled_at?: string | null
+}
+
+export const getLiveBrokers = () =>
+  api.get<{ default_broker: string; brokers: LiveBrokerInfo[] }>('/live/brokers').then((r) => r.data)
+
+export const getLiveAccount = (broker: LiveBrokerId | string) =>
+  api
+    .get<{
+      broker: LiveBrokerInfo
+      portfolio: {
+        holdings: Array<{
+          symbol: string
+          quantity: number
+          avg_price?: number | null
+          ltp?: number | null
+          product?: string | null
+          exchange?: string | null
+        }>
+        positions: Array<Record<string, unknown>>
+        funds: { available?: number | null; used_margin?: number | null; currency?: string }
+        message?: string
+      } | null
+      error?: { code: string; message: string } | null
+      recent_orders: LiveOrderRow[]
+    }>('/live/account', { params: { broker } })
+    .then((r) => r.data)
+
+export const placeLiveOrder = (payload: {
+  broker: LiveBrokerId
+  ticker: string
+  side: 'buy' | 'sell'
+  quantity: number
+  order_type?: 'market' | 'limit' | 'stop' | 'stop_limit'
+  limit_price?: number | null
+  trigger_price?: number | null
+  product?: string | null
+  exchange?: string | null
+  notes?: string | null
+}) =>
+  api
+    .post<{
+      ok: boolean
+      order?: LiveOrderRow
+      broker_result?: Record<string, unknown>
+      error?: { code: string; message: string }
+    }>('/live/orders', payload)
+    .then((r) => r.data)
+
+export const cancelLiveOrder = (orderId: number, broker: string) =>
+  api
+    .post<{ ok: boolean; order?: LiveOrderRow; error?: { code: string; message: string } }>(
+      `/live/orders/${orderId}/cancel`,
+      null,
+      { params: { broker } },
+    )
+    .then((r) => r.data)
 
 export const fetchMarkets = () => api.get<{ markets: string[] }>('/markets').then((r) => r.data)
 

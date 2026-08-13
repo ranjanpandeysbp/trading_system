@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Database, KeyRound, Settings2, Wifi } from 'lucide-react'
+import { Bot, Database, KeyRound, Radio, Settings2, Wifi } from 'lucide-react'
 import {
   apiErrorMessage,
   changePassword,
@@ -84,6 +84,9 @@ export default function ManageSettings() {
   const [indmoneyMpin, setIndmoneyMpin] = useState('')
   const [indmoneyTotpSecret, setIndmoneyTotpSecret] = useState('')
   const [indmoneyAccessToken, setIndmoneyAccessToken] = useState('')
+  const [coindcxApiKey, setCoindcxApiKey] = useState('')
+  const [coindcxApiSecret, setCoindcxApiSecret] = useState('')
+  const [liveDefaultBroker, setLiveDefaultBroker] = useState('indmoney')
   const [geminiKey, setGeminiKey] = useState('')
   const [groqKey, setGroqKey] = useState('')
   const [claudeKey, setClaudeKey] = useState('')
@@ -119,6 +122,7 @@ export default function ManageSettings() {
       setOpenaiModel(settings.openai_model ?? OPENAI_MODELS[0])
       setOpenaiEndpoint(settings.openai_endpoint ?? DEFAULT_OPENAI_ENDPOINT)
       setDefaultMarket(settings.default_market ?? MARKETS[0])
+      setLiveDefaultBroker(settings.live_default_broker ?? 'indmoney')
     }
   }, [settings])
 
@@ -135,6 +139,8 @@ export default function ManageSettings() {
       setIndmoneyMpin('')
       setIndmoneyTotpSecret('')
       setIndmoneyAccessToken('')
+      setCoindcxApiKey('')
+      setCoindcxApiSecret('')
       setGeminiKey('')
       setGroqKey('')
       setClaudeKey('')
@@ -194,6 +200,9 @@ export default function ManageSettings() {
     ...(indmoneyMpin ? { indmoney_mpin: indmoneyMpin } : {}),
     ...(indmoneyTotpSecret ? { indmoney_totp_secret: indmoneyTotpSecret } : {}),
     ...(indmoneyAccessToken ? { indmoney_access_token: indmoneyAccessToken } : {}),
+    ...(coindcxApiKey ? { coindcx_api_key: coindcxApiKey } : {}),
+    ...(coindcxApiSecret ? { coindcx_api_secret: coindcxApiSecret } : {}),
+    live_default_broker: liveDefaultBroker,
     ...(geminiKey ? { gemini_api_key: geminiKey } : {}),
     ...(groqKey ? { groq_api_key: groqKey } : {}),
     ...(claudeKey ? { claude_api_key: claudeKey } : {}),
@@ -219,7 +228,7 @@ export default function ManageSettings() {
     <div>
       <PageHeader
         title="Manage Settings"
-        description="Account · Data provider · IndMoney · Groww · Gemini · Groq · Claude · OpenAI · Investing Agent · paper trading defaults"
+        description="Account · Live Trade brokers (INDMoney · Groww · CoinDCX) · Data provider · AI · paper trading defaults"
       />
 
       <div className="mb-6">
@@ -471,6 +480,80 @@ export default function ManageSettings() {
                 : `Failed: ${String(testResult.error)}`}
             </Alert>
           )}
+        </Card>
+
+        <Card>
+          <div className="mb-5 flex items-center gap-2">
+            <Radio className="text-rose-400" size={20} />
+            <h3 className="font-semibold text-white">Live Trade Brokers</h3>
+          </div>
+          <p className="mb-4 text-xs leading-relaxed text-slate-400">
+            Configure credentials used by the <span className="text-slate-200">Live Trade</span> page.
+            INDMoney and Groww reuse the TOTP fields above (Data Provider section). CoinDCX uses API key + secret.
+            More brokers can be added later without changing the Live Trade workflow.
+          </p>
+
+          <FormField label="Default Live Trade broker">
+            <Select value={liveDefaultBroker} onChange={(e) => setLiveDefaultBroker(e.target.value)}>
+              <option value="indmoney">INDMoney</option>
+              <option value="groww">Groww</option>
+              <option value="coindcx">CoinDCX</option>
+            </Select>
+          </FormField>
+
+          <div className="mb-4 rounded-xl border border-slate-800/70 bg-slate-950/40 p-3">
+            <p className="mb-1 text-xs font-semibold text-slate-200">INDMoney</p>
+            <p className="text-[11px] text-slate-500">
+              Status: client id {settings?.indmoney_client_id_set ? 'saved' : 'missing'} · MPIN{' '}
+              {settings?.indmoney_mpin_set ? 'saved' : 'missing'} · TOTP{' '}
+              {settings?.indmoney_totp_secret_set ? 'saved' : 'missing'} · token{' '}
+              {settings?.indmoney_access_token_set ? 'ready' : 'not refreshed'}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-600">
+              Edit Client ID / MPIN / TOTP in the Data Provider section, then use Refresh IndMoney token.
+            </p>
+          </div>
+
+          <div className="mb-4 rounded-xl border border-slate-800/70 bg-slate-950/40 p-3">
+            <p className="mb-1 text-xs font-semibold text-slate-200">Groww</p>
+            <p className="text-[11px] text-slate-500">
+              Status: API key {settings?.groww_api_key_set ? 'saved' : 'missing'} · TOTP{' '}
+              {settings?.groww_totp_secret_set ? 'saved' : 'missing'} · token{' '}
+              {settings?.groww_token_set ? 'ready' : 'not refreshed'}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-600">
+              Edit Groww API key / TOTP in the Data Provider section, then use Refresh Groww token.
+            </p>
+          </div>
+
+          <div className="mb-4 rounded-xl border border-slate-800/70 bg-slate-950/40 p-3">
+            <p className="mb-2 text-xs font-semibold text-slate-200">CoinDCX</p>
+            <FormField label={`API key ${settings?.coindcx_api_key_set ? '(saved)' : ''}`}>
+              <Input
+                type="password"
+                value={coindcxApiKey}
+                onChange={(e) => setCoindcxApiKey(e.target.value)}
+                placeholder="CoinDCX API key"
+                autoComplete="off"
+              />
+            </FormField>
+            <FormField label={`API secret ${settings?.coindcx_api_secret_set ? '(saved)' : ''}`}>
+              <Input
+                type="password"
+                value={coindcxApiSecret}
+                onChange={(e) => setCoindcxApiSecret(e.target.value)}
+                placeholder="CoinDCX API secret"
+                autoComplete="off"
+              />
+            </FormField>
+            <p className="text-[11px] text-slate-600">
+              Create API keys in the CoinDCX account → API management. Leave blank to keep saved values.
+            </p>
+          </div>
+
+          <Button className="w-full sm:w-auto" onClick={() => saveMutation.mutate(savePayload())} disabled={saveMutation.isPending}>
+            Save Live Trade broker settings
+          </Button>
         </Card>
 
         <Card>

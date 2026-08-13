@@ -162,6 +162,10 @@ class SettingsResponse(BaseModel):
     youtube_api_key_set: bool = False
     youtube_channel_ids: str = ""
     superinvesting_token_set: bool = False
+    # Live Trade brokers
+    coindcx_api_key_set: bool = False
+    coindcx_api_secret_set: bool = False
+    live_default_broker: str = "indmoney"
 
 
 class SettingsUpdate(BaseModel):
@@ -192,6 +196,22 @@ class SettingsUpdate(BaseModel):
     youtube_api_key: str | None = None
     youtube_channel_ids: str | None = None
     superinvesting_token: str | None = None
+    coindcx_api_key: str | None = None
+    coindcx_api_secret: str | None = None
+    live_default_broker: str | None = None
+
+
+class LivePlaceOrderRequest(BaseModel):
+    broker: Literal["indmoney", "groww", "coindcx"]
+    ticker: str = Field(..., min_length=1, max_length=64)
+    side: Literal["buy", "sell"]
+    quantity: float = Field(..., gt=0)
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
+    limit_price: float | None = None
+    trigger_price: float | None = None
+    product: str | None = None
+    exchange: str | None = None
+    notes: str | None = None
 
 
 class InvestingAgentChatRequest(BaseModel):

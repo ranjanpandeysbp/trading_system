@@ -365,6 +365,26 @@ class SettingsService:
     async def get_default_market(self) -> str:
         return await self._get("default_market", "Groww (India Stocks)")
 
+    async def get_coindcx_api_key(self) -> str | None:
+        val = await self._get("coindcx_api_key", "")
+        if not val:
+            import os
+            val = (os.getenv("COINDCX_API_KEY") or "").strip()
+        return val or None
+
+    async def get_coindcx_api_secret(self) -> str | None:
+        val = await self._get("coindcx_api_secret", "")
+        if not val:
+            import os
+            val = (os.getenv("COINDCX_API_SECRET") or "").strip()
+        return val or None
+
+    async def get_live_default_broker(self) -> str:
+        val = (await self._get("live_default_broker", "indmoney")).strip().lower()
+        if val not in ("indmoney", "groww", "coindcx"):
+            return "indmoney"
+        return val
+
     def _youtube_key(self, base: str, user_id: int | None) -> str:
         if user_id is None:
             return base
@@ -442,6 +462,9 @@ class SettingsService:
             "youtube_api_key_set": bool(await self.get_youtube_api_key(user_id)),
             "youtube_channel_ids": await self.get_youtube_channel_ids(user_id),
             "superinvesting_token_set": bool(await self.get_superinvesting_token()),
+            "coindcx_api_key_set": bool(await self.get_coindcx_api_key()),
+            "coindcx_api_secret_set": bool(await self.get_coindcx_api_secret()),
+            "live_default_broker": await self.get_live_default_broker(),
         }
 
     async def update(self, payload: dict, user_id: int | None = None) -> dict:
@@ -519,4 +542,12 @@ class SettingsService:
             await self._set("youtube_api_key", payload["youtube_api_key"])
         if payload.get("superinvesting_token") is not None:
             await self._set("superinvesting_token", payload["superinvesting_token"].strip())
+        if payload.get("coindcx_api_key") is not None and str(payload["coindcx_api_key"]).strip():
+            await self._set("coindcx_api_key", str(payload["coindcx_api_key"]).strip())
+        if payload.get("coindcx_api_secret") is not None and str(payload["coindcx_api_secret"]).strip():
+            await self._set("coindcx_api_secret", str(payload["coindcx_api_secret"]).strip())
+        if payload.get("live_default_broker") is not None:
+            b = str(payload["live_default_broker"]).strip().lower()
+            if b in ("indmoney", "groww", "coindcx"):
+                await self._set("live_default_broker", b)
         return await self.get_all(user_id)

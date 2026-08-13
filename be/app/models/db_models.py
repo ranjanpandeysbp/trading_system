@@ -86,6 +86,32 @@ class PaperOrder(Base):
     realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class LiveOrder(Base):
+    """Audit trail for live broker orders (INDMoney / Groww / CoinDCX / future)."""
+
+    __tablename__ = "live_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    broker: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    broker_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    order_type: Mapped[str] = mapped_column(String(16), default="market")
+    status: Mapped[str] = mapped_column(String(24), default="submitting")
+    limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trigger_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    product: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    exchange: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class AlertMonitor(Base):
     __tablename__ = "alert_monitors"
 
