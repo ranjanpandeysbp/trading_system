@@ -19,6 +19,15 @@ import {
   overlayKeysFor,
   useChartIndicators,
 } from '../charts/chartIndicators'
+import {
+  ChartDrawingLayer,
+  ChartDrawingToolbar,
+  useChartDrawings,
+  type PlotInsets,
+} from '../charts/ChartDrawingLayer'
+import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+
+const VP_PLOT_INSETS: PlotInsets = { top: 8, right: 12, bottom: 32, left: 64 }
 
 export type VpChartBar = {
   time: string
@@ -203,6 +212,19 @@ export function VolumeProfileChart({
   const [refRight, setRefRight] = useState<string | null>(null)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
   const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
+  const drawingsApi = useChartDrawings()
+  const expand = useChartExpand()
+  const {
+    tool: drawTool,
+    drawings,
+    selectedId: drawSelectedId,
+    setTool: setDrawTool,
+    setSelectedId: setDrawSelectedId,
+    setDrawings,
+    clear: clearDrawings,
+    removeSelected: removeSelectedDrawing,
+    patch: patchDrawing,
+  } = drawingsApi
 
   const {
     bars: liveChartData,
@@ -307,9 +329,21 @@ export function VolumeProfileChart({
       .filter((n) => Number.isFinite(n)),
   )
   const liveExtras = liveLtp != null ? [liveLtp] : []
+  const drawPrices: number[] = []
+  for (const d of drawings) {
+    if (d.kind === 'hline' || d.kind === 'hray') drawPrices.push(d.price)
+    if (d.kind === 'trend' || d.kind === 'fib' || d.kind === 'rect') {
+      drawPrices.push(d.y1, d.y2)
+      if (d.kind === 'fib') {
+        for (const r of [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]) {
+          drawPrices.push(d.y1 + (d.y2 - d.y1) * r)
+        }
+      }
+    }
+  }
   const pad = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras) - pad
-  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras) + pad
+  const yMin = Math.min(...lows, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras, ...drawPrices) - pad
+  const yMax = Math.max(...highs, ...levelPrices, ...wavePrices, ...seriesPrices, ...indPrices, ...liveExtras, ...drawPrices) + pad
 
   const hasVolumeData = view.some(
     (b) => b.volume != null && Number.isFinite(Number(b.volume)) && Number(b.volume) > 0,
@@ -327,6 +361,11 @@ export function VolumeProfileChart({
   )
 
   return (
+    <ChartExpandFrame
+      fullscreen={expand.fullscreen}
+      onClose={() => expand.setFullscreen(false)}
+      title={ticker ? String(ticker) : 'Chart'}
+    >
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <ChartStyleIndicatorControls
@@ -342,6 +381,12 @@ export function VolumeProfileChart({
           setBarCount={setBarCount}
           canStream={canStream}
           liveLtp={liveLtp}
+        />
+        <ChartExpandControls
+          size={expand.size}
+          setSize={expand.setSize}
+          fullscreen={expand.fullscreen}
+          setFullscreen={expand.setFullscreen}
         />
         {anyHideable && (
           <>
@@ -425,8 +470,30 @@ export function VolumeProfileChart({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_160px]">
-        <div className="relative h-72 w-full select-none">
+      <ChartDrawingToolbar
+        tool={drawTool}
+        setTool={setDrawTool}
+        selectedId={drawSelectedId}
+        drawings={drawings}
+        patch={patchDrawing}
+        removeSelected={removeSelectedDrawing}
+        clear={clearDrawings}
+      />
+
+      <div className={`grid gap-3 ${expand.fullscreen ? 'lg:grid-cols-[1fr_200px]' : 'lg:grid-cols-[1fr_160px]'}`}>
+        <div className={`relative w-full select-none ${expand.heightClass}`}>
+          <ChartDrawingLayer
+            insets={VP_PLOT_INSETS}
+            yMin={yMin}
+            yMax={yMax}
+            nSlots={Math.max(view.length, 1)}
+            drawings={drawings}
+            selectedId={drawSelectedId}
+            tool={drawTool}
+            onSelect={setDrawSelectedId}
+            onChange={setDrawings}
+            setTool={setDrawTool}
+          />
           {zoomRange && (
             <button
               type="button"
@@ -440,9 +507,9 @@ export function VolumeProfileChart({
             <ComposedChart
               data={view}
               margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
+              onMouseDown={drawTool === 'select' && !drawSelectedId ? handleMouseDown : undefined}
+              onMouseMove={drawTool === 'select' && !drawSelectedId ? handleMouseMove : undefined}
+              onMouseUp={drawTool === 'select' && !drawSelectedId ? handleMouseUp : undefined}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={36} allowDataOverflow />
@@ -543,7 +610,7 @@ export function VolumeProfileChart({
         </div>
 
         {histSorted.length > 0 && (
-          <div className="h-72 w-full">
+          <div className={`w-full ${expand.heightClass}`}>
             <p className="mb-1 text-center text-[10px] uppercase tracking-wide text-slate-500">Volume profile</p>
             <ResponsiveContainer width="100%" height="90%">
               <BarChart
@@ -616,5 +683,6 @@ export function VolumeProfileChart({
         </p>
       )}
     </div>
+    </ChartExpandFrame>
   )
 }

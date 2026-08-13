@@ -13,6 +13,13 @@ import {
 } from 'recharts'
 import { Wifi } from 'lucide-react'
 import { apiErrorMessage, fetchPaperPrice, runProTradeTickerChart } from '../../api/client'
+import {
+  ChartDrawingLayer,
+  ChartDrawingToolbar,
+  useChartDrawings,
+  type PlotInsets,
+} from '../charts/ChartDrawingLayer'
+import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Card } from '../ui/Card'
@@ -94,6 +101,8 @@ const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_20', 'bolling
 
 const BAR_COUNT_OPTIONS = [40, 60, 80, 100, 120, 150, 200, 300] as const
 const RIGHT_PAD_BARS = 6
+/** ComposedChart margin { top: 12, right: 64, left: 0, bottom: 0 } + YAxis width 56; bottom padded for XAxis */
+const TICKER_PRICE_PLOT_INSETS: PlotInsets = { top: 12, right: 64, bottom: 28, left: 56 }
 
 const OVERLAY_COLORS: Record<string, string> = {
   ema_5: '#fbbf24',
@@ -307,6 +316,19 @@ function PriceChart({
   maxBars?: number
 }) {
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
+  const drawingsApi = useChartDrawings()
+  const expand = useChartExpand()
+  const {
+    tool: drawTool,
+    drawings,
+    selectedId: drawSelectedId,
+    setTool: setDrawTool,
+    setSelectedId: setDrawSelectedId,
+    setDrawings,
+    clear: clearDrawings,
+    removeSelected: removeSelectedDrawing,
+    patch: patchDrawing,
+  } = drawingsApi
   const showVolume = selected.includes('volume')
   const showBb = selected.includes('bollinger')
   const showFib = selected.includes('fibonacci')
@@ -432,8 +454,8 @@ function PriceChart({
   )
   const effectiveStyle: ChartStyle = chartStyle === 'candles' && hasCandles ? 'candles' : 'line'
 
-  const yDomain = useMemo((): [number | string, number | string] => {
-    if (!chartRows.length) return ['auto', 'auto']
+  const yDomainNums = useMemo((): [number, number] | null => {
+    if (!chartRows.length) return null
     const vals: number[] = []
     for (const p of chartRows) {
       if (p.__pad) continue
@@ -447,7 +469,7 @@ function PriceChart({
         if (Number.isFinite(n)) vals.push(n)
       }
     }
-    if (!vals.length) return ['auto', 'auto']
+    if (!vals.length) return null
     let lo = Math.min(...vals)
     let hi = Math.max(...vals)
     for (const lv of levels) {
@@ -468,9 +490,28 @@ function PriceChart({
         }
       }
     }
+    for (const d of drawings) {
+      if (d.kind === 'hline' || d.kind === 'hray') {
+        lo = Math.min(lo, d.price)
+        hi = Math.max(hi, d.price)
+      }
+      if (d.kind === 'trend' || d.kind === 'fib' || d.kind === 'rect') {
+        lo = Math.min(lo, d.y1, d.y2)
+        hi = Math.max(hi, d.y1, d.y2)
+        if (d.kind === 'fib') {
+          for (const r of [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]) {
+            const p = d.y1 + (d.y2 - d.y1) * r
+            lo = Math.min(lo, p)
+            hi = Math.max(hi, p)
+          }
+        }
+      }
+    }
     const pad = Math.max((hi - lo) * 0.06, Math.abs(hi) * 0.001, 1e-6)
     return [lo - pad, hi + pad]
-  }, [chartRows, levels, fibRefs, overlayKeys, effectiveStyle])
+  }, [chartRows, levels, fibRefs, overlayKeys, effectiveStyle, drawings])
+
+  const yDomain = (yDomainNums ?? ['auto', 'auto']) as [number | string, number | string]
 
   if (!points.length) {
     return (
@@ -481,6 +522,11 @@ function PriceChart({
   }
 
   return (
+    <ChartExpandFrame
+      fullscreen={expand.fullscreen}
+      onClose={() => expand.setFullscreen(false)}
+      title={title}
+    >
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium text-white">{title}</p>
@@ -491,6 +537,12 @@ function PriceChart({
           <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>
             Line
           </Chip>
+          <ChartExpandControls
+            size={expand.size}
+            setSize={expand.setSize}
+            fullscreen={expand.fullscreen}
+            setFullscreen={expand.setFullscreen}
+          />
           <span className="text-[10px] text-slate-500">
             green = support · red = resistance
             {showVolume ? ' · grey = volume' : ''}
@@ -498,7 +550,30 @@ function PriceChart({
           </span>
         </div>
       </div>
-      <div className="h-96 w-full">
+      <ChartDrawingToolbar
+        tool={drawTool}
+        setTool={setDrawTool}
+        selectedId={drawSelectedId}
+        drawings={drawings}
+        patch={patchDrawing}
+        removeSelected={removeSelectedDrawing}
+        clear={clearDrawings}
+      />
+      <div className={`relative mt-2 w-full select-none ${expand.heightClass}`}>
+        {yDomainNums && (
+          <ChartDrawingLayer
+            insets={TICKER_PRICE_PLOT_INSETS}
+            yMin={yDomainNums[0]}
+            yMax={yDomainNums[1]}
+            nSlots={chartRows.length}
+            drawings={drawings}
+            selectedId={drawSelectedId}
+            tool={drawTool}
+            onSelect={setDrawSelectedId}
+            onChange={setDrawings}
+            setTool={setDrawTool}
+          />
+        )}
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartRows} margin={{ top: 12, right: 64, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -525,6 +600,7 @@ function PriceChart({
                 }}
               />
             )}
+            {drawTool === 'select' && !drawSelectedId && (
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#e2e8f0' }}
@@ -561,6 +637,7 @@ function PriceChart({
                 )
               }}
             />
+            )}
             {levels.map((lv) => {
               const isSupport = lv.kind === 'support'
               const stroke = isSupport ? '#34d399' : '#f87171'
@@ -679,6 +756,7 @@ function PriceChart({
         />
       )}
     </div>
+    </ChartExpandFrame>
   )
 }
 

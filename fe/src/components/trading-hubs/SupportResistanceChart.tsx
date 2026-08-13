@@ -10,6 +10,15 @@ import {
   overlayKeysFor,
   useChartIndicators,
 } from '../charts/chartIndicators'
+import {
+  ChartDrawingLayer,
+  ChartDrawingToolbar,
+  useChartDrawings,
+  type PlotInsets,
+} from '../charts/ChartDrawingLayer'
+import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
+
+const SR_PLOT_INSETS: PlotInsets = { top: 8, right: 16, bottom: 32, left: 68 }
 
 export type SRChartBar = { time: string; open: number; high: number; low: number; close: number; volume?: number | null }
 export type SRTrendlinePoint = { time: string; price: number }
@@ -124,6 +133,19 @@ export function SupportResistanceChart({
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [style, setStyle] = useState<'candles' | 'line'>(chartType)
   const { selected: indicators, toggle: toggleIndicator } = useChartIndicators()
+  const drawingsApi = useChartDrawings()
+  const expand = useChartExpand()
+  const {
+    tool: drawTool,
+    drawings,
+    selectedId: drawSelectedId,
+    setTool: setDrawTool,
+    setSelectedId: setDrawSelectedId,
+    setDrawings,
+    clear: clearDrawings,
+    removeSelected: removeSelectedDrawing,
+    patch: patchDrawing,
+  } = drawingsApi
   const toggleHidden = (key: string) => {
     setHidden((prev) => {
       const next = new Set(prev)
@@ -236,14 +258,31 @@ export function SupportResistanceChart({
       .map((b) => Number((b as Record<string, unknown>)[ov.key]))
       .filter((n) => Number.isFinite(n)),
   )
+  const drawPrices: number[] = []
+  for (const d of drawings) {
+    if (d.kind === 'hline' || d.kind === 'hray') drawPrices.push(d.price)
+    if (d.kind === 'trend' || d.kind === 'fib' || d.kind === 'rect') {
+      drawPrices.push(d.y1, d.y2)
+      if (d.kind === 'fib') {
+        for (const r of [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]) {
+          drawPrices.push(d.y1 + (d.y2 - d.y1) * r)
+        }
+      }
+    }
+  }
   const padding = (Math.max(...highs) - Math.min(...lows)) * 0.05 || 1
-  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
-  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
+  const yMin = Math.min(...lows, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...drawPrices, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) - padding
+  const yMax = Math.max(...highs, ...emaValues, ...fibValues, ...zoneValues, ...levelValues, ...indPrices, ...liveExtras, ...drawPrices, ...(visibleSupportZone ?? []), ...(visibleResistanceZone ?? [])) + padding
 
   const hasVolume = showVolumeInd && liveChartData.some((b) => b.volume != null && Number(b.volume) > 0)
   const hasRsi = showRsiInd
 
   return (
+    <ChartExpandFrame
+      fullscreen={expand.fullscreen}
+      onClose={() => expand.setFullscreen(false)}
+      title={ticker ? String(ticker) : 'Chart'}
+    >
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <ChartStyleIndicatorControls
@@ -260,8 +299,35 @@ export function SupportResistanceChart({
           canStream={canStream}
           liveLtp={liveLtp}
         />
+        <ChartExpandControls
+          size={expand.size}
+          setSize={expand.setSize}
+          fullscreen={expand.fullscreen}
+          setFullscreen={expand.setFullscreen}
+        />
       </div>
-      <div className="relative h-72 w-full select-none">
+      <ChartDrawingToolbar
+        tool={drawTool}
+        setTool={setDrawTool}
+        selectedId={drawSelectedId}
+        drawings={drawings}
+        patch={patchDrawing}
+        removeSelected={removeSelectedDrawing}
+        clear={clearDrawings}
+      />
+      <div className={`relative w-full select-none ${expand.heightClass}`}>
+        <ChartDrawingLayer
+          insets={SR_PLOT_INSETS}
+          yMin={yMin}
+          yMax={yMax}
+          nSlots={Math.max(view.length, 1)}
+          drawings={drawings}
+          selectedId={drawSelectedId}
+          tool={drawTool}
+          onSelect={setDrawSelectedId}
+          onChange={setDrawings}
+          setTool={setDrawTool}
+        />
         {zoomRange && (
           <button
             type="button"
@@ -275,9 +341,9 @@ export function SupportResistanceChart({
           <ComposedChart
             data={view}
             margin={{ top: 8, right: 16, left: 4, bottom: 4 }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
+            onMouseDown={drawTool === 'select' && !drawSelectedId ? handleMouseDown : undefined}
+            onMouseMove={drawTool === 'select' && !drawSelectedId ? handleMouseMove : undefined}
+            onMouseUp={drawTool === 'select' && !drawSelectedId ? handleMouseUp : undefined}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={40} allowDataOverflow />
@@ -569,6 +635,7 @@ export function SupportResistanceChart({
         </p>
       )}
     </div>
+    </ChartExpandFrame>
   )
 }
 

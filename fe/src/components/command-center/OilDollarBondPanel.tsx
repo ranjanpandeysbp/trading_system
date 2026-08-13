@@ -29,6 +29,7 @@ import { Chip } from '../ui/Chip'
 import { FormField, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 import { ChartStreamControls } from '../charts/chartStreaming'
+import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
@@ -110,6 +111,7 @@ function SeriesChart({
 }) {
   const [streamOn, setStreamOn] = useState(true)
   const [barCount, setBarCount] = useState(100)
+  const expand = useChartExpand()
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -163,6 +165,7 @@ function SeriesChart({
     )
   }
   return (
+    <ChartExpandFrame fullscreen={expand.fullscreen} onClose={() => expand.setFullscreen(false)} title={title}>
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <div>
@@ -171,7 +174,7 @@ function SeriesChart({
         </div>
         {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
       </div>
-      <div className="mb-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <ChartStreamControls
           streamOn={streamOn}
           setStreamOn={setStreamOn}
@@ -180,8 +183,14 @@ function SeriesChart({
           canStream={Boolean(streamTicker)}
           liveLtp={null}
         />
+        <ChartExpandControls
+          size={expand.size}
+          setSize={expand.setSize}
+          fullscreen={expand.fullscreen}
+          setFullscreen={expand.setFullscreen}
+        />
       </div>
-      <div className={`${hasVolume ? 'h-60' : 'h-52'} w-full`}>
+      <div className={`w-full ${expand.fullscreen || expand.size !== 'normal' ? expand.heightClass : hasVolume ? 'h-60' : 'h-52'}`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={viewPoints} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -271,6 +280,7 @@ function SeriesChart({
       )}
       <VolumeSrSummaryCard data={volumeSrSummary} />
     </div>
+    </ChartExpandFrame>
   )
 }
 
