@@ -2454,28 +2454,31 @@ export const runProTradeEma9Cross = (payload: {
   exchange?: string
   timeframes: string[]
   lookback_bars?: number
-  ema_period?: number
+  ema_period?: 5 | 9 | 20 | 50 | 200
   bb_period?: number
   bb_std?: number
   min_rr?: number
   require_volume_expand?: boolean
   require_fresh_cross?: boolean
+  move_side?: 'above' | 'below' | 'both'
   take_confidence_threshold?: number
   use_ai?: boolean
 }) => api.post('/pro-trade/ema9-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+/** @deprecated Use runProTradeEma9Cross with ema_period — kept for old bookmarks */
 export const runProTradeEma5Cross = (payload: {
   tickers: string[]
   asset_class?: string
   exchange?: string
   timeframes: string[]
   lookback_bars?: number
-  ema_period?: number
+  ema_period?: 5 | 9 | 20 | 50 | 200
   bb_period?: number
   bb_std?: number
   min_rr?: number
   require_volume_expand?: boolean
   require_fresh_cross?: boolean
+  move_side?: 'above' | 'below' | 'both'
   take_confidence_threshold?: number
   use_ai?: boolean
 }) => api.post('/pro-trade/ema5-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)

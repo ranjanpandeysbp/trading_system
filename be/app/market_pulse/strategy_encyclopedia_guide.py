@@ -188,8 +188,9 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("fibonacci_pro", "Fibonacci Pro — golden-zone pullback · multi-strategy Fib"),
         ("bb_mean_reversion", "BB Mean Reversion — %B stretch · squeeze · S/R confluence"),
         ("bb_rsi_vol", "BB-RSI-VOL — Lower BB+RSI≤35+low vol Buy · Upper+RSI≥70+high vol Sell"),
-        ("ema9_bb_rsi_vol", "9 EMA Cross — close above 9EMA long · below short · BB/RSI/Vol filters"),
-        ("ema5_bb_rsi_vol", "5 EMA Cross — close above 5EMA long · below short · BB/RSI/Vol filters"),
+        ("ema_cross", "EMA Cross — just jumped above/below EMA X (5/9/20/50/200) + closed candle · BB/RSI/Vol"),
+        ("ema9_bb_rsi_vol", "EMA Cross (legacy) — same as ema_cross"),
+        ("ema5_bb_rsi_vol", "EMA Cross (legacy 5) — same as ema_cross"),
         ("ema5_9_crossover", "5/9 EMA Cross — EMA5×EMA9 crossover · price confirm · BB/RSI/Vol"),
         ("flat_retest", "Flat Retest — post-flat break→retest hold / reject→break low→failed retest"),
         ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
@@ -904,11 +905,14 @@ Also available on the **Dashboard**.
     "bb_rsi_vol": """
 **When to use:** Fade Lower BB with RSI≤35 + low volume at Support (buy) or Upper BB with RSI≥70 + high volume at Resistance (sell); confirm with 9 EMA close; skip steep 50 EMA trends.
 """,
+    "ema_cross": """
+**When to use:** Scan one or more tickers/TFs for a fresh jump above or below EMA X (5/9/20/50/200) with the candle already closed on that side; BB room + RSI + volume confirm.
+""",
     "ema9_bb_rsi_vol": """
-**When to use:** Trade a fresh close cross of the 9 EMA — long above / short below — with Bollinger room, RSI zone, and volume expansion; T1 mid BB · T2 outer band.
+**When to use:** Same as EMA Cross — just jumped above/below EMA X with a closed candle; pick period in the UI.
 """,
     "ema5_bb_rsi_vol": """
-**When to use:** Same as 9 EMA Cross but on the faster 5 EMA — more signals; prefer volume filter on choppy TFs; T1 mid BB · T2 outer band.
+**When to use:** Legacy route into EMA Cross (defaults toward EMA 5); prefer the unified EMA Cross screen.
 """,
     "ema5_9_crossover": """
 **When to use:** Trade a fresh EMA5/EMA9 crossover with close confirming both EMAs, Bollinger room, RSI zone, and volume; invalidate on opposite re-cross.

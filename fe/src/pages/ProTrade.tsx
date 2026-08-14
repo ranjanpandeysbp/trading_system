@@ -17,7 +17,6 @@ import {
   runProTradeSimpleEffective,
   runProTradeBbRsiVol,
   runProTradeEma9Cross,
-  runProTradeEma5Cross,
   runProTradeEma59Cross,
   runProTradeFlatRetest,
   runProTradeBtst,
@@ -49,7 +48,7 @@ import { RlbBreakoutPanel } from '../components/pro-trade/RlbBreakoutPanel'
 import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTradeSystemPanel'
 import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
 import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
-import { Ema9CrossPanel, Ema5CrossPanel, Ema59CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
+import { Ema9CrossPanel, Ema59CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
 import { FlatRetestPanel } from '../components/pro-trade/FlatRetestPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
@@ -2970,54 +2969,29 @@ function BbRsiVolPage() {
   )
 }
 
-const EMA9_HOW_TO = `How to use 9 EMA Cross
+const EMA_PERIODS = [5, 9, 20, 50, 200] as const
 
-1. Pick asset class + timeframes + tickers.
-2. Defaults: EMA9 · BB(20,2) · RSI(14) · Vol MA20.
-3. Scan — TAKE only on a fresh close cross of the 9 EMA with confirming filters.
-4. Long: cross above 9 EMA · RSI momentum · volume expand preferred · not hugging Upper BB.
-5. Short: cross below 9 EMA · RSI mid-low · volume expand preferred · not hugging Lower BB.
-6. T1 = mid BB · T2 = outer band · invalidate on close back through 9 EMA.
-7. Optional Use AI to refine Conf % / SL % / TP %. Research only — not advice.`
+const EMA_CROSS_HOW_TO = `How to use EMA Cross
 
-const EMA9_OVERVIEW = `9 EMA Cross — strategy matrix
+1. Pick asset class · one or more tickers · one or more timeframes.
+2. Choose EMA period X (5 · 9 · 20 · 50 · 200).
+3. Choose Above / Below / Both.
+4. Scan — TAKE when price just jumped across EMA X and the candle has already closed on that side.
+5. Optional: require volume expand · include charts · run in background.
 
-LONG: Close crosses above 9 EMA · RSI in momentum zone · volume preferably expanding · room under Upper BB
-SHORT: Close crosses below 9 EMA · RSI mid-low · volume preferably expanding · room above Lower BB
+Above: prior close ≤ EMA X · latest close > EMA X
+Below: prior close ≥ EMA X · latest close < EMA X`
 
-Holding above/below without a fresh cross → WATCH only.
-Outputs: % confidence · %SL · %TP · grade A/B/C.`
+const EMA_CROSS_LAYMAN = `In plain English
 
-const EMA9_LAYMAN = `In plain English
+You pick an EMA (for example 9 or 50). The scanner looks for names that have just crossed above that average and already finished a candle above it — or just crossed below and already finished a candle below it. Holding above/below without a fresh jump is only a watch, not a new entry.`
 
-Buy when price closes back above the 9 EMA with buyers showing up (volume) and RSI not already blown out — aiming toward the middle of the Bollinger Band first.
-Sell when price closes back under the 9 EMA with selling volume and RSI not already crushed.
-If price is already above/below the 9 EMA but did not just cross, wait — that is only a watch.`
+const EMA_CROSS_OVERVIEW = `EMA Cross — strategy matrix
 
-const EMA5_HOW_TO = `How to use 5 EMA Cross
-
-1. Pick asset class + timeframes + tickers.
-2. Defaults: EMA5 · BB(20,2) · RSI(14) · Vol MA20.
-3. Scan — TAKE only on a fresh close cross of the 5 EMA with confirming filters.
-4. Long: cross above 5 EMA · RSI momentum · volume expand preferred · not hugging Upper BB.
-5. Short: cross below 5 EMA · RSI mid-low · volume expand preferred · not hugging Lower BB.
-6. T1 = mid BB · T2 = outer band · invalidate on close back through 5 EMA.
-7. Faster than 9 EMA — more signals, more noise; prefer liquid names / higher TFs if choppy.
-8. Optional Use AI to refine Conf % / SL % / TP %. Research only — not advice.`
-
-const EMA5_OVERVIEW = `5 EMA Cross — strategy matrix
-
-LONG: Close crosses above 5 EMA · RSI in momentum zone · volume preferably expanding · room under Upper BB
-SHORT: Close crosses below 5 EMA · RSI mid-low · volume preferably expanding · room above Lower BB
-
-Holding above/below without a fresh cross → WATCH only.
-Outputs: % confidence · %SL · %TP · grade A/B/C.
-
-vs 9 EMA: quicker reactions for scalps / tight momentum; use volume filter more often.`
-
-const EMA5_LAYMAN = `In plain English
-
-Same idea as 9 EMA Cross, but the average reacts faster. Buy when price closes back above the 5 EMA with volume and RSI not blown out. Sell on a close under the 5 EMA with selling volume. Expect more crosses — skip thin volume.`
+ABOVE / LONG: Just jumped above EMA X + closed candle above · BB room · RSI momentum · volume preferred
+BELOW / SHORT: Just fell below EMA X + closed candle below · BB room · RSI mid-low · volume preferred
+Filters: Bollinger · RSI · optional volume expand
+Output: Conf % · SL % · TP %`
 
 const EMA59_HOW_TO = `How to use 5/9 EMA Cross
 
@@ -3041,16 +3015,18 @@ const EMA59_LAYMAN = `In plain English
 
 Watch the fast line (5) and the slow line (9). When the fast line flips above the slow line and price is sitting above both, buyers are taking control — look for a long toward mid Bollinger. When the fast flips under the slow and price is under both, sellers are in charge — look for a short. If the lines already stacked earlier and did not just cross, wait.`
 
-function Ema9CrossPage() {
+function EmaCrossPage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
   const [error, setError] = useState('')
   const [lookback, setLookback] = useState(300)
+  const [emaPeriod, setEmaPeriod] = useState<(typeof EMA_PERIODS)[number]>(9)
+  const [moveSide, setMoveSide] = useState<'above' | 'below' | 'both'>('both')
   const [requireVol, setRequireVol] = useState(false)
   const [freshCrossOnly, setFreshCrossOnly] = useState(true)
   const [showCharts, setShowCharts] = useState(true)
   const { useAi, setUseAi } = useTradeSetupAi()
-  const bg = useAnalysisBackground('pro_trade', 'ema9_bb_rsi_vol')
+  const bg = useAnalysisBackground('pro_trade', 'ema_cross')
 
   const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
 
@@ -3058,9 +3034,11 @@ function Ema9CrossPage() {
     tickers: picker.tickers,
     asset_class: assetClass,
     timeframes: picker.durations.length ? picker.durations : ['15m'],
-    lookback_bars: lookback,
+    lookback_bars: Math.max(lookback, emaPeriod * 3 + 40),
+    ema_period: emaPeriod,
     require_volume_expand: requireVol,
     require_fresh_cross: freshCrossOnly,
+    move_side: moveSide,
     use_ai: useAi,
   })
 
@@ -3075,25 +3053,25 @@ function Ema9CrossPage() {
   })
 
   const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
-  const askContext = data ? buildAskContext('9 EMA Cross', data) : ''
+  const askContext = data ? buildAskContext(`${emaPeriod} EMA Cross`, data) : ''
   const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
 
   return (
     <div>
       <PageHeader
-        title="9 EMA Cross"
-        description="Close above 9 EMA → long · below → short · filtered by Bollinger Bands, RSI & volume · conf% / SL% / TP%"
+        title="EMA Cross"
+        description={`Just jumped above/below EMA ${emaPeriod} with a closed candle on that side · multi-ticker · multi-TF · Conf% / SL% / TP%`}
       />
 
       <div className="mb-4 space-y-2">
-        <CollapsibleSection title="How to use this screen" defaultOpen copyText={EMA9_HOW_TO}>
-          {EMA9_HOW_TO}
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={EMA_CROSS_HOW_TO}>
+          {EMA_CROSS_HOW_TO}
         </CollapsibleSection>
         <CollapsibleSection title="In plain English" defaultOpen>
-          {EMA9_LAYMAN}
+          {EMA_CROSS_LAYMAN}
         </CollapsibleSection>
         <CollapsibleSection title="How it works — rules" defaultOpen>
-          {EMA9_OVERVIEW}
+          {EMA_CROSS_OVERVIEW}
         </CollapsibleSection>
         {howItWorks && (
           <CollapsibleSection title="Engine how-it-works (from scan)">
@@ -3127,14 +3105,34 @@ function Ema9CrossPage() {
           onChange={handlePickerChange}
         />
 
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium text-slate-400">EMA period (X)</p>
+          <div className="flex flex-wrap gap-2">
+            {EMA_PERIODS.map((p) => (
+              <Chip key={p} selected={emaPeriod === p} onClick={() => setEmaPeriod(p)}>
+                EMA {p}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium text-slate-400">Side</p>
+          <div className="flex flex-wrap gap-2">
+            <Chip selected={moveSide === 'both'} onClick={() => setMoveSide('both')}>Above & below</Chip>
+            <Chip selected={moveSide === 'above'} onClick={() => setMoveSide('above')}>Jumped above only</Chip>
+            <Chip selected={moveSide === 'below'} onClick={() => setMoveSide('below')}>Fell below only</Chip>
+          </div>
+        </div>
+
         <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
           <FormField label="History (bars)">
-            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+            <Input type="number" min={80} max={2000} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
           </FormField>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Fresh cross only</Chip>
+          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Fresh jump only</Chip>
           <Chip selected={!freshCrossOnly} onClick={() => setFreshCrossOnly(false)}>Allow hold above/below</Chip>
           <Chip selected={requireVol} onClick={() => setRequireVol(true)}>Require volume expand</Chip>
           <Chip selected={!requireVol} onClick={() => setRequireVol(false)}>Volume optional</Chip>
@@ -3149,13 +3147,13 @@ function Ema9CrossPage() {
               ? useAi
                 ? 'Scanning + AI refine…'
                 : 'Scanning…'
-              : `Scan 9 EMA Cross (${picker.tickers.length} × ${picker.durations.length || 1})`}
+              : `Scan EMA ${emaPeriod} (${picker.tickers.length} × ${picker.durations.length || 1})`}
           </Button>
         </div>
         <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
         <AnalysisBackgroundControls
           bg={bg}
-          placeholder={`9 EMA Cross · ${new Date().toLocaleDateString()}`}
+          placeholder={`EMA ${emaPeriod} Cross · ${new Date().toLocaleDateString()}`}
           onStart={() => bg.startBackground(buildPayload(), () => {
             if (!picker.tickers.length) return 'Select at least one ticker'
             if (!picker.durations.length) return 'Select at least one timeframe'
@@ -3171,7 +3169,9 @@ function Ema9CrossPage() {
 
       <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking 9 EMA cross · BB · RSI · volume…" />}
+      {runMut.isPending && !bg.viewedPayload && (
+        <Loading message={`Checking EMA ${emaPeriod} jump · closed candle · BB · RSI · volume…`} />
+      )}
 
       {data && (!runMut.isPending || bg.viewedPayload) && (
         <>
@@ -3179,153 +3179,7 @@ function Ema9CrossPage() {
             <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
             <Ema9CrossPanel data={data} showCharts={showCharts} />
           </Card>
-          {askContext && <AskAIPanel context={askContext} section="pro-trade/ema9-cross" />}
-        </>
-      )}
-    </div>
-  )
-}
-
-function Ema5CrossPage() {
-  const [assetClass, setAssetClass] = useState<AssetClass>('india')
-  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
-  const [error, setError] = useState('')
-  const [lookback, setLookback] = useState(300)
-  const [requireVol, setRequireVol] = useState(false)
-  const [freshCrossOnly, setFreshCrossOnly] = useState(true)
-  const [showCharts, setShowCharts] = useState(true)
-  const { useAi, setUseAi } = useTradeSetupAi()
-  const bg = useAnalysisBackground('pro_trade', 'ema5_bb_rsi_vol')
-
-  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
-
-  const buildPayload = () => ({
-    tickers: picker.tickers,
-    asset_class: assetClass,
-    timeframes: picker.durations.length ? picker.durations : ['15m'],
-    lookback_bars: lookback,
-    ema_period: 5,
-    require_volume_expand: requireVol,
-    require_fresh_cross: freshCrossOnly,
-    use_ai: useAi,
-  })
-
-  const runMut = useMutation({
-    mutationFn: () => {
-      if (!picker.tickers.length) throw new Error('Select at least one ticker')
-      if (!picker.durations.length) throw new Error('Select at least one timeframe')
-      return runProTradeEma5Cross(buildPayload())
-    },
-    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
-    onError: (e) => setError(apiErrorMessage(e)),
-  })
-
-  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
-  const askContext = data ? buildAskContext('5 EMA Cross', data) : ''
-  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
-
-  return (
-    <div>
-      <PageHeader
-        title="5 EMA Cross"
-        description="Close above 5 EMA → long · below → short · filtered by Bollinger Bands, RSI & volume · faster than 9 EMA"
-      />
-
-      <div className="mb-4 space-y-2">
-        <CollapsibleSection title="How to use this screen" defaultOpen copyText={EMA5_HOW_TO}>
-          {EMA5_HOW_TO}
-        </CollapsibleSection>
-        <CollapsibleSection title="In plain English" defaultOpen>
-          {EMA5_LAYMAN}
-        </CollapsibleSection>
-        <CollapsibleSection title="How it works — rules" defaultOpen>
-          {EMA5_OVERVIEW}
-        </CollapsibleSection>
-        {howItWorks && (
-          <CollapsibleSection title="Engine how-it-works (from scan)">
-            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
-          </CollapsibleSection>
-        )}
-      </div>
-
-      <Card className="mb-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {ASSET_CLASSES.map((ac) => (
-            <Chip
-              key={ac.id}
-              selected={assetClass === ac.id}
-              onClick={() => {
-                setAssetClass(ac.id)
-                setPicker({ tickers: [], durations: ['15m'] })
-                setError('')
-              }}
-            >
-              {ac.label}
-            </Chip>
-          ))}
-        </div>
-
-        <AssetClassTickerPicker
-          key={assetClass}
-          assetClass={assetClass}
-          showDurations
-          defaultSelectCount={15}
-          onChange={handlePickerChange}
-        />
-
-        <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
-          <FormField label="History (bars)">
-            <Input type="number" min={80} max={1200} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
-          </FormField>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Fresh cross only</Chip>
-          <Chip selected={!freshCrossOnly} onClick={() => setFreshCrossOnly(false)}>Allow hold above/below</Chip>
-          <Chip selected={requireVol} onClick={() => setRequireVol(true)}>Require volume expand</Chip>
-          <Chip selected={!requireVol} onClick={() => setRequireVol(false)}>Volume optional</Chip>
-        </div>
-
-        <div className="mt-3">
-          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
-        </div>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
-            {runMut.isPending
-              ? useAi
-                ? 'Scanning + AI refine…'
-                : 'Scanning…'
-              : `Scan 5 EMA Cross (${picker.tickers.length} × ${picker.durations.length || 1})`}
-          </Button>
-        </div>
-        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
-        <AnalysisBackgroundControls
-          bg={bg}
-          placeholder={`5 EMA Cross · ${new Date().toLocaleDateString()}`}
-          onStart={() => bg.startBackground(buildPayload(), () => {
-            if (!picker.tickers.length) return 'Select at least one ticker'
-            if (!picker.durations.length) return 'Select at least one timeframe'
-            return null
-          })}
-        />
-        {error && (
-          <div className="mt-3">
-            <Alert type="error">{error}</Alert>
-          </div>
-        )}
-      </Card>
-
-      <AnalysisBackgroundJobsAndReports bg={bg} />
-
-      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking 5 EMA cross · BB · RSI · volume…" />}
-
-      {data && (!runMut.isPending || bg.viewedPayload) && (
-        <>
-          <Card className="mb-4">
-            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
-            <Ema5CrossPanel data={data} showCharts={showCharts} />
-          </Card>
-          {askContext && <AskAIPanel context={askContext} section="pro-trade/ema5-cross" />}
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/ema-cross" />}
         </>
       )}
     </div>
@@ -4252,8 +4106,7 @@ export default function ProTrade() {
     { id: '3-in-1-trade-system', label: '3-in-1 Trade System' },
     { id: 'simple-effective', label: 'Simple Effective' },
     { id: 'bb-rsi-vol', label: 'BB-RSI-VOL' },
-    { id: 'ema9-cross', label: '9 EMA Cross' },
-    { id: 'ema5-cross', label: '5 EMA Cross' },
+    { id: 'ema-cross', label: 'EMA Cross' },
     { id: 'ema5-9-cross', label: '5/9 EMA Cross' },
     { id: 'flat-retest', label: 'Flat Retest' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
@@ -4277,8 +4130,12 @@ export default function ProTrade() {
   else if (tab === '3-in-1-trade-system') page = <ThreeInOneTradeSystemPage />
   else if (tab === 'simple-effective') page = <SimpleEffectivePage />
   else if (tab === 'bb-rsi-vol') page = <BbRsiVolPage />
-  else if (tab === 'ema9-cross') page = <Ema9CrossPage />
-  else if (tab === 'ema5-cross') page = <Ema5CrossPage />
+  else if (tab === 'ema-cross' || tab === 'ema9-cross' || tab === 'ema5-cross') {
+    if (tab === 'ema9-cross' || tab === 'ema5-cross') {
+      return <Navigate to="/pro-trade/ema-cross" replace />
+    }
+    page = <EmaCrossPage />
+  }
   else if (tab === 'ema5-9-cross') page = <Ema59CrossPage />
   else if (tab === 'flat-retest') page = <FlatRetestPage />
   else if (tab === 'btst') page = <BtstPage />

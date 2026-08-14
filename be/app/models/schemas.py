@@ -1442,35 +1442,37 @@ class ProTradeBbRsiVolRequest(BaseModel):
 
 
 class ProTradeEma9CrossRequest(BaseModel):
-    """9 EMA Cross — close above 9 EMA → long; below → short; filtered by BB / RSI / volume."""
+    """EMA Cross — just jumped above/below EMA X and closed one candle on that side (X=5/9/20/50/200)."""
     tickers: list[str] = Field(default_factory=list)
     asset_class: str = "india"
     exchange: str | None = None
     timeframes: list[str] = Field(default_factory=lambda: ["15m"])
-    lookback_bars: int = Field(default=300, ge=80, le=1200)
-    ema_period: int = Field(default=9, ge=5, le=21)
+    lookback_bars: int = Field(default=300, ge=80, le=2000)
+    ema_period: Literal[5, 9, 20, 50, 200] = 9
     bb_period: int = Field(default=20, ge=10, le=50)
     bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
     min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
     require_volume_expand: bool = False
     require_fresh_cross: bool = True
+    move_side: Literal["above", "below", "both"] = "both"
     take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
     use_ai: bool = False
 
 
 class ProTradeEma5CrossRequest(BaseModel):
-    """5 EMA Cross — close above 5 EMA → long; below → short; filtered by BB / RSI / volume."""
+    """Legacy 5 EMA Cross — routed through the unified EMA Cross engine."""
     tickers: list[str] = Field(default_factory=list)
     asset_class: str = "india"
     exchange: str | None = None
     timeframes: list[str] = Field(default_factory=lambda: ["15m"])
-    lookback_bars: int = Field(default=300, ge=80, le=1200)
-    ema_period: int = Field(default=5, ge=3, le=9)
+    lookback_bars: int = Field(default=300, ge=80, le=2000)
+    ema_period: Literal[5, 9, 20, 50, 200] = 5
     bb_period: int = Field(default=20, ge=10, le=50)
     bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
     min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
     require_volume_expand: bool = False
     require_fresh_cross: bool = True
+    move_side: Literal["above", "below", "both"] = "both"
     take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
     use_ai: bool = False
 

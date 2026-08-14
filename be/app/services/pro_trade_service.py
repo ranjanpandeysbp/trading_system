@@ -118,15 +118,9 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
-                    "id": "ema9_bb_rsi_vol",
-                    "label": "9 EMA Cross",
-                    "path": "/pro-trade/ema9-cross",
-                    "youtube": None,
-                },
-                {
-                    "id": "ema5_bb_rsi_vol",
-                    "label": "5 EMA Cross",
-                    "path": "/pro-trade/ema5-cross",
+                    "id": "ema_cross",
+                    "label": "EMA Cross",
+                    "path": "/pro-trade/ema-cross",
                     "youtube": None,
                 },
                 {
@@ -807,7 +801,7 @@ class ProTradeService:
                 "rsi_period", "rsi_long_min", "rsi_long_max", "rsi_short_min", "rsi_short_max",
                 "rsi_long_block", "rsi_short_block", "vol_ma_period", "min_rr", "sl_atr_mult",
                 "take_confidence_threshold", "min_bars", "chart_bars",
-                "require_volume_expand", "require_fresh_cross",
+                "require_volume_expand", "require_fresh_cross", "move_side",
             }
         })
         resolved_exchange = exchange or default_exchange

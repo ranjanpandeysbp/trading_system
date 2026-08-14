@@ -67,35 +67,33 @@ def how_it_works_for(period: int) -> str:
     return f"""
 ### How {n} EMA Cross works
 
-Trend-follow on the **{n} EMA**, filtered by **Bollinger Bands**, **RSI**, and **volume**.
+Find tickers that **just jumped above** (or **fell below**) the **{n} EMA** and have **already closed one candle** on that side.
 
-| Side | Trigger | BB | RSI | Volume |
-|------|---------|----|-----|--------|
-| **LONG** | Close **crosses above** {n} EMA | Prefer not hugging Upper band (room to run) | Prefer ~45–70 (momentum, not chase) | Prefer volume **above** Vol MA |
-| **SHORT** | Close **crosses below** {n} EMA | Prefer not hugging Lower band | Prefer ~30–55 | Prefer volume **above** Vol MA |
+| Side | Trigger |
+|------|---------|
+| **ABOVE / LONG** | Prior close ≤ {n} EMA · latest close **>** {n} EMA (fresh jump + closed above) |
+| **BELOW / SHORT** | Prior close ≥ {n} EMA · latest close **<** {n} EMA (fresh jump + closed below) |
+
+Optional filters: Bollinger room · RSI zone · volume expansion.
 
 **Defaults:** EMA{n} · BB(20, 2) · RSI(14) · Vol MA20
 
-**Targets / risk**
-- T1 = Mid BB · T2 = outer band in trade direction
-- SL = beyond recent swing / other side of {n} EMA (ATR-sane)
-- Output: **% confidence · %SL · %TP**
-
 **How to use**
-1. Pick asset class + timeframes + tickers.
-2. Scan — act on TAKE with a fresh {n} EMA cross + confirming filters.
-3. If price is already above/below {n} EMA without a fresh cross → WATCH only.
+1. Pick asset class · one or more tickers · one or more timeframes.
+2. Choose EMA period (5 / 9 / 20 / 50 / 200).
+3. Scan — TAKE when a fresh closed-candle jump above/below the EMA is confirmed.
 """.strip()
 
 
 def rules_for(period: int) -> list[str]:
     n = int(period)
     return [
-        f"Fresh close cross above {n} EMA → LONG; below → SHORT.",
+        f"Just jumped above {n} EMA + closed candle above → LONG.",
+        f"Just jumped below {n} EMA + closed candle below → SHORT.",
         "BB(20,2): avoid chasing the outer band; T1 mid / T2 outer.",
         "RSI(14): long prefers mid-high momentum; short prefers mid-low.",
-        "Volume vs MA20: expansion on the cross improves confidence.",
-        "No fresh cross = WATCH (holding above/below is not a new entry).",
+        "Volume vs MA20: expansion on the jump improves confidence.",
+        f"Already holding above/below {n} EMA without a fresh jump → WATCH only (unless hold mode).",
         f"Structural stop beyond swing / {n} EMA; ATR-sane SL/TP.",
     ]
 
@@ -103,11 +101,12 @@ def rules_for(period: int) -> list[str]:
 def pro_tips_for(period: int) -> list[str]:
     n = int(period)
     return [
-        "Enter on the cross bar close (or next open) — do not anticipate the EMA touch.",
-        "If price is already glued to the upper BB on a long cross, wait for a pullback to mid.",
-        "Volume expansion on the cross separates real breaks from limp drifts.",
-        "RSI > 75 on a long cross is often a chase — size down or skip.",
+        f"Enter after the candle that closed across the {n} EMA — do not anticipate the touch.",
+        "If price is already glued to the upper BB on a long jump, wait for a pullback to mid.",
+        "Volume expansion on the jump separates real breaks from limp drifts.",
+        "RSI > 75 on a long jump is often a chase — size down or skip.",
         f"Book partial at mid BB; trail remainder under/over the {n} EMA.",
+        f"EMA200 needs more history bars — raise lookback if indicators stay blank.",
     ]
 
 
@@ -132,6 +131,9 @@ def ai_system_for(period: int) -> str:
     )
 
 
+ALLOWED_EMA_PERIODS = (5, 9, 20, 50, 200)
+
+
 @dataclass
 class Ema9BbRsiVolConfig:
     timeframe: str = "15m"
@@ -154,6 +156,30 @@ class Ema9BbRsiVolConfig:
     chart_bars: int = 120
     require_volume_expand: bool = False
     require_fresh_cross: bool = True
+    # above = jumped above only · below = jumped below only · both
+    move_side: str = "both"
+
+    def __post_init__(self) -> None:
+        p = int(self.ema_period)
+        if p not in ALLOWED_EMA_PERIODS:
+            # nearest allowed
+            self.ema_period = min(ALLOWED_EMA_PERIODS, key=lambda x: abs(x - p))
+        else:
+            self.ema_period = p
+        side = str(self.move_side or "both").lower()
+        if side in ("rise", "long", "up", "above"):
+            side = "above"
+        elif side in ("fall", "short", "down", "below"):
+            side = "below"
+        elif side not in ("above", "below", "both"):
+            side = "both"
+        self.move_side = side
+        # Ensure enough history for slow EMAs
+        need = max(int(self.min_bars), int(self.ema_period) * 3 + 40, 80)
+        if int(self.lookback_bars) < need:
+            self.lookback_bars = need
+        if int(self.min_bars) < int(self.ema_period) + 10:
+            self.min_bars = int(self.ema_period) + 10
 
 
 def _r(x: float, n: int = 6) -> float:
@@ -265,6 +291,10 @@ def analyze_ticker(
     cross_down = prev >= prev_ema and price < ema_v
     above = price > ema_v
     below = price < ema_v
+    # User wording: just jumped + already closed one candle on that side of the EMA
+    jumped_above_closed = bool(cross_up and above)
+    jumped_below_closed = bool(cross_down and below)
+    pct_from_ema = ((price / ema_v) - 1.0) * 100.0 if ema_v else 0.0
 
     long_bb_ok = price < bb_u * 0.998
     short_bb_ok = price > bb_l * 1.002
@@ -277,6 +307,18 @@ def analyze_ticker(
     rsi_short_block = rsi_v <= cfg.rsi_short_block
 
     checks: list[dict[str, Any]] = [
+        {
+            "id": "jumped_above_closed",
+            "label": f"Just jumped above {ema_label} · closed candle above",
+            "passed": jumped_above_closed,
+            "detail": f"prev {_r(prev)} / EMA{period} {_r(prev_ema)} → close {_r(price)} / {_r(ema_v)}",
+        },
+        {
+            "id": "jumped_below_closed",
+            "label": f"Just fell below {ema_label} · closed candle below",
+            "passed": jumped_below_closed,
+            "detail": f"prev {_r(prev)} / EMA{period} {_r(prev_ema)} → close {_r(price)} / {_r(ema_v)}",
+        },
         {
             "id": "cross_up",
             "label": f"Close crossed above {ema_label}",
@@ -293,13 +335,13 @@ def analyze_ticker(
             "id": "above_ema",
             "label": f"Close above {ema_label}",
             "passed": above,
-            "detail": f"close {_r(price)} · EMA{period} {_r(ema_v)}",
+            "detail": f"close {_r(price)} · EMA{period} {_r(ema_v)} · {pct_from_ema:+.2f}%",
         },
         {
             "id": "below_ema",
             "label": f"Close below {ema_label}",
             "passed": below,
-            "detail": f"close {_r(price)} · EMA{period} {_r(ema_v)}",
+            "detail": f"close {_r(price)} · EMA{period} {_r(ema_v)} · {pct_from_ema:+.2f}%",
         },
         {
             "id": "bb_room_long",
@@ -338,6 +380,11 @@ def analyze_ticker(
         ema_key: _r(ema_v),
         "ema": _r(ema_v),
         "ema_period": period,
+        "pct_from_ema": _r(pct_from_ema, 2),
+        "jumped_above_closed": jumped_above_closed,
+        "jumped_below_closed": jumped_below_closed,
+        "closed_above": above,
+        "closed_below": below,
         "bb_upper": _r(bb_u),
         "bb_mid": _r(bb_m),
         "bb_lower": _r(bb_l),
@@ -373,58 +420,105 @@ def analyze_ticker(
     attach_ticker_name(out)
 
     direction: str | None = None
+    side_filter = str(cfg.move_side or "both").lower()
+    if cross_up and side_filter == "below":
+        out["signal"] = "WAIT"
+        out["status"] = "side_filtered"
+        out["reason"] = f"Jumped above {ema_label} but scan is set to Below only"
+        out["jumped_above_closed"] = jumped_above_closed
+        out["jumped_below_closed"] = jumped_below_closed
+        out["pct_from_ema"] = _r(pct_from_ema, 2)
+        return out
+    if cross_down and side_filter == "above":
+        out["signal"] = "WAIT"
+        out["status"] = "side_filtered"
+        out["reason"] = f"Fell below {ema_label} but scan is set to Above only"
+        out["jumped_above_closed"] = jumped_above_closed
+        out["jumped_below_closed"] = jumped_below_closed
+        out["pct_from_ema"] = _r(pct_from_ema, 2)
+        return out
     if cross_up:
         if rsi_long_block:
             out["signal"] = "WATCH"
             out["status"] = "rsi_overbought"
-            out["reason"] = f"Crossed above {ema_label} but RSI {_r(rsi_v, 1)} is chasing overbought — stand aside"
+            out["reason"] = (
+                f"Just jumped above {ema_label} and closed above, but RSI {_r(rsi_v, 1)} "
+                "is chasing overbought — stand aside"
+            )
             return out
         if cfg.require_volume_expand and not vol_expand:
             out["signal"] = "WATCH"
             out["status"] = "thin_volume"
-            out["reason"] = f"Crossed above {ema_label} but volume is not expanding — wait for participation"
+            out["reason"] = (
+                f"Just jumped above {ema_label} and closed above, but volume is not expanding — "
+                "wait for participation"
+            )
             return out
         if not long_bb_ok:
             out["signal"] = "WATCH"
             out["status"] = "bb_extreme"
-            out["reason"] = f"Crossed above {ema_label} into Upper BB — little room; wait for pullback"
+            out["reason"] = (
+                f"Just jumped above {ema_label} into Upper BB — little room; wait for pullback"
+            )
             return out
         direction = "LONG"
     elif cross_down:
         if rsi_short_block:
             out["signal"] = "WATCH"
             out["status"] = "rsi_oversold"
-            out["reason"] = f"Crossed below {ema_label} but RSI {_r(rsi_v, 1)} is washed out — stand aside"
+            out["reason"] = (
+                f"Just fell below {ema_label} and closed below, but RSI {_r(rsi_v, 1)} "
+                "is washed out — stand aside"
+            )
             return out
         if cfg.require_volume_expand and not vol_expand:
             out["signal"] = "WATCH"
             out["status"] = "thin_volume"
-            out["reason"] = f"Crossed below {ema_label} but volume is not expanding — wait for participation"
+            out["reason"] = (
+                f"Just fell below {ema_label} and closed below, but volume is not expanding — "
+                "wait for participation"
+            )
             return out
         if not short_bb_ok:
             out["signal"] = "WATCH"
             out["status"] = "bb_extreme"
-            out["reason"] = f"Crossed below {ema_label} into Lower BB — little room; wait for bounce fade"
+            out["reason"] = (
+                f"Just fell below {ema_label} into Lower BB — little room; wait for bounce fade"
+            )
             return out
         direction = "SHORT"
-    elif above and not cfg.require_fresh_cross:
+    elif above and not cfg.require_fresh_cross and side_filter in ("above", "both"):
         direction = "LONG"
-    elif below and not cfg.require_fresh_cross:
+    elif below and not cfg.require_fresh_cross and side_filter in ("below", "both"):
         direction = "SHORT"
     elif above:
         out["signal"] = "WATCH"
         out["status"] = "holding_above"
-        out["reason"] = f"Price is above {ema_label} but no fresh cross this bar — WATCH only"
+        out["reason"] = (
+            f"Closed above {ema_label} ({pct_from_ema:+.2f}%) but did not just jump this bar — WATCH only"
+        )
+        out["jumped_above_closed"] = False
+        out["jumped_below_closed"] = False
+        out["pct_from_ema"] = _r(pct_from_ema, 2)
         return out
     elif below:
         out["signal"] = "WATCH"
         out["status"] = "holding_below"
-        out["reason"] = f"Price is below {ema_label} but no fresh cross this bar — WATCH only"
+        out["reason"] = (
+            f"Closed below {ema_label} ({pct_from_ema:+.2f}%) but did not just fall this bar — WATCH only"
+        )
+        out["jumped_above_closed"] = False
+        out["jumped_below_closed"] = False
+        out["pct_from_ema"] = _r(pct_from_ema, 2)
         return out
     else:
         out["signal"] = "WAIT"
-        out["reason"] = f"No {ema_label} cross / flat on the EMA"
+        out["reason"] = f"No {ema_label} jump / flat on the EMA"
         return out
+
+    out["jumped_above_closed"] = jumped_above_closed
+    out["jumped_below_closed"] = jumped_below_closed
+    out["pct_from_ema"] = _r(pct_from_ema, 2)
 
     is_long = direction == "LONG"
     entry = price
@@ -609,6 +703,8 @@ def scan_universe(
         "rules": rules_for(period),
         "pro_tips": pro_tips_for(period),
         "timeframes": tfs,
+        "ema_period": period,
+        "move_side": str(cfg.move_side or "both"),
         "config": {
             "ema_period": period,
             "bb_period": cfg.bb_period,
@@ -619,6 +715,7 @@ def scan_universe(
             "take_confidence_threshold": cfg.take_confidence_threshold,
             "require_volume_expand": cfg.require_volume_expand,
             "require_fresh_cross": cfg.require_fresh_cross,
+            "move_side": str(cfg.move_side or "both"),
         },
         "results": results,
         "entry_count": len(actionable),

@@ -2757,38 +2757,33 @@ Outputs **% confidence**, **%SL**, **%TP**. Also available in the Backtester.
 **When to use:** Range / chop fades — not clean trending markets.
 """,
 
-    "ema9_bb_rsi_vol": """
-### 9 EMA Cross — EMA9 · Bollinger · RSI · Volume
+    "ema_cross": """
+### EMA Cross — EMA X · Bollinger · RSI · Volume
 
-Momentum desk: trade the **fresh close cross** of the 9 EMA, filtered by band room, RSI zone, and volume.
+Find tickers that **just jumped above** (or **fell below**) EMA **X** (5 / 9 / 20 / 50 / 200) and have **already closed one candle** on that side.
 
 | Side | Setup |
 |------|--------|
-| **LONG** | Close crosses **above** 9 EMA · RSI mid-bull (~42–72) · prefer vol > MA20 · not hugging Upper BB |
-| **SHORT** | Close crosses **below** 9 EMA · RSI mid-bear (~28–58) · prefer vol > MA20 · not hugging Lower BB |
+| **ABOVE / LONG** | Prior close ≤ EMA X · latest close **>** EMA X · RSI mid-bull · prefer vol > MA20 · room under Upper BB |
+| **BELOW / SHORT** | Prior close ≥ EMA X · latest close **<** EMA X · RSI mid-bear · prefer vol > MA20 · room above Lower BB |
 
-Holding above/below without a fresh cross → **WATCH** only (unless “allow hold” is on).
+Holding above/below without a fresh jump → **WATCH** only (unless “allow hold” is on). Filter by Above / Below / Both in the UI.
 
-**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA9 (ATR-sane). Outputs **% confidence**, **%SL**, **%TP**.
+**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA X (ATR-sane). Outputs **% confidence**, **%SL**, **%TP**.
 
-**When to use:** Short-term trend resumes after a pullback into the 9 EMA — Stocks, Indices, Crypto, Commodities.
+**When to use:** Fresh closed-candle break of a chosen EMA across one or more tickers and timeframes.
+""",
+
+    "ema9_bb_rsi_vol": """
+### EMA Cross (legacy id) — same as `ema_cross`
+
+Unified desk: just jumped above/below EMA X (5/9/20/50/200) with a closed candle on that side · BB / RSI / volume.
 """,
 
     "ema5_bb_rsi_vol": """
-### 5 EMA Cross — EMA5 · Bollinger · RSI · Volume
+### EMA Cross (legacy 5 EMA route) — same as `ema_cross`
 
-Same desk as 9 EMA Cross, but on the **faster 5 EMA** — more signals, more noise.
-
-| Side | Setup |
-|------|--------|
-| **LONG** | Close crosses **above** 5 EMA · RSI mid-bull (~42–72) · prefer vol > MA20 · not hugging Upper BB |
-| **SHORT** | Close crosses **below** 5 EMA · RSI mid-bear (~28–58) · prefer vol > MA20 · not hugging Lower BB |
-
-Holding above/below without a fresh cross → **WATCH** only. Prefer **Require volume expand** on choppy lower TFs.
-
-**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA5 (ATR-sane).
-
-**When to use:** Scalps / tight momentum after a pullback into the 5 EMA — liquid names preferred.
+Defaults to EMA 5 when opened via the old 5 EMA endpoint; use the unified **EMA Cross** screen and pick period X.
 """,
 
     "ema5_9_crossover": """

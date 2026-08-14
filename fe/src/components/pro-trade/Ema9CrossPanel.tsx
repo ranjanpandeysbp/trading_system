@@ -334,13 +334,18 @@ export function EmaPriceCrossPanel({
   )
 }
 
-/** @deprecated prefer EmaPriceCrossPanel — kept for existing imports */
+/** Unified EMA Cross results — period comes from scan payload / each row. */
 export function Ema9CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
-  return <EmaPriceCrossPanel data={data} showCharts={showCharts} emaPeriod={9} />
+  const allowed = new Set([5, 9, 20, 50, 200])
+  const fromSummary = Number((data as Row).ema_period)
+  const fromRow = Number((((data.results as Row[] | undefined) ?? [])[0] as Row | undefined)?.ema_period)
+  const period = allowed.has(fromSummary) ? fromSummary : allowed.has(fromRow) ? fromRow : 9
+  return <EmaPriceCrossPanel data={data} showCharts={showCharts} emaPeriod={period} />
 }
 
+/** @deprecated Prefer Ema9CrossPanel — period is read from the scan. */
 export function Ema5CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
-  return <EmaPriceCrossPanel data={data} showCharts={showCharts} emaPeriod={5} />
+  return <Ema9CrossPanel data={data} showCharts={showCharts} />
 }
 
 export function Ema59CrossPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
