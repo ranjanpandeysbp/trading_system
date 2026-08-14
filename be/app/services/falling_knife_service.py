@@ -1,4 +1,4 @@
-"""Falling Knife scanner service — live drops, date-range history/forecast, from-top peak drawdowns."""
+"""Falling Knife scanner service — live drops, history/forecast, from-top, runup/descent."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from app.market_pulse.falling_knife_engine import (
     scan_falling_knife_from_top,
     scan_falling_knife_history,
     scan_falling_knives,
+    scan_runup_descent,
     session_info,
 )
 from app.market_pulse.groww_auth import set_groww_token
@@ -41,9 +42,25 @@ class FallingKnifeService:
         threshold = payload.get("threshold_pct")
         thr = float(threshold) if threshold is not None else drop_pct
         use_ai = bool(payload.get("use_ai"))
+        include_charts = bool(payload.get("include_charts") or payload.get("show_charts"))
+        timeframes = payload.get("timeframes") or payload.get("durations") or None
+        if isinstance(timeframes, str):
+            timeframes = [t.strip() for t in timeframes.split(",") if t.strip()]
 
         def _run():
             set_groww_token(token)
+            if mode in ("runup_descent", "runup", "momentum"):
+                return scan_runup_descent(
+                    asset_class=asset_class,
+                    tickers=tickers,
+                    drop_pct=thr,
+                    lookback_hours=float(payload.get("lookback_hours") or 24.0),
+                    timeframes=list(timeframes) if timeframes else None,
+                    move_side=str(payload.get("move_side") or "both"),
+                    groww_token=token,
+                    exchange=exchange,
+                    include_charts=include_charts,
+                )
             if mode == "from_top":
                 return scan_falling_knife_from_top(
                     asset_class=asset_class,

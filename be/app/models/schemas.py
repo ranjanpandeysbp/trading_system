@@ -690,16 +690,24 @@ class FallingKnifeScanRequest(BaseModel):
     drop_pct: float = Field(default=10.0, ge=0.5, le=90.0)
     lookback_hours: float = Field(default=24.0, ge=1.0, le=336.0)
     exchange: str | None = None
-    # History mode (when from_date set); from_top = peak drawdown over loop hours
-    mode: Literal["live", "history", "from_top"] = "live"
+    # History mode (when from_date set); from_top = peak drawdown; runup_descent = early runup / descent
+    mode: Literal["live", "history", "from_top", "runup_descent"] = "live"
     from_date: str | None = None
     to_date: str | None = None
-    move_side: Literal["fall", "rise", "both"] = "both"
+    move_side: Literal["fall", "rise", "both", "runup", "descent"] = "both"
     threshold_pct: float | None = Field(
         default=None,
         ge=0.5,
         le=90.0,
-        description="History mode: min % rise/fall to count as an event (defaults to drop_pct).",
+        description="History / runup-descent: min % move (defaults to drop_pct).",
+    )
+    timeframes: list[str] = Field(
+        default_factory=list,
+        description="Runup/Descent mode: one or more of 5m,15m,30m,1h,4h,1d.",
+    )
+    include_charts: bool = Field(
+        default=False,
+        description="When true, attach OHLCV chart bars for matched tickers (heavier).",
     )
     use_ai: bool = Field(
         default=False,

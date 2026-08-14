@@ -182,13 +182,14 @@ Click **Refresh Market Data** — not auto-fetched on every load.
 
     "falling_knife": """
 ### Falling Knife
-Three modes:
+Four modes:
 
-1. **Live** — tickers down **≥ X% from session-window high** (or up from low) over the last **N hours**.
-2. **History** — every ≥X% rise/fall in a date range with recovery timing + next-move forecast.
-3. **From top** — names **≥ X% below their high in the last loop hours**, with **reverse vs continue** odds, expected bounce %, and confidence.
+1. **Runup / Descent** — last **X hours** on **1+ timeframes**: early major **runups** still extending (% rise from swing-low start) and exhausted tops in **descent** (% fall from toppest point). Works for all asset classes; charts + background jobs supported.
+2. **Live** — tickers down **≥ X% from session-window high** (or up from low) over the last **N hours**.
+3. **History** — every ≥X% rise/fall in a date range with recovery timing + next-move forecast.
+4. **From top** — names **≥ X% below their high in the last loop hours**, with **reverse vs continue** odds, expected bounce %, and confidence.
 
-| Asset | Session used (live) |
+| Asset | Session used (live / runup) |
 |-------|----------------|
 | India | Mon–Fri 09:15–15:30 IST |
 | US | Mon–Fri 09:30–16:00 ET |
@@ -197,7 +198,7 @@ Three modes:
 
 Educational screener only.
 
-**When to use:** Live for sharp session knives; From top for loop-hour peak drawdowns and rebound/continuation odds.
+**When to use:** Runup/Descent for “just started” vs “exhausted and falling”; Live for sharp session knives; From top for loop-hour peak drawdowns.
 """,
 
     "nifty_breadth": """

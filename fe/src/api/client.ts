@@ -226,11 +226,13 @@ export const runFallingKnifeScan = (payload: {
   drop_pct?: number
   lookback_hours?: number
   exchange?: string
-  mode?: 'live' | 'history' | 'from_top'
+  mode?: 'live' | 'history' | 'from_top' | 'runup_descent'
   from_date?: string
   to_date?: string
-  move_side?: 'fall' | 'rise' | 'both'
+  move_side?: 'fall' | 'rise' | 'both' | 'runup' | 'descent'
   threshold_pct?: number
+  timeframes?: string[]
+  include_charts?: boolean
   use_ai?: boolean
 }) => api.post('/falling-knife/scan', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 

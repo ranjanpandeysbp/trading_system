@@ -640,6 +640,8 @@ def _how_to() -> list[str]:
         "Live also builds Fall/Rise next-move forecasts (same as History) from ~90d daily history — Conf %, SL %, TP %.",
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
         "From top mode: find names down ≥ X% from their high in the last loop hours; estimate reverse vs continue odds + upside % + confidence.",
+        "Runup / Descent mode: last X hours on 1+ timeframes — early major runups still extending, or exhausted tops now descending.",
+        "Runup % = rise from swing-low start · Descent % = fall from window peak (toppest point).",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
         "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",
         "Net change % = (last - window open) / open (risen + / fallen -).",
@@ -1944,5 +1946,477 @@ def scan_falling_knife_from_top(
         "disclaimer": (
             "Research / education only — not financial advice. "
             "Reverse/continue odds are historical analogue rates, not guarantees."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Runup / Descent mode — early major runups + exhausted tops descending
+# ---------------------------------------------------------------------------
+
+RUNUP_DESCENT_TFS = ("5m", "15m", "30m", "1h", "4h", "1d")
+
+
+def _fmt_bar_ts(ts) -> str:
+    try:
+        return pd.Timestamp(ts).isoformat()
+    except Exception:
+        return str(ts)
+
+
+def _recent_change_pct(closes: pd.Series, frac: float = 0.2) -> float:
+    n = len(closes)
+    if n < 3:
+        return 0.0
+    start = max(0, n - max(2, int(n * frac)))
+    a = float(closes.iloc[start])
+    b = float(closes.iloc[-1])
+    if a <= 0 or not np.isfinite(a) or not np.isfinite(b):
+        return 0.0
+    return ((b / a) - 1.0) * 100.0
+
+
+def _classify_runup_descent(
+    sess: pd.DataFrame,
+    *,
+    thr_pct: float,
+    interval: str,
+) -> dict[str, Any] | None:
+    """Classify one timeframe window as early runup, continuing descent, or neither."""
+    if sess is None or sess.empty or len(sess) < 8:
+        return None
+
+    work = sess.copy()
+    for col in ("open", "high", "low", "close"):
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+    work = work.dropna(subset=["high", "low", "close"])
+    if len(work) < 8:
+        return None
+
+    highs = work["high"]
+    lows = work["low"]
+    closes = work["close"]
+    n = len(work)
+    last = float(closes.iloc[-1])
+    if last <= 0 or not np.isfinite(last):
+        return None
+
+    trough_i = int(lows.values.argmin())
+    after = highs.iloc[trough_i:]
+    if after.empty:
+        return None
+    peak_rel = int(after.values.argmax())
+    peak_i = trough_i + peak_rel
+    global_peak_i = int(highs.values.argmax())
+    if global_peak_i >= trough_i and float(highs.iloc[global_peak_i]) >= float(highs.iloc[peak_i]):
+        peak_i = global_peak_i
+
+    trough = float(lows.iloc[trough_i])
+    peak = float(highs.iloc[peak_i])
+    if trough <= 0 or peak <= 0:
+        return None
+
+    rise_from_start = ((last - trough) / trough) * 100.0
+    fall_from_top = ((peak - last) / peak) * 100.0
+    trough_pos = trough_i / max(n - 1, 1)
+    peak_pos = peak_i / max(n - 1, 1)
+    recent_chg = _recent_change_pct(closes, 0.22)
+    near_high = fall_from_top <= max(1.0, thr_pct * 0.35)
+    topped = peak_pos <= 0.85
+    early_leg = trough_pos <= 0.75 and (n - 1 - trough_i) >= 3
+
+    phase = None
+    continue_score = 0.0
+    reason = ""
+
+    if (
+        early_leg
+        and rise_from_start >= thr_pct
+        and recent_chg > 0.15
+        and near_high
+        and peak_pos >= 0.55
+    ):
+        phase = "runup"
+        continue_score = (
+            min(40.0, rise_from_start) * 0.55
+            + max(0.0, recent_chg) * 1.4
+            + max(0.0, 12.0 - fall_from_top) * 1.2
+            + (1.0 - trough_pos) * 8.0
+        )
+        reason = (
+            f"Early runup on {interval}: +{rise_from_start:.1f}% from swing-low start, "
+            f"still near highs (−{fall_from_top:.1f}% off peak), recent momentum +{recent_chg:.1f}%."
+        )
+    elif (
+        topped
+        and fall_from_top >= thr_pct
+        and recent_chg < -0.15
+        and peak_i < n - 2
+        and peak_pos >= 0.15
+    ):
+        phase = "descent"
+        continue_score = (
+            min(40.0, fall_from_top) * 0.6
+            + abs(min(0.0, recent_chg)) * 1.5
+            + max(0.0, peak_pos - 0.2) * 10.0
+            + max(0.0, rise_from_start) * 0.08
+        )
+        reason = (
+            f"Descent on {interval}: −{fall_from_top:.1f}% from toppest point, "
+            f"prior leg was +{rise_from_start:.1f}% off the low, recent momentum {recent_chg:.1f}%."
+        )
+
+    if phase is None:
+        return {
+            "interval": interval,
+            "phase": None,
+            "matched": False,
+            "rise_from_start_pct": _r(rise_from_start, 2),
+            "fall_from_top_pct": _r(fall_from_top, 2),
+            "recent_change_pct": _r(recent_chg, 2),
+            "last": _r(last, 4),
+            "runup_start": _r(trough, 4),
+            "peak": _r(peak, 4),
+            "runup_start_time": _fmt_bar_ts(work.index[trough_i]),
+            "peak_time": _fmt_bar_ts(work.index[peak_i]),
+            "bars": n,
+        }
+
+    return {
+        "interval": interval,
+        "phase": phase,
+        "matched": True,
+        "continue_score": _r(continue_score, 2),
+        "rise_from_start_pct": _r(rise_from_start, 2),
+        "fall_from_top_pct": _r(fall_from_top, 2),
+        "recent_change_pct": _r(recent_chg, 2),
+        "last": _r(last, 4),
+        "runup_start": _r(trough, 4),
+        "peak": _r(peak, 4),
+        "runup_start_time": _fmt_bar_ts(work.index[trough_i]),
+        "peak_time": _fmt_bar_ts(work.index[peak_i]),
+        "trough_pos": _r(trough_pos, 3),
+        "peak_pos": _r(peak_pos, 3),
+        "bars": n,
+        "reason": reason,
+        "will_continue": True,
+    }
+
+
+def _analyze_runup_descent_symbol(
+    symbol: str,
+    *,
+    asset_class: str,
+    market: str,
+    thr_pct: float,
+    lookback_hours: float,
+    timeframes: list[str],
+    move_side: str,
+    groww_token: str,
+    exchange: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    include_charts: bool,
+) -> dict[str, Any] | None:
+    side = (move_side or "both").lower()
+    if side not in ("runup", "descent", "both", "rise", "fall"):
+        side = "both"
+    if side == "rise":
+        side = "runup"
+    if side == "fall":
+        side = "descent"
+
+    tf_rows: list[dict[str, Any]] = []
+    chart_by_tf: dict[str, list[dict[str, Any]]] = {}
+
+    for interval in timeframes:
+        try:
+            limit = bars_needed(lookback_hours, interval if interval != "4h" else "1h")
+            if interval == "4h":
+                limit = max(limit, 120)
+            raw = fetch_data_for_gap_scan(
+                symbol,
+                interval,
+                market,
+                groww_token=groww_token,
+                exchange=exchange,
+                limit=limit,
+            )
+            df = normalize_ohlcv(raw) if raw is not None else pd.DataFrame()
+            if df is None or df.empty:
+                tf_rows.append({"interval": interval, "matched": False, "error": "No bars"})
+                continue
+            sess = filter_session_bars(df, asset_class, start_utc=start_utc, end_utc=end_utc)
+            hit = _classify_runup_descent(sess, thr_pct=thr_pct, interval=interval)
+            if hit is None:
+                tf_rows.append({"interval": interval, "matched": False, "error": "Insufficient session bars"})
+                continue
+            tf_rows.append(hit)
+            if include_charts and not sess.empty:
+                chart_by_tf[interval] = _session_chart_bars(sess, max_bars=220)
+        except Exception as exc:
+            logger.debug("Runup/descent TF %s failed for %s: %s", interval, symbol, exc)
+            tf_rows.append({"interval": interval, "matched": False, "error": str(exc)[:120]})
+
+    runups = [r for r in tf_rows if r.get("matched") and r.get("phase") == "runup"]
+    descents = [r for r in tf_rows if r.get("matched") and r.get("phase") == "descent"]
+
+    want_runup = side in ("runup", "both")
+    want_descent = side in ("descent", "both")
+    match_runup = want_runup and bool(runups)
+    match_descent = want_descent and bool(descents)
+    matched = match_runup or match_descent
+
+    best_runup = max(runups, key=lambda r: float(r.get("continue_score") or 0)) if runups else None
+    best_descent = max(descents, key=lambda r: float(r.get("continue_score") or 0)) if descents else None
+
+    if match_runup and match_descent:
+        br = float((best_runup or {}).get("continue_score") or 0)
+        bd = float((best_descent or {}).get("continue_score") or 0)
+        primary = best_runup if br >= bd else best_descent
+        match_kind = "both"
+    elif match_runup:
+        primary = best_runup
+        match_kind = "runup"
+    elif match_descent:
+        primary = best_descent
+        match_kind = "descent"
+    else:
+        primary = None
+        match_kind = None
+
+    primary_tf = str((primary or {}).get("interval") or (timeframes[0] if timeframes else "15m"))
+    chart_data = chart_by_tf.get(primary_tf) if include_charts else []
+
+    trade_setup = None
+    if matched and primary:
+        if primary.get("phase") == "runup":
+            conf = min(88.0, 45.0 + float(primary.get("continue_score") or 0) * 0.35)
+            trade_setup = {
+                "action": "BUY",
+                "direction": "long",
+                "confidence_pct": _r(conf, 1),
+                "sl_pct": _r(max(1.2, min(8.0, float(primary.get("rise_from_start_pct") or 5) * 0.25)), 2),
+                "tp_pct": _r(max(1.5, min(12.0, float(primary.get("rise_from_start_pct") or 5) * 0.35)), 2),
+                "reason": primary.get("reason") or "Runup continuation",
+                "timeframe": primary_tf,
+                "plain_english": primary.get("reason"),
+            }
+        else:
+            conf = min(88.0, 45.0 + float(primary.get("continue_score") or 0) * 0.35)
+            trade_setup = {
+                "action": "SELL",
+                "direction": "short",
+                "confidence_pct": _r(conf, 1),
+                "sl_pct": _r(max(1.2, min(8.0, float(primary.get("fall_from_top_pct") or 5) * 0.25)), 2),
+                "tp_pct": _r(max(1.5, min(12.0, float(primary.get("fall_from_top_pct") or 5) * 0.35)), 2),
+                "reason": primary.get("reason") or "Descent continuation",
+                "timeframe": primary_tf,
+                "plain_english": primary.get("reason"),
+            }
+
+    score = 0.0
+    if best_runup and match_runup:
+        score = max(score, float(best_runup.get("continue_score") or 0))
+    if best_descent and match_descent:
+        score = max(score, float(best_descent.get("continue_score") or 0))
+
+    return {
+        "ticker": symbol,
+        "matched": matched,
+        "match_kind": match_kind,
+        "match_runup": match_runup,
+        "match_descent": match_descent,
+        "match_score": _r(score, 2),
+        "rise_from_start_pct": (best_runup or primary or {}).get("rise_from_start_pct"),
+        "fall_from_top_pct": (best_descent or primary or {}).get("fall_from_top_pct"),
+        "runup_start": (best_runup or primary or {}).get("runup_start"),
+        "peak": (best_descent or primary or {}).get("peak"),
+        "runup_start_time": (best_runup or primary or {}).get("runup_start_time"),
+        "peak_time": (best_descent or primary or {}).get("peak_time"),
+        "last": (primary or {}).get("last"),
+        "primary_phase": (primary or {}).get("phase"),
+        "primary_interval": primary_tf,
+        "timeframes_matched": [r["interval"] for r in tf_rows if r.get("matched")],
+        "runup_timeframes": [r["interval"] for r in runups],
+        "descent_timeframes": [r["interval"] for r in descents],
+        "tf_details": tf_rows,
+        "best_runup": best_runup,
+        "best_descent": best_descent,
+        "reason": (primary or {}).get("reason"),
+        "will_continue": bool(matched),
+        "chart_data": chart_data or [],
+        "trade_setup": trade_setup,
+        "confidence_pct": (trade_setup or {}).get("confidence_pct"),
+        "sl_pct": (trade_setup or {}).get("sl_pct"),
+        "tp_pct": (trade_setup or {}).get("tp_pct"),
+        "action": (trade_setup or {}).get("action"),
+        "setup_direction": (trade_setup or {}).get("direction"),
+        "lookback_hours": lookback_hours,
+        "threshold_pct": thr_pct,
+    }
+
+
+def scan_runup_descent(
+    *,
+    asset_class: str,
+    tickers: list[str],
+    drop_pct: float = 5.0,
+    lookback_hours: float = 24.0,
+    timeframes: list[str] | None = None,
+    move_side: str = "both",
+    groww_token: str = "",
+    exchange: str = "NSE",
+    include_charts: bool = False,
+    max_workers: int = 6,
+) -> dict[str, Any]:
+    """Scan for early major runups and exhausted tops now in descent across TFs."""
+    ac = (asset_class or "india").strip().lower()
+    if ac not in ASSET_CLASS_CONFIG:
+        ac = "india"
+    cfg = ASSET_CLASS_CONFIG[ac]
+    market = str(cfg["market"])
+    exchange = exchange or str(cfg.get("exchange") or "NSE")
+
+    symbols = resolve_tickers(ac, tickers)
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for s in symbols:
+        if s and s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    symbols = uniq[:200]
+
+    thr = float(max(0.5, min(float(drop_pct), 90.0)))
+    hours = float(max(1.0, min(float(lookback_hours), 24 * 14)))
+    raw_tfs = timeframes or ["15m", "1h"]
+    tfs: list[str] = []
+    for t in raw_tfs:
+        key = str(t).strip().lower()
+        if key in RUNUP_DESCENT_TFS and key not in tfs:
+            tfs.append(key)
+    if not tfs:
+        tfs = ["15m", "1h"]
+
+    side = (move_side or "both").lower()
+    end_utc = datetime.now(UTC)
+    start_utc = end_utc - timedelta(hours=hours)
+    sess = session_info(ac)
+
+    results: list[dict[str, Any]] = []
+    if not symbols:
+        return {
+            "strategy": STRATEGY_ID,
+            "strategy_label": STRATEGY_NAME,
+            "asset_class": ac,
+            "mode": "runup_descent",
+            "drop_pct": thr,
+            "lookback_hours": hours,
+            "timeframes": tfs,
+            "move_side": side,
+            "session": sess,
+            "scanned": 0,
+            "matched": 0,
+            "matched_runups": 0,
+            "matched_descents": 0,
+            "results": [],
+            "knives": [],
+            "runups": [],
+            "descents": [],
+            "plain_english": "No tickers selected.",
+            "how_to_read": _how_to(),
+        }
+
+    with ThreadPoolExecutor(max_workers=max(2, min(max_workers, 10))) as pool:
+        futs = {
+            pool.submit(
+                _analyze_runup_descent_symbol,
+                sym,
+                asset_class=ac,
+                market=market,
+                thr_pct=thr,
+                lookback_hours=hours,
+                timeframes=tfs,
+                move_side=side,
+                groww_token=groww_token,
+                exchange=exchange,
+                start_utc=start_utc,
+                end_utc=end_utc,
+                include_charts=include_charts,
+            ): sym
+            for sym in symbols
+        }
+        for fut in as_completed(futs):
+            row = fut.result()
+            if row:
+                from app.market_pulse.asset_class_config import attach_ticker_name
+
+                results.append(attach_ticker_name(row, asset_class=ac))
+
+    knives = [r for r in results if r.get("matched")]
+    knives.sort(key=lambda r: float(r.get("match_score") or 0), reverse=True)
+    runups = [r for r in knives if r.get("match_runup")]
+    descents = [r for r in knives if r.get("match_descent")]
+    errors = sum(1 for r in results if r.get("error") and not r.get("matched"))
+
+    top_bits = []
+    for r in knives[:8]:
+        bits = []
+        if r.get("match_runup"):
+            bits.append(
+                f"runup +{r.get('rise_from_start_pct')}% ({','.join(r.get('runup_timeframes') or [])})"
+            )
+        if r.get("match_descent"):
+            bits.append(
+                f"descent −{r.get('fall_from_top_pct')}% ({','.join(r.get('descent_timeframes') or [])})"
+            )
+        top_bits.append(f"{r.get('display_label') or r['ticker']}: {' · '.join(bits)}")
+
+    return {
+        "strategy": STRATEGY_ID,
+        "strategy_label": STRATEGY_NAME,
+        "asset_class": ac,
+        "asset_label": cfg.get("label"),
+        "mode": "runup_descent",
+        "drop_pct": thr,
+        "threshold_pct": thr,
+        "lookback_hours": hours,
+        "timeframes": tfs,
+        "move_side": side,
+        "include_charts": include_charts,
+        "session": sess,
+        "window_start_utc": start_utc.isoformat(),
+        "window_end_utc": end_utc.isoformat(),
+        "scanned": len(results),
+        "matched": len(knives),
+        "matched_runups": len(runups),
+        "matched_descents": len(descents),
+        "errors": errors,
+        "results": sorted(results, key=lambda r: float(r.get("match_score") or -1), reverse=True),
+        "knives": knives,
+        "runups": runups,
+        "descents": descents,
+        "summary": {
+            "scanned": len(results),
+            "matched": len(knives),
+            "matched_runups": len(runups),
+            "matched_descents": len(descents),
+            "errors": errors,
+            "threshold": f">= {thr:g}% runup from start or descent from peak",
+            "lookback": f"last {hours:g}h",
+            "timeframes": tfs,
+        },
+        "plain_english": (
+            f"Falling Knife · Runup/Descent · {cfg.get('label')} · last {hours:g}h · "
+            f"TFs {', '.join(tfs)} · ≥{thr:g}% move. "
+            f"Matched {len(knives)} / {len(results)} "
+            f"({len(runups)} early runups · {len(descents)} descents)."
+            + ((" Top: " + " · ".join(top_bits) + ".") if top_bits else "")
+        ),
+        "how_to_read": _how_to(),
+        "disclaimer": (
+            "Research / education only — not financial advice. "
+            "Continuation labels are momentum heuristics, not guarantees."
         ),
     }

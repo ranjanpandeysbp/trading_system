@@ -11,6 +11,11 @@ import {
   type AssetClass,
   type TickerPickerValue,
 } from '../components/command-center/AssetClassTickerPicker'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -24,6 +29,7 @@ import { VolumeProfileChart, type VpChartBar } from '../components/pro-trade/Vol
 import { TradeSetupBanner, tradeSetupFromResult } from '../components/pro-trade/TradeSetupBanner'
 import { FallRiseForecastCards, forecastFromResult } from '../components/pro-trade/FallRiseForecastCards'
 import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
+import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { tickerDisplayLabel, tickerNameOnly } from '../components/ui/tickerDisplay'
 
 type Row = Record<string, unknown>
@@ -37,6 +43,15 @@ const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
 
 const HOW_TO = `Falling Knife — How to
 
+Runup / Descent (recommended for “just started” vs “exhausted”)
+1. Pick asset class + universe (India / US / Crypto / Commodities).
+2. Set lookback hours (X) and min move % threshold.
+3. Select one or more timeframes (5m · 15m · 30m · 1h · 4h · 1d).
+4. Scan finds:
+   · Early major RUNUP still extending → % rise from swing-low start
+   · Exhausted top now in major DESCENT → % fall from toppest point
+5. Optional: Include charts · Run in background (saved report).
+
 Live scan
 1. Pick asset class + universe.
 2. Set threshold % and lookback hours.
@@ -44,39 +59,15 @@ Live scan
    · Fall = last price ≥ X% below the window high
    · Rise = last price ≥ X% above the window low
 4. Scan uses only that market’s session hours.
-5. Each ticker also gets Fall/Rise next-move forecasts (Conf %, next time, move %, SL %, TP %)
-   from ~90d daily history — same cards as History mode.
 
-History & forecast
-1. Switch to History mode.
-2. Set from/to dates, threshold % (X), and Fall / Rise / Both.
-3. For each ticker you get every past move ≥ X%, event datetime, gap to next move,
-   hours/days to recover back to the start of that pump/dump, plus a next-event
-   forecast (datetime, confidence %, typical move %, SL %, TP %).
+History & forecast / From top
+· History: date range of ≥X% rises/falls with recovery + next-move forecast.
+· From top: names ≥X% below loop-hour high with reverse vs continue odds.
 
-From top (loop hours)
-1. Switch to From top mode.
-2. Set fall threshold % (X) and Loop hours.
-3. Finds names currently ≥ X% below their high in that loop window.
-4. For each match: chance of reverse vs continued fall (from similar historical
-   drawdowns), expected bounce % if it reverses, further-fall % if it continues,
-   and a confidence score.
+Sessions: India RTH · US RTH · Crypto 24×7 · Commodities ~24×5.
+Educational only — not a buy/sell signal.`
 
-Sessions
-· India — Mon–Fri 09:15–15:30 IST
-· US — Mon–Fri 09:30–16:00 America/New_York
-· Crypto — 24×7
-· Commodities — ~24×5 futures (Sun–Fri ET)
-
-Educational only — not a buy/sell signal.
-
-Trade setup
-· Live: matched falls → mean-reversion BUY (knife catch); rises → SELL fade.
-· History: next-event forecast includes % confidence, %SL, and %TP (ATR-sane).
-· From top: reverse bias → long bounce; continue bias → short fade (when clear).
-· Always shown as Conf % · SL % · TP %.
-· Optional Use AI checkbox: after the rule-based scan, AI re-scores Conf/SL/TP
-  and reverse/continue odds (falls back to rules if no API key).`
+const RUNUP_TFS = ['5m', '15m', '30m', '1h', '4h', '1d'] as const
 
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
@@ -467,19 +458,22 @@ function FromTopTickerCard({ row, assetClass }: { row: Row; assetClass: AssetCla
 export default function FallingKnife() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: [] })
-  const [mode, setMode] = useState<'live' | 'history' | 'from_top'>('live')
+  const [mode, setMode] = useState<'live' | 'history' | 'from_top' | 'runup_descent'>('runup_descent')
   const [dropPct, setDropPct] = useState(10)
   const [lookbackHours, setLookbackHours] = useState(24)
   const [loopHours, setLoopHours] = useState(24)
   const [fromDate, setFromDate] = useState(defaultFromDate(90))
   const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10))
-  const [moveSide, setMoveSide] = useState<'fall' | 'rise' | 'both'>('both')
-  const [thresholdPct, setThresholdPct] = useState(10)
+  const [moveSide, setMoveSide] = useState<'fall' | 'rise' | 'both' | 'runup' | 'descent'>('both')
+  const [thresholdPct, setThresholdPct] = useState(5)
   const [fromTopPct, setFromTopPct] = useState(10)
+  const [runupTfs, setRunupTfs] = useState<string[]>(['15m', '1h'])
+  const [showCharts, setShowCharts] = useState(false)
   const [error, setError] = useState('')
   const [showMatchedOnly, setShowMatchedOnly] = useState(true)
   const [selectedLiveTicker, setSelectedLiveTicker] = useState<string | null>(null)
   const { useAi, setUseAi } = useTradeSetupAi()
+  const bg = useAnalysisBackground('prediction', 'falling_knife')
 
   const sessionQ = useQuery({
     queryKey: ['falling-knife-session', assetClass],
@@ -487,70 +481,110 @@ export default function FallingKnife() {
     staleTime: 60_000,
   })
 
+  const buildScanPayload = () => {
+    if (mode === 'from_top') {
+      return {
+        asset_class: assetClass,
+        tickers: picker.tickers,
+        mode: 'from_top' as const,
+        drop_pct: fromTopPct,
+        threshold_pct: fromTopPct,
+        lookback_hours: loopHours,
+        use_ai: useAi,
+      }
+    }
+    if (mode === 'history') {
+      return {
+        asset_class: assetClass,
+        tickers: picker.tickers,
+        mode: 'history' as const,
+        from_date: fromDate,
+        to_date: toDate || undefined,
+        move_side: (moveSide === 'runup' ? 'rise' : moveSide === 'descent' ? 'fall' : moveSide) as
+          | 'fall'
+          | 'rise'
+          | 'both',
+        threshold_pct: thresholdPct,
+        drop_pct: thresholdPct,
+        use_ai: useAi,
+      }
+    }
+    if (mode === 'runup_descent') {
+      return {
+        asset_class: assetClass,
+        tickers: picker.tickers,
+        mode: 'runup_descent' as const,
+        drop_pct: thresholdPct,
+        threshold_pct: thresholdPct,
+        lookback_hours: lookbackHours,
+        timeframes: runupTfs,
+        move_side: (moveSide === 'rise' ? 'runup' : moveSide === 'fall' ? 'descent' : moveSide) as
+          | 'runup'
+          | 'descent'
+          | 'both',
+        include_charts: showCharts,
+        use_ai: useAi,
+      }
+    }
+    return {
+      asset_class: assetClass,
+      tickers: picker.tickers,
+      mode: 'live' as const,
+      drop_pct: dropPct,
+      lookback_hours: lookbackHours,
+      move_side: (moveSide === 'runup' ? 'rise' : moveSide === 'descent' ? 'fall' : moveSide) as
+        | 'fall'
+        | 'rise'
+        | 'both',
+      use_ai: useAi,
+    }
+  }
+
   const runMut = useMutation({
     mutationFn: () => {
       if (!picker.tickers.length) throw new Error('Select at least one ticker / universe')
-      if (mode === 'from_top') {
-        return runFallingKnifeScan({
-          asset_class: assetClass,
-          tickers: picker.tickers,
-          mode: 'from_top',
-          drop_pct: fromTopPct,
-          threshold_pct: fromTopPct,
-          lookback_hours: loopHours,
-          use_ai: useAi,
-        })
-      }
-      if (mode === 'history') {
-        if (!fromDate) throw new Error('Set a from date for history mode')
-        return runFallingKnifeScan({
-          asset_class: assetClass,
-          tickers: picker.tickers,
-          mode: 'history',
-          from_date: fromDate,
-          to_date: toDate || undefined,
-          move_side: moveSide,
-          threshold_pct: thresholdPct,
-          drop_pct: thresholdPct,
-          use_ai: useAi,
-        })
-      }
-      return runFallingKnifeScan({
-        asset_class: assetClass,
-        tickers: picker.tickers,
-        mode: 'live',
-        drop_pct: dropPct,
-        lookback_hours: lookbackHours,
-        move_side: moveSide,
-        use_ai: useAi,
-      })
+      if (mode === 'history' && !fromDate) throw new Error('Set a from date for history mode')
+      if (mode === 'runup_descent' && !runupTfs.length) throw new Error('Select at least one timeframe')
+      return runFallingKnifeScan(buildScanPayload())
     },
     onSuccess: () => setError(''),
     onError: (e) => setError(apiErrorMessage(e)),
   })
 
-  const data = runMut.data as Row | undefined
+  const data = (bg.viewedPayload as Row | undefined) ?? (runMut.data as Row | undefined)
   const dataMode = String(data?.mode ?? mode)
   const isHistory = dataMode === 'history'
   const isFromTop = dataMode === 'from_top'
+  const isRunupDescent = dataMode === 'runup_descent'
   const knives = (data?.knives as Row[] | undefined) ?? []
   const results = (data?.results as Row[] | undefined) ?? []
   const session = ((data?.session as Row | undefined) ?? (sessionQ.data as Row | undefined)?.session) as Row | undefined
   const liveRows = showMatchedOnly ? knives : results
   const fromTopRows = showMatchedOnly ? knives : results
+  const runupRows = showMatchedOnly
+    ? ((data?.runups as Row[] | undefined) ?? knives.filter((r) => r.match_runup))
+    : results
+  const descentRows = showMatchedOnly
+    ? ((data?.descents as Row[] | undefined) ?? knives.filter((r) => r.match_descent))
+    : results
   const selectedLiveRow = useMemo(() => {
-    if (!liveRows.length) return null
+    const pool = isRunupDescent ? knives : liveRows
+    if (!pool.length) return null
     if (selectedLiveTicker) {
-      const hit = liveRows.find((r) => String(r.ticker) === selectedLiveTicker)
+      const hit = pool.find((r) => String(r.ticker) === selectedLiveTicker)
       if (hit) return hit
     }
-    return liveRows[0] ?? null
-  }, [liveRows, selectedLiveTicker])
+    return pool[0] ?? null
+  }, [liveRows, knives, selectedLiveTicker, isRunupDescent])
   const selectedLiveBars = useMemo(
     () => toVpBars(selectedLiveRow?.chart_data),
     [selectedLiveRow],
   )
   const askContext = data ? buildAskContext('Falling Knife', data) : ''
+
+  const toggleRunupTf = (tf: string) => {
+    setRunupTfs((prev) => (prev.includes(tf) ? prev.filter((x) => x !== tf) : [...prev, tf]))
+  }
 
   const presets = useMemo(
     () => [
@@ -576,13 +610,17 @@ export default function FallingKnife() {
     if (runMut.isPending) {
       if (mode === 'history') return 'Analyzing history…'
       if (mode === 'from_top') return 'Scanning from tops…'
+      if (mode === 'runup_descent') return 'Scanning runups & descents…'
       return 'Scanning…'
     }
     if (mode === 'history') return `Analyze history (${picker.tickers.length} · ≥${thresholdPct}%)`
     if (mode === 'from_top') {
       return `Scan from top (≥${fromTopPct}% / ${loopHours}h · ${picker.tickers.length})`
     }
-    return `Scan (≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`
+    if (mode === 'runup_descent') {
+      return `Scan runup/descent (≥${thresholdPct}% / ${lookbackHours}h · ${runupTfs.join(',')} · ${picker.tickers.length})`
+    }
+    return `Scan (≥${dropPct}% ${moveSide === 'fall' || moveSide === 'descent' ? 'falls' : moveSide === 'rise' || moveSide === 'runup' ? 'rises' : 'falls & rises'} / ${lookbackHours}h · ${picker.tickers.length})`
   })()
 
   const loadingMessage = (() => {
@@ -592,16 +630,19 @@ export default function FallingKnife() {
         ? `Finding names ≥${fromTopPct}% below their ${loopHours}h high + AI refining odds…`
         : `Finding names ≥${fromTopPct}% below their ${loopHours}h high and scoring reverse/continue odds…`
     }
+    if (mode === 'runup_descent') {
+      return `Finding early runups & continuing descents over ${lookbackHours}h on ${runupTfs.join(', ')}…`
+    }
     return useAi
       ? `Scanning ${picker.tickers.length} tickers + AI refining Conf/SL/TP…`
-      : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% ${moveSide === 'fall' ? 'falls' : moveSide === 'rise' ? 'rises' : 'falls & rises'} in ${lookbackHours}h…`
+      : `Scanning ${picker.tickers.length} tickers for ≥${dropPct}% moves in ${lookbackHours}h…`
   })()
 
   return (
     <div>
       <PageHeader
         title="Falling Knife"
-        description="Live session rises & falls, history of ≥X% moves, and loop-hour peak drawdowns with reverse/continue odds"
+        description="Early major runups still extending · exhausted tops in descent · live rises/falls · history · from-top odds — all asset classes"
       />
 
       <div className="mb-4 space-y-2">
@@ -612,6 +653,9 @@ export default function FallingKnife() {
 
       <Card className="mb-4 space-y-4">
         <div className="flex flex-wrap gap-2">
+          <Chip selected={mode === 'runup_descent'} onClick={() => setMode('runup_descent')}>
+            Runup / Descent
+          </Chip>
           <Chip selected={mode === 'live'} onClick={() => setMode('live')}>
             Live scan
           </Chip>
@@ -652,7 +696,74 @@ export default function FallingKnife() {
           onChange={setPicker}
         />
 
-        {mode === 'live' ? (
+        {mode === 'runup_descent' ? (
+          <>
+            <div className="grid max-w-4xl gap-3 sm:grid-cols-3">
+              <FormField label="Lookback hours (X)">
+                <Input
+                  type="number"
+                  min={1}
+                  max={336}
+                  step={1}
+                  value={lookbackHours}
+                  onChange={(e) => setLookbackHours(Number(e.target.value) || 24)}
+                />
+              </FormField>
+              <FormField label="Min move %">
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={90}
+                  step={0.5}
+                  value={thresholdPct}
+                  onChange={(e) => setThresholdPct(Number(e.target.value) || 5)}
+                />
+              </FormField>
+              <FormField label="Show">
+                <Select
+                  value={moveSide === 'rise' ? 'runup' : moveSide === 'fall' ? 'descent' : moveSide}
+                  onChange={(e) => setMoveSide(e.target.value as 'runup' | 'descent' | 'both')}
+                >
+                  <option value="both">Runups & descents</option>
+                  <option value="runup">Early runups only</option>
+                  <option value="descent">Descents only</option>
+                </Select>
+              </FormField>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium text-slate-400">Timeframes (pick 1+)</p>
+              <div className="flex flex-wrap gap-2">
+                {RUNUP_TFS.map((tf) => (
+                  <Chip key={tf} selected={runupTfs.includes(tf)} onClick={() => toggleRunupTf(tf)}>
+                    {tf}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: '5% / 6h', pct: 5, hours: 6, tfs: ['5m', '15m'] },
+                { label: '5% / 24h', pct: 5, hours: 24, tfs: ['15m', '1h'] },
+                { label: '8% / 48h', pct: 8, hours: 48, tfs: ['1h', '4h'] },
+                { label: '10% / 72h', pct: 10, hours: 72, tfs: ['1h', '4h', '1d'] },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  className="rounded-lg border border-slate-700/80 px-2.5 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                  onClick={() => {
+                    setThresholdPct(p.pct)
+                    setLookbackHours(p.hours)
+                    setRunupTfs(p.tfs)
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+          </>
+        ) : mode === 'live' ? (
           <>
             <div className="grid max-w-4xl gap-3 sm:grid-cols-3">
               <FormField label="Threshold % (X)">
@@ -676,7 +787,10 @@ export default function FallingKnife() {
                 />
               </FormField>
               <FormField label="Count">
-                <Select value={moveSide} onChange={(e) => setMoveSide(e.target.value as 'fall' | 'rise' | 'both')}>
+                <Select
+                  value={moveSide === 'runup' ? 'rise' : moveSide === 'descent' ? 'fall' : moveSide}
+                  onChange={(e) => setMoveSide(e.target.value as 'fall' | 'rise' | 'both')}
+                >
                   <option value="both">Falls & rises</option>
                   <option value="fall">Falls only</option>
                   <option value="rise">Rises only</option>
@@ -762,7 +876,10 @@ export default function FallingKnife() {
               />
             </FormField>
             <FormField label="Count">
-              <Select value={moveSide} onChange={(e) => setMoveSide(e.target.value as 'fall' | 'rise' | 'both')}>
+              <Select
+                value={moveSide === 'runup' ? 'rise' : moveSide === 'descent' ? 'fall' : moveSide}
+                onChange={(e) => setMoveSide(e.target.value as 'fall' | 'rise' | 'both')}
+              >
                 <option value="both">Falls & rises</option>
                 <option value="fall">Falls only</option>
                 <option value="rise">Rises only</option>
@@ -774,26 +891,164 @@ export default function FallingKnife() {
         <div className="flex flex-wrap items-center gap-3">
           <Button
             onClick={() => runMut.mutate()}
-            disabled={runMut.isPending || !picker.tickers.length}
+            disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}
           >
             <TrendingDown size={16} className="mr-1.5" />
             {scanButtonLabel}
           </Button>
-          {(mode === 'live' || mode === 'from_top') && (
+          {(mode === 'live' || mode === 'from_top' || mode === 'runup_descent') && (
             <Chip selected={showMatchedOnly} onClick={() => setShowMatchedOnly((v) => !v)}>
               {showMatchedOnly ? 'Matched only' : 'Show all scanned'}
             </Chip>
           )}
         </div>
 
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Falling Knife · ${mode} · ${new Date().toLocaleDateString()}`}
+          onStart={() =>
+            bg.startBackground(buildScanPayload(), () => {
+              if (!picker.tickers.length) return 'Select at least one ticker / universe'
+              if (mode === 'runup_descent' && !runupTfs.length) return 'Select at least one timeframe'
+              if (mode === 'history' && !fromDate) return 'Set a from date for history mode'
+              return null
+            })
+          }
+        />
+
         <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-1" />
 
         {error && <Alert type="error">{error}</Alert>}
       </Card>
 
-      {runMut.isPending && <Loading message={loadingMessage} />}
+      <AnalysisBackgroundJobsAndReports bg={bg} />
 
-      {data && !runMut.isPending && isFromTop && (
+      {runMut.isPending && !bg.viewedPayload && <Loading message={loadingMessage} />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && isRunupDescent && (
+        <>
+          <Card className="mb-4">
+            <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+                {String(data.matched_runups ?? runupRows.length)} early runups
+              </span>
+              <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
+                {String(data.matched_descents ?? descentRows.length)} descents
+              </span>
+              <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
+                last {String(data.lookback_hours ?? lookbackHours)}h ·{' '}
+                {((data.timeframes as string[]) || runupTfs).join(', ')} · ≥{String(data.threshold_pct ?? thresholdPct)}%
+              </span>
+            </div>
+          </Card>
+
+          <div className="mb-4 grid gap-4 lg:grid-cols-2">
+            <Card>
+              <h3 className="mb-3 text-sm font-semibold text-emerald-300">Early runups (still extending)</h3>
+              {!runupRows.filter((r) => r.match_runup || r.primary_phase === 'runup' || !showMatchedOnly).length ? (
+                <p className="text-sm text-slate-500">No early runups matched.</p>
+              ) : (
+                <DataTable>
+                  <thead>
+                    <tr>
+                      <Th>Ticker</Th>
+                      <Th>% rise from start</Th>
+                      <Th>TFs</Th>
+                      <Th>Conf</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(showMatchedOnly ? runupRows : results.filter((r) => r.match_runup)).map((r) => (
+                      <tr
+                        key={`ru-${String(r.ticker)}`}
+                        className="cursor-pointer hover:bg-slate-800/40"
+                        onClick={() => setSelectedLiveTicker(String(r.ticker))}
+                      >
+                        <Td className="font-medium text-slate-200">{tickerDisplayLabel(r)}</Td>
+                        <Td className="text-emerald-300">{fmtSignedPct(r.rise_from_start_pct)}</Td>
+                        <Td className="text-xs text-slate-400">
+                          {((r.runup_timeframes as string[]) || []).join(', ') || String(r.primary_interval || '—')}
+                        </Td>
+                        <Td>{fmtNum(r.confidence_pct, 0)}%</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </DataTable>
+              )}
+            </Card>
+
+            <Card>
+              <h3 className="mb-3 text-sm font-semibold text-rose-300">Descents (exhausted · continuing fall)</h3>
+              {!descentRows.filter((r) => r.match_descent || r.primary_phase === 'descent' || !showMatchedOnly).length ? (
+                <p className="text-sm text-slate-500">No continuing descents matched.</p>
+              ) : (
+                <DataTable>
+                  <thead>
+                    <tr>
+                      <Th>Ticker</Th>
+                      <Th>% fall from top</Th>
+                      <Th>TFs</Th>
+                      <Th>Conf</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(showMatchedOnly ? descentRows : results.filter((r) => r.match_descent)).map((r) => (
+                      <tr
+                        key={`de-${String(r.ticker)}`}
+                        className="cursor-pointer hover:bg-slate-800/40"
+                        onClick={() => setSelectedLiveTicker(String(r.ticker))}
+                      >
+                        <Td className="font-medium text-slate-200">{tickerDisplayLabel(r)}</Td>
+                        <Td className="text-rose-300">−{fmtNum(r.fall_from_top_pct)}%</Td>
+                        <Td className="text-xs text-slate-400">
+                          {((r.descent_timeframes as string[]) || []).join(', ') || String(r.primary_interval || '—')}
+                        </Td>
+                        <Td>{fmtNum(r.confidence_pct, 0)}%</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </DataTable>
+              )}
+            </Card>
+          </div>
+
+          {selectedLiveRow && (
+            <Card className="mb-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-white">{tickerDisplayLabel(selectedLiveRow)}</h3>
+                <span className="rounded bg-slate-700/50 px-2 py-0.5 text-[10px] text-slate-300">
+                  {String(selectedLiveRow.primary_phase || selectedLiveRow.match_kind || '—')} ·{' '}
+                  {String(selectedLiveRow.primary_interval || '')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">{String(selectedLiveRow.reason || '')}</p>
+              <div className="flex flex-wrap gap-3 text-xs text-slate-300">
+                <span>Rise from start: <span className="text-emerald-300">{fmtSignedPct(selectedLiveRow.rise_from_start_pct)}</span></span>
+                <span>Fall from top: <span className="text-rose-300">−{fmtNum(selectedLiveRow.fall_from_top_pct)}%</span></span>
+              </div>
+              {tradeSetupFromResult(selectedLiveRow) && (
+                <TradeSetupBanner setup={tradeSetupFromResult(selectedLiveRow)!} />
+              )}
+              {showCharts && selectedLiveBars.length > 0 && (
+                <VolumeProfileChart
+                  chartData={selectedLiveBars}
+                  ticker={String(selectedLiveRow.ticker ?? '')}
+                  assetClass={assetClass}
+                  readingGuide="Primary matching timeframe OHLC. Toggle Candles / Line on the chart."
+                />
+              )}
+              {!showCharts && (
+                <p className="text-[11px] text-slate-500">Enable “Include charts” and re-scan to render candles here.</p>
+              )}
+            </Card>
+          )}
+
+          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+        </>
+      )}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && isFromTop && (
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
@@ -833,7 +1088,7 @@ export default function FallingKnife() {
         </>
       )}
 
-      {data && !runMut.isPending && isHistory && (
+      {data && (!runMut.isPending || bg.viewedPayload) && isHistory && (
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>
@@ -872,7 +1127,7 @@ export default function FallingKnife() {
         </>
       )}
 
-      {data && !runMut.isPending && !isHistory && !isFromTop && (
+      {data && (!runMut.isPending || bg.viewedPayload) && !isHistory && !isFromTop && !isRunupDescent && (
         <>
           <Card className="mb-4">
             <p className="text-sm text-slate-200">{String(data.plain_english ?? '')}</p>

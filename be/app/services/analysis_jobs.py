@@ -287,6 +287,18 @@ async def _execute_analysis_body(
                 exchange=exchange,
                 cfg_overrides=cfg or None,
             )
+        if section in ("falling_knife", "falling-knife", "runup_descent"):
+            from app.services.falling_knife_service import FallingKnifeService
+
+            scan_payload = {
+                "asset_class": ac,
+                "tickers": tickers,
+                "exchange": exchange,
+                **(cfg or {}),
+            }
+            if section == "runup_descent" and not scan_payload.get("mode"):
+                scan_payload["mode"] = "runup_descent"
+            return await FallingKnifeService(settings).scan(scan_payload)
         raise ValueError(f"Unknown Prediction section: {section}")
 
     if domain == "command_center":
