@@ -1496,6 +1496,25 @@ class ProTradeEma59CrossRequest(BaseModel):
     use_ai: bool = False
 
 
+class ProTradeEma9VolRsiMomentumRequest(BaseModel):
+    """9 EMA + Volume + RSI Momentum Scalp — 5m entry / 15m trend · score ≥7 · structure SL · min 1:2 RR."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    entry_tf: str = "5m"
+    trend_tf: str = "15m"
+    lookback_bars: int = Field(default=400, ge=80, le=1500)
+    hold_bars: int = Field(default=4, ge=2, le=12)
+    min_score: int = Field(default=7, ge=5, le=10)
+    min_rr: float = Field(default=2.0, ge=1.0, le=4.0)
+    side: Literal["long", "short", "both"] = "both"
+    require_htf_align: bool = True
+    avoid_chop: bool = True
+    skip_huge_candle: bool = True
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    use_ai: bool = False
+
+
 class ProTradeFlatRetestRequest(BaseModel):
     """Flat Retest — after flat candles: break→retest hold = LONG; reject→break low→failed retest = SHORT."""
     tickers: list[str] = Field(default_factory=list)

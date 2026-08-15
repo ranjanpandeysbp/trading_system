@@ -335,6 +335,133 @@ def build_bb_rsi_vol_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFra
     return frame
 
 
+def build_ema9_vol_rsi_momentum_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
+    """Vectorized 9 EMA + Vol SMA50 + RSI momentum scalp (score ≥7 + trigger).
+
+    Single-TF approximation of the live desk (HTF bias optional via 3-bar
+    resample when require_htf_align). Research / education only.
+    """
+    from app.market_pulse.ema9_vol_rsi_momentum_engine import Ema9VolRsiMomentumConfig
+    from app.market_pulse.pro_trade_shared import atr as _atr_ind, ema as _ema, rsi as _rsi_ind
+
+    cfg = cfg or Ema9VolRsiMomentumConfig()
+    work = _empty_with_signal(df)
+    hold_n = int(getattr(cfg, "hold_bars", 4))
+    min_score = int(getattr(cfg, "min_score", 7))
+    ema_n = int(getattr(cfg, "ema_period", 9))
+    vol_n = int(getattr(cfg, "vol_sma_period", 50))
+    rsi_n = int(getattr(cfg, "rsi_period", 14))
+    atr_n = int(getattr(cfg, "atr_period", 14))
+    rsi_buy_min = float(getattr(cfg, "rsi_buy_min", 40.0))
+    rsi_buy_chase = float(getattr(cfg, "rsi_buy_chase", 70.0))
+    rsi_sell_max = float(getattr(cfg, "rsi_sell_max", 60.0))
+    skip_huge = bool(getattr(cfg, "skip_huge_candle", True))
+    huge_mult = float(getattr(cfg, "huge_candle_atr_mult", 2.5))
+    avoid_chop = bool(getattr(cfg, "avoid_chop", True))
+    chop_lb = int(getattr(cfg, "chop_lookback", 12))
+    chop_max = int(getattr(cfg, "chop_crosses_max", 4))
+    require_htf = bool(getattr(cfg, "require_htf_align", True))
+    side = str(getattr(cfg, "side", "both") or "both").lower()
+    need = max(int(getattr(cfg, "min_bars", 80)), vol_n + 30, ema_n * 5)
+    if len(work) < need:
+        return work
+
+    closes = work["close"].astype(float)
+    highs = work["high"].astype(float)
+    lows = work["low"].astype(float)
+    ema9 = _ema(closes, ema_n)
+    rsi_val = _rsi_ind(closes, rsi_n)
+    atr_val = _atr_ind(work, atr_n)
+    if "volume" in work.columns:
+        vol = work["volume"].astype(float)
+        vol_sma = vol.rolling(vol_n).mean()
+        vol_ok = vol > vol_sma
+        vol_up = (vol > vol.shift(1)) & (vol.shift(1) > vol.shift(2)) & (vol.shift(2) > vol.shift(3))
+    else:
+        vol_ok = pd.Series(True, index=work.index)
+        vol_up = pd.Series(False, index=work.index)
+
+    above = closes > ema9
+    below = closes < ema9
+    established_above = above.rolling(hold_n, min_periods=hold_n).sum() >= hold_n
+    established_below = below.rolling(hold_n, min_periods=hold_n).sum() >= hold_n
+    crossed_above = (closes.shift(1) <= ema9.shift(1)) & above
+    crossed_below = (closes.shift(1) >= ema9.shift(1)) & below
+
+    look = 10
+    mid = look // 2
+    bull_struct = (highs >= highs.shift(mid)) & (lows >= lows.shift(look - 1))
+    bear_struct = (highs <= highs.shift(mid)) & (lows <= lows.shift(look - 1))
+    price_up = (closes >= closes.shift(1)) & (closes.shift(1) >= closes.shift(2)) & (closes.shift(2) >= closes.shift(3))
+    price_dn = (closes <= closes.shift(1)) & (closes.shift(1) <= closes.shift(2)) & (closes.shift(2) <= closes.shift(3))
+    rsi_rising = rsi_val > rsi_val.shift(1)
+    rsi_falling = rsi_val < rsi_val.shift(1)
+    break_high = closes > highs.shift(1)
+    break_low = closes < lows.shift(1)
+
+    buy = (
+        (crossed_above | established_above).astype(int)
+        + established_above.astype(int)
+        + bull_struct.astype(int)
+        + vol_ok.astype(int)
+        + vol_up.astype(int)
+        + price_up.astype(int)
+        + (rsi_val > rsi_buy_min).astype(int)
+        + rsi_rising.astype(int)
+        + break_high.astype(int) * 2
+    )
+    sell = (
+        (crossed_below | established_below).astype(int)
+        + established_below.astype(int)
+        + bear_struct.astype(int)
+        + vol_ok.astype(int)
+        + vol_up.astype(int)
+        + price_dn.astype(int)
+        + (rsi_val < rsi_sell_max).astype(int)
+        + rsi_falling.astype(int)
+        + break_low.astype(int) * 2
+    )
+
+    # EMA chop: count sign flips of (close - ema) over lookback
+    side_sign = np.sign((closes - ema9).to_numpy(dtype=float))
+    flips = np.zeros(len(work), dtype=int)
+    for i in range(1, len(work)):
+        if side_sign[i] != 0 and side_sign[i - 1] != 0 and side_sign[i] != side_sign[i - 1]:
+            flips[i] = 1
+    flip_s = pd.Series(flips, index=work.index)
+    chop = flip_s.rolling(chop_lb, min_periods=4).sum() >= chop_max if avoid_chop else pd.Series(False, index=work.index)
+
+    range_ = highs - lows
+    huge = (atr_val > 0) & (range_ >= huge_mult * atr_val)
+
+    htf_bull = pd.Series(True, index=work.index)
+    htf_bear = pd.Series(True, index=work.index)
+    if require_htf:
+        htf = _resample_ohlcv_positional(work, 3)
+        if len(htf) >= ema_n + 5:
+            htf_ema = _ema(htf["close"].astype(float), ema_n)
+            htf_bias = pd.Series(0, index=htf.index, dtype=int)
+            htf_bias = htf_bias.mask(htf["close"] > htf_ema, 1).mask(htf["close"] < htf_ema, -1)
+            mapped = htf_bias.reindex(work.index, method="ffill").fillna(0).astype(int)
+            htf_bull = mapped == 1
+            htf_bear = mapped == -1
+
+    long_blocked = chop | (skip_huge & huge & break_high) | (rsi_val >= rsi_buy_chase) | (~htf_bull) | (side == "short")
+    short_blocked = chop | (skip_huge & huge & break_low) | (~htf_bear) | (side == "long")
+
+    long_ok = (buy >= min_score) & break_high & established_above & ~long_blocked
+    short_ok = (sell >= min_score) & break_low & established_below & ~short_blocked
+
+    frame = work.copy()
+    frame["signal"] = 0
+    both = long_ok & short_ok
+    frame.loc[long_ok & ~short_ok, "signal"] = 1
+    frame.loc[short_ok & ~long_ok, "signal"] = -1
+    frame.loc[both & (buy >= sell), "signal"] = 1
+    frame.loc[both & (sell > buy), "signal"] = -1
+    return frame
+
+
 def build_elliott_wave_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
     """Replays the live engine's own `analyze_elliott_waves` ZigZag wave
     count on an expanding (no-lookahead) window each bar, using the same
@@ -436,6 +563,7 @@ PRO_TRADE_SIGNAL_BUILDERS: dict[str, Any] = {
     "pa_vp_smc": build_pa_vp_smc_signals,
     "bb_mean_reversion": build_bb_mean_reversion_signals,
     "bb_rsi_vol": build_bb_rsi_vol_signals,
+    "ema9_vol_rsi_momentum": build_ema9_vol_rsi_momentum_signals,
     "elliott_wave_pro": build_elliott_wave_signals,
     "support_resistance": build_support_resistance_signals,
 }

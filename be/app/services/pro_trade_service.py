@@ -130,6 +130,12 @@ class ProTradeService:
                     "youtube": None,
                 },
                 {
+                    "id": "ema9_vol_rsi_momentum",
+                    "label": "9 EMA Vol RSI Scalp",
+                    "path": "/pro-trade/ema9-vol-rsi-momentum",
+                    "youtube": None,
+                },
+                {
                     "id": "flat_retest",
                     "label": "Flat Retest",
                     "path": "/pro-trade/flat-retest",
@@ -906,6 +912,62 @@ class ProTradeService:
         payload["ai_system_prompt"] = EMA5_9_CROSSOVER_AI_SYSTEM
         payload = await maybe_refine_trade_setups_ai(
             self.settings, payload, use_ai=use_ai, section="pro_trade/ema5_9_crossover",
+        )
+        return json_safe(payload)
+
+    async def ema9_vol_rsi_momentum(
+        self,
+        tickers: list[str],
+        *,
+        asset_class: str = "india",
+        exchange: str | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+        use_ai: bool = False,
+    ) -> dict[str, Any]:
+        from app.market_pulse.ema9_vol_rsi_momentum_engine import (
+            AI_SYSTEM,
+            Ema9VolRsiMomentumConfig,
+            build_ema9_vol_rsi_momentum_ai_prompt,
+            scan_universe,
+        )
+        from app.market_pulse.ticker_utils import market_currency
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
+
+        if not tickers:
+            return {"error": "Select at least one ticker", "results": [], "entry_count": 0}
+
+        market, default_exchange = await self._asset_ctx(asset_class)
+        token, _ = await self._ctx()
+        resolved = self.universe.resolve(asset_class, tickers)
+        ov = dict(cfg_overrides or {})
+        cfg = Ema9VolRsiMomentumConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "entry_tf", "trend_tf", "lookback_bars", "ema_period", "vol_sma_period",
+                "rsi_period", "hold_bars", "min_score", "min_rr",
+                "rsi_buy_min", "rsi_buy_chase", "rsi_sell_max",
+                "atr_period", "atr_buffer_mult", "require_htf_align", "avoid_chop",
+                "chop_crosses_max", "chop_lookback", "skip_huge_candle", "huge_candle_atr_mult",
+                "take_confidence_threshold", "min_bars", "chart_bars", "side",
+            }
+        })
+        resolved_exchange = exchange or default_exchange
+
+        def _run():
+            return scan_universe(
+                resolved, market, cfg=cfg, groww_token=token, exchange=resolved_exchange,
+            )
+
+        payload = await asyncio.to_thread(_run)
+        payload["asset_class"] = asset_class
+        payload["market"] = market
+        payload["currency"] = market_currency(market)
+        for r in payload.get("results", []):
+            if isinstance(r, dict):
+                r["ai_context"] = build_ema9_vol_rsi_momentum_ai_prompt(r)
+        payload["ai_system_prompt"] = AI_SYSTEM
+        payload = await maybe_refine_trade_setups_ai(
+            self.settings, payload, use_ai=use_ai, section="pro_trade/ema9_vol_rsi_momentum",
         )
         return json_safe(payload)
 

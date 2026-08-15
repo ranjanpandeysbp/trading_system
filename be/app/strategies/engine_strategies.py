@@ -206,6 +206,27 @@ PRO_TRADE_STRATEGIES: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "ema9_vol_rsi_momentum",
+        "name": "9 EMA Vol RSI Scalp",
+        "description": (
+            "5m momentum scalp with 15m EMA bias · score ≥7 · 9 EMA hold · "
+            "vol > SMA50 · RSI momentum · prior high/low break · structure SL · min 1:2 RR."
+        ),
+        "timeframes": ["1m", "5m", "15m", "30m", "1h"],
+        "min_bars": 80,
+        "youtube": None,
+        "indicators": ["EMA9", "Volume SMA50", "RSI(14)", "ATR(14)"],
+        "entry_rules": [
+            "BUY: ≥4 closes above 9 EMA · HH/HL · vol > SMA50 · RSI>40 rising · close > prior high · score ≥7.",
+            "SELL: ≥4 closes below 9 EMA · LH/LL · vol > SMA50 · RSI falling · close < prior low · score ≥7.",
+            "Skip EMA chop, RSI>70 long chase, and huge ATR-sized impulse candles.",
+        ],
+        "exit_rules": [
+            "SL beyond recent swing (+ ATR buffer).",
+            "T1 at 1:2 RR; scale T2/T3; invalidate on close back through 9 EMA.",
+        ],
+    },
+    {
         "id": "elliott_wave_pro",
         "name": "Elliott Wave (Pro Trade)",
         "description": "Algorithmic ZigZag 5-wave impulse / ABC corrective count — trades only on a completed Wave 5 or Wave C. (Distinct from the separate 'Elliott Wave Screener' under TA Screeners.)",

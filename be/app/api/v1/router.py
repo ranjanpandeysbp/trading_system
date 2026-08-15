@@ -117,6 +117,7 @@ from app.models.schemas import (
     ProTradeEma9CrossRequest,
     ProTradeEma5CrossRequest,
     ProTradeEma59CrossRequest,
+    ProTradeEma9VolRsiMomentumRequest,
     ProTradeFlatRetestRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
@@ -5177,6 +5178,33 @@ async def pro_trade_ema5_9_cross(
             "require_price_confirm": payload.require_price_confirm,
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/ema9-vol-rsi-momentum")
+async def pro_trade_ema9_vol_rsi_momentum(
+    payload: ProTradeEma9VolRsiMomentumRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).ema9_vol_rsi_momentum(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "entry_tf": payload.entry_tf,
+            "trend_tf": payload.trend_tf,
+            "lookback_bars": payload.lookback_bars,
+            "hold_bars": payload.hold_bars,
+            "min_score": payload.min_score,
+            "min_rr": payload.min_rr,
+            "side": payload.side,
+            "require_htf_align": payload.require_htf_align,
+            "avoid_chop": payload.avoid_chop,
+            "skip_huge_candle": payload.skip_huge_candle,
+            "take_confidence_threshold": payload.take_confidence_threshold,
         },
         use_ai=bool(getattr(payload, "use_ai", False)),
     )

@@ -2501,6 +2501,24 @@ export const runProTradeEma59Cross = (payload: {
   use_ai?: boolean
 }) => api.post('/pro-trade/ema5-9-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeEma9VolRsiMomentum = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  entry_tf?: string
+  trend_tf?: string
+  lookback_bars?: number
+  hold_bars?: number
+  min_score?: number
+  min_rr?: number
+  side?: 'long' | 'short' | 'both'
+  require_htf_align?: boolean
+  avoid_chop?: boolean
+  skip_huge_candle?: boolean
+  take_confidence_threshold?: number
+  use_ai?: boolean
+}) => api.post('/pro-trade/ema9-vol-rsi-momentum', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeFlatRetest = (payload: {
   tickers: string[]
   asset_class?: string

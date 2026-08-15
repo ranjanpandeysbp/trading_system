@@ -2804,6 +2804,23 @@ Holding a bull/bear stack without a fresh cross → **WATCH** only.
 **When to use:** Momentum flip after consolidation — Stocks, Indices, Crypto, Commodities.
 """,
 
+    "ema9_vol_rsi_momentum": """
+### 9 EMA + Volume + RSI Momentum Scalp
+
+**5m** entry · **15m** trend bias (price vs 9 EMA).
+
+Trade only when price is established beyond the 9 EMA, structure + volume + RSI agree, and the trigger candle breaks the prior high/low. Score ≥ **7**/10. SL beyond recent swing (+ ATR buffer). Min RR **1:2**.
+
+| Side | Key checks |
+|------|------------|
+| **BUY** | ≥4 closes above 9 EMA · HH/HL · vol > SMA50 · RSI>40 rising (don't chase >70) · close > prior high |
+| **SELL** | ≥4 closes below 9 EMA · LH/LL · vol > SMA50 · RSI falling · close < prior low |
+
+Skip EMA chop. Don't chase huge ATR-sized impulse candles — prefer pullback to 9 EMA then trigger.
+
+**When to use:** Liquid intraday scalps — Stocks, Indices, Crypto, Commodities.
+""",
+
     "flat_retest": """
 ### Flat Retest — post-flat break / reject / retest
 

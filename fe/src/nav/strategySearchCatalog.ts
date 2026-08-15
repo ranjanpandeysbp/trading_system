@@ -75,6 +75,9 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   // Prediction
   { label: 'Falling Knife History', to: '/prediction/falling-knife', group: 'Prediction', keywords: 'dump pump recovery forecast from top peak drawdown reverse runup descent momentum' },
 
+  // Pro Trade deep keywords
+  { label: '9 EMA Vol RSI Scalp', to: '/pro-trade/ema9-vol-rsi-momentum', group: 'Pro Trade', keywords: 'ema9 volume rsi momentum scalp 5m 15m structure score' },
+
   // Market Pulse common
   { label: 'Market Pulse Intelligence', to: '/market-pulse?section=intelligence', group: 'Market Pulse' },
   { label: 'Tomorrow Outlook (Pulse)', to: '/market-pulse?section=tomorrow_outlook', group: 'Market Pulse' },

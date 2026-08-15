@@ -152,6 +152,7 @@ export const appNav: NavEntry[] = [
       { to: '/pro-trade/bb-rsi-vol', label: 'BB-RSI-VOL' },
       { to: '/pro-trade/ema-cross', label: 'EMA Cross' },
       { to: '/pro-trade/ema5-9-cross', label: '5/9 EMA Cross' },
+      { to: '/pro-trade/ema9-vol-rsi-momentum', label: '9 EMA Vol RSI Scalp' },
       { to: '/pro-trade/flat-retest', label: 'Flat Retest' },
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
       { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },

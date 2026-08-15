@@ -18,6 +18,7 @@ import {
   runProTradeBbRsiVol,
   runProTradeEma9Cross,
   runProTradeEma59Cross,
+  runProTradeEma9VolRsiMomentum,
   runProTradeFlatRetest,
   runProTradeBtst,
   runProTradeElliottWave,
@@ -49,6 +50,7 @@ import { ThreeInOneTradeSystemPanel } from '../components/pro-trade/ThreeInOneTr
 import { SimpleEffectivePanel } from '../components/pro-trade/SimpleEffectivePanel'
 import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
 import { Ema9CrossPanel, Ema59CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
+import { Ema9VolRsiMomentumPanel } from '../components/pro-trade/Ema9VolRsiMomentumPanel'
 import { FlatRetestPanel } from '../components/pro-trade/FlatRetestPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
@@ -3337,6 +3339,218 @@ function Ema59CrossPage() {
   )
 }
 
+const EMA9_VOL_RSI_TFS = ['1m', '5m', '15m', '30m', '1h'] as const
+
+const EMA9_VOL_RSI_HOW_TO = `How to use 9 EMA Vol RSI Scalp
+
+1. Pick asset class + tickers. Default: 5m entry · 15m trend confirmation.
+2. Scan scores BUY/SELL confluence (need ≥7) on the entry TF with HTF EMA bias.
+3. BUY: established above 9 EMA (≥4 closes) · HH/HL · vol > SMA50 · RSI>40 rising · break prior high.
+4. SELL: mirror with LH/LL · RSI falling · break prior low.
+5. Skip EMA chop and huge impulse chase candles — prefer pullback to 9 EMA then trigger.
+6. SL beyond recent swing (+ ATR buffer) · min RR 1:2 · T1/T2/T3 from risk units.
+7. Optional Use AI to refine Conf % / SL % / TP %. Research only — not advice.`
+
+const EMA9_VOL_RSI_OVERVIEW = `9 EMA + Volume + RSI Momentum Scalp
+
+5m = entry · 15m = trend (price vs 9 EMA).
+
+BUY score (≥7): above EMA · 4+ bars held · HH/HL · vol>SMA50 · vol↑ · price↑ · RSI>40 · RSI↑ · break prior high (+2).
+SELL score (≥7): below EMA · 4+ bars held · LH/LL · vol>SMA50 · vol↑ · price↓ · RSI<60 · RSI↓ · break prior low (+2).
+
+Don't chase RSI>70 longs. Don't trade when price is chopping the 9 EMA.
+Outputs: buy/sell score · % confidence · %SL · %TP · grade · T1/T2/T3.`
+
+const EMA9_VOL_RSI_LAYMAN = `In plain English
+
+Wait until price parks cleanly above or below the 9 EMA for a few candles — not a one-bar fakeout.
+Structure should be trending (higher highs/lows for buys, lower highs/lows for sells), volume should expand with the move, and RSI should lean with it.
+Enter only when the latest candle breaks the previous candle's high (buy) or low (sell).
+Put the stop past the recent swing and aim for at least twice what you risk.`
+
+function Ema9VolRsiMomentumPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['5m'] })
+  const [error, setError] = useState('')
+  const [entryTf, setEntryTf] = useState<string>('5m')
+  const [trendTf, setTrendTf] = useState<string>('15m')
+  const [lookback, setLookback] = useState(400)
+  const [minScore, setMinScore] = useState(7)
+  const [side, setSide] = useState<'long' | 'short' | 'both'>('both')
+  const [requireHtf, setRequireHtf] = useState(true)
+  const [showCharts, setShowCharts] = useState(true)
+  const { useAi, setUseAi } = useTradeSetupAi()
+  const bg = useAnalysisBackground('pro_trade', 'ema9_vol_rsi_momentum')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    entry_tf: entryTf,
+    trend_tf: trendTf,
+    lookback_bars: lookback,
+    min_score: minScore,
+    min_rr: 2.0,
+    side,
+    require_htf_align: requireHtf,
+    use_ai: useAi,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      return runProTradeEma9VolRsiMomentum(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('9 EMA Vol RSI Scalp', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="9 EMA Vol RSI Scalp"
+        description="5m momentum + 15m EMA bias · score ≥7 · vol SMA50 · RSI momentum · structure SL · min 1:2 RR"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={EMA9_VOL_RSI_HOW_TO}>
+          {EMA9_VOL_RSI_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {EMA9_VOL_RSI_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {EMA9_VOL_RSI_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['5m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations={false}
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium text-slate-400">Entry timeframe (scalp)</p>
+          <div className="flex flex-wrap gap-2">
+            {EMA9_VOL_RSI_TFS.map((tf) => (
+              <Chip key={tf} selected={entryTf === tf} onClick={() => setEntryTf(tf)}>
+                {tf}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium text-slate-400">Trend timeframe (HTF bias)</p>
+          <div className="flex flex-wrap gap-2">
+            {EMA9_VOL_RSI_TFS.map((tf) => (
+              <Chip key={tf} selected={trendTf === tf} onClick={() => setTrendTf(tf)}>
+                {tf}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium text-slate-400">Side</p>
+          <div className="flex flex-wrap gap-2">
+            <Chip selected={side === 'both'} onClick={() => setSide('both')}>Long & short</Chip>
+            <Chip selected={side === 'long'} onClick={() => setSide('long')}>Long only</Chip>
+            <Chip selected={side === 'short'} onClick={() => setSide('short')}>Short only</Chip>
+          </div>
+        </div>
+
+        <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={1500} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 400)} />
+          </FormField>
+          <FormField label="Min score (≥7 recommended)">
+            <Input type="number" min={5} max={10} value={minScore} onChange={(e) => setMinScore(Number(e.target.value) || 7)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={requireHtf} onClick={() => setRequireHtf(true)}>Require HTF align</Chip>
+          <Chip selected={!requireHtf} onClick={() => setRequireHtf(false)}>HTF optional</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? useAi
+                ? 'Scanning + AI refine…'
+                : 'Scanning…'
+              : `Scan scalp (${picker.tickers.length} · ${entryTf}/${trendTf})`}
+          </Button>
+        </div>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`9 EMA Vol RSI · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && (
+        <Loading message={`Scoring 9 EMA · vol SMA50 · RSI · ${entryTf}/${trendTf}…`} />
+      )}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <Ema9VolRsiMomentumPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/ema9-vol-rsi-momentum" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const FLAT_RETEST_HOW_TO = `How to use Flat Retest
 
 1. Pick asset class + one or more timeframes + tickers.
@@ -4110,6 +4324,7 @@ export default function ProTrade() {
     { id: 'bb-rsi-vol', label: 'BB-RSI-VOL' },
     { id: 'ema-cross', label: 'EMA Cross' },
     { id: 'ema5-9-cross', label: '5/9 EMA Cross' },
+    { id: 'ema9-vol-rsi-momentum', label: '9 EMA Vol RSI Scalp' },
     { id: 'flat-retest', label: 'Flat Retest' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
@@ -4139,6 +4354,7 @@ export default function ProTrade() {
     page = <EmaCrossPage />
   }
   else if (tab === 'ema5-9-cross') page = <Ema59CrossPage />
+  else if (tab === 'ema9-vol-rsi-momentum') page = <Ema9VolRsiMomentumPage />
   else if (tab === 'flat-retest') page = <FlatRetestPage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />

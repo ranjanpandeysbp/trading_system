@@ -192,6 +192,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("ema9_bb_rsi_vol", "EMA Cross (legacy) — same as ema_cross"),
         ("ema5_bb_rsi_vol", "EMA Cross (legacy 5) — same as ema_cross"),
         ("ema5_9_crossover", "5/9 EMA Cross — EMA5×EMA9 crossover · price confirm · BB/RSI/Vol"),
+        ("ema9_vol_rsi_momentum", "9 EMA Vol RSI Scalp — 5m score≥7 · 15m bias · vol SMA50 · structure SL · 1:2 RR"),
         ("flat_retest", "Flat Retest — post-flat break→retest hold / reject→break low→failed retest"),
         ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
         ("buy_low_sell_high", "Buy Low Sell High — 25 DL GTT ladder · avg+5% exit · no SL"),
@@ -916,6 +917,9 @@ Also available on the **Dashboard**.
 """,
     "ema5_9_crossover": """
 **When to use:** Trade a fresh EMA5/EMA9 crossover with close confirming both EMAs, Bollinger room, RSI zone, and volume; invalidate on opposite re-cross.
+""",
+    "ema9_vol_rsi_momentum": """
+**When to use:** Intraday scalp when 5m is established beyond 9 EMA (≥4 bars), structure+volume+RSI agree (score ≥7), HTF 15m EMA bias aligns, and the bar breaks prior high/low — not during EMA chop or after a huge chase candle.
 """,
     "flat_retest": """
 **When to use:** After flat candles — LONG on break→retest hold as support; SHORT on reject→break cons low→failed retest. Never invent the next candle inside the box.

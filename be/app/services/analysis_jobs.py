@@ -223,6 +223,11 @@ async def _execute_analysis_body(
                 tickers=tickers, asset_class=ac, exchange=exchange, timeframes=tfs, cfg_overrides=cfg or None,
                 use_ai=bool(payload.get("use_ai", False)),
             )
+        if section == "ema9_vol_rsi_momentum":
+            return await svc.ema9_vol_rsi_momentum(
+                tickers=tickers, asset_class=ac, exchange=exchange, cfg_overrides=cfg or None,
+                use_ai=bool(payload.get("use_ai", False)),
+            )
         if section == "flat_retest":
             tfs = None
             if isinstance(cfg, dict):
