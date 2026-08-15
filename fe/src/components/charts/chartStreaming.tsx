@@ -20,7 +20,10 @@ export function applyLiveBars<T extends OhlcBar>(
   maxBars: number,
   liveLtp: number | null | undefined,
 ): T[] {
-  let rows = maxBars > 0 && bars.length > maxBars ? bars.slice(-maxBars) : bars.slice()
+  // Keep the full history buffer. `maxBars` is the *visible* window size —
+  // slicing for display is handled by useIndexZoom({ visibleBars }).
+  void maxBars
+  let rows = bars.slice()
   if (rows.length && liveLtp != null && Number.isFinite(Number(liveLtp))) {
     const last = { ...rows[rows.length - 1] }
     const px = Number(liveLtp)
@@ -106,7 +109,10 @@ export function ChartStreamControls({
         Bars
         <Select
           value={String(barCount)}
-          onChange={(e) => setBarCount(Number(e.target.value) || 100)}
+          onChange={(e) => {
+            const next = Number(e.target.value)
+            setBarCount(Number.isFinite(next) && next > 0 ? next : 100)
+          }}
           className="!w-auto !py-1.5 text-xs"
         >
           {BAR_COUNT_OPTIONS.map((n) => (

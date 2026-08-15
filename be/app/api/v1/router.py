@@ -5249,6 +5249,7 @@ async def pro_trade_ticker_chart(
         interval=payload.interval,
         indicators=payload.indicators,
         use_ai=bool(getattr(payload, "use_ai", False)),
+        max_bars=int(getattr(payload, "max_bars", 300) or 300),
     )
 
 

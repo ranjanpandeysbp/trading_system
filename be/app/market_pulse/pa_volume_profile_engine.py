@@ -110,7 +110,7 @@ def _build_fixed_range_vp(window: pd.DataFrame, bins: int = 40) -> tuple[float |
     return poc, zone_low, zone_high, vp
 
 
-def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 160) -> list[dict[str, Any]]:
+def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 320) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     tail = df.iloc[-max_bars:]
@@ -499,7 +499,7 @@ def analyze_ticker(
         return out
 
     out["ltp"] = round(float(df["close"].iloc[-1]), 4)
-    out["chart_data"] = _build_chart_data(df, max_bars=160)
+    out["chart_data"] = _build_chart_data(df, max_bars=320)
     try:
         sr_cfg = PaVpSmcConfig(swing_window=5, lookback_bars=min(len(df), 300))
         sr_zones = find_swing_sr_zones(df, sr_cfg)

@@ -293,18 +293,16 @@ export function VolumeProfileChart({
     resetZoom,
     panBy,
     isZoomed,
-  } = useIndexZoom(merged.length)
+  } = useIndexZoom(merged.length, { visibleBars: barCount })
 
-  // Reset any in-flight/applied zoom whenever the underlying series changes
-  // (new ticker, refreshed scan) so a stale index range never gets applied
-  // to a differently-sized dataset.
+  // Reset pan/selection when the underlying series identity changes (new ticker/scan).
   const dataKeyForReset = liveChartData.length
-    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}|${barCount}`
+    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}`
     : ''
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
-    if (zoomRange) resetZoom()
+    resetZoom()
     if (refLeft || refRight) { setRefLeft(null); setRefRight(null) }
   }
 
@@ -314,8 +312,7 @@ export function VolumeProfileChart({
     totalLength: merged.length,
     zoomRange,
     panBy,
-    // When zoomed, drag pans; when not, Shift/middle still pans (left-drag keeps range-select zoom)
-    primaryPan: isZoomed,
+    primaryPan: true,
   })
 
   const timeIndex = useMemo(() => {
@@ -324,7 +321,7 @@ export function VolumeProfileChart({
     return m
   }, [merged])
 
-  const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged
+  const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged.slice(-barCount)
 
   const handleMouseDown = (e: any) => {
     if (e?.activeLabel != null) setRefLeft(e.activeLabel)

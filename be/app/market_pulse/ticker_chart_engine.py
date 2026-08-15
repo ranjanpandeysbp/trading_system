@@ -734,6 +734,7 @@ def compute_ticker_chart(
     interval: str = "1d",
     market: str = "",
     indicators: list[str] | None = None,
+    max_bars: int | None = None,
 ) -> dict[str, Any]:
     """Build close chart + OHLC candles + S/R + selectable indicators for one ticker."""
     from app.market_pulse.asset_class_config import ASSET_CLASS_CONFIG, resolve_tickers
@@ -763,14 +764,22 @@ def compute_ticker_chart(
 
     intraday = (mode or "daily").strip().lower() == "intraday"
     iv = _normalize_interval(interval, intraday=intraday)
+    try:
+        want_bars = int(max_bars) if max_bars is not None else 300
+    except (TypeError, ValueError):
+        want_bars = 300
+    want_bars = max(20, min(500, want_bars))
 
     if intraday:
         if not session_date:
             return {"error": "Pick a session date for intraday", "points": [], "candles": [], "support_resistance": None}
         day = _parse_date(session_date)
         max_lb = _INTRADAY_MAX_LOOKBACK_DAYS.get(iv, 60)
-        # Yahoo needs a short lookback window that includes the session
-        start = day - timedelta(days=min(max_lb - 1, 5))
+        # Pull enough prior sessions so Bars=N can actually fill (not just one session).
+        minutes = {"1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30, "60m": 60, "1h": 60}.get(iv, 15)
+        sessions_needed = max(1, int((want_bars * minutes) / (6.5 * 60)) + 2)
+        lookback_days = min(max_lb - 1, max(5, sessions_needed * 2))
+        start = day - timedelta(days=lookback_days)
         end = day
     else:
         if not from_date or not to_date:
@@ -827,16 +836,19 @@ def compute_ticker_chart(
             })
 
         if intraday:
-            day_start = pd.Timestamp(_parse_date(session_date or start.strftime("%Y-%m-%d")))
-            day_end = day_start + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            clipped = ohlc[(ohlc.index >= day_start) & (ohlc.index <= day_end)]
+            day_end = pd.Timestamp(_parse_date(session_date or start.strftime("%Y-%m-%d"))) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            # Trailing window ending on the session (includes prior sessions when Bars > one day).
+            up_to = ohlc[ohlc.index <= day_end]
+            clipped = up_to.iloc[-want_bars:] if len(up_to) > want_bars else up_to
         else:
             clipped = ohlc[
                 (ohlc.index >= pd.Timestamp(start))
                 & (ohlc.index <= pd.Timestamp(end) + pd.Timedelta(days=1))
             ]
+            if len(clipped) > want_bars:
+                clipped = clipped.iloc[-want_bars:]
         if clipped.empty:
-            clipped = ohlc
+            clipped = ohlc.iloc[-want_bars:] if len(ohlc) > want_bars else ohlc
 
         close = clipped["close"]
         from app.market_pulse.sr_volume_summary import build_sr_volume_summary
@@ -939,6 +951,7 @@ def compute_ticker_chart(
             "from": points[0]["t"] if points else None,
             "to": points[-1]["t"] if points else None,
             "bars": len(points),
+            "max_bars": want_bars,
             "last": round(last, 4) if last is not None else None,
             "change_pct": round(change_pct, 2) if change_pct is not None else None,
             "points": points,

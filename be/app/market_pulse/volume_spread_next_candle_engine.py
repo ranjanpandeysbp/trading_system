@@ -60,7 +60,7 @@ class VolumeSpreadConfig:
     context_lookback: int = 20  # swing-high/low window for absorption/distribution context
 
 
-def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 160) -> list[dict[str, Any]]:
+def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 320) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     tail = df.iloc[-max_bars:]

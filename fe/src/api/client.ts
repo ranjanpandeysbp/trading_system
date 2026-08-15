@@ -2544,6 +2544,7 @@ export const runProTradeTickerChart = (payload: {
   exchange?: string
   indicators?: string[]
   use_ai?: boolean
+  max_bars?: number
 }) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export type ChartCommentaryBar = {

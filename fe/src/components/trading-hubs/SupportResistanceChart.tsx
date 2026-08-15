@@ -220,18 +220,16 @@ export function SupportResistanceChart({
     resetZoom,
     panBy,
     isZoomed,
-  } = useIndexZoom(merged.length)
+  } = useIndexZoom(merged.length, { visibleBars: barCount })
 
-  // Reset any in-flight/applied zoom whenever the underlying series changes
-  // (new ticker, new date range, refreshed data) so a stale index range
-  // can't be applied to a differently-sized dataset.
+  // Reset pan/selection when the underlying series identity changes (new ticker/scan).
   const dataKeyForReset = liveChartData.length
-    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}|${barCount}`
+    ? `${liveChartData[0].time}|${liveChartData[liveChartData.length - 1].time}|${liveChartData.length}`
     : ''
   const [lastResetKey, setLastResetKey] = useState(dataKeyForReset)
   if (dataKeyForReset !== lastResetKey) {
     setLastResetKey(dataKeyForReset)
-    if (zoomRange) resetZoom()
+    resetZoom()
     if (refLeft || refRight) { setRefLeft(null); setRefRight(null) }
   }
 
@@ -241,7 +239,7 @@ export function SupportResistanceChart({
     totalLength: merged.length,
     zoomRange,
     panBy,
-    primaryPan: isZoomed,
+    primaryPan: true,
   })
 
   const timeIndex = useMemo(() => {
@@ -250,10 +248,12 @@ export function SupportResistanceChart({
     return m
   }, [merged])
 
-  const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged
+  const view = zoomRange ? merged.slice(zoomRange[0], zoomRange[1] + 1) : merged.slice(-barCount)
   const viewStart = view[0]?.time
   const viewEnd = view[view.length - 1]?.time
-  const viewChartData = zoomRange ? liveChartData.slice(zoomRange[0], zoomRange[1] + 1) : liveChartData
+  const viewChartData = zoomRange
+    ? liveChartData.slice(zoomRange[0], zoomRange[1] + 1)
+    : liveChartData.slice(-barCount)
 
   const handleMouseDown = (e: any) => {
     if (e?.activeLabel != null) setRefLeft(e.activeLabel)

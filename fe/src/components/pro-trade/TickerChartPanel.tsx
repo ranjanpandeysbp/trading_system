@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -338,6 +338,7 @@ export function PriceChart({
   workspace = false,
   hideDrawingToolbar = false,
   externalDrawings,
+  onNeedOlder,
 }: {
   points: Row[]
   candles?: Candle[]
@@ -352,6 +353,7 @@ export function PriceChart({
   workspace?: boolean
   hideDrawingToolbar?: boolean
   externalDrawings?: ReturnType<typeof useChartDrawings>
+  onNeedOlder?: () => void
 }) {
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const localDrawings = useChartDrawings()
@@ -463,10 +465,7 @@ export function PriceChart({
         __pad: false,
       }
     })
-    if (maxBars && maxBars > 0 && rows.length > maxBars) {
-      rows = rows.slice(-maxBars)
-    }
-    // Live LTP updates the forming candle
+    // Keep full history buffer — visible window comes from useIndexZoom(visibleBars).
     if (rows.length && liveLtp != null && Number.isFinite(liveLtp)) {
       const last = { ...rows[rows.length - 1] }
       const close = Number(liveLtp)
@@ -479,7 +478,7 @@ export function PriceChart({
       rows = [...rows.slice(0, -1), last]
     }
     return rows
-  }, [points, candles, liveLtp, maxBars])
+  }, [points, candles, liveLtp])
 
   const {
     zoomRange,
@@ -488,7 +487,10 @@ export function PriceChart({
     resetZoom,
     panBy,
     isZoomed,
-  } = useIndexZoom(chartRowsBase.length)
+  } = useIndexZoom(chartRowsBase.length, {
+    visibleBars: maxBars && maxBars > 0 ? maxBars : 100,
+    onNeedOlder,
+  })
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
   useChartPanDrag(chartRef, {
@@ -500,9 +502,10 @@ export function PriceChart({
   })
 
   const chartRows = useMemo(() => {
+    const span = maxBars && maxBars > 0 ? maxBars : 100
     const real = zoomRange
       ? chartRowsBase.slice(zoomRange[0], zoomRange[1] + 1)
-      : chartRowsBase
+      : chartRowsBase.slice(-span)
     const rows = [...real]
     // Right-side breathing room
     for (let i = 0; i < RIGHT_PAD_BARS; i++) {
@@ -519,7 +522,7 @@ export function PriceChart({
       })
     }
     return rows
-  }, [chartRowsBase, zoomRange])
+  }, [chartRowsBase, zoomRange, maxBars])
 
   const handleCopyChart = async () => {
     const result = await copyChartImage(chartRef.current)
@@ -958,12 +961,21 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
   const [selectedIndicators, setSelectedIndicators] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
   const [streamOn, setStreamOn] = useState(true)
   const [barCount, setBarCount] = useState(100)
+  const [historyBars, setHistoryBars] = useState(300)
   const [error, setError] = useState('')
   const { useAi, setUseAi } = useTradeSetupAi()
 
   const ready =
     ticker.trim().length >= 1 &&
     (mode === 'daily' ? Boolean(fromDate && toDate) : Boolean(sessionDate && interval))
+
+  useEffect(() => {
+    setHistoryBars((h) => Math.max(h, barCount * 3, 300))
+  }, [barCount])
+
+  const requestOlderBars = useCallback(() => {
+    setHistoryBars((h) => Math.min(500, h + Math.max(40, barCount)))
+  }, [barCount])
 
   const chartPollMs =
     !streamOn
@@ -987,6 +999,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
       sessionDate,
       interval,
       selectedIndicators.join(','),
+      historyBars,
       streamOn ? 'no-ai' : useAi ? 'ai' : 'no-ai',
     ],
     queryFn: () =>
@@ -1000,6 +1013,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         interval: mode === 'intraday' ? interval : '1d',
         indicators: selectedIndicators,
         use_ai: streamOn ? false : useAi,
+        max_bars: historyBars,
       }),
     enabled: ready,
     refetchInterval: chartPollMs,
@@ -1125,7 +1139,10 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
                 Bars
                 <Select
                   value={String(barCount)}
-                  onChange={(e) => setBarCount(Number(e.target.value) || 100)}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setBarCount(Number.isFinite(next) && next > 0 ? next : 100)
+                  }}
                   className="!w-auto !py-1.5 text-xs"
                 >
                   {BAR_COUNT_OPTIONS.map((n) => (
@@ -1309,7 +1326,9 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
             {data.yf_symbol != null && (
               <span className="text-xs text-slate-500">{String(data.yf_symbol)}</span>
             )}
-            <span className="text-[11px] text-slate-500">bars ≤ {barCount}</span>
+            <span className="text-[11px] text-slate-500">
+              view {barCount} · loaded {historyBars}
+            </span>
           </div>
 
           {tradeSetup && (
@@ -1383,6 +1402,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
             fibLevels={fibLevels}
             liveLtp={streamOn ? liveLtp : null}
             maxBars={barCount}
+            onNeedOlder={requestOlderBars}
           />
         </Card>
       )}

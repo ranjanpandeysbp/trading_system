@@ -1015,6 +1015,7 @@ class ProTradeService:
         interval: str = "1d",
         indicators: list[str] | None = None,
         use_ai: bool = False,
+        max_bars: int = 300,
     ) -> dict[str, Any]:
         from app.market_pulse.ticker_chart_engine import compute_ticker_chart
         from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
@@ -1032,6 +1033,7 @@ class ProTradeService:
                 interval=interval,
                 market=market,
                 indicators=indicators,
+                max_bars=max_bars,
             )
 
         payload = json_safe(await asyncio.to_thread(_run))

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -16,32 +17,130 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n))
 }
 
-/** Index-window zoom for OHLC series (TradingView-like zoom in/out + pan). */
-export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
-  const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
-  const panFracRef = useRef(0)
+export type IndexZoomOpts = {
+  minBars?: number
+  /** Visible window size (Bars control). Always show this many candles when set. */
+  visibleBars?: number
+  /** Fired when the window nears the oldest loaded bar (load more history). */
+  onNeedOlder?: () => void
+}
 
-  // Keep range valid when data length changes
+function normalizeZoomArg(minBarsOrOpts: number | IndexZoomOpts = MIN_BARS): IndexZoomOpts & { minBars: number } {
+  if (typeof minBarsOrOpts === 'number') return { minBars: minBarsOrOpts }
+  return { minBars: MIN_BARS, ...minBarsOrOpts }
+}
+
+/**
+ * Index-window zoom/pan for OHLC series.
+ * With visibleBars: show that many candles (live edge by default); drag pans history.
+ */
+export function useIndexZoom(totalLength: number, minBarsOrOpts: number | IndexZoomOpts = MIN_BARS) {
+  const opts = normalizeZoomArg(minBarsOrOpts)
+  const minBars = opts.minBars ?? MIN_BARS
+  const visibleBars = opts.visibleBars
+  const onNeedOlder = opts.onNeedOlder
+
+  const [zoomRange, setZoomRange] = useState<[number, number] | null>(null)
+  const [followLive, setFollowLive] = useState(true)
+  const panFracRef = useRef(0)
+  const prevLenRef = useRef(totalLength)
+  const onNeedOlderRef = useRef(onNeedOlder)
+  onNeedOlderRef.current = onNeedOlder
+
+  const spanFor = useCallback(
+    (len: number) => {
+      if (len <= 0) return 0
+      if (visibleBars != null && visibleBars > 0) {
+        return clamp(Math.floor(visibleBars), Math.min(minBars, len), len)
+      }
+      return len
+    },
+    [visibleBars, minBars],
+  )
+
   useEffect(() => {
-    if (!zoomRange) return
-    if (totalLength <= minBars) {
+    const prev = prevLenRef.current
+    const next = totalLength
+    if (prev === next) return
+    const delta = next - prev
+    prevLenRef.current = next
+    panFracRef.current = 0
+    if (followLive || !zoomRange) return
+    if (delta > 0) {
+      setZoomRange([zoomRange[0] + delta, zoomRange[1] + delta])
+      return
+    }
+    const span = zoomRange[1] - zoomRange[0] + 1
+    const end = clamp(zoomRange[1], Math.min(span - 1, next - 1), next - 1)
+    const start = clamp(end - span + 1, 0, Math.max(0, next - span))
+    setZoomRange([start, start + span - 1])
+  }, [totalLength, followLive, zoomRange])
+
+  const prevVisibleRef = useRef(visibleBars)
+  useEffect(() => {
+    if (prevVisibleRef.current === visibleBars) return
+    prevVisibleRef.current = visibleBars
+    panFracRef.current = 0
+    if (visibleBars == null) return
+    if (followLive) {
       setZoomRange(null)
       return
     }
-    const [a, b] = zoomRange
-    if (a >= totalLength || b >= totalLength) {
+    if (!zoomRange || totalLength <= 0) return
+    const span = spanFor(totalLength)
+    const end = zoomRange[1]
+    const start = clamp(end - span + 1, 0, Math.max(0, totalLength - span))
+    setZoomRange([start, start + span - 1])
+  }, [visibleBars, followLive, zoomRange, totalLength, spanFor])
+
+  useEffect(() => {
+    if (!zoomRange) return
+    if (totalLength <= 0) {
       setZoomRange(null)
+      setFollowLive(true)
+      return
     }
-  }, [totalLength, zoomRange, minBars])
+    const [a, b] = zoomRange
+    if (a < 0 || b < 0 || a >= totalLength || b >= totalLength || a > b) {
+      setZoomRange(null)
+      setFollowLive(true)
+    }
+  }, [totalLength, zoomRange])
+
+  const viewRange = useMemo((): [number, number] | null => {
+    const len = totalLength
+    if (len <= 0) return null
+    const span = spanFor(len)
+    if (visibleBars != null && visibleBars > 0) {
+      if (followLive || !zoomRange) {
+        return [Math.max(0, len - span), len - 1]
+      }
+      const end = clamp(zoomRange[1], span - 1, len - 1)
+      const start = clamp(end - span + 1, 0, Math.max(0, len - span))
+      return [start, start + span - 1]
+    }
+    return zoomRange
+  }, [totalLength, spanFor, visibleBars, followLive, zoomRange])
 
   const zoomIn = useCallback(() => {
     const len = totalLength
     if (len <= minBars) return
     panFracRef.current = 0
+    if (visibleBars != null && visibleBars > 0) {
+      const cur = viewRange ? viewRange[1] - viewRange[0] + 1 : spanFor(len)
+      if (cur <= minBars) return
+      const next = Math.max(minBars, Math.floor(cur * 0.75))
+      const end = viewRange ? viewRange[1] : len - 1
+      const start = clamp(end - next + 1, 0, len - next)
+      setFollowLive(end >= len - 1)
+      setZoomRange([start, start + next - 1])
+      return
+    }
     if (!zoomRange) {
       const span = Math.max(minBars, Math.floor(len * 0.55))
       const start = Math.max(0, len - span)
       setZoomRange([start, len - 1])
+      setFollowLive(false)
       return
     }
     const [a, b] = zoomRange
@@ -51,64 +150,86 @@ export function useIndexZoom(totalLength: number, minBars = MIN_BARS) {
     const mid = (a + b) / 2
     const start = clamp(Math.round(mid - next / 2), 0, len - next)
     setZoomRange([start, start + next - 1])
-  }, [totalLength, zoomRange, minBars])
+    setFollowLive(false)
+  }, [totalLength, minBars, visibleBars, viewRange, spanFor, zoomRange])
 
   const zoomOut = useCallback(() => {
-    if (!zoomRange) return
     const len = totalLength
+    panFracRef.current = 0
+    if (visibleBars != null && visibleBars > 0) {
+      setFollowLive(true)
+      setZoomRange(null)
+      return
+    }
+    if (!zoomRange) return
     const [a, b] = zoomRange
     const span = b - a + 1
     const next = Math.min(len, Math.ceil(span * 1.55))
-    panFracRef.current = 0
     if (next >= len - 1) {
       setZoomRange(null)
+      setFollowLive(true)
       return
     }
     const mid = (a + b) / 2
     const start = clamp(Math.round(mid - next / 2), 0, len - next)
     setZoomRange([start, start + next - 1])
-  }, [totalLength, zoomRange])
+  }, [totalLength, visibleBars, zoomRange])
 
   const resetZoom = useCallback(() => {
     panFracRef.current = 0
     setZoomRange(null)
+    setFollowLive(true)
   }, [])
 
-  /** Drag right → older bars (indices decrease). Accepts fractional bar deltas. */
+  const setZoomRangeUser = useCallback((range: [number, number] | null) => {
+    panFracRef.current = 0
+    if (range == null) {
+      setZoomRange(null)
+      setFollowLive(true)
+      return
+    }
+    setFollowLive(false)
+    setZoomRange(range)
+  }, [])
+
   const panBy = useCallback(
     (deltaBars: number) => {
       const len = totalLength
       if (len <= minBars || !Number.isFinite(deltaBars) || deltaBars === 0) return
-
       panFracRef.current += deltaBars
       const shift = Math.trunc(panFracRef.current)
       if (shift === 0) return
       panFracRef.current -= shift
 
-      let a: number
-      let b: number
-      if (!zoomRange) {
-        const span = Math.max(minBars, Math.floor(len * 0.55))
-        a = Math.max(0, len - span)
-        b = len - 1
+      const span = spanFor(len)
+      let end: number
+      if (visibleBars != null && visibleBars > 0) {
+        end = viewRange ? viewRange[1] : len - 1
+      } else if (!zoomRange) {
+        end = len - 1
       } else {
-        ;[a, b] = zoomRange
+        end = zoomRange[1]
       }
-      const span = b - a + 1
-      const start = clamp(a - shift, 0, Math.max(0, len - span))
-      setZoomRange([start, start + span - 1])
+      const nextEnd = clamp(end - shift, span - 1, len - 1)
+      const nextStart = nextEnd - span + 1
+      setFollowLive(nextEnd >= len - 1)
+      setZoomRange([nextStart, nextEnd])
+      if (nextStart <= Math.max(8, Math.floor(span * 0.15))) {
+        onNeedOlderRef.current?.()
+      }
     },
-    [totalLength, zoomRange, minBars],
+    [totalLength, minBars, spanFor, visibleBars, viewRange, zoomRange],
   )
 
   return {
-    zoomRange,
-    setZoomRange,
+    zoomRange: viewRange,
+    setZoomRange: setZoomRangeUser,
     zoomIn,
     zoomOut,
     resetZoom,
     panBy,
-    isZoomed: zoomRange != null,
+    isZoomed: visibleBars != null ? !followLive : zoomRange != null,
+    followLive,
   }
 }
 
@@ -146,7 +267,7 @@ export function ChartZoomControls({
       </Chip>
       <span
         className="inline-flex items-center gap-1 rounded-full border border-slate-800/80 px-2 py-0.5 text-[10px] text-slate-500"
-        title="Hold and drag the chart left/right to pan. Shift+drag also pans."
+        title="Hold and drag the chart left/right to scroll older/newer bars. Reset returns to the live edge."
       >
         <HandGrab size={11} /> Drag to pan
       </span>

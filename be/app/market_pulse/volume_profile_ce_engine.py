@@ -528,7 +528,7 @@ def _daily_poc_proxies(daily: pd.DataFrame) -> list[float]:
     return [float(row["close"]) for _, row in daily.iterrows()]
 
 
-def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 160) -> list[dict[str, Any]]:
+def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 320) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     tail = df.iloc[-max_bars:]
@@ -625,7 +625,7 @@ def analyze_ticker(
     }
     # Prefer a wider intraday window for the chart (session + recent context)
     chart_src = intra if len(intra) > len(session) else session
-    out["chart_data"] = _build_chart_data(chart_src, max_bars=160)
+    out["chart_data"] = _build_chart_data(chart_src, max_bars=320)
     out["vp_histogram"] = _vp_histogram(vp)
     try:
         from app.market_pulse.pa_vp_smc_engine import PaVpSmcConfig, find_swing_sr_zones

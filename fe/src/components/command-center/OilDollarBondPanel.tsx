@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
   Bar,
@@ -124,6 +124,7 @@ function SeriesChart({
 }) {
   const [streamOn, setStreamOn] = useState(true)
   const [barCount, setBarCount] = useState(100)
+  const [historyBars, setHistoryBars] = useState(300)
   const expand = useChartExpand()
   const chartRef = useRef<HTMLDivElement>(null)
   const ctxMenu = useChartContextMenu()
@@ -136,6 +137,10 @@ function SeriesChart({
     desktopSecondaryAxisWidth: 40,
     bottomPad: 0,
   })
+
+  useEffect(() => {
+    setHistoryBars((h) => Math.max(h, barCount * 3, 300))
+  }, [barCount])
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -158,10 +163,10 @@ function SeriesChart({
 
   const visibleSrLevels = showSr ? levels : []
 
-  const windowPoints = useMemo(() => {
-    if (barCount > 0 && points.length > barCount) return points.slice(-barCount)
+  const historyPoints = useMemo(() => {
+    if (historyBars > 0 && points.length > historyBars) return points.slice(-historyBars)
     return points
-  }, [points, barCount])
+  }, [points, historyBars])
 
   const {
     zoomRange,
@@ -170,20 +175,23 @@ function SeriesChart({
     resetZoom,
     panBy,
     isZoomed,
-  } = useIndexZoom(windowPoints.length)
+  } = useIndexZoom(historyPoints.length, {
+    visibleBars: barCount,
+    onNeedOlder: () => setHistoryBars((h) => Math.min(points.length || 500, h + Math.max(40, barCount))),
+  })
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
   useChartPanDrag(chartRef, {
-    totalLength: windowPoints.length,
+    totalLength: historyPoints.length,
     zoomRange,
     panBy,
     primaryPan: true,
   })
 
   const viewPoints = useMemo(() => {
-    if (!zoomRange) return windowPoints
-    return windowPoints.slice(zoomRange[0], zoomRange[1] + 1)
-  }, [windowPoints, zoomRange])
+    if (zoomRange) return historyPoints.slice(zoomRange[0], zoomRange[1] + 1)
+    return historyPoints.slice(-barCount)
+  }, [historyPoints, zoomRange, barCount])
 
   const handleCopyChart = async () => {
     const result = await copyChartImage(chartRef.current)
@@ -273,7 +281,7 @@ function SeriesChart({
         }
         commentary={
           <ChartCommentaryPanel
-            bars={windowPoints.map((p) => {
+            bars={viewPoints.map((p) => {
               const close = Number(p.close ?? p.value ?? p.open)
               const open = Number(p.open ?? close)
               const high = Number(p.high ?? Math.max(open, close))

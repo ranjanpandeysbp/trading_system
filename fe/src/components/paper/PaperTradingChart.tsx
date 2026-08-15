@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -161,6 +161,7 @@ export function PaperTradingChart({
 }) {
   const [interval, setIntervalTf] = useState('15m')
   const [barCount, setBarCount] = useState(80)
+  const [historyBars, setHistoryBars] = useState(240)
   const [chartStyle, setChartStyle] = useState<ChartStyle>('candles')
   const [selected, setSelected] = useState<IndicatorId[]>(DEFAULT_INDICATORS)
   const [manualSr, setManualSr] = useState<number | ''>('')
@@ -190,27 +191,37 @@ export function PaperTradingChart({
     if (lastTicker.current !== ticker) {
       lastTicker.current = ticker
       clearDrawings()
+      setHistoryBars(Math.max(240, barCount * 3))
     }
-  }, [ticker, clearDrawings])
+  }, [ticker, clearDrawings, barCount])
 
   useEffect(() => {
-    // Indices are relative to the visible window â€” reset drawings when window changes
     clearDrawings()
-  }, [barCount, interval, clearDrawings])
+    setHistoryBars((h) => Math.max(h, barCount * 3, 240))
+  }, [interval, clearDrawings, barCount])
+
+  useEffect(() => {
+    setHistoryBars((h) => Math.max(h, barCount * 3))
+  }, [barCount])
+
+  const requestOlderBars = useCallback(() => {
+    setHistoryBars((h) => Math.min(500, h + Math.max(40, barCount)))
+  }, [barCount])
 
   const chartQuery = useQuery({
-    queryKey: ['paper-chart', assetClass, ticker, interval, selected.join(',')],
+    queryKey: ['paper-chart', assetClass, ticker, interval, selected.join(','), historyBars],
     queryFn: () =>
       runProTradeTickerChart({
         ticker: ticker.trim(),
         asset_class: assetClass,
         mode,
-        from_date: isDaily ? isoDaysAgo(180) : undefined,
+        from_date: isDaily ? isoDaysAgo(Math.max(400, historyBars + 40)) : undefined,
         to_date: isDaily ? todayIso() : undefined,
         session_date: isDaily ? undefined : todayIso(),
         interval: isDaily ? '1d' : interval,
         indicators: selected,
         use_ai: false,
+        max_bars: historyBars,
       }),
     enabled: ticker.trim().length > 0,
     refetchInterval: streamOn ? (interval === '1m' ? 8_000 : interval === '5m' ? 12_000 : 20_000) : false,
@@ -264,15 +275,14 @@ export function PaperTradingChart({
     })
   }, [points, candles])
 
-  const windowRows = useMemo(() => {
-    const sliced = fullRows.slice(-Math.max(10, barCount))
-    // Stream: update forming (last real) candle with live LTP
-    return sliced.map((p, idx) => {
+  const historyRows = useMemo(() => {
+    // Full loaded buffer + live LTP on last candle (not pre-sliced to Bars).
+    return fullRows.map((p, idx) => {
       let close = Number(p.close)
       let open = Number(p.open)
       let high = Number(p.high)
       let low = Number(p.low)
-      if (idx === sliced.length - 1 && ltp != null && Number.isFinite(ltp)) {
+      if (idx === fullRows.length - 1 && ltp != null && Number.isFinite(ltp)) {
         close = Number(ltp)
         high = Math.max(high, close, open)
         low = Math.min(low, close, open)
@@ -289,7 +299,7 @@ export function PaperTradingChart({
         __pad: false,
       } as Row
     })
-  }, [fullRows, barCount, ltp])
+  }, [fullRows, ltp])
 
   const {
     zoomRange,
@@ -298,12 +308,15 @@ export function PaperTradingChart({
     resetZoom,
     panBy,
     isZoomed,
-  } = useIndexZoom(windowRows.length)
+  } = useIndexZoom(historyRows.length, {
+    visibleBars: barCount,
+    onNeedOlder: requestOlderBars,
+  })
 
   useChartPointerZoom(chartRef, zoomIn, zoomOut, ctxMenu.openAt)
   useChartPanDrag(chartRef, {
     enabled: drawTool === 'select' && !drawSelectedId,
-    totalLength: windowRows.length,
+    totalLength: historyRows.length,
     zoomRange,
     panBy,
     primaryPan: true,
@@ -311,8 +324,8 @@ export function PaperTradingChart({
 
   const chartRows = useMemo(() => {
     const real = zoomRange
-      ? windowRows.slice(zoomRange[0], zoomRange[1] + 1)
-      : windowRows
+      ? historyRows.slice(zoomRange[0], zoomRange[1] + 1)
+      : historyRows.slice(-Math.max(10, barCount))
     const rows = real.map((p, idx) => ({ ...p, idx })) as Row[]
     // Empty slots on the right so candles aren't glued to the edge
     for (let i = 0; i < RIGHT_PAD_BARS; i++) {
@@ -330,7 +343,7 @@ export function PaperTradingChart({
       })
     }
     return rows
-  }, [windowRows, zoomRange])
+  }, [historyRows, zoomRange, barCount])
 
   const realBarCount = Math.max(0, chartRows.length - RIGHT_PAD_BARS)
 
@@ -492,7 +505,7 @@ export function PaperTradingChart({
               </span>
             )}
             <span className="text-[11px] text-slate-500">
-              {realBarCount} / {fullRows.length || 0} bars
+              view {realBarCount} · loaded {fullRows.length || 0}
             </span>
           </div>
         }
@@ -514,7 +527,10 @@ export function PaperTradingChart({
               Bars
               <Select
                 value={String(barCount)}
-                onChange={(e) => setBarCount(Number(e.target.value) || 80)}
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setBarCount(Number.isFinite(next) && next > 0 ? next : 80)
+                }}
                 className="!w-auto !py-1.5 text-xs"
               >
                 {BAR_COUNT_OPTIONS.map((n) => (

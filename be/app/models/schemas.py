@@ -1547,6 +1547,12 @@ class ProTradeTickerChartRequest(BaseModel):
         description="Selected overlays: rsi, macd, supertrend, vwap, volume, bollinger, fibonacci, ema_5/9/20/50/200",
     )
     use_ai: bool = False
+    max_bars: int = Field(
+        default=300,
+        ge=20,
+        le=500,
+        description="Return at most this many candles (trailing). Intraday uses prior sessions if needed.",
+    )
 
 
 class ChartCommentaryRequest(BaseModel):

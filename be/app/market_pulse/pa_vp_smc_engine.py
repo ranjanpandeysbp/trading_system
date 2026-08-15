@@ -289,7 +289,7 @@ def _nearest_ob(order_blocks: list[dict[str, Any]], direction: str, price: float
     return candidates[0] if candidates else None
 
 
-def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 160) -> list[dict[str, Any]]:
+def _build_chart_data(df: pd.DataFrame, *, max_bars: int = 320) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     tail = df.iloc[-max_bars:]
@@ -354,7 +354,7 @@ def analyze_ticker(
 
     price = float(ltf_df["close"].iloc[-1])
     out["ltp"] = round(price, 4)
-    out["chart_data"] = _build_chart_data(ltf_df, max_bars=160)
+    out["chart_data"] = _build_chart_data(ltf_df, max_bars=320)
 
     poc, vah, val, vp = calculate_volume_profile(htf_df, num_bins=cfg.vp_num_bins, value_area_pct=cfg.vp_value_area_pct)
     out["vp_histogram"] = _vp_histogram(vp)
