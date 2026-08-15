@@ -27,6 +27,7 @@ import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { FormField, Input, Select } from '../ui/Form'
 import { StatCard } from '../ui/StatCard'
 import { HowToBox } from '../ui/CopyAllButton'
+import { useChartAxisLayout } from '../charts/chartLayout'
 
 type Row = Record<string, unknown>
 
@@ -119,6 +120,13 @@ function AdRatioChart({
   xKey?: string
 }) {
   const chartData = useMemo(() => withChartRatio(series), [series])
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 4,
+    desktopRightMargin: 8,
+    desktopPriceAxisWidth: 44,
+    desktopSecondaryAxisWidth: 40,
+    bottomPad: 4,
+  })
   if (!chartData.length) {
     return <p className="text-sm text-slate-500">No points to chart yet.</p>
   }
@@ -206,23 +214,38 @@ function AdRatioChart({
       </div>
       <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 48, left: 4, bottom: 4 }}>
+          <ComposedChart data={chartData} margin={axis.margin}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey={xKey} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={28} />
+            <XAxis
+              dataKey={xKey}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              minTickGap={axis.minTickGap}
+              height={axis.narrow ? 16 : 28}
+            />
             <YAxis
               yAxisId="ratio"
               domain={[0, yMax]}
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              width={44}
-              label={{ value: 'Ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              width={axis.priceAxisWidth}
+              tickCount={axis.narrow ? 4 : undefined}
+              label={
+                axis.narrow
+                  ? undefined
+                  : { value: 'Ratio', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }
+              }
             />
             <YAxis
               yAxisId="osc"
               orientation="right"
               domain={[0, 100]}
-              tick={{ fill: '#64748b', fontSize: 10 }}
-              width={40}
-              label={{ value: 'RSI / Strength', angle: 90, position: 'insideRight', fill: '#64748b', fontSize: 10 }}
+              hide={axis.narrow}
+              tick={{ fill: '#64748b', fontSize: axis.tickFontSize }}
+              width={axis.narrow ? 0 : axis.secondaryAxisWidth}
+              label={
+                axis.narrow
+                  ? undefined
+                  : { value: 'RSI / Strength', angle: 90, position: 'insideRight', fill: '#64748b', fontSize: 10 }
+              }
             />
             <Tooltip
               content={({ active, payload, label }) => {

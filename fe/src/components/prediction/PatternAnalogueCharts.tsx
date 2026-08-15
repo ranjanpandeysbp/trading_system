@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useNarrowChart } from '../charts/chartLayout'
 
 type Candle = {
   time?: string
@@ -131,12 +132,14 @@ export function PatternCandleChart({
     () => toChartRows(beforeCandles, candles, forwardCandles),
     [beforeCandles, candles, forwardCandles],
   )
+  const narrow = useNarrowChart()
   if (!data.length) {
     return <p className="text-xs text-slate-600">No candle data</p>
   }
 
-  const tickEvery = Math.max(1, Math.ceil(data.length / (compact ? 4 : 6)))
-
+  const tickEvery = Math.max(1, Math.ceil(data.length / (compact || narrow ? 4 : 6)))
+  const axisW = compact || narrow ? 24 : 48
+  const tickFs = compact || narrow ? 8 : 9
   return (
     <div className="rounded-lg border border-slate-800/70 bg-slate-950/50 p-2">
       {(title || subtitle) && (
@@ -147,23 +150,25 @@ export function PatternCandleChart({
       )}
       <div style={{ width: '100%', height }}>
         <ResponsiveContainer>
-          <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <ComposedChart data={data} margin={{ top: 4, right: narrow ? 0 : 4, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="label"
-              tick={{ fill: '#64748b', fontSize: 9 }}
+              tick={{ fill: '#64748b', fontSize: tickFs }}
               tickLine={false}
               axisLine={{ stroke: '#334155' }}
               interval={0}
               tickFormatter={(v, i) => (i % tickEvery === 0 ? String(v) : '')}
+              height={narrow ? 14 : 24}
             />
             <YAxis
               domain={['dataMin', 'dataMax']}
-              width={compact ? 36 : 48}
-              tick={{ fill: '#64748b', fontSize: 9 }}
+              width={axisW}
+              tick={{ fill: '#64748b', fontSize: tickFs }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(v) => Number(v).toFixed(compact ? 0 : 1)}
+              tickFormatter={(v) => Number(v).toFixed(narrow || compact ? 0 : 1)}
+              tickCount={narrow ? 4 : undefined}
             />
             <Tooltip content={<CandleTooltip />} />
             <Bar dataKey="range" shape={CandlestickShape} isAnimationActive={false} />
@@ -208,6 +213,7 @@ export function PatternShapeOverlay({
     return rows
   }, [base, matches])
 
+  const narrow = useNarrowChart()
   if (!data.length) return null
 
   return (
@@ -218,15 +224,16 @@ export function PatternShapeOverlay({
       </p>
       <div style={{ width: '100%', height }}>
         <ResponsiveContainer>
-          <ComposedChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <ComposedChart data={data} margin={{ top: 4, right: narrow ? 0 : 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={{ stroke: '#334155' }} />
+            <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: narrow ? 8 : 9 }} tickLine={false} axisLine={{ stroke: '#334155' }} height={narrow ? 14 : 24} />
             <YAxis
-              width={40}
-              tick={{ fill: '#64748b', fontSize: 9 }}
+              width={narrow ? 24 : 40}
+              tick={{ fill: '#64748b', fontSize: narrow ? 8 : 9 }}
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `${Number(v).toFixed(1)}%`}
+              tickCount={narrow ? 4 : undefined}
             />
             <Tooltip
               contentStyle={{ background: '#020617', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}

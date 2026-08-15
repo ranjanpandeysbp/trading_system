@@ -40,6 +40,9 @@ import {
   useIndexZoom,
 } from '../charts/chartZoom'
 import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
+import { useChartAxisLayout } from '../charts/chartLayout'
+import { ChartCommentaryPanel } from '../charts/ChartCommentaryPanel'
+import { ChartChrome } from '../charts/chartChrome'
 import { StrategyDataSourceBar } from '../ui/StrategyDataSourceBar'
 import { HowToBox, CopyAllButton } from '../ui/CopyAllButton'
 import { VolumeSrSummaryCard, type VolumeSrSummary } from '../ui/VolumeSrSummaryCard'
@@ -126,6 +129,13 @@ function SeriesChart({
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const { showSr, toggleSr } = useAutoSrVisible(true)
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 0,
+    desktopRightMargin: 12,
+    desktopPriceAxisWidth: 52,
+    desktopSecondaryAxisWidth: 40,
+    bottomPad: 0,
+  })
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -217,41 +227,71 @@ function SeriesChart({
   return (
     <ChartExpandFrame fullscreen={expand.fullscreen} onClose={() => expand.setFullscreen(false)} title={title}>
     <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium text-white">{title}</p>
-          {subtitle && <p className="text-[11px] text-slate-500">{subtitle}</p>}
-        </div>
-        {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
-      </div>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <ChartStreamControls
-          streamOn={streamOn}
-          setStreamOn={setStreamOn}
-          barCount={barCount}
-          setBarCount={setBarCount}
-          canStream={Boolean(streamTicker)}
-          liveLtp={null}
-        />
-        <ChartExpandControls
-          size={expand.size}
-          setSize={expand.setSize}
-          fullscreen={expand.fullscreen}
-          setFullscreen={expand.setFullscreen}
-        />
-        <ChartZoomControls
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
-          onReset={resetZoom}
-          isZoomed={isZoomed}
-        />
-        {levels.length > 0 && (
-          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
-        )}
-        {copyStatus && (
-          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
-        )}
-      </div>
+      <ChartChrome
+        className="mb-2"
+        symbol={
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-white">{title}</p>
+              {subtitle && <p className="text-[11px] text-slate-500">{subtitle}</p>}
+            </div>
+            {unit && <span className="text-[10px] uppercase tracking-wide text-slate-500">{unit}</span>}
+          </div>
+        }
+        time={
+          <ChartStreamControls
+            streamOn={streamOn}
+            setStreamOn={setStreamOn}
+            barCount={barCount}
+            setBarCount={setBarCount}
+            canStream={Boolean(streamTicker)}
+            liveLtp={null}
+            className="!gap-1.5"
+          />
+        }
+        tools={
+          <>
+            <ChartExpandControls
+              size={expand.size}
+              setSize={expand.setSize}
+              fullscreen={expand.fullscreen}
+              setFullscreen={expand.setFullscreen}
+            />
+            <ChartZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={resetZoom}
+              isZoomed={isZoomed}
+            />
+            {levels.length > 0 && (
+              <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+            )}
+            {copyStatus && (
+              <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+            )}
+          </>
+        }
+        commentary={
+          <ChartCommentaryPanel
+            bars={windowPoints.map((p) => {
+              const close = Number(p.close ?? p.value ?? p.open)
+              const open = Number(p.open ?? close)
+              const high = Number(p.high ?? Math.max(open, close))
+              const low = Number(p.low ?? Math.min(open, close))
+              return {
+                time: String(p.t ?? p.label ?? p.time ?? ''),
+                open,
+                high,
+                low,
+                close,
+                volume: p.volume != null ? Number(p.volume) : null,
+              }
+            })}
+            ticker={title}
+            levels={visibleSrLevels}
+          />
+        }
+      />
       <div
         ref={chartRef}
         className={`relative w-full ${expand.fullscreen || expand.size !== 'normal' ? expand.heightClass : hasVolume ? 'h-60' : 'h-52'}`}
@@ -266,22 +306,31 @@ function SeriesChart({
           </button>
         )}
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={viewPoints} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+          <ComposedChart data={viewPoints} margin={axis.margin}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={28} />
+            <XAxis
+              dataKey="label"
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              minTickGap={axis.minTickGap}
+              height={axis.narrow ? 16 : 28}
+            />
             <YAxis
               yAxisId="price"
               domain={yDomain}
-              tick={{ fill: '#94a3b8', fontSize: 9 }}
-              width={52}
-              tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              width={axis.priceAxisWidth}
+              tickFormatter={(v) =>
+                axis.narrow ? axis.compactTick(Number(v)) : Number(v).toFixed(v >= 100 ? 0 : 2)
+              }
+              tickCount={axis.narrow ? 4 : undefined}
             />
             {hasVolume && (
               <YAxis
                 yAxisId="vol"
                 orientation="right"
-                tick={{ fill: '#64748b', fontSize: 8 }}
-                width={40}
+                hide={axis.narrow}
+                tick={{ fill: '#64748b', fontSize: axis.tickFontSize }}
+                width={axis.narrow ? 0 : axis.secondaryAxisWidth}
                 tickFormatter={(v) => {
                   const n = Number(v)
                   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`

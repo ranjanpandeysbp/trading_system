@@ -1549,6 +1549,18 @@ class ProTradeTickerChartRequest(BaseModel):
     use_ai: bool = False
 
 
+class ChartCommentaryRequest(BaseModel):
+    """Manual chart commentary from the bars currently on screen."""
+    bars: list[dict[str, Any]] = Field(default_factory=list)
+    ticker: str | None = None
+    asset_class: str | None = None
+    indicators: list[str] = Field(default_factory=list)
+    levels: list[dict[str, Any]] = Field(default_factory=list)
+    drawings: list[dict[str, Any]] = Field(default_factory=list)
+    timeframe: str | None = None
+    use_ai: bool = False
+
+
 class PredictionPatternAnalogueRequest(BaseModel):
     """Find historical windows shaped like the latest N bars (or a chart screenshot), then measure before/after."""
     tickers: list[str] = Field(default_factory=list)

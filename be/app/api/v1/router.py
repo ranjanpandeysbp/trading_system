@@ -120,6 +120,7 @@ from app.models.schemas import (
     ProTradeFlatRetestRequest,
     ProTradeBtstRequest,
     ProTradeTickerChartRequest,
+    ChartCommentaryRequest,
     DashboardTradingChatRequest,
     PlaceOrderRequest,
     LivePlaceOrderRequest,
@@ -5248,6 +5249,25 @@ async def pro_trade_ticker_chart(
         interval=payload.interval,
         indicators=payload.indicators,
         use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/chart/commentary")
+async def chart_commentary(
+    payload: ChartCommentaryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manual chart commentary from the bars currently shown (Python TA or optional AI)."""
+    return await ProTradeService(SettingsService(db)).chart_commentary(
+        bars=payload.bars,
+        ticker=payload.ticker,
+        asset_class=payload.asset_class,
+        indicators=payload.indicators,
+        levels=payload.levels,
+        drawings=payload.drawings,
+        timeframe=payload.timeframe,
+        use_ai=bool(payload.use_ai),
     )
 
 

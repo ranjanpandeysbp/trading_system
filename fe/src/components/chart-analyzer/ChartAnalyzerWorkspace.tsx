@@ -924,7 +924,9 @@ function RightPanelBody({
               <AskAIPanel
                 context={askContext}
                 section="chart-analyzer"
-                defaultQuestion="Analyze this chart like a pro — bias, key levels, invalidation, and next likely move."
+                title="Investigate with AI"
+                buttonLabel="Investigate with AI"
+                defaultQuestion="You are a price action & smart money expert looking at this chart. Should I take a trade now? If yes, LONG or SHORT with %SL, %TP, and %Confidence. If no, explain why to wait."
                 showPredictNextMove
               />
             ) : (

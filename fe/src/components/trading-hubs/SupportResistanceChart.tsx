@@ -14,7 +14,6 @@ import {
   ChartDrawingLayer,
   ChartDrawingToolbar,
   useChartDrawings,
-  type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import {
@@ -27,8 +26,9 @@ import {
   useIndexZoom,
 } from '../charts/chartZoom'
 import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
-
-const SR_PLOT_INSETS: PlotInsets = { top: 8, right: 16, bottom: 32, left: 68 }
+import { useChartAxisLayout } from '../charts/chartLayout'
+import { ChartCommentaryPanel } from '../charts/ChartCommentaryPanel'
+import { ChartChrome } from '../charts/chartChrome'
 
 export type SRChartBar = { time: string; open: number; high: number; low: number; close: number; volume?: number | null }
 export type SRTrendlinePoint = { time: string; price: number }
@@ -183,6 +183,12 @@ export function SupportResistanceChart({
   const indOverlays = useMemo(() => overlayKeysFor(indicators), [indicators])
   const showVolumeInd = indicators.includes('volume')
   const showRsiInd = indicators.includes('rsi')
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 4,
+    desktopRightMargin: 16,
+    desktopPriceAxisWidth: 64,
+    bottomPad: 4,
+  })
 
   const emaPeriods = Object.keys(emas).sort((a, b) => Number(a) - Number(b))
   // Merge each EMA series into the same row-per-timestamp shape the price
@@ -329,52 +335,104 @@ export function SupportResistanceChart({
       title={ticker ? String(ticker) : 'Chart'}
     >
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <ChartStyleIndicatorControls
-          chartType={style}
-          setChartType={setStyle}
-          selected={indicators}
-          toggle={toggleIndicator}
-        />
-        <ChartStreamControls
-          streamOn={streamOn}
-          setStreamOn={setStreamOn}
-          barCount={barCount}
-          setBarCount={setBarCount}
-          canStream={canStream}
-          liveLtp={liveLtp}
-        />
-        <ChartExpandControls
-          size={expand.size}
-          setSize={expand.setSize}
-          fullscreen={expand.fullscreen}
-          setFullscreen={expand.setFullscreen}
-        />
-        <ChartZoomControls
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
-          onReset={resetZoom}
-          isZoomed={isZoomed}
-        />
-        {(Boolean(supportZone) || Boolean(resistanceZone) || (levels?.length ?? 0) > 0) && (
-          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
-        )}
-        {copyStatus && (
-          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
-        )}
-      </div>
-      <ChartDrawingToolbar
-        tool={drawTool}
-        setTool={setDrawTool}
-        selectedId={drawSelectedId}
-        drawings={drawings}
-        patch={patchDrawing}
-        removeSelected={removeSelectedDrawing}
-        clear={clearDrawings}
+      <ChartChrome
+        symbol={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-white">{ticker ? String(ticker) : 'Chart'}</span>
+            {liveLtp != null && Number.isFinite(liveLtp) && (
+              <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-emerald-300 ring-1 ring-emerald-500/30">
+                LTP {Number(liveLtp).toLocaleString(undefined, { maximumFractionDigits: Number(liveLtp) >= 100 ? 2 : 4 })}
+              </span>
+            )}
+            {lastClose != null && (
+              <span className="text-[11px] text-slate-500">Close {fmtNum(lastClose)}</span>
+            )}
+          </div>
+        }
+        time={
+          <ChartStreamControls
+            streamOn={streamOn}
+            setStreamOn={setStreamOn}
+            barCount={barCount}
+            setBarCount={setBarCount}
+            canStream={canStream}
+            liveLtp={null}
+            className="!gap-1.5"
+          />
+        }
+        view={
+          <ChartStyleIndicatorControls
+            chartType={style}
+            setChartType={setStyle}
+            selected={indicators}
+            toggle={toggleIndicator}
+          />
+        }
+        tools={
+          <>
+            <ChartExpandControls
+              size={expand.size}
+              setSize={expand.setSize}
+              fullscreen={expand.fullscreen}
+              setFullscreen={expand.setFullscreen}
+            />
+            <ChartZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={resetZoom}
+              isZoomed={isZoomed}
+            />
+            {(Boolean(supportZone) || Boolean(resistanceZone) || (levels?.length ?? 0) > 0) && (
+              <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+            )}
+            {copyStatus && (
+              <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+            )}
+          </>
+        }
+        drawings={
+          <ChartDrawingToolbar
+            tool={drawTool}
+            setTool={setDrawTool}
+            selectedId={drawSelectedId}
+            drawings={drawings}
+            patch={patchDrawing}
+            removeSelected={removeSelectedDrawing}
+            clear={clearDrawings}
+          />
+        }
+        commentary={
+          <ChartCommentaryPanel
+            bars={liveChartData}
+            ticker={ticker}
+            assetClass={assetClass}
+            indicators={indicators}
+            levels={[
+              ...levels,
+              ...(supportZone
+                ? [
+                    { label: 'Support top', price: supportZone[0] },
+                    { label: 'Support bottom', price: supportZone[1] },
+                  ]
+                : []),
+              ...(resistanceZone
+                ? [
+                    { label: 'Resistance top', price: resistanceZone[0] },
+                    { label: 'Resistance bottom', price: resistanceZone[1] },
+                  ]
+                : []),
+              ...(fibonacci?.levels || []).map((l) => ({
+                label: `Fib ${l.ratio}`,
+                price: l.price,
+              })),
+            ]}
+            drawings={drawings as unknown as Array<Record<string, unknown>>}
+          />
+        }
       />
       <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
         <ChartDrawingLayer
-          insets={SR_PLOT_INSETS}
+          insets={axis.plotInsets}
           yMin={yMin}
           yMax={yMax}
           nSlots={Math.max(view.length, 1)}
@@ -397,19 +455,27 @@ export function SupportResistanceChart({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={view}
-            margin={{ top: 8, right: 16, left: 4, bottom: 4 }}
+            margin={axis.margin}
             onMouseDown={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseDown : undefined}
             onMouseMove={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseMove : undefined}
             onMouseUp={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseUp : undefined}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={40} allowDataOverflow />
+            <XAxis
+              dataKey="time"
+              tickFormatter={fmtTime}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              minTickGap={axis.minTickGap}
+              allowDataOverflow
+              height={axis.narrow ? 18 : 30}
+            />
             <YAxis
               domain={[yMin, yMax]}
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              width={64}
-              tickFormatter={fmtNum}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              width={axis.priceAxisWidth}
+              tickFormatter={axis.narrow ? axis.compactTick : fmtNum}
               allowDataOverflow
+              tickCount={axis.narrow ? 4 : undefined}
             />
             <Tooltip content={<PriceTooltip chartType={style} />} />
 
@@ -563,9 +629,14 @@ export function SupportResistanceChart({
         <div className="h-20 w-full">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Volume</p>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={viewChartData} margin={{ top: 0, right: 16, left: 4, bottom: 0 }}>
+            <BarChart data={viewChartData} margin={{ ...axis.margin, top: 0, bottom: 0 }}>
               <XAxis dataKey="time" hide allowDataOverflow />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} width={64} tickFormatter={(v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v))} />
+              <YAxis
+                tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                width={axis.narrow ? axis.oscAxisWidth : 64}
+                tickFormatter={axis.compactTick}
+                tickCount={axis.narrow ? 3 : undefined}
+              />
               <Tooltip
                 contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
                 labelStyle={{ color: '#e2e8f0' }}
@@ -581,9 +652,14 @@ export function SupportResistanceChart({
         <div className="h-24 w-full">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">RSI (14)</p>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={view} margin={{ top: 0, right: 16, left: 4, bottom: 0 }}>
+            <ComposedChart data={view} margin={{ ...axis.margin, top: 0, bottom: 0 }}>
               <XAxis dataKey="time" hide allowDataOverflow />
-              <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} width={64} />
+              <YAxis
+                domain={[0, 100]}
+                ticks={axis.narrow ? [30, 70] : [0, 30, 50, 70, 100]}
+                tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                width={axis.oscAxisWidth}
+              />
               <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="3 3" strokeOpacity={0.6} />
               <ReferenceLine y={30} stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.6} />
               <Tooltip

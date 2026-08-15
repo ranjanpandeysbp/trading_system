@@ -23,7 +23,6 @@ import {
   ChartDrawingLayer,
   ChartDrawingToolbar,
   useChartDrawings,
-  type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import {
@@ -36,8 +35,10 @@ import {
   useIndexZoom,
 } from '../charts/chartZoom'
 import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
-
-const VP_PLOT_INSETS: PlotInsets = { top: 8, right: 12, bottom: 32, left: 64 }
+import { useChartInvestigateAi } from '../charts/ChartInvestigateAi'
+import { ChartCommentaryPanel } from '../charts/ChartCommentaryPanel'
+import { ChartChrome } from '../charts/chartChrome'
+import { useChartAxisLayout } from '../charts/chartLayout'
 
 export type VpChartBar = {
   time: string
@@ -249,6 +250,21 @@ export function VolumeProfileChart({
     canStream,
   } = useLiveChartData(chartData, { ticker, assetClass, defaultBars: 100, defaultStreamOn: true })
 
+  const investigate = useChartInvestigateAi({
+    ticker,
+    assetClass,
+    bars: liveChartData,
+    levels,
+    section: ticker ? `chart/${String(ticker)}` : 'chart/investigate',
+  })
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 4,
+    desktopRightMargin: 12,
+    desktopPriceAxisWidth: 60,
+    desktopSecondaryAxisWidth: 0,
+    bottomPad: 4,
+  })
+
   const enriched = useMemo(() => enrichBarsWithIndicators(liveChartData), [liveChartData])
   const indOverlays = useMemo(() => overlayKeysFor(indicators), [indicators])
   const showVolume = indicators.includes('volume')
@@ -413,135 +429,170 @@ export function VolumeProfileChart({
       title={ticker ? String(ticker) : 'Chart'}
     >
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <ChartStyleIndicatorControls
-          chartType={chartType}
-          setChartType={setChartType}
-          selected={indicators}
-          toggle={toggleIndicator}
-        />
-        <ChartStreamControls
-          streamOn={streamOn}
-          setStreamOn={setStreamOn}
-          barCount={barCount}
-          setBarCount={setBarCount}
-          canStream={canStream}
-          liveLtp={liveLtp}
-        />
-        <ChartExpandControls
-          size={expand.size}
-          setSize={expand.setSize}
-          fullscreen={expand.fullscreen}
-          setFullscreen={expand.setFullscreen}
-        />
-        <ChartZoomControls
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
-          onReset={resetZoom}
-          isZoomed={isZoomed}
-        />
-        {levels.length > 0 && (
-          <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
-        )}
-        {copyStatus && (
-          <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
-        )}
-        {anyHideable && (
+      <ChartChrome
+        symbol={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-white">{ticker ? String(ticker) : 'Chart'}</span>
+            {liveLtp != null && Number.isFinite(liveLtp) && (
+              <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-emerald-300 ring-1 ring-emerald-500/30">
+                LTP {liveLtp.toLocaleString(undefined, { maximumFractionDigits: liveLtp >= 100 ? 2 : 4 })}
+              </span>
+            )}
+          </div>
+        }
+        time={
+          <ChartStreamControls
+            streamOn={streamOn}
+            setStreamOn={setStreamOn}
+            barCount={barCount}
+            setBarCount={setBarCount}
+            canStream={canStream}
+            liveLtp={null}
+            className="!gap-1.5"
+          />
+        }
+        view={
+          <ChartStyleIndicatorControls
+            chartType={chartType}
+            setChartType={setChartType}
+            selected={indicators}
+            toggle={toggleIndicator}
+          />
+        }
+        tools={
           <>
-            <button
-              type="button"
-              onClick={() => setHidden(new Set())}
-              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
-            >
-              Show all
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const all = new Set<string>()
-                waves.forEach((_, i) => all.add(`wave:${i}`))
-                levels.forEach((l) => all.add(`level:${l.label}`))
-                series.forEach((s) => all.add(`series:${s.key}`))
-                setHidden(all)
-              }}
-              className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
-            >
-              Hide all
-            </button>
+            <ChartExpandControls
+              size={expand.size}
+              setSize={expand.setSize}
+              fullscreen={expand.fullscreen}
+              setFullscreen={expand.setFullscreen}
+            />
+            <ChartZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={resetZoom}
+              isZoomed={isZoomed}
+            />
+            {levels.length > 0 && (
+              <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
+            )}
+            {investigate.ToolbarButton}
+            {copyStatus && (
+              <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+            )}
+            {anyHideable && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setHidden(new Set())}
+                  className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+                >
+                  Show all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const all = new Set<string>()
+                    waves.forEach((_, i) => all.add(`wave:${i}`))
+                    levels.forEach((l) => all.add(`level:${l.label}`))
+                    series.forEach((s) => all.add(`series:${s.key}`))
+                    setHidden(all)
+                  }}
+                  className="rounded-full border border-slate-700/80 bg-slate-800/40 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+                >
+                  Hide all
+                </button>
+              </>
+            )}
           </>
-        )}
-        <div className="ml-auto flex flex-wrap gap-2 text-[11px]">
-          {series.map((s) => {
-            const key = `series:${s.key}`
-            const isHidden = hidden.has(key)
-            return (
-              <button
-                type="button"
-                key={key}
-                onClick={() => toggleHidden(key)}
-                title="Click to toggle this series"
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
-                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
-                }`}
-              >
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : s.color }} />
-                {s.label}
-              </button>
-            )
-          })}
-          {waves.map((w, i) => {
-            const key = `wave:${i}`
-            const isHidden = hidden.has(key)
-            return (
-              <button
-                type="button"
-                key={key}
-                onClick={() => toggleHidden(key)}
-                title="Click to toggle this wave line"
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
-                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
-                }`}
-              >
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : w.color }} />
-                Wave {w.label}
-              </button>
-            )
-          })}
-          {levels.map((l) => {
-            const key = `level:${l.label}`
-            const isHidden = hidden.has(key)
-            return (
-              <button
-                type="button"
-                key={key}
-                onClick={() => toggleHidden(key)}
-                title="Click to toggle this line"
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
-                  isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
-                }`}
-              >
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : l.color }} />
-                {l.label} {fmtNum(l.price)}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <ChartDrawingToolbar
-        tool={drawTool}
-        setTool={setDrawTool}
-        selectedId={drawSelectedId}
-        drawings={drawings}
-        patch={patchDrawing}
-        removeSelected={removeSelectedDrawing}
-        clear={clearDrawings}
+        }
+        overlays={
+          anyHideable ? (
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              {series.map((s) => {
+                const key = `series:${s.key}`
+                const isHidden = hidden.has(key)
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => toggleHidden(key)}
+                    title="Click to toggle this series"
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                      isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                    }`}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : s.color }} />
+                    {s.label}
+                  </button>
+                )
+              })}
+              {waves.map((w, i) => {
+                const key = `wave:${i}`
+                const isHidden = hidden.has(key)
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => toggleHidden(key)}
+                    title="Click to toggle this wave line"
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                      isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                    }`}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : w.color }} />
+                    Wave {w.label}
+                  </button>
+                )
+              })}
+              {levels.map((l) => {
+                const key = `level:${l.label}`
+                const isHidden = hidden.has(key)
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => toggleHidden(key)}
+                    title="Click to toggle this line"
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${
+                      isHidden ? 'border-slate-800 text-slate-600 line-through' : 'border-slate-700/70 text-slate-400'
+                    }`}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: isHidden ? '#475569' : l.color }} />
+                    {l.label} {fmtNum(l.price)}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null
+        }
+        drawings={
+          <ChartDrawingToolbar
+            tool={drawTool}
+            setTool={setDrawTool}
+            selectedId={drawSelectedId}
+            drawings={drawings}
+            patch={patchDrawing}
+            removeSelected={removeSelectedDrawing}
+            clear={clearDrawings}
+          />
+        }
+        commentary={
+          <ChartCommentaryPanel
+            bars={liveChartData}
+            ticker={ticker}
+            assetClass={assetClass}
+            indicators={indicators}
+            levels={levels}
+            drawings={drawings as unknown as Array<Record<string, unknown>>}
+          />
+        }
       />
 
       <div className={`grid gap-3 ${expand.fullscreen ? 'lg:grid-cols-[1fr_200px]' : 'lg:grid-cols-[1fr_160px]'}`}>
         <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
           <ChartDrawingLayer
-            insets={VP_PLOT_INSETS}
+            insets={axis.plotInsets}
             yMin={yMin}
             yMax={yMax}
             nSlots={Math.max(view.length, 1)}
@@ -564,19 +615,27 @@ export function VolumeProfileChart({
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={view}
-              margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+              margin={axis.margin}
               onMouseDown={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseDown : undefined}
               onMouseMove={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseMove : undefined}
               onMouseUp={drawTool === 'select' && !drawSelectedId && !isZoomed ? handleMouseUp : undefined}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="time" tickFormatter={fmtTime} tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={36} allowDataOverflow />
+              <XAxis
+                dataKey="time"
+                tickFormatter={fmtTime}
+                tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                minTickGap={axis.minTickGap}
+                allowDataOverflow
+                height={axis.narrow ? 18 : 30}
+              />
               <YAxis
                 domain={[yMin, yMax]}
-                tick={{ fill: '#94a3b8', fontSize: 10 }}
-                width={60}
-                tickFormatter={fmtNum}
+                tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                width={axis.priceAxisWidth}
+                tickFormatter={axis.narrow ? axis.compactTick : fmtNum}
                 allowDataOverflow
+                tickCount={axis.narrow ? 4 : undefined}
               />
               <Tooltip content={<PriceTooltip chartType={chartType} />} />
               {visibleLevels.map((l) => (
@@ -674,16 +733,22 @@ export function VolumeProfileChart({
               <BarChart
                 data={histSorted}
                 layout="vertical"
-                margin={{ top: 4, right: 8, left: 4, bottom: 4 }}
+                margin={{
+                  top: 4,
+                  right: axis.narrow ? 2 : 8,
+                  left: 0,
+                  bottom: 4,
+                }}
               >
                 <XAxis type="number" hide />
                 <YAxis
                   type="number"
                   dataKey="price"
                   domain={[yMin, yMax]}
-                  tick={{ fill: '#64748b', fontSize: 9 }}
-                  width={44}
-                  tickFormatter={fmtNum}
+                  tick={{ fill: '#64748b', fontSize: axis.tickFontSize }}
+                  width={axis.narrow ? 28 : 44}
+                  tickFormatter={axis.narrow ? axis.compactTick : fmtNum}
+                  tickCount={axis.narrow ? 4 : undefined}
                 />
                 <Tooltip
                   formatter={(v: any) => [fmtNum(Number(v)), 'Volume']}
@@ -702,14 +767,13 @@ export function VolumeProfileChart({
             <div className="h-20 w-full">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Volume</p>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={view} margin={{ top: 0, right: 12, left: 4, bottom: 0 }}>
+                <BarChart data={view} margin={{ ...axis.margin, top: 0, bottom: 0 }}>
                   <XAxis dataKey="time" hide allowDataOverflow />
                   <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 9 }}
-                    width={48}
-                    tickFormatter={(v: number) =>
-                      v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v)
-                    }
+                    tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                    width={axis.narrow ? axis.oscAxisWidth : 48}
+                    tickFormatter={axis.compactTick}
+                    tickCount={axis.narrow ? 3 : undefined}
                   />
                   <Bar dataKey="volume" fill="#334155" opacity={0.7} isAnimationActive={false} />
                 </BarChart>
@@ -720,9 +784,14 @@ export function VolumeProfileChart({
             <div className="h-24 w-full">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">RSI (14)</p>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={view} margin={{ top: 0, right: 12, left: 4, bottom: 0 }}>
+                <ComposedChart data={view} margin={{ ...axis.margin, top: 0, bottom: 0 }}>
                   <XAxis dataKey="time" hide allowDataOverflow />
-                  <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} width={36} />
+                  <YAxis
+                    domain={[0, 100]}
+                    ticks={axis.narrow ? [30, 70] : [0, 30, 50, 70, 100]}
+                    tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                    width={axis.oscAxisWidth}
+                  />
                   <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="3 3" strokeOpacity={0.6} />
                   <ReferenceLine y={30} stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.6} />
                   <Line type="monotone" dataKey="rsi" stroke="#c084fc" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
@@ -740,6 +809,7 @@ export function VolumeProfileChart({
           💡 <strong className="font-medium text-slate-300">How to read this chart:</strong> {readingGuide}
         </p>
       )}
+      {investigate.Panel}
     </div>
     <ChartContextMenu
       menu={ctxMenu.menu}
@@ -749,6 +819,7 @@ export function VolumeProfileChart({
       onFullscreen={expand.toggleFullscreen}
       fullscreen={expand.fullscreen}
       onResetChart={handleResetChart}
+      onInvestigateAi={investigate.openInvestigate}
     />
     </ChartExpandFrame>
   )

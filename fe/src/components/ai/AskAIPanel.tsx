@@ -63,7 +63,7 @@ export function AskAIPanel({
       askAI({
         context,
         question:
-          'As an expert institutional pro trader, predict the next possible move with % confidence using ONLY this result data.',
+          'As a price action & smart money expert, use ONLY this chart/result data. Say TAKE or NO TRADE. If TAKE, say LONG or SHORT with %SL, %TP, and %Confidence.',
         section,
         mode: 'next_move',
       }),
@@ -91,10 +91,10 @@ export function AskAIPanel({
       </div>
 
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Uses your saved AI provider from Manage → AI Settings. Reads the scan numbers below and returns a
-        plain-English verdict (BUY / SELL / AVOID) with levels and risks. Use{' '}
-        <span className="text-slate-400">Predict Next Move</span> for an institutional desk-style directional
-        call with explicit % confidence.
+        Uses your saved AI provider from Manage → AI Settings. Acts as a{' '}
+        <span className="text-slate-400">price action &amp; smart money</span> coach: TAKE or NO TRADE,
+        LONG/SHORT if yes, with %SL · %TP · %Confidence. Use{' '}
+        <span className="text-slate-400">Predict Next Move</span> for the same desk-style call.
       </p>
 
       <FormField label="Optional question (or leave the default)">

@@ -2546,6 +2546,52 @@ export const runProTradeTickerChart = (payload: {
   use_ai?: boolean
 }) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export type ChartCommentaryBar = {
+  time?: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume?: number | null
+}
+
+export type ChartCommentaryResponse = {
+  ticker?: string
+  source?: 'python_ta' | 'ai' | string
+  now?: string
+  next?: string
+  factors?: string[]
+  factor_notes?: string[]
+  bar_count?: number
+  last_close?: number | null
+  change_pct?: number | null
+  trade_setup?: {
+    action?: string
+    direction?: string
+    confidence_pct?: number | null
+    sl_pct?: number | null
+    tp_pct?: number | null
+    take_trade?: boolean
+    plain_english?: string | null
+    reason?: string | null
+    grade?: string | null
+  }
+  use_ai?: boolean
+  ai_commentary?: { applied?: boolean; reason?: string; provider?: string; model?: string }
+  error?: string
+}
+
+export const runChartCommentary = (payload: {
+  bars: ChartCommentaryBar[]
+  ticker?: string | null
+  asset_class?: string | null
+  indicators?: string[]
+  levels?: Array<{ label?: string; price?: number }>
+  drawings?: Array<Record<string, unknown>>
+  timeframe?: string | null
+  use_ai?: boolean
+}) => api.post('/chart/commentary', payload, { timeout: MP_TIMEOUT }).then((r) => r.data as ChartCommentaryResponse)
+
 export const startBtstJob = (payload: {
   tickers: string[]
   asset_class?: string

@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { Copy, HandGrab, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { Bot, Copy, HandGrab, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { Chip } from '../ui/Chip'
 
 const MIN_BARS = 12
@@ -383,6 +383,7 @@ export function ChartContextMenu({
   onFullscreen,
   fullscreen,
   onResetChart,
+  onInvestigateAi,
 }: {
   menu: MenuState
   onClose: () => void
@@ -391,12 +392,13 @@ export function ChartContextMenu({
   onFullscreen: () => void
   fullscreen: boolean
   onResetChart?: () => void
+  onInvestigateAi?: () => void
 }) {
   if (!menu) return null
   const style: CSSProperties = {
     position: 'fixed',
     left: Math.min(menu.x, window.innerWidth - 220),
-    top: Math.min(menu.y, window.innerHeight - 220),
+    top: Math.min(menu.y, window.innerHeight - 260),
     zIndex: 300,
   }
   const Item = ({
@@ -432,6 +434,13 @@ export function ChartContextMenu({
       <p className="border-b border-slate-800 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
         Chart
       </p>
+      {onInvestigateAi && (
+        <Item
+          label="Investigate with AI"
+          icon={<Bot size={13} className="text-violet-400" />}
+          onClick={onInvestigateAi}
+        />
+      )}
       <Item label="Copy chart" icon={<Copy size={13} className="text-slate-400" />} onClick={onCopy} />
       <Item label="Reset zoom" icon={<RotateCcw size={13} className="text-slate-400" />} onClick={onResetZoom} />
       <Item

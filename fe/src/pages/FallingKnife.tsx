@@ -561,6 +561,16 @@ export default function FallingKnife() {
   const session = ((data?.session as Row | undefined) ?? (sessionQ.data as Row | undefined)?.session) as Row | undefined
   const liveRows = showMatchedOnly ? knives : results
   const fromTopRows = showMatchedOnly ? knives : results
+  const turningPositiveRows = useMemo(() => {
+    const rows = (
+      (data?.turning_positives as Row[] | undefined)
+      ?? results.filter((r) => r.turning_positive || r.becoming_positive)
+    ).slice()
+    rows.sort(
+      (a, b) => Number(b.turning_score || b.match_score || 0) - Number(a.turning_score || a.match_score || 0),
+    )
+    return rows
+  }, [data, results])
   const runupRows = showMatchedOnly
     ? ((data?.runups as Row[] | undefined) ?? knives.filter((r) => r.match_runup))
     : results
@@ -568,14 +578,18 @@ export default function FallingKnife() {
     ? ((data?.descents as Row[] | undefined) ?? knives.filter((r) => r.match_descent))
     : results
   const selectedLiveRow = useMemo(() => {
-    const pool = isRunupDescent ? knives : liveRows
+    const pool = isRunupDescent
+      ? knives
+      : [...turningPositiveRows, ...liveRows].filter(
+          (r, i, arr) => arr.findIndex((x) => String(x.ticker) === String(r.ticker)) === i,
+        )
     if (!pool.length) return null
     if (selectedLiveTicker) {
       const hit = pool.find((r) => String(r.ticker) === selectedLiveTicker)
       if (hit) return hit
     }
     return pool[0] ?? null
-  }, [liveRows, knives, selectedLiveTicker, isRunupDescent])
+  }, [liveRows, knives, turningPositiveRows, selectedLiveTicker, isRunupDescent])
   const selectedLiveBars = useMemo(
     () => toVpBars(selectedLiveRow?.chart_data),
     [selectedLiveRow],
@@ -1044,7 +1058,15 @@ export default function FallingKnife() {
             </Card>
           )}
 
-          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+          {askContext && (
+            <AskAIPanel
+              context={askContext}
+              section="prediction/falling-knife"
+              title="Investigate with AI"
+              buttonLabel="Investigate with AI"
+              defaultQuestion="You are a price action & smart money expert. Using this Falling Knife scan, say TAKE or NO TRADE. If TAKE, LONG or SHORT with %SL, %TP, and %Confidence."
+            />
+          )}
         </>
       )}
 
@@ -1084,7 +1106,15 @@ export default function FallingKnife() {
             )}
           </div>
 
-          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+          {askContext && (
+            <AskAIPanel
+              context={askContext}
+              section="prediction/falling-knife"
+              title="Investigate with AI"
+              buttonLabel="Investigate with AI"
+              defaultQuestion="You are a price action & smart money expert. Using this Falling Knife scan, say TAKE or NO TRADE. If TAKE, LONG or SHORT with %SL, %TP, and %Confidence."
+            />
+          )}
         </>
       )}
 
@@ -1123,7 +1153,15 @@ export default function FallingKnife() {
             )}
           </div>
 
-          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+          {askContext && (
+            <AskAIPanel
+              context={askContext}
+              section="prediction/falling-knife"
+              title="Investigate with AI"
+              buttonLabel="Investigate with AI"
+              defaultQuestion="You are a price action & smart money expert. Using this Falling Knife scan, say TAKE or NO TRADE. If TAKE, LONG or SHORT with %SL, %TP, and %Confidence."
+            />
+          )}
         </>
       )}
 
@@ -1143,6 +1181,14 @@ export default function FallingKnife() {
               <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
                 {String((data.summary as Row | undefined)?.matched_rises ?? data.matched_rises ?? 0)} rises
               </span>
+              <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-sky-200">
+                {String(
+                  (data.summary as Row | undefined)?.matched_turning_positive
+                    ?? data.matched_turning_positive
+                    ?? turningPositiveRows.length,
+                )}{' '}
+                turning +ve
+              </span>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-slate-400">
                 {String((data.summary as Row | undefined)?.matched ?? knives.length)} matched ·{' '}
                 {String((data.summary as Row | undefined)?.scanned ?? results.length)} scanned
@@ -1151,6 +1197,64 @@ export default function FallingKnife() {
                 {String(data.interval ?? '')} bars · {String((data.session as Row | undefined)?.label ?? '')}
               </span>
             </div>
+          </Card>
+
+          <Card className="mb-4">
+            <h3 className="mb-1 text-sm font-semibold text-sky-300">Turning positive (negative → green)</h3>
+            <p className="mb-3 text-xs text-slate-500">
+              Was red / off the highs earlier in the window, now net green with recent upward momentum.
+            </p>
+            {!turningPositiveRows.length ? (
+              <p className="text-sm text-slate-500">No tickers flipping from negative to positive in this window.</p>
+            ) : (
+              <DataTable>
+                <thead>
+                  <tr>
+                    <Th>Ticker</Th>
+                    <Th>Net %</Th>
+                    <Th>Recent %</Th>
+                    <Th>Off high</Th>
+                    <Th>Off low</Th>
+                    <Th>Conf</Th>
+                    <Th>SL</Th>
+                    <Th>TP</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {turningPositiveRows.map((r, i) => {
+                    const setup = tradeSetupFromResult(r)
+                    return (
+                      <tr
+                        key={`tp-${String(r.ticker)}-${i}`}
+                        className="cursor-pointer hover:bg-slate-800/40"
+                        onClick={() => setSelectedLiveTicker(String(r.ticker))}
+                      >
+                        <Td className="font-medium text-slate-200">{tickerDisplayLabel(r)}</Td>
+                        <Td>
+                          <span className={changeClass(r.change_pct)}>{fmtSignedPct(r.change_pct)}</span>
+                        </Td>
+                        <Td>
+                          <span className={changeClass(r.recent_change_pct)}>{fmtSignedPct(r.recent_change_pct)}</span>
+                        </Td>
+                        <Td className="text-rose-300">
+                          {r.fall_from_high_pct != null ? `−${fmtNum(r.fall_from_high_pct)}%` : '—'}
+                        </Td>
+                        <Td className="text-emerald-300">
+                          {r.rise_from_low_pct != null ? `+${fmtNum(r.rise_from_low_pct)}%` : '—'}
+                        </Td>
+                        <Td>{setup?.confidence_pct != null ? `${fmtNum(setup.confidence_pct, 0)}%` : '—'}</Td>
+                        <Td className="text-rose-300">
+                          {setup?.sl_pct != null ? `${fmtNum(setup.sl_pct, 1)}%` : '—'}
+                        </Td>
+                        <Td className="text-emerald-300">
+                          {setup?.tp_pct != null ? `${fmtNum(setup.tp_pct, 1)}%` : '—'}
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </DataTable>
+            )}
           </Card>
 
           <Card className="mb-4 overflow-x-auto">
@@ -1199,6 +1303,9 @@ export default function FallingKnife() {
                       } else if (matchFall && matchRise) {
                         statusLabel = 'Fall + Rise'
                         statusClass = 'text-xs text-amber-300'
+                      } else if (r.turning_positive || r.becoming_positive) {
+                        statusLabel = 'Turning +ve'
+                        statusClass = 'text-xs text-sky-300'
                       } else if (matchFall) {
                         statusLabel = 'Fall'
                         statusClass = 'text-xs text-rose-300'
@@ -1298,7 +1405,15 @@ export default function FallingKnife() {
             )}
           </Card>
 
-          {askContext && <AskAIPanel context={askContext} section="prediction/falling-knife" />}
+          {askContext && (
+            <AskAIPanel
+              context={askContext}
+              section="prediction/falling-knife"
+              title="Investigate with AI"
+              buttonLabel="Investigate with AI"
+              defaultQuestion="You are a price action & smart money expert. Using this Falling Knife scan, say TAKE or NO TRADE. If TAKE, LONG or SHORT with %SL, %TP, and %Confidence."
+            />
+          )}
         </>
       )}
     </div>

@@ -17,7 +17,6 @@ import {
   ChartDrawingLayer,
   ChartDrawingToolbar,
   useChartDrawings,
-  type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import {
@@ -29,6 +28,10 @@ import {
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { useChartAxisLayout } from '../charts/chartLayout'
+import { useChartInvestigateAi } from '../charts/ChartInvestigateAi'
+import { ChartCommentaryPanel } from '../charts/ChartCommentaryPanel'
+import { ChartChrome } from '../charts/chartChrome'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
 import { Input, Select } from '../ui/Form'
@@ -97,16 +100,6 @@ const INTERVALS = [
   { value: '1h', label: '1h' },
   { value: '1d', label: '1d' },
 ] as const
-
-/** Must match ComposedChart margin + YAxis widths used below */
-const PLOT_MARGIN = { top: 12, right: 72, left: 8, bottom: 28 }
-const PRICE_AXIS_WIDTH = 56
-const PAPER_PLOT_INSETS: PlotInsets = {
-  top: PLOT_MARGIN.top,
-  right: PLOT_MARGIN.right,
-  bottom: PLOT_MARGIN.bottom,
-  left: PLOT_MARGIN.left + PRICE_AXIS_WIDTH,
-}
 
 function fmtNum(v: unknown, digits = 2): string {
   if (v == null || v === '') return 'â€”'
@@ -341,6 +334,22 @@ export function PaperTradingChart({
 
   const realBarCount = Math.max(0, chartRows.length - RIGHT_PAD_BARS)
 
+  const investigate = useChartInvestigateAi({
+    ticker,
+    assetClass,
+    bars: chartRows
+      .filter((r) => !r.__pad)
+      .map((r) => ({
+        time: String(r.time ?? ''),
+        open: Number(r.open),
+        high: Number(r.high),
+        low: Number(r.low),
+        close: Number(r.close),
+        volume: r.volume != null ? Number(r.volume) : null,
+      })),
+    section: `paper-chart/${ticker}`,
+  })
+
   const overlayKeys = useMemo(() => {
     const keys: { key: string; color: string; label: string; dash?: string }[] = []
     for (const id of ['ema_5', 'ema_9', 'ema_20', 'ema_50', 'ema_200'] as IndicatorId[]) {
@@ -363,6 +372,16 @@ export function PaperTradingChart({
 
   const showVolume = selected.includes('volume')
   const showRsi = selected.includes('rsi')
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 8,
+    desktopRightMargin: showVolume ? 28 : 12,
+    desktopPriceAxisWidth: 56,
+    desktopSecondaryAxisWidth: 44,
+    bottomPad: 8,
+  })
+  const plotInsets = showVolume && !axis.narrow
+    ? axis.plotInsetsWithRightAxis
+    : axis.plotInsets
   const hasVolumeData = useMemo(
     () => chartRows.some((p) => !p.__pad && p.volume != null && Number.isFinite(Number(p.volume)) && Number(p.volume) > 0),
     [chartRows],
@@ -452,106 +471,140 @@ export function PaperTradingChart({
       title={ticker}
     >
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold text-white">{ticker}</h3>
-          {ltp != null && (
-            <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-sm font-medium text-emerald-300">
-              LTP {fmtNum(ltp)}
-              {streamOn && (
-                <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-emerald-400/80">
-                  <Wifi size={10} /> live
-                </span>
-              )}
+      <ChartChrome
+        symbol={
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-semibold text-white">{ticker}</h3>
+            {ltp != null && (
+              <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-sm font-medium text-emerald-300">
+                LTP {fmtNum(ltp)}
+                {streamOn && (
+                  <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-emerald-400/80">
+                    <Wifi size={10} /> live
+                  </span>
+                )}
+              </span>
+            )}
+            {data?.change_pct != null && (
+              <span className={`text-xs ${Number(data.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {Number(data.change_pct) >= 0 ? '+' : ''}
+                {fmtNum(data.change_pct, 2)}%
+              </span>
+            )}
+            <span className="text-[11px] text-slate-500">
+              {realBarCount} / {fullRows.length || 0} bars
             </span>
-          )}
-          {data?.change_pct != null && (
-            <span className={`text-xs ${Number(data.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {Number(data.change_pct) >= 0 ? '+' : ''}
-              {fmtNum(data.change_pct, 2)}%
-            </span>
-          )}
-          <span className="text-[11px] text-slate-500">
-            showing {realBarCount} / {fullRows.length || 0} bars
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
-            {streamOn ? 'Streaming on' : 'Streaming off'}
-          </Chip>
-          <ChartExpandControls
-            size={expand.size}
-            setSize={expand.setSize}
-            fullscreen={expand.fullscreen}
-            setFullscreen={expand.setFullscreen}
-          />
-          <ChartZoomControls
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onReset={resetZoom}
-            isZoomed={isZoomed}
-          />
-          {copyStatus && (
-            <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
-          )}
-          <label className="flex items-center gap-1.5 text-xs text-slate-400">
-            Bars
-            <Select
-              value={String(barCount)}
-              onChange={(e) => setBarCount(Number(e.target.value) || 80)}
-              className="!w-auto !py-1.5 text-xs"
-            >
-              {BAR_COUNT_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </Select>
-          </label>
-          <Select
-            value={interval}
-            onChange={(e) => setIntervalTf(e.target.value)}
-            className="!w-auto !py-1.5 text-xs"
-          >
-            {INTERVALS.map((iv) => (
-              <option key={iv.value} value={iv.value}>{iv.label}</option>
-            ))}
-          </Select>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>Candles</Chip>
-        <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>Line</Chip>
-        {INDICATOR_OPTIONS.map((opt) => (
-          <Chip key={opt.id} selected={selected.includes(opt.id)} onClick={() => toggleIndicator(opt.id)}>
-            {opt.label}
-          </Chip>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-800/60 bg-slate-950/40 p-2.5">
-        <ChartDrawingToolbar
-          tool={drawTool}
-          setTool={setDrawTool}
-          selectedId={drawSelectedId}
-          drawings={drawings}
-          patch={patchDrawing}
-          removeSelected={removeSelectedDrawing}
-          clear={clearDrawings}
-        />
-        <div className="flex items-end gap-1.5">
-          <div>
-            <label className="mb-1 block text-[11px] text-slate-500">S/R price</label>
-            <Input
-              type="number"
-              className="!w-28 !py-1.5"
-              value={manualSr}
-              onChange={(e) => setManualSr(e.target.value === '' ? '' : parseFloat(e.target.value))}
-              placeholder="Price"
-            />
           </div>
-          <Button size="sm" variant="secondary" onClick={addManualSr}>Add</Button>
-        </div>
-      </div>
+        }
+        time={
+          <>
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+              TF
+              <Select
+                value={interval}
+                onChange={(e) => setIntervalTf(e.target.value)}
+                className="!w-auto !py-1.5 text-xs"
+              >
+                {INTERVALS.map((iv) => (
+                  <option key={iv.value} value={iv.value}>{iv.label}</option>
+                ))}
+              </Select>
+            </label>
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+              Bars
+              <Select
+                value={String(barCount)}
+                onChange={(e) => setBarCount(Number(e.target.value) || 80)}
+                className="!w-auto !py-1.5 text-xs"
+              >
+                {BAR_COUNT_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </Select>
+            </label>
+            <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
+              {streamOn ? 'Streaming on' : 'Streaming off'}
+            </Chip>
+          </>
+        }
+        view={
+          <>
+            <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>Candles</Chip>
+            <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>Line</Chip>
+            <span className="mx-0.5 hidden h-4 w-px bg-slate-700/80 sm:inline-block" />
+            {INDICATOR_OPTIONS.map((opt) => (
+              <Chip key={opt.id} selected={selected.includes(opt.id)} onClick={() => toggleIndicator(opt.id)}>
+                {opt.label}
+              </Chip>
+            ))}
+          </>
+        }
+        tools={
+          <>
+            <ChartExpandControls
+              size={expand.size}
+              setSize={expand.setSize}
+              fullscreen={expand.fullscreen}
+              setFullscreen={expand.setFullscreen}
+            />
+            <ChartZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={resetZoom}
+              isZoomed={isZoomed}
+            />
+            {investigate.ToolbarButton}
+            {copyStatus && (
+              <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
+            )}
+          </>
+        }
+        drawings={
+          <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-800/60 bg-slate-950/40 p-2.5">
+            <ChartDrawingToolbar
+              tool={drawTool}
+              setTool={setDrawTool}
+              selectedId={drawSelectedId}
+              drawings={drawings}
+              patch={patchDrawing}
+              removeSelected={removeSelectedDrawing}
+              clear={clearDrawings}
+            />
+            <div className="flex items-end gap-1.5">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-500">S/R price</label>
+                <Input
+                  type="number"
+                  className="!w-28 !py-1.5"
+                  value={manualSr}
+                  onChange={(e) => setManualSr(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  placeholder="Price"
+                />
+              </div>
+              <Button size="sm" variant="secondary" onClick={addManualSr}>Add</Button>
+            </div>
+          </div>
+        }
+        commentary={
+          <ChartCommentaryPanel
+            bars={chartRows
+              .filter((r) => !r.__pad)
+              .map((r) => ({
+                time: String(r.time ?? ''),
+                open: Number(r.open),
+                high: Number(r.high),
+                low: Number(r.low),
+                close: Number(r.close),
+                volume: r.volume != null ? Number(r.volume) : null,
+              }))}
+            ticker={ticker}
+            assetClass={assetClass}
+            indicators={selected}
+            drawings={drawings as unknown as Array<Record<string, unknown>>}
+            timeframe={interval}
+          />
+        }
+      />
 
       {error && <Alert type="error">{error}</Alert>}
       {chartQuery.isLoading && !data && <Loading message="Loading chart…" />}
@@ -561,7 +614,7 @@ export function PaperTradingChart({
           <div ref={chartRef} className={`relative w-full select-none ${expand.heightClass}`}>
             {yDomainNums && (
               <ChartDrawingLayer
-                insets={PAPER_PLOT_INSETS}
+                insets={plotInsets}
                 yMin={yDomainNums[0]}
                 yMax={yDomainNums[1]}
                 nSlots={chartRows.length}
@@ -586,27 +639,38 @@ export function PaperTradingChart({
               <ComposedChart
                 data={chartRows}
                 margin={{
-                  top: PLOT_MARGIN.top,
-                  right: PLOT_MARGIN.right,
-                  left: PLOT_MARGIN.left,
-                  bottom: PLOT_MARGIN.bottom,
+                  top: axis.margin.top + 4,
+                  right: showVolume && !axis.narrow
+                    ? axis.margin.right + axis.secondaryAxisWidth
+                    : axis.margin.right,
+                  left: axis.margin.left,
+                  bottom: axis.margin.bottom,
                 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={28} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                  minTickGap={axis.minTickGap}
+                  height={axis.narrow ? 16 : 28}
+                />
                 <YAxis
                   yAxisId="price"
                   domain={yDomain}
-                  tick={{ fill: '#94a3b8', fontSize: 10 }}
-                  width={PRICE_AXIS_WIDTH}
-                  tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
+                  tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+                  width={axis.priceAxisWidth}
+                  tickFormatter={(v) =>
+                    axis.narrow ? axis.compactTick(Number(v)) : Number(v).toFixed(v >= 100 ? 0 : 2)
+                  }
+                  tickCount={axis.narrow ? 4 : undefined}
                 />
                 {showVolume && hasVolumeData && (
                   <YAxis
                     yAxisId="vol"
                     orientation="right"
-                    tick={{ fill: '#64748b', fontSize: 9 }}
-                    width={44}
+                    hide={axis.narrow}
+                    tick={{ fill: '#64748b', fontSize: axis.tickFontSize }}
+                    width={axis.narrow ? 0 : axis.secondaryAxisWidth}
                     tickFormatter={(v) => {
                       const n = Number(v)
                       if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
@@ -693,10 +757,10 @@ export function PaperTradingChart({
               <p className="mb-2 text-xs font-medium text-slate-300">RSI (14)</p>
               <div className="h-28 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartRows} margin={{ top: 8, right: 72, left: 8, bottom: 0 }}>
+                  <ComposedChart data={chartRows} margin={{ ...axis.margin, top: 4, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={40} />
-                    <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} width={36} />
+                    <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }} minTickGap={axis.minTickGap} height={axis.narrow ? 14 : 24} />
+                    <YAxis domain={[0, 100]} ticks={axis.narrow ? [30, 70] : [0, 30, 50, 70, 100]} tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }} width={axis.oscAxisWidth} />
                     <ReferenceLine y={70} stroke="#f87171" strokeDasharray="4 3" />
                     <ReferenceLine y={30} stroke="#34d399" strokeDasharray="4 3" />
                     <Line type="monotone" dataKey="rsi" stroke="#c084fc" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
@@ -711,6 +775,7 @@ export function PaperTradingChart({
       {!chartQuery.isLoading && chartRows.length === 0 && !error && (
         <p className="py-6 text-center text-sm text-slate-500">No bars available for this ticker / interval</p>
       )}
+      {investigate.Panel}
     </div>
     <ChartContextMenu
       menu={ctxMenu.menu}
@@ -720,6 +785,7 @@ export function PaperTradingChart({
       onFullscreen={expand.toggleFullscreen}
       fullscreen={expand.fullscreen}
       onResetChart={handleResetChart}
+      onInvestigateAi={investigate.openInvestigate}
     />
     </ChartExpandFrame>
   )

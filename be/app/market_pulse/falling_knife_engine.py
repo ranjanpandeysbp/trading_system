@@ -245,10 +245,12 @@ def _live_trade_setup(
     # Prefer the larger excursion when both matched.
     if match_kind == "both":
         side = "fall" if fall_from_high >= rise_from_low else "rise"
+    elif match_kind == "turning_positive":
+        side = "fall"  # recovery long after being negative
     else:
         side = match_kind
 
-    if side == "fall":
+    if side == "fall" or match_kind == "turning_positive":
         direction = "LONG"
         stop = low
         # Target mid-range toward the window high (partial bounce).
@@ -256,7 +258,11 @@ def _live_trade_setup(
         target = max(mid, entry + (atr_v or (entry * 0.01)) * 1.5)
         if target <= entry:
             target = entry + abs(entry - stop) * 2.0
-        base = f"Fall ≥{thr:g}% off high — mean-reversion long (knife catch)"
+        base = (
+            "Turning positive from negative — recovery long"
+            if match_kind == "turning_positive"
+            else f"Fall ≥{thr:g}% off high — mean-reversion long (knife catch)"
+        )
     else:
         direction = "SHORT"
         stop = high
@@ -374,11 +380,48 @@ def _analyze_symbol(
         if side not in ("fall", "rise", "both"):
             side = "both"
         thr = float(drop_pct)
+
+        closes = sess["close"].astype(float)
+        recent_chg = _recent_change_pct(closes, 0.25)
+        # Mid-window trough: was red earlier, now green
+        mid = max(2, len(closes) // 2)
+        mid_close = float(closes.iloc[mid - 1]) if mid < len(closes) else first
+        early_change = ((mid_close / first) - 1.0) * 100.0 if first else 0.0
+        late_change = ((last / mid_close) - 1.0) * 100.0 if mid_close else 0.0
+        was_negative = (
+            fall_from_high >= thr * 0.5
+            or early_change <= -0.35
+            or (change_pct < -0.05 and fall_from_high >= thr * 0.35)
+        )
+        becoming_positive = bool(
+            was_negative
+            and (
+                (change_pct > 0.05 and recent_chg > 0.05)
+                or (early_change < -0.2 and late_change > 0.35 and recent_chg > 0.1)
+                or (
+                    fall_from_high >= thr * 0.5
+                    and rise_from_low >= thr * 0.35
+                    and recent_chg > 0.15
+                    and last >= first
+                )
+            )
+        )
+        turning_score = 0.0
+        if becoming_positive:
+            turning_score = (
+                max(0.0, change_pct) * 1.2
+                + max(0.0, recent_chg) * 1.6
+                + max(0.0, rise_from_low) * 0.35
+                + max(0.0, fall_from_high) * 0.2
+            )
+
         fall_ok = side in ("fall", "both") and fall_from_high >= thr
         rise_ok = side in ("rise", "both") and rise_from_low >= thr
-        matched = fall_ok or rise_ok
+        matched = fall_ok or rise_ok or becoming_positive
         if fall_ok and rise_ok:
             match_kind = "both"
+        elif becoming_positive and not (fall_ok or rise_ok):
+            match_kind = "turning_positive"
         elif fall_ok:
             match_kind = "fall"
         elif rise_ok:
@@ -388,6 +431,7 @@ def _analyze_symbol(
         match_score = max(
             fall_from_high if fall_ok else 0.0,
             rise_from_low if rise_ok else 0.0,
+            turning_score if becoming_positive else 0.0,
         )
 
         high_ts = sess["high"].idxmax()
@@ -442,6 +486,13 @@ def _analyze_symbol(
             "rise_from_low_pct": _r(rise_from_low, 2),
             "range_high_to_low_pct": _r(range_from_high, 2),
             "change_from_window_start_pct": _r(change_pct, 2),
+            "recent_change_pct": _r(recent_chg, 2),
+            "early_change_pct": _r(early_change, 2),
+            "late_change_pct": _r(late_change, 2),
+            "was_negative": was_negative,
+            "turning_positive": becoming_positive,
+            "becoming_positive": becoming_positive,
+            "turning_score": _r(turning_score, 2),
             "high_time": _fmt_ts(high_ts),
             "low_time": _fmt_ts(low_ts),
             "last_time": _fmt_ts(last_ts),
@@ -526,8 +577,10 @@ def scan_falling_knives(
             "matched": 0,
             "matched_falls": 0,
             "matched_rises": 0,
+            "matched_turning_positive": 0,
             "results": [],
             "knives": [],
+            "turning_positives": [],
             "errors": 0,
             "plain_english": "No tickers selected.",
             "how_to_read": _how_to(),
@@ -561,9 +614,12 @@ def scan_falling_knives(
 
     knives = [r for r in results if r.get("matched")]
     knives.sort(key=lambda r: float(r.get("match_score") or 0), reverse=True)
+    turning_positives = [r for r in results if r.get("turning_positive") or r.get("becoming_positive")]
+    turning_positives.sort(key=lambda r: float(r.get("turning_score") or r.get("match_score") or 0), reverse=True)
     errors = sum(1 for r in results if r.get("error") and not r.get("matched"))
     matched_falls = sum(1 for r in knives if r.get("match_fall"))
     matched_rises = sum(1 for r in knives if r.get("match_rise"))
+    matched_turning = len(turning_positives)
 
     if side == "fall":
         thr_label = f">= {drop_pct:g}% off window high"
@@ -607,14 +663,17 @@ def scan_falling_knives(
         "matched": len(knives),
         "matched_falls": matched_falls,
         "matched_rises": matched_rises,
+        "matched_turning_positive": matched_turning,
         "errors": errors,
         "results": sorted(results, key=lambda r: float(r.get("match_score") or -1), reverse=True),
         "knives": knives,
+        "turning_positives": turning_positives,
         "summary": {
             "scanned": len(results),
             "matched": len(knives),
             "matched_falls": matched_falls,
             "matched_rises": matched_rises,
+            "matched_turning_positive": matched_turning,
             "errors": errors,
             "threshold": thr_label,
             "move_side": side,
@@ -624,7 +683,7 @@ def scan_falling_knives(
             f"Falling Knife · {cfg.get('label')} · live {side_label} · {thr_label} "
             f"in last {lookback_hours:g}h ({sess['label']}). "
             f"Matched {len(knives)} / {len(results)} "
-            f"({matched_falls} falls · {matched_rises} rises)."
+            f"({matched_falls} falls · {matched_rises} rises · {matched_turning} turning +ve)."
             + ((" Top: " + " · ".join(top_bits) + ".") if top_bits else "")
         ),
         "how_to_read": _how_to(),
@@ -641,6 +700,7 @@ def _how_to() -> list[str]:
         "History mode: set a date range + threshold % — counts every rise/fall ≥ X%, gaps, recovery, and next-move forecast.",
         "From top mode: find names down ≥ X% from their high in the last loop hours; estimate reverse vs continue odds + upside % + confidence.",
         "Runup / Descent mode: last X hours on 1+ timeframes — early major runups still extending, or exhausted tops now descending.",
+        "Turning positive: was red / off the highs earlier in the window, now net green with recent upward momentum.",
         "Runup % = rise from swing-low start · Descent % = fall from window peak (toppest point).",
         "India: 09:15–15:30 IST · US: 09:30–16:00 ET · Crypto: 24×7 · Commodities: ~24×5 futures.",
         "Fall % off high = (window high - last) / high. Rise % off low = (last - window low) / low.",

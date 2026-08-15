@@ -1039,6 +1039,71 @@ class ProTradeService:
             self.settings, payload, use_ai=use_ai, section="pro_trade/ticker_chart",
         )
 
+    async def chart_commentary(
+        self,
+        *,
+        bars: list[dict[str, Any]] | None = None,
+        ticker: str | None = None,
+        asset_class: str | None = None,
+        indicators: list[str] | None = None,
+        levels: list[dict[str, Any]] | None = None,
+        drawings: list[dict[str, Any]] | None = None,
+        timeframe: str | None = None,
+        use_ai: bool = False,
+    ) -> dict[str, Any]:
+        """Manual refresh commentary for whatever bars are on the chart right now."""
+        from app.market_pulse.chart_commentary_engine import (
+            compute_chart_commentary,
+            polish_commentary_with_ai,
+        )
+        from app.services.ai_service import AI_PROVIDER_CLAUDE, AI_PROVIDER_OPENAI, normalize_ai_provider
+        from app.services.trade_setup_ai_service import maybe_refine_trade_setups_ai
+
+        def _run():
+            return compute_chart_commentary(
+                bars=bars or [],
+                ticker=ticker,
+                asset_class=asset_class,
+                indicators=indicators,
+                levels=levels,
+                drawings=drawings,
+                timeframe=timeframe,
+            )
+
+        payload = json_safe(await asyncio.to_thread(_run))
+        payload["use_ai"] = bool(use_ai)
+
+        if use_ai:
+            provider = normalize_ai_provider(await self.settings.get_ai_provider())
+            api_key = await self.settings.get_api_key_for_provider(provider)
+            model = await self.settings.get_ai_model(provider)
+            base_url = None
+            if provider == AI_PROVIDER_OPENAI:
+                base_url = await self.settings.get_openai_endpoint()
+            elif provider == AI_PROVIDER_CLAUDE:
+                base_url = await self.settings.get_claude_endpoint()
+
+            tail = list(bars or [])[-40:]
+
+            def _polish():
+                return polish_commentary_with_ai(
+                    payload,
+                    provider=str(provider or ""),
+                    model=str(model or ""),
+                    api_key=str(api_key or ""),
+                    base_url=base_url,
+                    bars_tail=tail,
+                )
+
+            payload = json_safe(await asyncio.to_thread(_polish))
+            payload = await maybe_refine_trade_setups_ai(
+                self.settings, payload, use_ai=True, section="chart/commentary",
+            )
+        else:
+            payload["source"] = "python_ta"
+
+        return payload
+
     # ------------------------------------------------------------------
     # Saved BTST/STBT reports — shares the SavedBacktestReport table
     # (source="btst") with the other background-job features.

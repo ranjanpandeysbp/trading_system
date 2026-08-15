@@ -17,7 +17,6 @@ import {
   ChartDrawingLayer,
   ChartDrawingToolbar,
   useChartDrawings,
-  type PlotInsets,
 } from '../charts/ChartDrawingLayer'
 import { ChartExpandControls, ChartExpandFrame, useChartExpand } from '../charts/chartExpand'
 import {
@@ -29,7 +28,11 @@ import {
   useChartPointerZoom,
   useIndexZoom,
 } from '../charts/chartZoom'
+import { useChartInvestigateAi } from '../charts/ChartInvestigateAi'
+import { useChartAxisLayout } from '../charts/chartLayout'
 import { ChartSrToggle, useAutoSrVisible } from '../charts/chartSrToggle'
+import { ChartCommentaryPanel } from '../charts/ChartCommentaryPanel'
+import { ChartChrome, ChartToolbarRow } from '../charts/chartChrome'
 import { AskAIPanel, buildAskContext } from '../ai/AskAIPanel'
 import { Alert, Loading } from '../ui/Feedback'
 import { Card } from '../ui/Card'
@@ -111,8 +114,14 @@ const DEFAULT_INDICATORS: IndicatorId[] = ['volume', 'ema_9', 'ema_20', 'bolling
 
 const BAR_COUNT_OPTIONS = [40, 60, 80, 100, 120, 150, 200, 300] as const
 const RIGHT_PAD_BARS = 6
-/** ComposedChart margin { top: 12, right: 64, left: 0, bottom: 0 } + YAxis width 56; bottom padded for XAxis */
-const TICKER_PRICE_PLOT_INSETS: PlotInsets = { top: 12, right: 64, bottom: 28, left: 56 }
+/** ComposedChart margin + YAxis widths — kept in sync via useChartAxisLayout */
+const DESKTOP_TICKER_AXIS = {
+  desktopLeftMargin: 0,
+  desktopRightMargin: 20,
+  desktopPriceAxisWidth: 56,
+  desktopSecondaryAxisWidth: 44,
+  bottomPad: 0,
+} as const
 
 const OVERLAY_COLORS: Record<string, string> = {
   ema_5: '#fbbf24',
@@ -258,19 +267,31 @@ function OscillatorChart({
   referenceYs?: { y: number; color: string; label?: string }[]
   yDomain?: [number | string, number | string]
 }) {
+  const axis = useChartAxisLayout({
+    desktopLeftMargin: 0,
+    desktopRightMargin: 12,
+    desktopPriceAxisWidth: 44,
+    bottomPad: 0,
+  })
   return (
     <div className="mt-3 rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
       <p className="mb-2 text-xs font-medium text-slate-300">{title}</p>
       <div className="h-36 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <ComposedChart data={points} margin={axis.margin}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 9 }} minTickGap={40} />
+            <XAxis
+              dataKey="label"
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              minTickGap={axis.minTickGap}
+              height={axis.narrow ? 16 : 28}
+            />
             <YAxis
               domain={yDomain ?? ['auto', 'auto']}
-              tick={{ fill: '#94a3b8', fontSize: 9 }}
-              width={44}
-              tickFormatter={(v) => Number(v).toFixed(1)}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              width={axis.oscAxisWidth}
+              tickFormatter={(v) => Number(v).toFixed(axis.narrow ? 0 : 1)}
+              tickCount={axis.narrow ? 4 : undefined}
             />
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
@@ -340,6 +361,10 @@ export function PriceChart({
   const ctxMenu = useChartContextMenu()
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const { showSr, toggleSr } = useAutoSrVisible(true)
+  const axis = useChartAxisLayout({
+    ...DESKTOP_TICKER_AXIS,
+    bottomPad: 0,
+  })
   const {
     tool: drawTool,
     drawings,
@@ -356,6 +381,9 @@ export function PriceChart({
   const showFib = selected.includes('fibonacci')
   const showRsi = selected.includes('rsi')
   const showMacd = selected.includes('macd')
+  const plotInsets = showVolume && !axis.narrow
+    ? axis.plotInsetsWithRightAxis
+    : axis.plotInsets
 
   const levels = useMemo(() => {
     const raw = supportResistance?.levels
@@ -575,6 +603,27 @@ export function PriceChart({
 
   const yDomain = (yDomainNums ?? ['auto', 'auto']) as [number | string, number | string]
 
+  const investigateBars = useMemo(
+    () =>
+      chartRows
+        .filter((r) => !r.__pad)
+        .map((r) => ({
+          time: String(r.time ?? r.date ?? ''),
+          open: Number(r.open),
+          high: Number(r.high),
+          low: Number(r.low),
+          close: Number(r.close),
+          volume: r.volume != null ? Number(r.volume) : null,
+        })),
+    [chartRows],
+  )
+  const investigate = useChartInvestigateAi({
+    ticker: title,
+    bars: investigateBars,
+    levels: visibleSrLevels.map((l) => ({ label: l.label, price: l.price })),
+    section: `chart/${title}`,
+  })
+
   if (!points.length) {
     return (
       <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-6 text-center text-sm text-slate-500">
@@ -590,16 +639,32 @@ export function PriceChart({
       title={title}
     >
     <div className={workspace ? 'p-0' : 'rounded-xl border border-slate-800/60 bg-slate-950/40 p-3'}>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        {!workspace && <p className="text-sm font-medium text-white">{title}</p>}
-        <div className={`flex flex-wrap items-center gap-2 ${workspace ? 'w-full justify-between' : ''}`}>
-          <div className="flex flex-wrap items-center gap-2">
+      <ChartChrome
+        className={workspace ? 'mb-2' : 'mb-2'}
+        symbol={
+          !workspace ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-white">{title}</p>
+              <span className="text-[10px] text-slate-500">
+                green = support · red = resistance
+                {showVolume ? ' · grey = volume' : ''}
+                {showFib ? ' · amber = fib' : ''}
+              </span>
+            </div>
+          ) : undefined
+        }
+        view={
+          <>
             <Chip selected={effectiveStyle === 'candles'} onClick={() => setChartStyle('candles')}>
               Candles
             </Chip>
             <Chip selected={effectiveStyle === 'line'} onClick={() => setChartStyle('line')}>
               Line
             </Chip>
+          </>
+        }
+        tools={
+          <>
             <ChartExpandControls
               size={expand.size}
               setSize={expand.setSize}
@@ -612,37 +677,42 @@ export function PriceChart({
               onReset={resetZoom}
               isZoomed={isZoomed}
             />
+            {investigate.ToolbarButton}
             {levels.length > 0 && (
               <ChartSrToggle showSr={showSr} onToggle={toggleSr} />
             )}
             {copyStatus && (
               <span className="text-[11px] text-emerald-400/90">{copyStatus}</span>
             )}
-          </div>
-          {!workspace && (
-            <span className="text-[10px] text-slate-500">
-              green = support · red = resistance
-              {showVolume ? ' · grey = volume' : ''}
-              {showFib ? ' · amber = fib' : ''}
-            </span>
-          )}
-        </div>
-      </div>
-      {!hideDrawingToolbar && (
-        <ChartDrawingToolbar
-          tool={drawTool}
-          setTool={setDrawTool}
-          selectedId={drawSelectedId}
-          drawings={drawings}
-          patch={patchDrawing}
-          removeSelected={removeSelectedDrawing}
-          clear={clearDrawings}
-        />
-      )}
+          </>
+        }
+        drawings={
+          !hideDrawingToolbar ? (
+            <ChartDrawingToolbar
+              tool={drawTool}
+              setTool={setDrawTool}
+              selectedId={drawSelectedId}
+              drawings={drawings}
+              patch={patchDrawing}
+              removeSelected={removeSelectedDrawing}
+              clear={clearDrawings}
+            />
+          ) : null
+        }
+        commentary={
+          <ChartCommentaryPanel
+            bars={investigateBars}
+            ticker={title}
+            indicators={selected}
+            levels={[...visibleSrLevels, ...fibRefs]}
+            drawings={drawings as unknown as Array<Record<string, unknown>>}
+          />
+        }
+      />
       <div ref={chartRef} className={`relative mt-2 w-full select-none ${expand.heightClass}`}>
         {yDomainNums && (
           <ChartDrawingLayer
-            insets={TICKER_PRICE_PLOT_INSETS}
+            insets={plotInsets}
             yMin={yDomainNums[0]}
             yMax={yDomainNums[1]}
             nSlots={chartRows.length}
@@ -664,22 +734,39 @@ export function PriceChart({
           </button>
         )}
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartRows} margin={{ top: 12, right: 64, left: 0, bottom: 0 }}>
+          <ComposedChart
+            data={chartRows}
+            margin={{
+              top: axis.margin.top + 4,
+              right: showVolume && !axis.narrow ? Math.max(axis.margin.right, 20) + axis.secondaryAxisWidth : axis.margin.right,
+              left: axis.margin.left,
+              bottom: axis.margin.bottom,
+            }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} minTickGap={32} />
+            <XAxis
+              dataKey="label"
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              minTickGap={axis.minTickGap}
+              height={axis.narrow ? 16 : 28}
+            />
             <YAxis
               yAxisId="price"
               domain={yDomain}
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
-              width={56}
-              tickFormatter={(v) => Number(v).toFixed(v >= 100 ? 0 : 2)}
+              tick={{ fill: '#94a3b8', fontSize: axis.tickFontSize }}
+              width={axis.priceAxisWidth}
+              tickFormatter={(v) =>
+                axis.narrow ? axis.compactTick(Number(v)) : Number(v).toFixed(v >= 100 ? 0 : 2)
+              }
+              tickCount={axis.narrow ? 4 : undefined}
             />
             {showVolume && hasVolumeData && (
               <YAxis
                 yAxisId="vol"
                 orientation="right"
-                tick={{ fill: '#64748b', fontSize: 9 }}
-                width={44}
+                hide={axis.narrow}
+                tick={{ fill: '#64748b', fontSize: axis.tickFontSize }}
+                width={axis.narrow ? 0 : axis.secondaryAxisWidth}
                 tickFormatter={(v) => {
                   const n = Number(v)
                   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
@@ -844,6 +931,7 @@ export function PriceChart({
           referenceYs={[{ y: 0, color: '#475569' }]}
         />
       )}
+      {investigate.Panel}
     </div>
     <ChartContextMenu
       menu={ctxMenu.menu}
@@ -853,6 +941,7 @@ export function PriceChart({
       onFullscreen={expand.toggleFullscreen}
       fullscreen={expand.fullscreen}
       onResetChart={handleResetChart}
+      onInvestigateAi={investigate.openInvestigate}
     />
     </ChartExpandFrame>
   )
@@ -997,124 +1086,128 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         </div>
       )}
 
-      <Card className="mb-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {ASSET_CLASSES.map((ac) => (
-            <Chip
-              key={ac.id}
-              selected={assetClass === ac.id}
-              onClick={() => {
-                setAssetClass(ac.id)
-                setTicker('')
-                setError('')
-              }}
-            >
-              {ac.label}
-            </Chip>
-          ))}
-        </div>
-
-        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <FormField label="Ticker">
-            <TickerAutosuggest
-              key={assetClass}
-              value={ticker}
-              onChange={setTicker}
-              assetClass={assetClass}
-              placeholder={placeholderFor(assetClass)}
-            />
-          </FormField>
-        </div>
-
-        <div className="mb-4 flex flex-wrap gap-2">
-          <Chip selected={mode === 'daily'} onClick={() => setMode('daily')}>
-            Daily range
-          </Chip>
-          <Chip selected={mode === 'intraday'} onClick={() => setMode('intraday')}>
-            Same-day intraday
-          </Chip>
-          <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
-            {streamOn ? (
-              <span className="inline-flex items-center gap-1"><Wifi size={12} /> Streaming on</span>
-            ) : (
-              'Streaming off'
-            )}
-          </Chip>
-          <label className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            Bars
-            <Select
-              value={String(barCount)}
-              onChange={(e) => setBarCount(Number(e.target.value) || 100)}
-              className="!w-auto !py-1.5 text-xs"
-            >
-              {BAR_COUNT_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </Select>
-          </label>
-        </div>
-
-        {mode === 'daily' ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="From date">
-                <input
-                  type="date"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                />
-              </FormField>
-              <FormField label="To date">
-                <input
-                  type="date"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
-              </FormField>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[30, 90, 180, 365].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  className="rounded-lg border border-slate-700/80 px-2.5 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
-                  onClick={() => {
-                    setFromDate(isoDaysAgo(d))
-                    setToDate(isoDaysAgo(0))
-                  }}
-                >
-                  {d === 365 ? '1Y' : `${d}D`}
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Session date">
-              <input
-                type="date"
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                value={sessionDate}
-                onChange={(e) => setSessionDate(e.target.value)}
+      <Card className="mb-4 space-y-3">
+        <div className="rounded-lg border border-slate-800/70 bg-slate-950/40 px-3 py-2.5">
+          <ChartToolbarRow label="Market">
+            {ASSET_CLASSES.map((ac) => (
+              <Chip
+                key={ac.id}
+                selected={assetClass === ac.id}
+                onClick={() => {
+                  setAssetClass(ac.id)
+                  setTicker('')
+                  setError('')
+                }}
+              >
+                {ac.label}
+              </Chip>
+            ))}
+          </ChartToolbarRow>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_auto]">
+            <FormField label="Ticker">
+              <TickerAutosuggest
+                key={assetClass}
+                value={ticker}
+                onChange={setTicker}
+                assetClass={assetClass}
+                placeholder={placeholderFor(assetClass)}
               />
             </FormField>
-            <FormField label="Bar size">
-              <Select value={interval} onChange={(e) => setInterval(e.target.value)}>
-                {INTRADAY_INTERVALS.map((iv) => (
-                  <option key={iv.value} value={iv.value}>
-                    {iv.label}
-                  </option>
-                ))}
-              </Select>
-            </FormField>
+            <div className="flex flex-wrap items-end gap-2">
+              <Chip selected={streamOn} onClick={() => setStreamOn((v) => !v)}>
+                {streamOn ? (
+                  <span className="inline-flex items-center gap-1"><Wifi size={12} /> Streaming on</span>
+                ) : (
+                  'Streaming off'
+                )}
+              </Chip>
+              <label className="inline-flex items-center gap-1.5 pb-1 text-xs text-slate-400">
+                Bars
+                <Select
+                  value={String(barCount)}
+                  onChange={(e) => setBarCount(Number(e.target.value) || 100)}
+                  className="!w-auto !py-1.5 text-xs"
+                >
+                  {BAR_COUNT_OPTIONS.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </Select>
+              </label>
+            </div>
           </div>
-        )}
+        </div>
 
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Indicators</p>
-          <div className="flex flex-wrap gap-2">
+        <div className="rounded-lg border border-slate-800/50 bg-slate-900/25 px-3 py-2.5">
+          <ChartToolbarRow label="Mode">
+            <Chip selected={mode === 'daily'} onClick={() => setMode('daily')}>
+              Daily range
+            </Chip>
+            <Chip selected={mode === 'intraday'} onClick={() => setMode('intraday')}>
+              Same-day intraday
+            </Chip>
+          </ChartToolbarRow>
+
+          {mode === 'daily' ? (
+            <div className="mt-3 space-y-2">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label="From date">
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                  />
+                </FormField>
+                <FormField label="To date">
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                  />
+                </FormField>
+              </div>
+              <ChartToolbarRow label="Quick">
+                {[30, 90, 180, 365].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className="rounded-lg border border-slate-700/80 px-2.5 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                    onClick={() => {
+                      setFromDate(isoDaysAgo(d))
+                      setToDate(isoDaysAgo(0))
+                    }}
+                  >
+                    {d === 365 ? '1Y' : `${d}D`}
+                  </button>
+                ))}
+              </ChartToolbarRow>
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <FormField label="Session date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                  value={sessionDate}
+                  onChange={(e) => setSessionDate(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Timeframe">
+                <Select value={interval} onChange={(e) => setInterval(e.target.value)}>
+                  {INTRADAY_INTERVALS.map((iv) => (
+                    <option key={iv.value} value={iv.value}>
+                      {iv.label}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-slate-800/40 bg-slate-900/15 px-3 py-2.5">
+          <ChartToolbarRow label="Indics">
             {INDICATOR_OPTIONS.map((opt) => (
               <Chip
                 key={opt.id}
@@ -1124,8 +1217,8 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
                 {opt.label}
               </Chip>
             ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
+          </ChartToolbarRow>
+          <div className="mt-2 flex flex-wrap gap-2 pl-0 sm:pl-14">
             <button
               type="button"
               className="rounded-lg border border-slate-700/80 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200"
@@ -1150,7 +1243,7 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="text-xs text-slate-500">
           Chart loads automatically once a ticker and date range (or intraday session) are set.
           With <span className="text-slate-300">Streaming on</span>, LTP updates the forming candle every ~2.5s
           and bars refresh on a short poll. Turn streaming off to use AI refine.
@@ -1161,7 +1254,6 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
             if (v) setStreamOn(false)
             setUseAi(v)
           }}
-          className="mt-3"
         />
         {useAi && streamOn && (
           <p className="mt-1 text-[11px] text-amber-400/90">Turn streaming off to enable AI refine.</p>
@@ -1299,7 +1391,9 @@ export function TickerChartPage({ embedded = false }: { embedded?: boolean } = {
         <AskAIPanel
           context={askContext}
           section="pro-trade/ticker-chart"
-          defaultQuestion="Read this ticker chart with the selected indicators — what is the bias and nearest support/resistance?"
+          title="Investigate with AI"
+          buttonLabel="Investigate with AI"
+          defaultQuestion="You are a price action & smart money expert looking at this chart. Should I take a trade now? If yes, LONG or SHORT with %SL, %TP, and %Confidence. If no, explain why to wait."
           showPredictNextMove
         />
       )}
