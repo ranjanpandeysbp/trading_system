@@ -32,6 +32,7 @@ import {
   Flame,
   ChartCandlestick,
   Radio,
+  Bitcoin,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -157,6 +158,17 @@ export const appNav: NavEntry[] = [
       { to: '/trading-hubs?hub=swing&section=support_resistance', label: 'Support & Resistance' },
       { to: '/pro-trade/btst', label: 'Buy Today Sell Tomorrow' },
       { to: '/pro-trade/ticker-chart', label: 'Ticker Chart' },
+    ],
+  },
+  {
+    to: '/crypto-trading',
+    label: 'Crypto Trading',
+    shortLabel: 'Crypto',
+    icon: Bitcoin,
+    children: [
+      { to: '/crypto-trading/multibagger-reversal', label: 'Multibagger Reversal' },
+      { to: '/crypto-trading/advance-bb-reversal', label: 'Advance BB Reversal' },
+      { to: '/crypto-trading/ema-crossover', label: 'EMA Crossover' },
     ],
   },
   {

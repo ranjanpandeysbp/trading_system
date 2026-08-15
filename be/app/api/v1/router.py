@@ -120,6 +120,9 @@ from app.models.schemas import (
     ProTradeEma9VolRsiMomentumRequest,
     ProTradeFlatRetestRequest,
     ProTradeBtstRequest,
+    CryptoMultibaggerReversalRequest,
+    CryptoAdvanceBbReversalRequest,
+    CryptoEmaCrossoverRequest,
     ProTradeTickerChartRequest,
     ChartCommentaryRequest,
     DashboardTradingChatRequest,
@@ -5257,6 +5260,85 @@ async def pro_trade_btst(
             "historical_lookback_days": payload.historical_lookback_days,
             "check_oi_buildup": payload.check_oi_buildup,
             "further_analysis": payload.further_analysis,
+        },
+    )
+
+
+@router.get("/crypto-trading/sections")
+async def crypto_trading_sections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.crypto_trading_service import CryptoTradingService
+
+    return await CryptoTradingService(SettingsService(db)).sections()
+
+
+@router.post("/crypto-trading/multibagger-reversal")
+async def crypto_multibagger_reversal(
+    payload: CryptoMultibaggerReversalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.crypto_trading_service import CryptoTradingService
+
+    return await CryptoTradingService(SettingsService(db)).multibagger_reversal(
+        tickers=payload.tickers or None,
+        cfg_overrides={
+            "move_threshold_pct": payload.move_threshold_pct,
+            "ema_period": payload.ema_period,
+            "st_period": payload.st_period,
+            "st_mult": payload.st_mult,
+            "target_pct": payload.target_pct,
+            "lookback_bars": payload.lookback_bars,
+            "max_candidates": payload.max_candidates,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+        },
+    )
+
+
+@router.post("/crypto-trading/advance-bb-reversal")
+async def crypto_advance_bb_reversal(
+    payload: CryptoAdvanceBbReversalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.crypto_trading_service import CryptoTradingService
+
+    return await CryptoTradingService(SettingsService(db)).advance_bb_reversal(
+        tickers=payload.tickers or None,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "require_trend": payload.require_trend,
+            "require_sr": payload.require_sr,
+            "side": payload.side,
+            "max_tickers": payload.max_tickers,
+            "risk_inr": payload.risk_inr,
+            "reward_inr": payload.reward_inr,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+        },
+    )
+
+
+@router.post("/crypto-trading/ema-crossover")
+async def crypto_ema_crossover(
+    payload: CryptoEmaCrossoverRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.crypto_trading_service import CryptoTradingService
+
+    return await CryptoTradingService(SettingsService(db)).ema_crossover(
+        tickers=payload.tickers or None,
+        cfg_overrides={
+            "timeframe": payload.timeframe,
+            "rr_min": payload.rr_min,
+            "rr_max": payload.rr_max,
+            "risk_inr": payload.risk_inr,
+            "side": payload.side,
+            "take_confidence_threshold": payload.take_confidence_threshold,
         },
     )
 

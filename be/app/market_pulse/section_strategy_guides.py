@@ -912,6 +912,50 @@ Session day starts at **00:00 New York (ET)**.
 **Risk:** ₹200/trade max · 1:3 R:R minimum · max **5X** leverage · max 2 concurrent trades. Educational — SL first.
 """,
 
+    "crypto_multibagger_reversal": """
+### Multibagger Reversal (Crypto Trading)
+
+Dedicated CoinDCX desk for fading parabolic moves.
+
+| Step | Rule |
+|------|------|
+| Universe | \|24h %\| ≥ **40%** on USDT pairs |
+| Chart | **5m** · **EMA 280** (or 300) · **SuperTrend (10, 3)** |
+| SHORT | Close **below** EMA **and** SuperTrend **turns RED** |
+| Exit / SL | SuperTrend turns **GREEN** (ref stop = ST line) |
+| Target | **−10%** of entry price |
+
+Prefer liquid names. Don't short a fresh green SuperTrend. Educational — not advice.
+""",
+
+    "crypto_advance_bb_reversal": """
+### Advance BB Reversal (Crypto Trading · ~80%)
+
+**30m** Bollinger Band (20, 2) mean-reversion.
+
+| Side | Setup | Target |
+|------|--------|--------|
+| **SHORT** | Outside **UPPER** BB → next candle closes **inside** | **Lower** BB |
+| **LONG** | Outside **LOWER** BB → next candle closes **inside** | **Upper** BB |
+
+**Money:** SL ₹200 · TGT ₹600 (1:3) via position size.
+
+**Avoid bad trades:** (1) with trend · (2) short near resistance · (3) long near support.
+""",
+
+    "crypto_ema_crossover": """
+### EMA Crossover (Crypto Trading)
+
+| Side | Rule |
+|------|------|
+| **LONG** | EMA **10** crosses **above** EMA **30** → BUY |
+| **SHORT** | EMA **10** crosses **below** EMA **30** → SELL |
+
+**TF:** 30m or 1h · **Coins:** BTC, ETH, SOL, XRP, BNB  
+**SL:** previous candle low/high · size ≈ **₹200** risk  
+**Targets:** **1:3** to **1:7** from structure risk
+""",
+
     "confluence_strategy": """
 ### Confluence Screener
 

@@ -13,6 +13,7 @@ ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
     "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
     "pro_trade": "Pro Trade engines — Volume Profile, PA+VP, VSA next-candle, and PA-VP-SMC confluence.",
+    "crypto_trading": "Crypto Trading — Multibagger fade, Advance BB Reversal, EMA10/30 crossover (CoinDCX).",
     "etf_ta": "ETF TA IN — ETF Shop 4.0 systematic 20 DMA swing / SIP proxy (India · US · Crypto · Commodity ETFs).",
     "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
     "ta_screeners": "TA screener engines — S-R, fakeout, SMC, crypto wave, and confluence scanners.",
@@ -241,6 +242,70 @@ PRO_TRADE_STRATEGIES: list[dict[str, Any]] = [
         "exit_rules": [
             "Stop beyond the signal wave's extreme (ATR buffer).",
             "Target: nearest Fibonacci wave projection.",
+        ],
+    },
+]
+
+CRYPTO_TRADING_STRATEGIES: list[dict[str, Any]] = [
+    {
+        "id": "crypto_multibagger_reversal",
+        "name": "Multibagger Reversal",
+        "description": (
+            "CoinDCX ≥40% 24h movers · 5m EMA280 + SuperTrend(10,3) RED flip SHORT · "
+            "exit on ST green · target −10%."
+        ),
+        "timeframes": ["5m", "15m"],
+        "min_bars": 300,
+        "youtube": None,
+        "indicators": ["EMA280", "SuperTrend(10,3)", "24h % change"],
+        "entry_rules": [
+            "|24h %| ≥ 40% on CoinDCX USDT.",
+            "5m close below EMA280 AND SuperTrend turns RED → SHORT.",
+        ],
+        "exit_rules": [
+            "Exit when SuperTrend turns GREEN (ref SL = ST line).",
+            "Target −10% of entry price.",
+        ],
+    },
+    {
+        "id": "crypto_advance_bb_reversal",
+        "name": "Advance BB Reversal",
+        "description": (
+            "30m BB pierce→close inside · LONG to upper / SHORT to lower · "
+            "₹200/₹600 money plan · with-trend + S/R · ~80%."
+        ),
+        "timeframes": ["15m", "30m", "1h"],
+        "min_bars": 60,
+        "youtube": None,
+        "indicators": ["Bollinger Bands(20,2)", "EMA20", "Swing S/R"],
+        "entry_rules": [
+            "SHORT: outside upper BB → next close inside → target lower BB.",
+            "LONG: outside lower BB → next close inside → target upper BB.",
+            "Prefer with-trend and short near resistance / long near support.",
+        ],
+        "exit_rules": [
+            "TP at opposite Bollinger band.",
+            "Size for ≈₹200 risk / ₹600 reward (1:3).",
+        ],
+    },
+    {
+        "id": "crypto_ema_crossover",
+        "name": "EMA Crossover",
+        "description": (
+            "EMA10×EMA30 · 30m/1h · BTC ETH SOL XRP BNB · "
+            "prev-candle SL · 1:3–1:7 targets · ₹200 risk sizing."
+        ),
+        "timeframes": ["30m", "1h"],
+        "min_bars": 50,
+        "youtube": None,
+        "indicators": ["EMA10", "EMA30"],
+        "entry_rules": [
+            "LONG: EMA10 crosses above EMA30 → BUY.",
+            "SHORT: EMA10 crosses below EMA30 → SELL.",
+        ],
+        "exit_rules": [
+            "SL = previous candle low (long) / high (short).",
+            "Targets 1:3 → 1:7 from structure risk; size ≈₹200 risk.",
         ],
     },
 ]
@@ -518,6 +583,26 @@ for pt in PRO_TRADE_STRATEGIES:
         "pro_trade": True,
     }
 
+for ct in CRYPTO_TRADING_STRATEGIES:
+    ENGINE_RUNNER_KIND[ct["id"]] = "pro_trade_signal_df"
+    ENGINE_STRATEGY_META[ct["id"]] = {
+        "id": ct["id"],
+        "name": ct["name"],
+        "category": "crypto_trading",
+        "category_label": "Crypto Trading",
+        "timeframes": ct["timeframes"],
+        "summary": ct["description"],
+        "description": ct["description"],
+        "indicators": ct.get("indicators") or [],
+        "entry_rules": ct.get("entry_rules") or [],
+        "exit_rules": ct.get("exit_rules") or [],
+        "needs_benchmark": False,
+        "min_bars": ct["min_bars"],
+        "engine": True,
+        "youtube": ct.get("youtube"),
+        "crypto_trading": True,
+    }
+
 ETF_TA_STRATEGIES: list[dict[str, Any]] = [
     {
         "id": "stf_shop",
@@ -652,6 +737,12 @@ ENGINE_STRATEGY_CATEGORIES: dict[str, dict[str, Any]] = {
         "description": ENGINE_CATEGORY_DESCRIPTIONS["pro_trade"],
         "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d"],
         "strategy_ids": [p["id"] for p in PRO_TRADE_STRATEGIES],
+    },
+    "crypto_trading": {
+        "label": "Crypto Trading",
+        "description": ENGINE_CATEGORY_DESCRIPTIONS["crypto_trading"],
+        "timeframes": ["5m", "15m", "30m", "1h"],
+        "strategy_ids": [c["id"] for c in CRYPTO_TRADING_STRATEGIES],
     },
     "etf_ta": {
         "label": "ETF TA IN",

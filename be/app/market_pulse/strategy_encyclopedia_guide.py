@@ -202,6 +202,11 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("btst", "Buy Today Sell Tomorrow — closing-strength BTST / STBT"),
         ("ticker_chart", "Ticker Chart — daily / intraday with S1/S2 · R1/R2"),
     ],
+    "₿ Crypto Trading": [
+        ("crypto_multibagger_reversal", "Multibagger Reversal — ≥40% 24h · 5m EMA280 + ST RED SHORT · −10% TP"),
+        ("crypto_advance_bb_reversal", "Advance BB Reversal — 30m pierce→inside · opposite BB · ₹200/₹600 · ~80%"),
+        ("crypto_ema_crossover", "EMA Crossover — EMA10×EMA30 · 30m/1h · majors · 1:3–1:7 · ₹200 SL"),
+    ],
     "🔥 MF FIRE": [
         ("mf_fire", "MF FIRE — 25× FI · 1% rule · equity MF accumulation"),
     ],
@@ -920,6 +925,15 @@ Also available on the **Dashboard**.
 """,
     "ema9_vol_rsi_momentum": """
 **When to use:** Intraday scalp when 5m is established beyond 9 EMA (≥4 bars), structure+volume+RSI agree (score ≥7), HTF 15m EMA bias aligns, and the bar breaks prior high/low — not during EMA chop or after a huge chase candle.
+""",
+    "crypto_multibagger_reversal": """
+**When to use:** Fade CoinDCX coins with |24h| ≥40% on 5m when price is below EMA 280/300 and SuperTrend flips red; exit on ST green; target −10%.
+""",
+    "crypto_advance_bb_reversal": """
+**When to use:** 30m Bollinger pierce then close back inside — SHORT to lower BB / LONG to upper BB; size for ₹200 risk / ₹600 reward; prefer with-trend and S/R confluence (~80% claim).
+""",
+    "crypto_ema_crossover": """
+**When to use:** Trade fresh EMA10/EMA30 crosses on 30m or 1h for BTC/ETH/SOL/XRP/BNB — SL previous candle extreme, targets 1:3–1:7, size ≈₹200 risk.
 """,
     "flat_retest": """
 **When to use:** After flat candles — LONG on break→retest hold as support; SHORT on reject→break cons low→failed retest. Never invent the next candle inside the box.

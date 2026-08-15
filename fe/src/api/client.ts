@@ -2565,6 +2565,42 @@ export const runProTradeTickerChart = (payload: {
   max_bars?: number
 }) => api.post('/pro-trade/ticker-chart', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runCryptoMultibaggerReversal = (payload: {
+  tickers?: string[]
+  move_threshold_pct?: number
+  ema_period?: 280 | 300
+  st_period?: number
+  st_mult?: number
+  target_pct?: number
+  lookback_bars?: number
+  max_candidates?: number
+  take_confidence_threshold?: number
+} = {}) => api.post('/crypto-trading/multibagger-reversal', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runCryptoAdvanceBbReversal = (payload: {
+  tickers?: string[]
+  timeframe?: string
+  bb_period?: number
+  bb_std?: number
+  require_trend?: boolean
+  require_sr?: boolean
+  side?: 'long' | 'short' | 'both'
+  max_tickers?: number
+  risk_inr?: number
+  reward_inr?: number
+  take_confidence_threshold?: number
+} = {}) => api.post('/crypto-trading/advance-bb-reversal', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runCryptoEmaCrossover = (payload: {
+  tickers?: string[]
+  timeframe?: '30m' | '1h'
+  rr_min?: number
+  rr_max?: number
+  risk_inr?: number
+  side?: 'long' | 'short' | 'both'
+  take_confidence_threshold?: number
+} = {}) => api.post('/crypto-trading/ema-crossover', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export type ChartCommentaryBar = {
   time?: string
   open: number

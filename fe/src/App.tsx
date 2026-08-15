@@ -27,6 +27,7 @@ import TradingHubs from './pages/TradingHubs'
 import TradeCandidate from './pages/TradeCandidate'
 import Options from './pages/Options'
 import ProTrade from './pages/ProTrade'
+import CryptoTrading from './pages/CryptoTrading'
 import Prediction from './pages/Prediction'
 import Workflow from './pages/Workflow'
 import BestStrategies from './pages/BestStrategies'
@@ -119,6 +120,8 @@ export default function App() {
                 <Route path="/options" element={<Options />} />
                 <Route path="/pro-trade" element={<Navigate to="/pro-trade/volume-profile-ce" replace />} />
                 <Route path="/pro-trade/:tab" element={<ProTrade />} />
+                <Route path="/crypto-trading" element={<Navigate to="/crypto-trading/multibagger-reversal" replace />} />
+                <Route path="/crypto-trading/:tab" element={<CryptoTrading />} />
                 <Route path="/prediction" element={<Navigate to="/prediction/pattern-analogue" replace />} />
                 <Route path="/prediction/:tab" element={<Prediction />} />
                 <Route path="/etf-ta-in" element={<EtfTaIn />} />

@@ -1551,6 +1551,45 @@ class ProTradeBtstRequest(BaseModel):
     further_analysis: list[str] = Field(default_factory=list)
 
 
+class CryptoMultibaggerReversalRequest(BaseModel):
+    """Crypto Trading — Multibagger Reversal SHORT after ≥40% 24h move · 5m EMA + SuperTrend RED."""
+    tickers: list[str] = Field(default_factory=list)  # empty → auto-scan CoinDCX |24h| movers
+    move_threshold_pct: float = Field(default=40.0, ge=20.0, le=100.0)
+    ema_period: Literal[280, 300] = 280
+    st_period: int = Field(default=10, ge=5, le=20)
+    st_mult: float = Field(default=3.0, ge=1.0, le=5.0)
+    target_pct: float = Field(default=10.0, ge=5.0, le=25.0)
+    lookback_bars: int = Field(default=400, ge=300, le=1200)
+    max_candidates: int = Field(default=40, ge=5, le=80)
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+
+
+class CryptoAdvanceBbReversalRequest(BaseModel):
+    """Crypto Trading — Advance BB Reversal · 30m pierce→inside · opposite BB target · ₹200/₹600."""
+    tickers: list[str] = Field(default_factory=list)  # empty → top CoinDCX liquid pairs
+    timeframe: str = "30m"
+    bb_period: int = Field(default=20, ge=10, le=40)
+    bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
+    require_trend: bool = True
+    require_sr: bool = True
+    side: Literal["long", "short", "both"] = "both"
+    max_tickers: int = Field(default=30, ge=5, le=80)
+    risk_inr: float = Field(default=200.0, ge=50.0, le=2000.0)
+    reward_inr: float = Field(default=600.0, ge=100.0, le=6000.0)
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+
+
+class CryptoEmaCrossoverRequest(BaseModel):
+    """Crypto Trading — EMA10×EMA30 · 30m/1h · BTC ETH SOL XRP BNB · 1:3–1:7 · prev-candle / ₹200 SL."""
+    tickers: list[str] = Field(default_factory=list)  # empty → BTC ETH SOL XRP BNB
+    timeframe: Literal["30m", "1h"] = "30m"
+    rr_min: float = Field(default=3.0, ge=2.0, le=7.0)
+    rr_max: float = Field(default=7.0, ge=3.0, le=10.0)
+    risk_inr: float = Field(default=200.0, ge=50.0, le=2000.0)
+    side: Literal["long", "short", "both"] = "both"
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+
+
 class ProTradeTickerChartRequest(BaseModel):
     """Pro Trade — Ticker Chart with support / resistance (daily range or same-day intraday)."""
     ticker: str

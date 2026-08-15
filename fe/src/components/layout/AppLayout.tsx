@@ -35,6 +35,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     if (entry.children?.some((c) => childMatches(c.to))) return true
     // Keep Pro Trade expanded for any /pro-trade/* route (including new sections).
     if (entry.to === '/pro-trade' && location.pathname.startsWith('/pro-trade')) return true
+    if (entry.to === '/crypto-trading' && location.pathname.startsWith('/crypto-trading')) return true
     if (entry.to === '/prediction' && location.pathname.startsWith('/prediction')) return true
     if (entry.to === '/workflow' && location.pathname.startsWith('/workflow')) return true
     if (entry.to === '/best-strategies' && location.pathname.startsWith('/best-strategies')) return true

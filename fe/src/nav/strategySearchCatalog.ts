@@ -78,6 +78,11 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   // Pro Trade deep keywords
   { label: '9 EMA Vol RSI Scalp', to: '/pro-trade/ema9-vol-rsi-momentum', group: 'Pro Trade', keywords: 'ema9 volume rsi momentum scalp 5m 15m structure score' },
 
+  // Crypto Trading
+  { label: 'Multibagger Reversal', to: '/crypto-trading/multibagger-reversal', group: 'Crypto Trading', keywords: 'crypto multibagger short ema280 ema300 supertrend 40% 24h fade' },
+  { label: 'Advance BB Reversal', to: '/crypto-trading/advance-bb-reversal', group: 'Crypto Trading', keywords: 'bollinger band reversal 30m pierce inside short long support resistance 80%' },
+  { label: 'EMA Crossover', to: '/crypto-trading/ema-crossover', group: 'Crypto Trading', keywords: 'ema10 ema30 crossover btc eth sol xrp bnb 30m 1h' },
+
   // Market Pulse common
   { label: 'Market Pulse Intelligence', to: '/market-pulse?section=intelligence', group: 'Market Pulse' },
   { label: 'Tomorrow Outlook (Pulse)', to: '/market-pulse?section=tomorrow_outlook', group: 'Market Pulse' },
