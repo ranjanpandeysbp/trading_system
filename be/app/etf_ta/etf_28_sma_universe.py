@@ -10,8 +10,12 @@ Combines:
 
 from __future__ import annotations
 
-from app.etf_ta.india_etf_universe import ETF_SHOP_39_PRIMARY, MASTER_INDIA_ETFS
-
+from app.etf_ta.india_etf_universe import (
+    ETF_SHOP_39_PRIMARY,
+    MASTER_INDIA_ETFS,
+    india_stock_index_presets,
+)
+from app.etf_ta.multi_asset_etf_universe import cross_asset_scan_presets, preset_asset_class
 # FIRE in India — ETF 28 SMA momentum list (NSE symbols; NSE: prefix stripped)
 FIRE_28_SMA_LIST: list[str] = [
     "DIVIDEND",
@@ -171,4 +175,12 @@ ETF_28_SMA_PRESETS: dict[str, list[str]] = {
     "ETF Shop 4.0 — 39 distinct": list(ETF_SHOP_39_PRIMARY),
     "Combined (FIRE + ETF Shop)": combined_universe(),
     "Master India ETFs (~120+)": list(MASTER_INDIA_ETFS),
+    # Selecting an Indian index loads constituent stocks for the scan
+    **india_stock_index_presets(),
+    # US / Crypto / Commodity (market routed via preset_asset_class)
+    **cross_asset_scan_presets(),
 }
+
+
+def etf_28_sma_preset_asset_class(preset: str | None, tickers: list[str] | None = None) -> str:
+    return preset_asset_class(preset, tickers=tickers, fallback="india")

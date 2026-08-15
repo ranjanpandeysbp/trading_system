@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { apiErrorMessage, runCryptoMultibaggerReversal, runCryptoAdvanceBbReversal, runCryptoEmaCrossover } from '../api/client'
+import { apiErrorMessage, runCryptoMultibaggerReversal, runCryptoAdvanceBbReversal, runCryptoEmaCrossover, runCryptoSupertrend } from '../api/client'
 import {
   AssetClassTickerPicker,
   type TickerPickerValue,
@@ -9,6 +9,7 @@ import {
 import { MultibaggerReversalPanel } from '../components/crypto-trading/MultibaggerReversalPanel'
 import { AdvanceBbReversalPanel } from '../components/crypto-trading/AdvanceBbReversalPanel'
 import { EmaCrossoverPanel } from '../components/crypto-trading/EmaCrossoverPanel'
+import { SupertrendPanel } from '../components/crypto-trading/SupertrendPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -353,32 +354,42 @@ function AdvanceBbReversalPage() {
 
 const EMA_COINS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT', 'BNB-USDT'] as const
 
+const EMA_PRESETS = [
+  { coin: 'BTCUSDT', tf: '30m', fast: 9, med: 30, sl: 1.5, tp: 6 },
+  { coin: 'ETHUSDT', tf: '4h', fast: 10, med: 21, sl: 1.5, tp: 7 },
+  { coin: 'SOLUSDT', tf: '4h', fast: 10, med: 21, sl: 3.5, tp: 7 },
+  { coin: 'XRPUSDT', tf: '1h', fast: 10, med: 26, sl: 1.5, tp: 7 },
+  { coin: 'BNBUSDT', tf: '4h', fast: 9, med: 30, sl: 2.5, tp: 7 },
+] as const
+
 const EMA_HOW_TO = `How to use EMA Crossover
 
-1. Default scan covers BTC, ETH, SOL, XRP, BNB — or pick your own tickers.
-2. Choose 30m or 1h.
-3. LONG when EMA10 crosses above EMA30; SHORT when EMA10 crosses below EMA30.
-4. SL = previous candle low (long) / high (short). Size for ≈₹200 risk.
-5. Targets scale 1:3 → 1:7 from that risk distance.
-6. Research only — not financial advice.`
+1. Default scan covers BTC, ETH, SOL, XRP, BNB — each on its own preset TF / EMAs / SL% / TP%.
+2. LONG when fast EMA crosses above medium; SHORT when fast crosses below medium.
+3. Stop and target are fixed % from entry (per coin table).
+4. Optionally pick your own tickers (non-presets fall back to BTC-style defaults).
+5. Research only — not financial advice.`
 
-const EMA_OVERVIEW = `EMA Crossover
+const EMA_OVERVIEW = `EMA Crossover — per-coin presets
 
-EMA10 × above EMA30 → LONG · EMA10 × below EMA30 → SHORT
-TF: 30m or 1h · Coins: BTC ETH SOL XRP BNB
-R:R 1:3–1:7 · SL previous candle · ₹200 fixed risk sizing`
+| Coin | TF | Fast | Med | SL% | TP% |
+|------|-----|------|-----|-----|-----|
+| BTCUSDT | 30m | 9 | 30 | 1.5 | 6 |
+| ETHUSDT | 4h | 10 | 21 | 1.5 | 7 |
+| SOLUSDT | 4h | 10 | 21 | 3.5 | 7 |
+| XRPUSDT | 1h | 10 | 26 | 1.5 | 7 |
+| BNBUSDT | 4h | 9 | 30 | 2.5 | 7 |
+
+Fast × above Medium → LONG · Fast × below Medium → SHORT`
 
 const EMA_LAYMAN = `In plain English
 
-Watch the fast EMA (10) and the slow EMA (30). When the fast one flips above the slow one, look for a buy. When it flips under, look for a sell. Put the stop behind the previous candle and aim for three to seven times what you risk — about ₹200 risk per trade.`
+Each major has its own chart speed and EMA pair. When the faster average flips above the slower one, look for a buy; when it flips under, look for a sell. Stops and targets are fixed percentages from entry — e.g. BTC uses 1.5% stop and 6% target on the 30m chart.`
 
 function EmaCrossoverPage() {
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [...EMA_COINS], durations: ['30m'] })
   const [error, setError] = useState('')
-  const [tf, setTf] = useState<'30m' | '1h'>('30m')
   const [side, setSide] = useState<'long' | 'short' | 'both'>('both')
-  const [rrMin, setRrMin] = useState(3)
-  const [rrMax, setRrMax] = useState(7)
   const [showCharts, setShowCharts] = useState(true)
   const [useDefaults, setUseDefaults] = useState(true)
 
@@ -386,11 +397,7 @@ function EmaCrossoverPage() {
 
   const buildPayload = () => ({
     tickers: useDefaults ? [] : picker.tickers,
-    timeframe: tf,
     side,
-    rr_min: rrMin,
-    rr_max: Math.max(rrMin, rrMax),
-    risk_inr: 200,
   })
 
   const runMut = useMutation({
@@ -411,7 +418,7 @@ function EmaCrossoverPage() {
     <div>
       <PageHeader
         title="EMA Crossover"
-        description="EMA10×EMA30 · 30m/1h · BTC ETH SOL XRP BNB · prev-candle SL · 1:3–1:7 · ₹200 risk"
+        description="Per-coin TF · EMA fast/medium · SL% / TP% — BTC 30m 9/30 · ETH/SOL 4h 10/21 · XRP 1h 10/26 · BNB 4h 9/30"
       />
 
       <div className="mb-4 space-y-2">
@@ -432,6 +439,34 @@ function EmaCrossoverPage() {
       </div>
 
       <Card className="mb-4">
+        <div className="mb-4 overflow-x-auto">
+          <p className="mb-2 text-xs font-medium text-slate-400">Show cryptos (desk presets)</p>
+          <table className="w-full min-w-[520px] border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-700/80 text-slate-400">
+                <th className="py-2 pr-3 font-medium">Coin</th>
+                <th className="py-2 pr-3 font-medium">TF</th>
+                <th className="py-2 pr-3 font-medium">EMA Fast</th>
+                <th className="py-2 pr-3 font-medium">EMA Med</th>
+                <th className="py-2 pr-3 font-medium">SL %</th>
+                <th className="py-2 font-medium">TP %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {EMA_PRESETS.map((row) => (
+                <tr key={row.coin} className="border-b border-slate-800/60 text-slate-200">
+                  <td className="py-1.5 pr-3 font-medium text-white">{row.coin}</td>
+                  <td className="py-1.5 pr-3">{row.tf}</td>
+                  <td className="py-1.5 pr-3">{row.fast}</td>
+                  <td className="py-1.5 pr-3">{row.med}</td>
+                  <td className="py-1.5 pr-3 text-rose-300">{row.sl}</td>
+                  <td className="py-1.5 text-emerald-300">{row.tp}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
         <div className="mb-3 flex flex-wrap gap-2">
           <Chip selected={useDefaults} onClick={() => setUseDefaults(true)}>
             Majors (BTC ETH SOL XRP BNB)
@@ -451,14 +486,6 @@ function EmaCrossoverPage() {
           />
         )}
 
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-medium text-slate-400">Timeframe</p>
-          <div className="flex flex-wrap gap-2">
-            <Chip selected={tf === '30m'} onClick={() => setTf('30m')}>30m</Chip>
-            <Chip selected={tf === '1h'} onClick={() => setTf('1h')}>1h</Chip>
-          </div>
-        </div>
-
         <div className="mt-3">
           <p className="mb-2 text-xs font-medium text-slate-400">Side</p>
           <div className="flex flex-wrap gap-2">
@@ -468,15 +495,6 @@ function EmaCrossoverPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid max-w-md gap-3 sm:grid-cols-2">
-          <FormField label="Min R:R (T1)">
-            <Input type="number" min={2} max={7} step={0.5} value={rrMin} onChange={(e) => setRrMin(Number(e.target.value) || 3)} />
-          </FormField>
-          <FormField label="Max R:R (T3)">
-            <Input type="number" min={3} max={10} step={0.5} value={rrMax} onChange={(e) => setRrMax(Number(e.target.value) || 7)} />
-          </FormField>
-        </div>
-
         <div className="mt-3">
           <ChartsToggle checked={showCharts} onChange={setShowCharts} />
         </div>
@@ -484,10 +502,10 @@ function EmaCrossoverPage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending}>
             {runMut.isPending
-              ? `Scanning EMA10/30 on ${tf}…`
+              ? 'Scanning per-coin EMA presets…'
               : useDefaults
-                ? `Scan EMA Crossover (5 majors · ${tf})`
-                : `Scan EMA Crossover (${picker.tickers.length} · ${tf})`}
+                ? 'Scan EMA Crossover (5 majors · presets)'
+                : `Scan EMA Crossover (${picker.tickers.length})`}
           </Button>
         </div>
 
@@ -498,13 +516,191 @@ function EmaCrossoverPage() {
         )}
       </Card>
 
-      {runMut.isPending && <Loading message={`Checking EMA10 × EMA30 crosses on ${tf}…`} />}
+      {runMut.isPending && <Loading message="Checking per-coin EMA crosses (BTC 30m · ETH/SOL/BNB 4h · XRP 1h)…" />}
 
       {data && !runMut.isPending && (
         <Card className="mb-4">
           <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass="crypto" />
           {data.error != null && <Alert type="error">{String(data.error)}</Alert>}
           <EmaCrossoverPanel data={data} showCharts={showCharts} />
+        </Card>
+      )}
+    </div>
+  )
+}
+
+const ST_COINS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT'] as const
+
+const ST_PRESETS = [
+  { coin: 'BTCUSDT', tf: '1h', atr: 25, factor: 6.325, sl: 2.5, tp: 4 },
+  { coin: 'ETHUSDT', tf: '1h', atr: 15, factor: 6.325, sl: 2.5, tp: 5 },
+  { coin: 'SOLUSDT', tf: '1h', atr: 25, factor: 3.5, sl: 3.5, tp: 7 },
+  { coin: 'XRPUSDT', tf: '1h', atr: 10, factor: 2.5, sl: 2.5, tp: 4 },
+] as const
+
+const ST_HOW_TO = `How to use SuperTrend (S2 · Archit Trend Flow)
+
+1. Default scan covers BTC, ETH, SOL, XRP — each with its own ATR length, factor, SL%, and TP%.
+2. GREEN SuperTrend below price = uptrend → LONG on fresh green flip.
+3. RED SuperTrend above price = downtrend → SHORT on fresh red flip.
+4. Money stop/target from the preset table; also exit when color flips against you.
+5. Research only — not financial advice.`
+
+const ST_OVERVIEW = `SuperTrend — S2 Archit Trend Flow
+
+GREEN below price = UPTREND (LONG). RED above price = DOWNTREND (SHORT).
+Uses ATR to auto-adjust for volatility. Color change = trading signal.
+
+| Coin | TF | ATR | Factor | SL% | TP% |
+|------|-----|-----|--------|-----|-----|
+| BTCUSDT | 1h | 25 | 6.325 | 2.5 | 4 |
+| ETHUSDT | 1h | 15 | 6.325 | 2.5 | 5 |
+| SOLUSDT | 1h | 25 | 3.5 | 3.5 | 7 |
+| XRPUSDT | 1h | 10 | 2.5 | 2.5 | 4 |
+
+TF: 30m or 1h (desk presets use 1h). SL also on opposite color flip.`
+
+const ST_LAYMAN = `In plain English
+
+SuperTrend paints a green line under price when the trend is up, and a red line above price when the trend is down. When it flips green, look for a buy; when it flips red, look for a sell. Each coin uses its own ATR settings and fixed % stop/target.`
+
+function SupertrendPage() {
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [...ST_COINS], durations: ['1h'] })
+  const [error, setError] = useState('')
+  const [side, setSide] = useState<'long' | 'short' | 'both'>('both')
+  const [showCharts, setShowCharts] = useState(true)
+  const [useDefaults, setUseDefaults] = useState(true)
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: useDefaults ? [] : picker.tickers,
+    side,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!useDefaults && !picker.tickers.length) {
+        throw new Error('Select at least one ticker, or use default majors')
+      }
+      return runCryptoSupertrend(buildPayload())
+    },
+    onSuccess: () => setError(''),
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = runMut.data as Record<string, unknown> | undefined
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="SuperTrend"
+        description="S2 Archit Trend Flow · GREEN flip LONG · RED flip SHORT · per-coin ATR/factor · 1h · % SL/TP"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={ST_HOW_TO}>
+          {ST_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {ST_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {ST_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-4 overflow-x-auto">
+          <p className="mb-2 text-xs font-medium text-slate-400">Show cryptos (desk presets)</p>
+          <table className="w-full min-w-[560px] border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-700/80 text-slate-400">
+                <th className="py-2 pr-3 font-medium">Coin</th>
+                <th className="py-2 pr-3 font-medium">TF</th>
+                <th className="py-2 pr-3 font-medium">ATR Length</th>
+                <th className="py-2 pr-3 font-medium">Factor</th>
+                <th className="py-2 pr-3 font-medium">SL %</th>
+                <th className="py-2 font-medium">TP %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ST_PRESETS.map((row) => (
+                <tr key={row.coin} className="border-b border-slate-800/60 text-slate-200">
+                  <td className="py-1.5 pr-3 font-medium text-white">{row.coin}</td>
+                  <td className="py-1.5 pr-3">{row.tf}</td>
+                  <td className="py-1.5 pr-3">{row.atr}</td>
+                  <td className="py-1.5 pr-3">{row.factor}</td>
+                  <td className="py-1.5 pr-3 text-rose-300">{row.sl}</td>
+                  <td className="py-1.5 text-emerald-300">{row.tp}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Chip selected={useDefaults} onClick={() => setUseDefaults(true)}>
+            Majors (BTC ETH SOL XRP)
+          </Chip>
+          <Chip selected={!useDefaults} onClick={() => setUseDefaults(false)}>
+            Pick tickers
+          </Chip>
+        </div>
+
+        {!useDefaults && (
+          <AssetClassTickerPicker
+            key="crypto-st"
+            assetClass="crypto"
+            showDurations={false}
+            defaultSelectCount={4}
+            onChange={handlePickerChange}
+          />
+        )}
+
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium text-slate-400">Side</p>
+          <div className="flex flex-wrap gap-2">
+            <Chip selected={side === 'both'} onClick={() => setSide('both')}>Long & short</Chip>
+            <Chip selected={side === 'long'} onClick={() => setSide('long')}>Long only</Chip>
+            <Chip selected={side === 'short'} onClick={() => setSide('short')}>Short only</Chip>
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending}>
+            {runMut.isPending
+              ? 'Scanning SuperTrend flips…'
+              : useDefaults
+                ? 'Scan SuperTrend (4 majors · presets)'
+                : `Scan SuperTrend (${picker.tickers.length})`}
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      {runMut.isPending && <Loading message="Checking SuperTrend color flips on 1h (per-coin ATR/factor)…" />}
+
+      {data && !runMut.isPending && (
+        <Card className="mb-4">
+          <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass="crypto" />
+          {data.error != null && <Alert type="error">{String(data.error)}</Alert>}
+          <SupertrendPanel data={data} showCharts={showCharts} />
         </Card>
       )}
     </div>
@@ -519,6 +715,7 @@ export default function CryptoTrading() {
     { id: 'multibagger-reversal', label: 'Multibagger Reversal' },
     { id: 'advance-bb-reversal', label: 'Advance BB Reversal' },
     { id: 'ema-crossover', label: 'EMA Crossover' },
+    { id: 'supertrend', label: 'SuperTrend' },
   ]
 
   if (!tab) return <Navigate to="/crypto-trading/multibagger-reversal" replace />
@@ -527,6 +724,7 @@ export default function CryptoTrading() {
   if (tab === 'multibagger-reversal') page = <MultibaggerReversalPage />
   else if (tab === 'advance-bb-reversal') page = <AdvanceBbReversalPage />
   else if (tab === 'ema-crossover') page = <EmaCrossoverPage />
+  else if (tab === 'supertrend') page = <SupertrendPage />
   else return <Navigate to="/crypto-trading/multibagger-reversal" replace />
 
   return (

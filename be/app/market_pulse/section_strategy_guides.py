@@ -944,16 +944,41 @@ Prefer liquid names. Don't short a fresh green SuperTrend. Educational — not a
 """,
 
     "crypto_ema_crossover": """
-### EMA Crossover (Crypto Trading)
+### EMA Crossover (Crypto Trading — per-coin presets)
 
 | Side | Rule |
 |------|------|
-| **LONG** | EMA **10** crosses **above** EMA **30** → BUY |
-| **SHORT** | EMA **10** crosses **below** EMA **30** → SELL |
+| **LONG** | Fast EMA crosses **above** Medium EMA → BUY |
+| **SHORT** | Fast EMA crosses **below** Medium EMA → SELL |
 
-**TF:** 30m or 1h · **Coins:** BTC, ETH, SOL, XRP, BNB  
-**SL:** previous candle low/high · size ≈ **₹200** risk  
-**Targets:** **1:3** to **1:7** from structure risk
+| Coin | TF | Fast | Med | SL% | TP% |
+|------|-----|------|-----|-----|-----|
+| BTCUSDT | 30m | 9 | 30 | 1.5 | 6 |
+| ETHUSDT | 4h | 10 | 21 | 1.5 | 7 |
+| SOLUSDT | 4h | 10 | 21 | 3.5 | 7 |
+| XRPUSDT | 1h | 10 | 26 | 1.5 | 7 |
+| BNBUSDT | 4h | 9 | 30 | 2.5 | 7 |
+""",
+
+    "crypto_supertrend": """
+### SuperTrend (Crypto Trading — S2 · Archit Trend Flow)
+
+SuperTrend shows trend with a colored line. **GREEN below price = uptrend**. **RED above price = downtrend**.
+Uses ATR to auto-adjust for volatility. Color change = signal.
+
+| Side | Rule |
+|------|------|
+| **LONG** | SuperTrend turns **GREEN** → BUY |
+| **SHORT** | SuperTrend turns **RED** → SELL |
+| **SL** | Color flip (invalidate) · also fixed % stop |
+| **TF** | 30m or 1h (desk presets use **1h**) |
+
+| Coin | TF | ATR Length | Factor | SL % | Target % |
+|------|-----|------------|--------|------|----------|
+| BTCUSDT | 1h | 25 | 6.325 | 2.5 | 4 |
+| ETHUSDT | 1h | 15 | 6.325 | 2.5 | 5 |
+| SOLUSDT | 1h | 25 | 3.5 | 3.5 | 7 |
+| XRPUSDT | 1h | 10 | 2.5 | 2.5 | 4 |
 """,
 
     "confluence_strategy": """

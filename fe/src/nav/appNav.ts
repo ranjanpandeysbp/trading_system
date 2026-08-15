@@ -169,6 +169,7 @@ export const appNav: NavEntry[] = [
       { to: '/crypto-trading/multibagger-reversal', label: 'Multibagger Reversal' },
       { to: '/crypto-trading/advance-bb-reversal', label: 'Advance BB Reversal' },
       { to: '/crypto-trading/ema-crossover', label: 'EMA Crossover' },
+      { to: '/crypto-trading/supertrend', label: 'SuperTrend' },
     ],
   },
   {

@@ -200,7 +200,15 @@ def _fetch_symbol(
         logger.debug("Groww fetch failed for %s", symbol, exc_info=True)
     for yf_sym in yf_candidates or [f"{symbol}.NS", symbol]:
         try:
-            df = fetch_ohlcv_yfinance(yf_sym, "1d", is_crypto=False, limit=limit, market=market)
+            from app.market_pulse.ticker_utils import is_crypto_market
+
+            df = fetch_ohlcv_yfinance(
+                yf_sym,
+                "1d",
+                is_crypto=is_crypto_market(market),
+                limit=limit,
+                market=market,
+            )
             work = _normalize_df(df)
             if len(work) >= 40:
                 return work
@@ -968,6 +976,9 @@ def build_etf_top_down_ai_prompt(result: dict[str, Any]) -> str:
 
 
 def universe_payload() -> dict[str, Any]:
+    from app.etf_ta.etf_28_sma_universe import etf_28_sma_preset_asset_class
+    from app.etf_ta.multi_asset_etf_universe import cross_asset_scan_presets
+
     # Prefer ~55 liquid names: FIRE list capped + shop primary
     fire = fire_28_sma_symbols()
     shop = [canonicalize_symbol(s) for s in ETF_SHOP_39_PRIMARY]
@@ -983,12 +994,15 @@ def universe_payload() -> dict[str, Any]:
     presets = {
         "Top ~55 (FIRE + ETF Shop)": top55,
         **{k: list(v) for k, v in ETF_28_SMA_PRESETS.items()},
+        # Ensure cross-asset keys stay present even if 28-SMA dict changes
+        **{k: list(v) for k, v in cross_asset_scan_presets().items() if k not in ETF_28_SMA_PRESETS},
     }
     return {
         "strategy": STRATEGY_ID,
         "strategy_label": STRATEGY_NAME,
         "youtube": YOUTUBE_URL,
         "presets": presets,
+        "preset_asset_class": {k: etf_28_sma_preset_asset_class(k) for k in presets},
         "default_preset": "Top ~55 (FIRE + ETF Shop)",
         "default_symbols": top55,
         "how_it_works": HOW_IT_WORKS,

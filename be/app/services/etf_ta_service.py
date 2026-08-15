@@ -33,6 +33,7 @@ from app.etf_ta.multi_asset_etf_universe import (
     MULTI_ASSET_ETF_UNIVERSE,
     default_universe_for,
     get_usd_inr_rate,
+    preset_asset_class,
     underlying_label_for,
 )
 from app.etf_ta import stf_shop_engine as eng
@@ -576,13 +577,20 @@ class EtfTaService:
         from app.etf_ta.etf_28_sma_universe import ETF_28_SMA_PRESETS, fire_28_sma_symbols
 
         token = await self._groww_token()
-        exchange = str(payload.get("exchange") or await self._exchange() or "NSE")
         preset = payload.get("preset")
         tickers = list(payload.get("tickers") or [])
         if not tickers and preset and preset in ETF_28_SMA_PRESETS:
             tickers = list(ETF_28_SMA_PRESETS[preset])
         if not tickers:
             tickers = fire_28_sma_symbols()
+
+        asset_class = str(
+            payload.get("asset_class")
+            or preset_asset_class(str(preset) if preset else None, tickers=tickers)
+            or "india"
+        )
+        market, default_exchange, _currency = await self._asset_ctx(asset_class)
+        exchange = str(payload.get("exchange") or default_exchange or await self._exchange() or "NSE")
 
         cfg = Etf28SmaConfig(
             total_capital=float(payload.get("total_capital") or 500_000),
@@ -605,7 +613,7 @@ class EtfTaService:
                 cfg=cfg,
                 groww_token=token,
                 exchange=exchange,
-                market=GROWW_INDIA_MARKET,
+                market=market,
                 holdings=holdings,
             )
 
@@ -615,6 +623,8 @@ class EtfTaService:
                 r["ai_context"] = build_etf_28_sma_ai_prompt(r)
         out["ai_system_prompt"] = ETF_28_SMA_AI_SYSTEM
         out["preset"] = preset
+        out["asset_class"] = asset_class
+        out["market"] = market
         return out
 
     def etf_top_down_universe(self) -> dict[str, Any]:
@@ -632,7 +642,6 @@ class EtfTaService:
         )
 
         token = await self._groww_token()
-        exchange = str(payload.get("exchange") or await self._exchange() or "NSE")
         preset = payload.get("preset")
         tickers = list(payload.get("tickers") or [])
         uni = universe_payload()
@@ -641,6 +650,14 @@ class EtfTaService:
             tickers = list(presets[preset])
         if not tickers:
             tickers = list(uni.get("default_symbols") or [])
+
+        asset_class = str(
+            payload.get("asset_class")
+            or preset_asset_class(str(preset) if preset else None, tickers=tickers)
+            or "india"
+        )
+        market, default_exchange, _currency = await self._asset_ctx(asset_class)
+        exchange = str(payload.get("exchange") or default_exchange or await self._exchange() or "NSE")
 
         cfg = EtfTopDownConfig(
             top_n=int(payload.get("top_n") or 20),
@@ -658,7 +675,7 @@ class EtfTaService:
                 cfg=cfg,
                 groww_token=token,
                 exchange=exchange,
-                market=GROWW_INDIA_MARKET,
+                market=market,
             )
 
         out = json_safe(await asyncio.to_thread(_run))
@@ -667,4 +684,6 @@ class EtfTaService:
                 r["ai_context"] = build_etf_top_down_ai_prompt(r)
         out["ai_system_prompt"] = ETF_TOP_DOWN_AI_SYSTEM
         out["preset"] = preset
+        out["asset_class"] = asset_class
+        out["market"] = market
         return out

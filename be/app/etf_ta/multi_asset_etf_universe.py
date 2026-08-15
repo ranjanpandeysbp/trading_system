@@ -207,6 +207,7 @@ MULTI_ASSET_ETF_UNIVERSE: dict[str, dict[str, object]] = {
             "US Broad Market": ["SPY", "QQQ", "DIA", "IWM", "VTI", "VOO"],
             "US Sector (SPDR)": ["XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC"],
             "US Stocks — mega-cap (28)": US_STOCK_PRIMARY,
+            "US Stocks — Dow 30": [],  # filled lazily below via _enrich_us_presets
         },
     },
     "crypto": {
@@ -232,6 +233,20 @@ MULTI_ASSET_ETF_UNIVERSE: dict[str, dict[str, object]] = {
 }
 
 
+def _enrich_us_presets() -> None:
+    """Attach Dow 30 without blocking import if the static list is unavailable."""
+    try:
+        from app.market_pulse.us_index_constituents import DOW_30_STATIC
+        presets = MULTI_ASSET_ETF_UNIVERSE["us"]["presets"]  # type: ignore[index]
+        presets["US Stocks — Dow 30"] = list(DOW_30_STATIC)  # type: ignore[index]
+    except Exception:
+        presets = MULTI_ASSET_ETF_UNIVERSE["us"]["presets"]  # type: ignore[index]
+        presets["US Stocks — Dow 30"] = list(US_STOCK_PRIMARY)  # type: ignore[index]
+
+
+_enrich_us_presets()
+
+
 def default_universe_for(asset_class: str) -> list[str]:
     entry = MULTI_ASSET_ETF_UNIVERSE.get(asset_class)
     return list(entry["primary"]) if entry else []  # type: ignore[index]
@@ -243,3 +258,67 @@ def underlying_label_for(asset_class: str, symbol: str) -> str:
         return "—"
     labels: dict[str, str] = entry["labels"]  # type: ignore[assignment]
     return labels.get(symbol.upper().strip(), "—")
+
+
+def cross_asset_scan_presets() -> dict[str, list[str]]:
+    """
+    US / Crypto / Commodity presets shared by ETF 28 SMA and ETF Top Down
+    (and available alongside India ETF + India stock-index presets).
+    """
+    try:
+        from app.market_pulse.us_index_constituents import DOW_30_STATIC
+        dow = list(DOW_30_STATIC)
+    except Exception:
+        dow = ["AAPL", "MSFT", "JPM", "V", "UNH", "HD", "PG", "JNJ", "MA", "CRM"]
+
+    return {
+        "US ETFs — broad + sector (recommended)": list(US_ETF_PRIMARY),
+        "US Stocks — mega-cap (28)": list(US_STOCK_PRIMARY),
+        "US Stocks — Dow 30": dow,
+        "Crypto — top 15 liquid coins (recommended)": list(CRYPTO_COIN_PRIMARY),
+        "Crypto — majors (BTC ETH SOL BNB)": [
+            "B-BTCUSDT", "B-ETHUSDT", "B-SOLUSDT", "B-BNBUSDT",
+        ],
+        "Commodity ETFs — metals + energy + agri (recommended)": list(COMMODITY_ETF_PRIMARY),
+        "Commodity Stocks — energy + mining + agri": list(COMMODITY_STOCK_PRIMARY),
+        "Precious Metals ETFs": ["GLD", "SLV", "IAU", "SIVR", "PALL", "PPLT"],
+        "Energy Commodity ETFs": ["USO", "UNG", "BNO"],
+    }
+
+
+def cross_asset_preset_markets() -> dict[str, str]:
+    """preset name → asset_class for scan market routing."""
+    out: dict[str, str] = {}
+    for name in cross_asset_scan_presets():
+        out[name] = preset_asset_class(name)
+    return out
+
+
+def preset_asset_class(
+    preset: str | None,
+    *,
+    tickers: list[str] | None = None,
+    fallback: str = "india",
+) -> str:
+    """Resolve india/us/crypto/commodity from preset name or ticker shapes."""
+    p = (preset or "").strip()
+    if p.startswith("US ") or p.startswith("US ETFs") or p.startswith("US Stocks"):
+        return "us"
+    if p.startswith("Crypto"):
+        return "crypto"
+    if p.startswith("Commodity") or p.startswith("Precious Metals") or p.startswith("Energy Commodity"):
+        return "commodity"
+    if p.startswith("India Stocks"):
+        return "india"
+
+    ticks = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if ticks:
+        if any(t.startswith("B-") or t.endswith("USDT") for t in ticks[:5]):
+            return "crypto"
+        commodity_set = set(COMMODITY_ETF_PRIMARY + COMMODITY_STOCK_PRIMARY)
+        us_set = set(US_ETF_PRIMARY + US_STOCK_PRIMARY + US_ETF_MASTER)
+        if ticks and all(t in commodity_set for t in ticks):
+            return "commodity"
+        if ticks and all(t in us_set or t in commodity_set for t in ticks):
+            return "us" if any(t in us_set for t in ticks) else "commodity"
+    return fallback

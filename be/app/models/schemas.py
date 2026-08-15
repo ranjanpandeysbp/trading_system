@@ -674,6 +674,7 @@ class EtfTopDownScanRequest(BaseModel):
     """ETF Top Down — Finding Edge/Jay: noise macros, dual P&F RS (max 18), Renko/D-Smart 10, Friday rebalance."""
     tickers: list[str] = Field(default_factory=list)
     preset: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] | None = None
     exchange: str = "NSE"
     top_n: int = Field(default=20, ge=5, le=40)
     renko_box_pct: float = Field(default=1.0, ge=0.25, le=5.0)
@@ -728,6 +729,7 @@ class Etf28SmaScanRequest(BaseModel):
     """ETF 28 SMA Momentum — FIRE in India rules (2 closes above/below SMA28, 3.14%, averaging)."""
     tickers: list[str] = Field(default_factory=list)
     preset: str | None = None
+    asset_class: Literal["india", "us", "crypto", "commodity"] | None = None
     exchange: str = "NSE"
     total_capital: float = Field(default=500_000.0, ge=10_000, le=100_000_000)
     averaging_reserve_pct: float = Field(default=30.0, ge=0, le=90)
@@ -1580,14 +1582,23 @@ class CryptoAdvanceBbReversalRequest(BaseModel):
 
 
 class CryptoEmaCrossoverRequest(BaseModel):
-    """Crypto Trading — EMA10×EMA30 · 30m/1h · BTC ETH SOL XRP BNB · 1:3–1:7 · prev-candle / ₹200 SL."""
+    """Crypto Trading — per-coin EMA presets (BTC 30m 9/30 · ETH/SOL 4h 10/21 · XRP 1h 10/26 · BNB 4h 9/30)."""
     tickers: list[str] = Field(default_factory=list)  # empty → BTC ETH SOL XRP BNB
-    timeframe: Literal["30m", "1h"] = "30m"
-    rr_min: float = Field(default=3.0, ge=2.0, le=7.0)
-    rr_max: float = Field(default=7.0, ge=3.0, le=10.0)
-    risk_inr: float = Field(default=200.0, ge=50.0, le=2000.0)
     side: Literal["long", "short", "both"] = "both"
     take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    # Optional overrides (ignored for coins that have desk presets)
+    timeframe: Literal["15m", "30m", "1h", "4h"] | None = None
+    rr_min: float | None = None
+    rr_max: float | None = None
+    risk_inr: float | None = None
+
+
+class CryptoSupertrendRequest(BaseModel):
+    """Crypto Trading — SuperTrend S2 · per-coin ATR/factor/SL%/TP% (BTC ETH SOL XRP · 1h)."""
+    tickers: list[str] = Field(default_factory=list)  # empty → BTC ETH SOL XRP
+    side: Literal["long", "short", "both"] = "both"
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    timeframe: Literal["15m", "30m", "1h", "4h"] | None = None
 
 
 class ProTradeTickerChartRequest(BaseModel):

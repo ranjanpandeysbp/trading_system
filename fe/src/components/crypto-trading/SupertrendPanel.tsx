@@ -48,10 +48,11 @@ function TickerResultCard({
   const metrics = (result.metrics as Row | undefined) ?? {}
   const tips = (result.pro_checklist as string[] | undefined) ?? []
   const action = String((result.trade_suggestion as Row | undefined)?.action ?? result.action ?? 'WAIT')
-  const fast = Number(metrics.fast ?? 10)
-  const slow = Number(metrics.slow ?? 30)
+  const atrLen = Number(metrics.atr_length ?? 10)
+  const factor = Number(metrics.factor ?? 3)
   const slPct = metrics.sl_pct ?? result.sl_pct
   const tpPct = metrics.tp_pct ?? result.tp_pct
+  const stColor = String(metrics.st_color ?? '—')
 
   const chartData = useMemo(
     () => ((result.chart_data as VpChartBar[]) ?? []).filter((b) => b && b.time != null),
@@ -61,11 +62,8 @@ function TickerResultCard({
     const fromApi = (result.chart_series as VpSeries[] | undefined) ?? []
     return fromApi.length
       ? fromApi
-      : [
-          { key: 'ema_fast', label: `EMA ${fast}`, color: '#34d399' },
-          { key: 'ema_slow', label: `EMA ${slow}`, color: '#fbbf24' },
-        ]
-  }, [result.chart_series, fast, slow])
+      : [{ key: 'supertrend', label: `ST (${atrLen}, ${factor})`, color: stColor === 'GREEN' ? '#34d399' : '#f43f5e' }]
+  }, [result.chart_series, atrLen, factor, stColor])
   const levels = useMemo<VpLevel[]>(() => {
     return ((result.chart_levels as VpLevel[] | undefined) ?? []).filter((l) => l && l.price != null)
   }, [result.chart_levels])
@@ -81,6 +79,17 @@ function TickerResultCard({
               {String(result.timeframe)}
             </span>
           )}
+          <span
+            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
+              stColor === 'GREEN'
+                ? 'border-emerald-500/40 text-emerald-300'
+                : stColor === 'RED'
+                  ? 'border-rose-500/40 text-rose-300'
+                  : 'border-slate-700 text-slate-400'
+            }`}
+          >
+            ST {stColor}
+          </span>
           {(result.ltp != null || metrics.price != null) && (
             <span className="text-sm text-slate-400">
               {currency}
@@ -135,15 +144,16 @@ function TickerResultCard({
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">EMA {fast} / {slow}</p>
+              <p className="text-xs text-slate-500">ST line</p>
               <p className="font-medium text-slate-200">
-                {fmtNum(metrics.ema_fast ?? metrics.ema10, 3)} / {fmtNum(metrics.ema_slow ?? metrics.ema30, 3)}
+                {currency}
+                {fmtNum(result.supertrend_price ?? metrics.supertrend, 4)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Preset</p>
+              <p className="text-xs text-slate-500">ATR · Factor</p>
               <p className="font-medium text-slate-200">
-                {String(result.timeframe ?? '—')} · SL {fmtNum(slPct, 1)}% · TP {fmtNum(tpPct, 1)}%
+                {atrLen} · {fmtNum(factor, 3)}
               </p>
             </div>
           </div>
@@ -189,7 +199,7 @@ function TickerResultCard({
               assetClass="crypto"
               series={series}
               levels={levels}
-              readingGuide={`Green = EMA ${fast} · Yellow = EMA ${slow}. LONG when fast crosses above medium; SHORT when fast crosses below. SL/TP from coin preset %.`}
+              readingGuide={`SuperTrend (${atrLen}, ${factor}). GREEN below price = LONG flip; RED above = SHORT flip. Exit on opposite color · money SL/TP from coin preset %.`}
             />
           )}
         </div>
@@ -198,7 +208,7 @@ function TickerResultCard({
   )
 }
 
-export function EmaCrossoverPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
+export function SupertrendPanel({ data, showCharts = false }: { data: Row; showCharts?: boolean }) {
   const results = (data.results as Row[] | undefined) ?? []
   const currency = String(data.currency ?? '$')
   const [filter, setFilter] = useState<'all' | 'actionable' | 'watch'>('all')

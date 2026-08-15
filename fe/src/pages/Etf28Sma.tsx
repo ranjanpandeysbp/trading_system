@@ -23,12 +23,12 @@ const HOW_TO = `How to use ETF 28 SMA Momentum
 
 Source: FIRE in India — ETF 28 SMA Momentum Strategy
 
-1. Pick a universe preset (FIRE curated list, ETF Shop 39, or Combined) or paste tickers.
-2. Set total capital — the screen keeps 30% for averaging and splits the rest by max ETF slots.
+1. Pick a universe: India ETFs, Indian stock indexes, US ETFs/stocks, crypto coins, or commodity ETFs/stocks — or paste tickers.
+2. Set total capital — the screen keeps 30% for averaging and splits the rest by max slots.
 3. Choose FIFO (sell whole block) or LIFO (sell cheap lots early). Tick "capital exhausted" for aggressive LIFO frees.
 4. Optional: paste open lots as CSV lines: SYMBOL,buy_price,amount (one per line) for sell/average advice.
-5. Scan near the close (after ~3:15 PM IST). Act on BUY (max 4/day), AVERAGE, SELL / SELL_LOT.
-6. Prefer distinct underlyings — avoid two ETFs on the same index. Research only — not advice.`
+5. Scan near the close (after ~3:15 PM IST for India). Act on BUY (max 4/day), AVERAGE, SELL / SELL_LOT.
+6. Index / cross-asset presets load suggested symbols into the ticker box. Research only — not advice.`
 
 const OVERVIEW = `ETF 28 SMA Momentum — rules
 
@@ -55,6 +55,30 @@ function fmtInr(v: unknown) {
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: digits }) : '—'
+}
+
+type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
+
+function classifyPreset(name: string, map?: Record<string, string>): AssetClass {
+  const fromApi = map?.[name]
+  if (fromApi === 'us' || fromApi === 'crypto' || fromApi === 'commodity' || fromApi === 'india') return fromApi
+  if (name.startsWith('US ')) return 'us'
+  if (name.startsWith('Crypto')) return 'crypto'
+  if (name.startsWith('Commodity') || name.startsWith('Precious Metals') || name.startsWith('Energy Commodity')) return 'commodity'
+  return 'india'
+}
+
+function isSuggestFillPreset(name: string) {
+  return (
+    name.startsWith('India Stocks') ||
+    name.startsWith('US Stocks') ||
+    name.startsWith('Crypto') ||
+    name.startsWith('Commodity Stocks') ||
+    name.startsWith('Commodity ETFs') ||
+    name.startsWith('Precious Metals') ||
+    name.startsWith('Energy Commodity') ||
+    name.startsWith('US ETFs')
+  )
 }
 
 function parseHoldingsText(text: string): Array<{ symbol: string; price: number; amount: number }> {
@@ -269,6 +293,29 @@ export default function Etf28Sma() {
     'ETF Shop 4.0 — 39 distinct': [],
     'Combined (FIRE + ETF Shop)': [],
   }
+  const presetAssetClass = (universeQ.data as { preset_asset_class?: Record<string, string> } | undefined)
+    ?.preset_asset_class
+
+  const presetNames = Object.keys(presets)
+  const indiaEtfPresets = presetNames.filter(
+    (n) => classifyPreset(n, presetAssetClass) === 'india' && !n.startsWith('India Stocks'),
+  )
+  const indiaStockPresets = presetNames.filter((n) => n.startsWith('India Stocks'))
+  const usPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'us')
+  const cryptoPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'crypto')
+  const commodityPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'commodity')
+
+  const activeAssetClass: AssetClass = classifyPreset(preset, presetAssetClass)
+
+  const selectPreset = (name: string) => {
+    setPreset(name)
+    if (isSuggestFillPreset(name)) {
+      const syms = presets[name] ?? []
+      setCustomTickers(syms.length ? syms.join(' ') : '')
+    } else {
+      setCustomTickers('')
+    }
+  }
 
   const buildPayload = useCallback(() => {
     const custom = customTickers
@@ -278,6 +325,7 @@ export default function Etf28Sma() {
     return {
       preset: custom.length ? null : preset,
       tickers: custom,
+      asset_class: activeAssetClass,
       total_capital: totalCapital,
       averaging_reserve_pct: reservePct,
       max_etfs: maxEtfs,
@@ -289,6 +337,7 @@ export default function Etf28Sma() {
   }, [
     customTickers,
     preset,
+    activeAssetClass,
     totalCapital,
     reservePct,
     maxEtfs,
@@ -345,36 +394,59 @@ export default function Etf28Sma() {
           {OVERVIEW}
         </CollapsibleSection>
         <p className="text-xs text-slate-500">
-          Universe sourced from the FIRE curated list and{' '}
+          Universes: India ETFs, Indian stock indexes, US ETFs/stocks, crypto, and commodities — same rules engine,
+          market routed automatically. Also see{' '}
           <Link to="/etf-ta-in" className="text-sky-400 hover:underline">
             ETF Shop (ETF TA IN)
           </Link>
-          . Execute near the close after ~3:15 PM IST.
+          .
         </p>
       </div>
 
       <Card className="mb-4">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Universe preset</p>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {Object.keys(presets).map((name) => (
-            <Chip
-              key={name}
-              selected={preset === name && !customTickers.trim()}
-              onClick={() => {
-                setPreset(name)
-                setCustomTickers('')
-              }}
-            >
-              {name}
-              {presets[name]?.length ? ` (${presets[name].length})` : ''}
-            </Chip>
-          ))}
-        </div>
+        {(
+          [
+            { title: 'India ETF universes', names: indiaEtfPresets, fill: false },
+            { title: 'Indian stock indexes → suggest stocks', names: indiaStockPresets, fill: true },
+            { title: 'US ETFs & stocks', names: usPresets, fill: true },
+            { title: 'Crypto', names: cryptoPresets, fill: true },
+            { title: 'Commodities', names: commodityPresets, fill: true },
+          ] as const
+        ).map((group) =>
+          group.names.length ? (
+            <div key={group.title} className="mb-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">{group.title}</p>
+              <div className="flex flex-wrap gap-2">
+                {group.names.map((name) => (
+                  <Chip
+                    key={name}
+                    selected={preset === name}
+                    onClick={() => selectPreset(name)}
+                  >
+                    {name
+                      .replace(/^India Stocks — /, '')
+                      .replace(/^US ETFs — /, '')
+                      .replace(/^US Stocks — /, '')
+                      .replace(/^Crypto — /, '')
+                      .replace(/^Commodity ETFs — /, '')
+                      .replace(/^Commodity Stocks — /, '')}
+                    {presets[name]?.length ? ` (${presets[name].length})` : ''}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          ) : null,
+        )}
+        {isSuggestFillPreset(preset) && (presets[preset]?.length ?? 0) > 0 && (
+          <p className="mb-3 text-xs text-slate-400">
+            Suggested symbols loaded below ({activeAssetClass}) — edit the list if you want a smaller basket, then scan.
+          </p>
+        )}
 
-        <FormField label="Custom tickers (optional — overrides preset)">
+        <FormField label="Custom tickers (optional — overrides preset; filled for indexes / US / crypto / commodity)">
           <Textarea
             rows={2}
-            placeholder="NIFTYBEES BANKBEES GOLDBEES …"
+            placeholder="NIFTYBEES … · RELIANCE … · SPY AAPL … · B-BTCUSDT … · GLD USO …"
             value={customTickers}
             onChange={(e) => setCustomTickers(e.target.value)}
           />
@@ -448,7 +520,9 @@ export default function Etf28Sma() {
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || universeQ.isLoading}>
             {runMut.isPending
               ? 'Scanning…'
-              : `Scan ETF 28 SMA (${customTickers.trim() ? 'custom' : presetCount || '…'} ETFs)`}
+              : `Scan ETF 28 SMA (${customTickers.trim() ? 'custom' : presetCount || '…'} ${
+                  preset.startsWith('India Stocks') || customTickers.trim() ? 'names' : 'ETFs'
+                })`}
           </Button>
           <a
             href="https://www.youtube.com/@FIREinIndia"

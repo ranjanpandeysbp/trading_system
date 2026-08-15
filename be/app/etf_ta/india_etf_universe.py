@@ -23,7 +23,36 @@ listed symbols do not exist or trade under a different symbol):
 from __future__ import annotations
 
 from app.market_pulse.high_vol_etf_tickers import HIGH_VOL_ETF
-from app.market_pulse.ticker_utils import NIFTY_50, NIFTY_NEXT_50
+from app.market_pulse.ticker_utils import INDEX_OPTIONS
+
+
+# Index / group names in INDEX_OPTIONS that are not equity stock universes
+_SKIP_INDEX_PRESET_KEYS = frozenset({"Default Groww Tickers", "High Vol ETF"})
+
+
+def india_stock_index_presets() -> dict[str, list[str]]:
+    """
+    Named presets for Indian equity indexes → constituent stock symbols.
+
+    Used by ETF TA IN / 28 SMA / Top Down so selecting an index suggests stocks
+    (same source as Command Center ticker-universe INDEX_OPTIONS).
+    """
+    out: dict[str, list[str]] = {}
+    for name, symbols in INDEX_OPTIONS.items():
+        if name in _SKIP_INDEX_PRESET_KEYS:
+            continue
+        syms = [str(s).strip().upper() for s in (symbols or []) if str(s).strip()]
+        if not syms:
+            continue
+        # Keep a friendly "recommended" label for the primary large-cap basket
+        if name == "NIFTY 50":
+            key = "India Stocks — Nifty 50 (recommended)"
+        elif name == "NIFTY NEXT 50":
+            key = "India Stocks — Nifty Next 50"
+        else:
+            key = f"India Stocks — {name}"
+        out[key] = list(dict.fromkeys(syms))
+    return out
 
 # Underlying asset tag → one chosen liquid NSE symbol (no duplicate exposure in Shop 3.0)
 ETF_SHOP_39_UNDERLYING: dict[str, str] = {
@@ -118,11 +147,8 @@ ETF_PRESETS: dict[str, list[str]] = {
     # "High Vol ETF" dropdown elsewhere in this app (app.market_pulse.high_vol_etf_tickers) —
     # reused here rather than curating a second, separate list.
     "High Vol ETF": HIGH_VOL_ETF,
-    # Individual stocks instead of a diversified ETF basket — reuses this app's
-    # own verified NIFTY_50/NIFTY_NEXT_50 constituent lists (ticker_utils.py)
-    # rather than curating a third copy of the same data.
-    "India Stocks — Nifty 50 (recommended)": NIFTY_50,
-    "India Stocks — Nifty Next 50": NIFTY_NEXT_50,
+    # Individual stocks — pick an Indian index to load its constituents
+    **india_stock_index_presets(),
 }
 
 GROWW_INDIA_MARKET = "Groww (India Stocks)"

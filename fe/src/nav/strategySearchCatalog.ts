@@ -81,7 +81,8 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   // Crypto Trading
   { label: 'Multibagger Reversal', to: '/crypto-trading/multibagger-reversal', group: 'Crypto Trading', keywords: 'crypto multibagger short ema280 ema300 supertrend 40% 24h fade' },
   { label: 'Advance BB Reversal', to: '/crypto-trading/advance-bb-reversal', group: 'Crypto Trading', keywords: 'bollinger band reversal 30m pierce inside short long support resistance 80%' },
-  { label: 'EMA Crossover', to: '/crypto-trading/ema-crossover', group: 'Crypto Trading', keywords: 'ema10 ema30 crossover btc eth sol xrp bnb 30m 1h' },
+  { label: 'EMA Crossover', to: '/crypto-trading/ema-crossover', group: 'Crypto Trading', keywords: 'ema crossover btc eth sol xrp bnb 30m 1h 4h preset sl tp' },
+  { label: 'SuperTrend', to: '/crypto-trading/supertrend', group: 'Crypto Trading', keywords: 'supertrend s2 archit atr factor green red flip btc eth sol xrp 1h' },
 
   // Market Pulse common
   { label: 'Market Pulse Intelligence', to: '/market-pulse?section=intelligence', group: 'Market Pulse' },

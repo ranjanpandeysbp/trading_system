@@ -205,7 +205,8 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
     "₿ Crypto Trading": [
         ("crypto_multibagger_reversal", "Multibagger Reversal — ≥40% 24h · 5m EMA280 + ST RED SHORT · −10% TP"),
         ("crypto_advance_bb_reversal", "Advance BB Reversal — 30m pierce→inside · opposite BB · ₹200/₹600 · ~80%"),
-        ("crypto_ema_crossover", "EMA Crossover — EMA10×EMA30 · 30m/1h · majors · 1:3–1:7 · ₹200 SL"),
+        ("crypto_ema_crossover", "EMA Crossover — per-coin TF/EMA/SL%/TP% · BTC ETH SOL XRP BNB"),
+        ("crypto_supertrend", "SuperTrend — S2 Archit · GREEN/RED flip · per-coin ATR/factor · BTC ETH SOL XRP"),
     ],
     "🔥 MF FIRE": [
         ("mf_fire", "MF FIRE — 25× FI · 1% rule · equity MF accumulation"),
@@ -933,7 +934,10 @@ Also available on the **Dashboard**.
 **When to use:** 30m Bollinger pierce then close back inside — SHORT to lower BB / LONG to upper BB; size for ₹200 risk / ₹600 reward; prefer with-trend and S/R confluence (~80% claim).
 """,
     "crypto_ema_crossover": """
-**When to use:** Trade fresh EMA10/EMA30 crosses on 30m or 1h for BTC/ETH/SOL/XRP/BNB — SL previous candle extreme, targets 1:3–1:7, size ≈₹200 risk.
+**When to use:** Trade fresh fast×medium EMA crosses with per-coin presets — BTC 30m 9/30 (1.5%/6%), ETH/SOL 4h 10/21, XRP 1h 10/26, BNB 4h 9/30 (fixed % SL/TP).
+""",
+    "crypto_supertrend": """
+**When to use:** Trade SuperTrend color flips (S2 Archit) — GREEN→LONG / RED→SHORT on 1h with per-coin ATR/factor (BTC 25/6.325, ETH 15/6.325, SOL 25/3.5, XRP 10/2.5) and fixed % SL/TP; exit on opposite color.
 """,
     "flat_retest": """
 **When to use:** After flat candles — LONG on break→retest hold as support; SHORT on reject→break cons low→failed retest. Never invent the next candle inside the box.

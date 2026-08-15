@@ -752,10 +752,14 @@ def build_etf_28_sma_ai_prompt(result: dict[str, Any]) -> str:
 
 
 def universe_payload() -> dict[str, Any]:
+    from app.etf_ta.etf_28_sma_universe import etf_28_sma_preset_asset_class
+
+    presets = {k: list(v) for k, v in ETF_28_SMA_PRESETS.items()}
     return {
         "strategy": STRATEGY_ID,
         "strategy_label": STRATEGY_NAME,
-        "presets": {k: list(v) for k, v in ETF_28_SMA_PRESETS.items()},
+        "presets": presets,
+        "preset_asset_class": {k: etf_28_sma_preset_asset_class(k) for k in presets},
         "default_preset": "FIRE 28 SMA — curated list",
         "default_symbols": fire_28_sma_symbols(),
         "fire_list": fire_28_sma_symbols(),

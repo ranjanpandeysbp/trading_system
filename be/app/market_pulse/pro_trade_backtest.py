@@ -627,29 +627,55 @@ def build_crypto_advance_bb_reversal_signals(df: pd.DataFrame, *, cfg: Any = Non
 
 
 def build_crypto_ema_crossover_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
-    """EMA10×EMA30 fresh cross → LONG/SHORT."""
+    """Per-coin EMA fast×medium fresh cross → LONG/SHORT (cfg.fast / cfg.slow)."""
     from app.market_pulse.crypto_ema_crossover_engine import EmaCrossoverConfig
-    from app.market_pulse.smart_wave_crypto_engine import ema_crossover_signals
 
     cfg = cfg or EmaCrossoverConfig()
     work = _empty_with_signal(df)
     if len(work) < max(int(getattr(cfg, "min_bars", 50)), 40):
         return work
 
-    if int(getattr(cfg, "fast", 10)) == 10 and int(getattr(cfg, "slow", 30)) == 30:
-        sig_df = ema_crossover_signals(work)
-    else:
-        sig_df = work.copy()
-        fast = int(getattr(cfg, "fast", 10))
-        slow = int(getattr(cfg, "slow", 30))
-        sig_df["ema10"] = sig_df["close"].ewm(span=fast, adjust=False).mean()
-        sig_df["ema30"] = sig_df["close"].ewm(span=slow, adjust=False).mean()
-        prev10 = sig_df["ema10"].shift(1)
-        prev30 = sig_df["ema30"].shift(1)
-        sig_df["signal"] = 0
-        sig_df.loc[(sig_df["ema10"] > sig_df["ema30"]) & (prev10 <= prev30), "signal"] = 1
-        sig_df.loc[(sig_df["ema10"] < sig_df["ema30"]) & (prev10 >= prev30), "signal"] = -1
+    fast = int(getattr(cfg, "fast", 9))
+    slow = int(getattr(cfg, "slow", 30))
+    sig_df = work.copy()
+    sig_df["ema_fast"] = sig_df["close"].ewm(span=fast, adjust=False).mean()
+    sig_df["ema_slow"] = sig_df["close"].ewm(span=slow, adjust=False).mean()
+    prev_f = sig_df["ema_fast"].shift(1)
+    prev_s = sig_df["ema_slow"].shift(1)
+    sig_df["signal"] = 0
+    sig_df.loc[(sig_df["ema_fast"] > sig_df["ema_slow"]) & (prev_f <= prev_s), "signal"] = 1
+    sig_df.loc[(sig_df["ema_fast"] < sig_df["ema_slow"]) & (prev_f >= prev_s), "signal"] = -1
 
+    side = str(getattr(cfg, "side", "both") or "both").lower()
+    frame = work.copy()
+    frame["signal"] = 0
+    long_ok = sig_df["signal"] == 1
+    short_ok = sig_df["signal"] == -1
+    if side == "long":
+        short_ok = pd.Series(False, index=work.index)
+    elif side == "short":
+        long_ok = pd.Series(False, index=work.index)
+    frame.loc[long_ok & ~short_ok, "signal"] = 1
+    frame.loc[short_ok & ~long_ok, "signal"] = -1
+    return frame
+
+
+def build_crypto_supertrend_signals(df: pd.DataFrame, *, cfg: Any = None) -> pd.DataFrame:
+    """SuperTrend color flip → LONG (GREEN) / SHORT (RED)."""
+    from app.market_pulse.crypto_supertrend_engine import SupertrendConfig
+    from app.market_pulse.smart_wave_crypto_engine import supertrend_signals
+
+    cfg = cfg or SupertrendConfig()
+    work = _empty_with_signal(df)
+    need = max(int(getattr(cfg, "min_bars", 60)), int(getattr(cfg, "atr_length", 25)) + 15)
+    if len(work) < need:
+        return work
+
+    sig_df = supertrend_signals(
+        work,
+        period=int(getattr(cfg, "atr_length", 25)),
+        mult=float(getattr(cfg, "factor", 6.325)),
+    )
     side = str(getattr(cfg, "side", "both") or "both").lower()
     frame = work.copy()
     frame["signal"] = 0
@@ -678,6 +704,7 @@ PRO_TRADE_SIGNAL_BUILDERS: dict[str, Any] = {
     "crypto_multibagger_reversal": build_crypto_multibagger_reversal_signals,
     "crypto_advance_bb_reversal": build_crypto_advance_bb_reversal_signals,
     "crypto_ema_crossover": build_crypto_ema_crossover_signals,
+    "crypto_supertrend": build_crypto_supertrend_signals,
 }
 
 

@@ -34,6 +34,12 @@ class CryptoTradingService:
                     "path": "/crypto-trading/ema-crossover",
                     "youtube": None,
                 },
+                {
+                    "id": "supertrend",
+                    "label": "SuperTrend",
+                    "path": "/crypto-trading/supertrend",
+                    "youtube": None,
+                },
             ],
         }
 
@@ -110,10 +116,38 @@ class CryptoTradingService:
         cfg = EmaCrossoverConfig(**{
             k: v for k, v in ov.items()
             if k in {
-                "timeframe", "fast", "slow", "lookback_bars", "min_bars", "chart_bars",
+                "timeframe", "fast", "slow", "sl_pct", "tp_pct",
+                "lookback_bars", "min_bars", "chart_bars",
                 "rr_min", "rr_max", "risk_inr", "margin_inr", "leverage",
                 "take_confidence_threshold", "side", "default_tickers",
-            }
+            } and v is not None
+        })
+
+        def _run():
+            return scan_universe(cfg=cfg, tickers=tickers or None)
+
+        payload = await asyncio.to_thread(_run)
+        return json_safe(payload)
+
+    async def supertrend(
+        self,
+        *,
+        tickers: list[str] | None = None,
+        cfg_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from app.market_pulse.crypto_supertrend_engine import (
+            SupertrendConfig,
+            scan_universe,
+        )
+
+        ov = dict(cfg_overrides or {})
+        cfg = SupertrendConfig(**{
+            k: v for k, v in ov.items()
+            if k in {
+                "timeframe", "atr_length", "factor", "sl_pct", "tp_pct",
+                "lookback_bars", "min_bars", "chart_bars",
+                "take_confidence_threshold", "side", "default_tickers",
+            } and v is not None
         })
 
         def _run():

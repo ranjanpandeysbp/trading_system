@@ -13,7 +13,7 @@ ENGINE_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "th_scalping": "Scalping Hub engines — 1m rectangle sniper and high-frequency setups.",
     "th_smart_money": "Smart Money Hub engines — SMC liquidity, sweep, and institutional delivery models.",
     "pro_trade": "Pro Trade engines — Volume Profile, PA+VP, VSA next-candle, and PA-VP-SMC confluence.",
-    "crypto_trading": "Crypto Trading — Multibagger fade, Advance BB Reversal, EMA10/30 crossover (CoinDCX).",
+    "crypto_trading": "Crypto Trading — Multibagger fade, Advance BB, EMA crossover, SuperTrend (CoinDCX).",
     "etf_ta": "ETF TA IN — ETF Shop 4.0 systematic 20 DMA swing / SIP proxy (India · US · Crypto · Commodity ETFs).",
     "technical_analysis": "Technical Analysis tools — sentiment scoring, MTF confluence, and investigation composites.",
     "ta_screeners": "TA screener engines — S-R, fakeout, SMC, crypto wave, and confluence scanners.",
@@ -292,20 +292,42 @@ CRYPTO_TRADING_STRATEGIES: list[dict[str, Any]] = [
         "id": "crypto_ema_crossover",
         "name": "EMA Crossover",
         "description": (
-            "EMA10×EMA30 · 30m/1h · BTC ETH SOL XRP BNB · "
-            "prev-candle SL · 1:3–1:7 targets · ₹200 risk sizing."
+            "Per-coin presets: BTC 30m 9/30 SL1.5% TP6% · ETH/SOL 4h 10/21 · "
+            "XRP 1h 10/26 · BNB 4h 9/30 — fixed % stop/target."
         ),
-        "timeframes": ["30m", "1h"],
+        "timeframes": ["30m", "1h", "4h"],
         "min_bars": 50,
         "youtube": None,
-        "indicators": ["EMA10", "EMA30"],
+        "indicators": ["EMA Fast", "EMA Medium"],
         "entry_rules": [
-            "LONG: EMA10 crosses above EMA30 → BUY.",
-            "SHORT: EMA10 crosses below EMA30 → SELL.",
+            "LONG: fast EMA crosses above medium EMA → BUY.",
+            "SHORT: fast EMA crosses below medium EMA → SELL.",
+            "Use per-coin TF and EMA lengths from the desk preset table.",
         ],
         "exit_rules": [
-            "SL = previous candle low (long) / high (short).",
-            "Targets 1:3 → 1:7 from structure risk; size ≈₹200 risk.",
+            "SL = entry ± coin SL% · TP = entry ± coin TP%.",
+            "BTC 1.5/6 · ETH 1.5/7 · SOL 3.5/7 · XRP 1.5/7 · BNB 2.5/7.",
+        ],
+    },
+    {
+        "id": "crypto_supertrend",
+        "name": "SuperTrend",
+        "description": (
+            "S2 Archit Trend Flow · GREEN flip LONG / RED flip SHORT · "
+            "per-coin ATR/factor (BTC 25/6.325 · ETH 15/6.325 · SOL 25/3.5 · XRP 10/2.5) · 1h · % SL/TP."
+        ),
+        "timeframes": ["30m", "1h"],
+        "min_bars": 60,
+        "youtube": None,
+        "indicators": ["SuperTrend", "ATR"],
+        "entry_rules": [
+            "LONG: SuperTrend turns GREEN (below price).",
+            "SHORT: SuperTrend turns RED (above price).",
+            "Use per-coin ATR length and factor from the desk preset table.",
+        ],
+        "exit_rules": [
+            "Invalidate when SuperTrend color flips against the trade.",
+            "Money SL/TP: BTC 2.5/4 · ETH 2.5/5 · SOL 3.5/7 · XRP 2.5/4.",
         ],
     },
 ]

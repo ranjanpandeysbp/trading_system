@@ -28,11 +28,12 @@ Source: ${YOUTUBE}
 
 1. Read the macro board first (6 noise filters + Silver RS): who is dominating?
 2. Note India VIX (live from 5paisa): >18 fear · <12 calm.
-3. Focus the shortlist: Top 20 ETFs with composite P&F RS > 0 (max 18 = daily 0.25% + weekly 1%).
-4. Act on Renko × D-Smart 10: BUY on cross above, SELL / trail when below.
-5. Prefer Friday weekly rebalance — volatile names (Silver) must not give back the month.
-6. Two principles: make profit; don’t give it back.
-7. Research only — not advice. D-Smart ≈ EMA(10) on Renko closes.`
+3. Pick a universe: India ETFs, Indian stock indexes, US ETFs/stocks, crypto, or commodities.
+4. Focus the shortlist: Top 20 names with composite P&F RS > 0 (max 18 = daily 0.25% + weekly 1%).
+5. Act on Renko × D-Smart 10: BUY on cross above, SELL / trail when below.
+6. Prefer Friday weekly rebalance — volatile names (Silver) must not give back the month.
+7. Two principles: make profit; don’t give it back.
+8. Research only — not advice. D-Smart ≈ EMA(10) on Renko closes.`
 
 const OVERVIEW = `ETF Top Down — rules (Finding Edge / Jay)
 
@@ -64,6 +65,29 @@ Goal: make money and keep it — not turn ₹2L back into ₹1.2L.`
 function fmtNum(v: unknown, digits = 2) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toLocaleString('en-IN', { maximumFractionDigits: digits }) : '—'
+}
+
+type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
+
+function classifyPreset(name: string, map?: Record<string, string>): AssetClass {
+  const fromApi = map?.[name]
+  if (fromApi === 'us' || fromApi === 'crypto' || fromApi === 'commodity' || fromApi === 'india') return fromApi
+  if (name.startsWith('US ')) return 'us'
+  if (name.startsWith('Crypto')) return 'crypto'
+  if (name.startsWith('Commodity') || name.startsWith('Precious Metals') || name.startsWith('Energy Commodity')) return 'commodity'
+  return 'india'
+}
+
+function isSuggestFillPreset(name: string) {
+  return (
+    name.startsWith('India Stocks') ||
+    name.startsWith('US Stocks') ||
+    name.startsWith('US ETFs') ||
+    name.startsWith('Crypto') ||
+    name.startsWith('Commodity') ||
+    name.startsWith('Precious Metals') ||
+    name.startsWith('Energy Commodity')
+  )
 }
 
 function ActionBadge({ action }: { action: string }) {
@@ -230,6 +254,28 @@ export default function EtfTopDown() {
   })
 
   const presets = universeQ.data?.presets ?? { 'Top ~55 (FIRE + ETF Shop)': [] }
+  const presetAssetClass = (universeQ.data as { preset_asset_class?: Record<string, string> } | undefined)
+    ?.preset_asset_class
+
+  const presetNames = Object.keys(presets)
+  const indiaEtfPresets = presetNames.filter(
+    (n) => classifyPreset(n, presetAssetClass) === 'india' && !n.startsWith('India Stocks'),
+  )
+  const indiaStockPresets = presetNames.filter((n) => n.startsWith('India Stocks'))
+  const usPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'us')
+  const cryptoPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'crypto')
+  const commodityPresets = presetNames.filter((n) => classifyPreset(n, presetAssetClass) === 'commodity')
+  const activeAssetClass: AssetClass = classifyPreset(preset, presetAssetClass)
+
+  const selectPreset = (name: string) => {
+    setPreset(name)
+    if (isSuggestFillPreset(name)) {
+      const syms = presets[name] ?? []
+      setCustomTickers(syms.length ? syms.join(' ') : '')
+    } else {
+      setCustomTickers('')
+    }
+  }
 
   const buildPayload = useCallback(() => {
     const custom = customTickers
@@ -239,12 +285,13 @@ export default function EtfTopDown() {
     return {
       preset: custom.length ? null : preset,
       tickers: custom,
+      asset_class: activeAssetClass,
       top_n: topN,
       renko_box_pct: renkoBox,
       pn_f_box_pct: pnfBox,
       d_smart_period: dSmart,
     }
-  }, [customTickers, preset, topN, renkoBox, pnfBox, dSmart])
+  }, [customTickers, preset, activeAssetClass, topN, renkoBox, pnfBox, dSmart])
 
   const runMut = useMutation({
     mutationFn: () => runEtfTopDownScan(buildPayload()),
@@ -289,11 +336,11 @@ export default function EtfTopDown() {
           {OVERVIEW}
         </CollapsibleSection>
         <p className="text-xs text-slate-500">
-          ETF universe from{' '}
+          Universes: India ETFs, Indian stock indexes, US, crypto, commodities — from{' '}
           <Link to="/etf-ta-in" className="text-sky-400 hover:underline">
             ETF Shop
           </Link>{' '}
-          and{' '}
+          /{' '}
           <Link to="/etf-28-sma" className="text-sky-400 hover:underline">
             ETF 28 SMA
           </Link>
@@ -305,27 +352,45 @@ export default function EtfTopDown() {
       </div>
 
       <Card className="mb-4">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Universe preset</p>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {Object.keys(presets).map((name) => (
-            <Chip
-              key={name}
-              selected={preset === name && !customTickers.trim()}
-              onClick={() => {
-                setPreset(name)
-                setCustomTickers('')
-              }}
-            >
-              {name}
-              {presets[name]?.length ? ` (${presets[name].length})` : ''}
-            </Chip>
-          ))}
-        </div>
+        {(
+          [
+            { title: 'India ETF universes', names: indiaEtfPresets },
+            { title: 'Indian stock indexes → suggest stocks', names: indiaStockPresets },
+            { title: 'US ETFs & stocks', names: usPresets },
+            { title: 'Crypto', names: cryptoPresets },
+            { title: 'Commodities', names: commodityPresets },
+          ] as const
+        ).map((group) =>
+          group.names.length ? (
+            <div key={group.title} className="mb-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">{group.title}</p>
+              <div className="flex flex-wrap gap-2">
+                {group.names.map((name) => (
+                  <Chip key={name} selected={preset === name} onClick={() => selectPreset(name)}>
+                    {name
+                      .replace(/^India Stocks — /, '')
+                      .replace(/^US ETFs — /, '')
+                      .replace(/^US Stocks — /, '')
+                      .replace(/^Crypto — /, '')
+                      .replace(/^Commodity ETFs — /, '')
+                      .replace(/^Commodity Stocks — /, '')}
+                    {presets[name]?.length ? ` (${presets[name].length})` : ''}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          ) : null,
+        )}
+        {isSuggestFillPreset(preset) && (presets[preset]?.length ?? 0) > 0 && (
+          <p className="mb-3 text-xs text-slate-400">
+            Suggested symbols loaded below ({activeAssetClass}) — edit if you want a smaller basket, then scan.
+          </p>
+        )}
 
-        <FormField label="Custom tickers (optional — overrides preset)">
+        <FormField label="Custom tickers (optional — overrides preset; filled for indexes / US / crypto / commodity)">
           <Textarea
             rows={2}
-            placeholder="NIFTYBEES SILVERBEES GOLDBEES …"
+            placeholder="NIFTYBEES … · SPY AAPL … · B-BTCUSDT … · GLD USO …"
             value={customTickers}
             onChange={(e) => setCustomTickers(e.target.value)}
           />
@@ -356,7 +421,9 @@ export default function EtfTopDown() {
           <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || universeQ.isLoading}>
             {runMut.isPending
               ? 'Scanning…'
-              : `Scan ETF Top Down (${customTickers.trim() ? 'custom' : presetCount || '…'} ETFs)`}
+              : `Scan ETF Top Down (${customTickers.trim() ? 'custom' : presetCount || '…'} ${
+                  preset.startsWith('India Stocks') || customTickers.trim() ? 'names' : 'ETFs'
+                })`}
           </Button>
         </div>
         {error && (

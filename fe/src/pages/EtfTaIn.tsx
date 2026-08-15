@@ -35,10 +35,10 @@ const ASSET_CLASSES: { id: AssetClass; label: string }[] = [
 ]
 
 const ASSET_CLASS_DESCRIPTION: Record<AssetClass, string> = {
-  india: 'India NSE ETFs or Nifty 50/Next 50 stocks — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding',
-  us: 'US-listed ETFs (broad market, sector SPDRs, factor/style) or mega-cap stocks — same Rank-vs-20-DMA rotation, dynamic SIP, FIFO compounding, converted to ₹ at a live USD/INR rate',
-  crypto: 'Top liquid CoinDCX coins, run through the same buy-and-hold-and-rotate shop — treated as this venue’s closest equivalent to an ETF basket, converted to ₹ at a live USD/INR rate',
-  commodity: 'US-listed commodity ETFs (gold, silver, oil, agriculture baskets) or commodity-linked stocks (energy, mining, agriculture majors) — converted to ₹ at a live USD/INR rate',
+  india: 'India NSE ETFs or Indian stock indexes — ETF Shop 4.0 programmatic rotation, dynamic SIP, FIFO compounding',
+  us: 'US ETFs (broad / sector) or stocks (mega-cap / Dow 30) — same Rank-vs-20-DMA shop, capital in ₹ via live USD/INR',
+  crypto: 'Top liquid CoinDCX coins — same buy-and-hold-and-rotate shop, capital in ₹ via live USD/INR',
+  commodity: 'Commodity ETFs (metals, energy, agri) or commodity stocks — same shop rules, capital in ₹ via live USD/INR',
 }
 
 type ConfigDraft = {
@@ -384,7 +384,13 @@ export default function EtfTaIn() {
       <Card className="mb-4">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-            {assetClass === 'india' ? 'ETF universe' : assetClass === 'crypto' ? 'Coin universe' : 'ETF universe'}
+            {assetClass === 'india'
+              ? 'Universe (ETFs or Indian stock indexes)'
+              : assetClass === 'crypto'
+                ? 'Coin universe'
+                : assetClass === 'us'
+                  ? 'Universe (US ETFs or stocks)'
+                  : 'Universe (commodity ETFs or stocks)'}
           </h3>
           <Button size="sm" variant="secondary" onClick={handleSaveConfig} disabled={saveConfigMutation.isPending}>
             <Save size={14} />
@@ -392,14 +398,30 @@ export default function EtfTaIn() {
           </Button>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField label="Preset">
+          <FormField
+            label={
+              assetClass === 'india'
+                ? 'Preset (ETF basket or Indian index → stocks)'
+                : assetClass === 'us'
+                  ? 'Preset (US ETFs or Dow / mega-cap stocks)'
+                  : assetClass === 'crypto'
+                    ? 'Preset (liquid coins)'
+                    : 'Preset (commodity ETFs or stocks)'
+            }
+          >
             <Select value={draft.preset} onChange={(e) => setDraft((d) => d && ({ ...d, preset: e.target.value }))}>
               {presetNames.map((p) => (
-                <option key={p} value={p}>{p}</option>
+                <option key={p} value={p}>{p}{universe?.presets?.[p]?.length ? ` (${universe.presets[p].length})` : ''}</option>
               ))}
             </Select>
           </FormField>
-          <FormField label={`Symbols (${symbolsPreview.length})`}>
+          <FormField
+            label={`Symbols (${symbolsPreview.length})${
+              draft.preset.includes('Stocks') || draft.preset.startsWith('India Stocks') || draft.preset.startsWith('Crypto')
+                ? ' — suggested'
+                : ''
+            }`}
+          >
             <Textarea
               rows={2}
               placeholder="Custom symbols override preset (comma-separated)"
@@ -408,10 +430,26 @@ export default function EtfTaIn() {
             />
           </FormField>
         </div>
+        {((assetClass === 'india' && draft.preset.startsWith('India Stocks'))
+          || (assetClass === 'us' && draft.preset.includes('Stocks'))
+          || (assetClass === 'commodity' && draft.preset.includes('Stocks'))
+          || assetClass === 'crypto')
+          && !draft.custom_symbols.trim()
+          && symbolsPreview.length > 0 && (
+          <p className="mt-2 text-xs text-slate-400">
+            Preset selected — scanning {symbolsPreview.length} symbols
+            {symbolsPreview.length > 12 ? ` (e.g. ${symbolsPreview.slice(0, 12).join(', ')}…)` : ` (${symbolsPreview.join(', ')})`}.
+            Paste a custom list above to override.
+          </p>
+        )}
         <div className="mt-4 flex gap-2">
           <Button onClick={() => dailyMutation.mutate()} disabled={dailyMutation.isPending}>
             <IndianRupee size={16} />
-            {dailyMutation.isPending ? 'Scanning…' : 'Run daily recommendation'}
+            {dailyMutation.isPending
+              ? 'Scanning…'
+              : draft.preset.startsWith('India Stocks')
+                ? 'Run daily recommendation (stocks)'
+                : 'Run daily recommendation'}
           </Button>
           <Button variant="ghost" onClick={() => dailyMutation.mutate()} disabled={dailyMutation.isPending}>
             <RefreshCw size={16} />

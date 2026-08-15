@@ -123,6 +123,7 @@ from app.models.schemas import (
     CryptoMultibaggerReversalRequest,
     CryptoAdvanceBbReversalRequest,
     CryptoEmaCrossoverRequest,
+    CryptoSupertrendRequest,
     ProTradeTickerChartRequest,
     ChartCommentaryRequest,
     DashboardTradingChatRequest,
@@ -5330,16 +5331,41 @@ async def crypto_ema_crossover(
 ):
     from app.services.crypto_trading_service import CryptoTradingService
 
+    overrides: dict = {
+        "side": payload.side,
+        "take_confidence_threshold": payload.take_confidence_threshold,
+    }
+    if payload.timeframe is not None:
+        overrides["timeframe"] = payload.timeframe
+    if payload.rr_min is not None:
+        overrides["rr_min"] = payload.rr_min
+    if payload.rr_max is not None:
+        overrides["rr_max"] = payload.rr_max
+    if payload.risk_inr is not None:
+        overrides["risk_inr"] = payload.risk_inr
     return await CryptoTradingService(SettingsService(db)).ema_crossover(
         tickers=payload.tickers or None,
-        cfg_overrides={
-            "timeframe": payload.timeframe,
-            "rr_min": payload.rr_min,
-            "rr_max": payload.rr_max,
-            "risk_inr": payload.risk_inr,
-            "side": payload.side,
-            "take_confidence_threshold": payload.take_confidence_threshold,
-        },
+        cfg_overrides=overrides,
+    )
+
+
+@router.post("/crypto-trading/supertrend")
+async def crypto_supertrend(
+    payload: CryptoSupertrendRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.crypto_trading_service import CryptoTradingService
+
+    overrides: dict = {
+        "side": payload.side,
+        "take_confidence_threshold": payload.take_confidence_threshold,
+    }
+    if payload.timeframe is not None:
+        overrides["timeframe"] = payload.timeframe
+    return await CryptoTradingService(SettingsService(db)).supertrend(
+        tickers=payload.tickers or None,
+        cfg_overrides=overrides,
     )
 
 

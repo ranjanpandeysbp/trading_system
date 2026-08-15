@@ -1221,6 +1221,7 @@ export const fetchEtf28SmaGuide = () =>
 export const runEtf28SmaScan = (payload: {
   tickers?: string[]
   preset?: string | null
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
   exchange?: string
   total_capital?: number
   averaging_reserve_pct?: number
@@ -1261,6 +1262,7 @@ export const fetchEtfTopDownGuide = () =>
 export const runEtfTopDownScan = (payload: {
   tickers?: string[]
   preset?: string | null
+  asset_class?: 'india' | 'us' | 'crypto' | 'commodity'
   exchange?: string
   top_n?: number
   renko_box_pct?: number
@@ -2593,13 +2595,17 @@ export const runCryptoAdvanceBbReversal = (payload: {
 
 export const runCryptoEmaCrossover = (payload: {
   tickers?: string[]
-  timeframe?: '30m' | '1h'
-  rr_min?: number
-  rr_max?: number
-  risk_inr?: number
   side?: 'long' | 'short' | 'both'
   take_confidence_threshold?: number
+  timeframe?: '15m' | '30m' | '1h' | '4h'
 } = {}) => api.post('/crypto-trading/ema-crossover', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
+export const runCryptoSupertrend = (payload: {
+  tickers?: string[]
+  side?: 'long' | 'short' | 'both'
+  take_confidence_threshold?: number
+  timeframe?: '15m' | '30m' | '1h' | '4h'
+} = {}) => api.post('/crypto-trading/supertrend', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
 export type ChartCommentaryBar = {
   time?: string
