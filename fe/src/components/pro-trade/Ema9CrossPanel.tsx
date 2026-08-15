@@ -118,10 +118,29 @@ function TickerResultCard({
           ? `↓ cross ${period}EMA`
           : null
 
+  const bbZone = String(result.bb_zone ?? metrics.bb_zone ?? '')
+  const pricePhase = String(result.price_phase ?? metrics.price_phase ?? '')
+  const phaseBadge =
+    pricePhase === 'upward'
+      ? '↑ upward phase'
+      : pricePhase === 'descent'
+        ? '↓ descent phase'
+        : pricePhase === 'sideways'
+          ? '↔ sideways phase'
+          : null
+  const zoneBadge =
+    bbZone === 'lower'
+      ? 'Lower BB'
+      : bbZone === 'upper'
+        ? 'Upper BB'
+        : bbZone === 'mid'
+          ? 'Mid BB'
+          : null
+
   const readingGuide =
     mode === 'crossover'
       ? 'Green = EMA5 · Gold = EMA9 · Grey = BB · Blue mid. Long: EMA5 crosses above EMA9 with price above both + RSI/volume. Short: opposite. T1 mid BB · T2 outer.'
-      : `Gold = ${period} EMA · Grey = BB · Blue mid. Long: close crosses above ${period} EMA with RSI momentum + volume. Short: cross below. T1 mid BB · T2 outer band.`
+      : `Gold = ${period} EMA · Grey = BB · Blue mid. Long: near Lower BB + RSI < 35. Short: Upper BB + RSI > 65. Mid BB = wait. Check last ~1000-bar upward/descent phase. T1 mid · T2 outer.`
 
   return (
     <div className="rounded-xl border border-slate-800/80 bg-slate-900/50">
@@ -150,6 +169,16 @@ function TickerResultCard({
           {result.grade != null && <GradeBadge grade={String(result.grade)} />}
           {result.confidence_pct != null && (
             <span className="text-xs font-medium text-slate-300">{fmtNum(result.confidence_pct, 0)}% conf</span>
+          )}
+          {zoneBadge && (
+            <span className={`text-[11px] ${bbZone === 'lower' ? 'text-emerald-300' : bbZone === 'upper' ? 'text-rose-300' : 'text-slate-400'}`}>
+              {zoneBadge}
+            </span>
+          )}
+          {phaseBadge && (
+            <span className={`text-[11px] ${pricePhase === 'upward' ? 'text-emerald-300' : pricePhase === 'descent' ? 'text-rose-300' : 'text-slate-400'}`}>
+              {phaseBadge}
+            </span>
           )}
           {crossLabel && (
             <span className={`text-[11px] ${String(crossLabel).startsWith('↑') ? 'text-emerald-300' : 'text-rose-300'}`}>

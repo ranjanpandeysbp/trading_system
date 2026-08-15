@@ -2974,24 +2974,26 @@ const EMA_PERIODS = [5, 9, 20, 50, 200] as const
 const EMA_CROSS_HOW_TO = `How to use EMA Cross
 
 1. Pick asset class · one or more tickers · one or more timeframes.
-2. Choose EMA period X (5 · 9 · 20 · 50 · 200).
-3. Choose Above / Below / Both.
-4. Scan — TAKE when price just jumped across EMA X and the candle has already closed on that side.
-5. Optional: require volume expand · include charts · run in background.
-
-Above: prior close ≤ EMA X · latest close > EMA X
-Below: prior close ≥ EMA X · latest close < EMA X`
+2. Choose EMA period X (5 · 9 · 20 · 50 · 200) for structure / stops.
+3. Choose Long only / Short only / Both.
+4. Scan — TAKE when:
+   · Long: price near Lower Bollinger Band AND RSI < 35
+   · Short: price at Upper Bollinger Band AND RSI > 65
+5. Mid Bollinger Band → WAIT.
+6. Every suggestion also reports whether the last ~1000 bars were an upward or descent phase.
+7. Optional: require volume expand · fresh EMA jump · charts · background.`
 
 const EMA_CROSS_LAYMAN = `In plain English
 
-You pick an EMA (for example 9 or 50). The scanner looks for names that have just crossed above that average and already finished a candle above it — or just crossed below and already finished a candle below it. Holding above/below without a fresh jump is only a watch, not a new entry.`
+Look for stretched spots on the bands. Near the lower band with RSI under 35 is a long candidate; stuck on the upper band with RSI over 65 is a short candidate. Sitting on the middle band means wait. Before you take anything, the scan also tells you if the last ~1000 bars were climbing or falling so you know the bigger phase.`
 
 const EMA_CROSS_OVERVIEW = `EMA Cross — strategy matrix
 
-ABOVE / LONG: Just jumped above EMA X + closed candle above · BB room · RSI momentum · volume preferred
-BELOW / SHORT: Just fell below EMA X + closed candle below · BB room · RSI mid-low · volume preferred
-Filters: Bollinger · RSI · optional volume expand
-Output: Conf % · SL % · TP %`
+LONG: Near Lower BB · RSI < 35 · prefer upward 1000-bar phase
+SHORT: At Upper BB · RSI > 65 · prefer descent 1000-bar phase
+WAIT: Price at Middle BB
+EMA X: structure / stop / optional fresh-jump boost
+Output: Conf % · SL % · TP % · phase`
 
 const EMA59_HOW_TO = `How to use 5/9 EMA Cross
 
@@ -3019,11 +3021,11 @@ function EmaCrossPage() {
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
   const [error, setError] = useState('')
-  const [lookback, setLookback] = useState(300)
+  const [lookback, setLookback] = useState(1100)
   const [emaPeriod, setEmaPeriod] = useState<(typeof EMA_PERIODS)[number]>(9)
   const [moveSide, setMoveSide] = useState<'above' | 'below' | 'both'>('both')
   const [requireVol, setRequireVol] = useState(false)
-  const [freshCrossOnly, setFreshCrossOnly] = useState(true)
+  const [freshCrossOnly, setFreshCrossOnly] = useState(false)
   const [showCharts, setShowCharts] = useState(true)
   const { useAi, setUseAi } = useTradeSetupAi()
   const bg = useAnalysisBackground('pro_trade', 'ema_cross')
@@ -3034,7 +3036,7 @@ function EmaCrossPage() {
     tickers: picker.tickers,
     asset_class: assetClass,
     timeframes: picker.durations.length ? picker.durations : ['15m'],
-    lookback_bars: Math.max(lookback, emaPeriod * 3 + 40),
+    lookback_bars: Math.max(lookback, 1040, emaPeriod * 3 + 40),
     ema_period: emaPeriod,
     require_volume_expand: requireVol,
     require_fresh_cross: freshCrossOnly,
@@ -3060,7 +3062,7 @@ function EmaCrossPage() {
     <div>
       <PageHeader
         title="EMA Cross"
-        description={`Just jumped above/below EMA ${emaPeriod} with a closed candle on that side · multi-ticker · multi-TF · Conf% / SL% / TP%`}
+        description={`Lower BB + RSI<35 long · Upper BB + RSI>65 short · mid BB wait · last ~1000 bars phase · EMA ${emaPeriod} structure · Conf%/SL%/TP%`}
       />
 
       <div className="mb-4 space-y-2">
@@ -3119,21 +3121,21 @@ function EmaCrossPage() {
         <div className="mt-3">
           <p className="mb-2 text-xs font-medium text-slate-400">Side</p>
           <div className="flex flex-wrap gap-2">
-            <Chip selected={moveSide === 'both'} onClick={() => setMoveSide('both')}>Above & below</Chip>
-            <Chip selected={moveSide === 'above'} onClick={() => setMoveSide('above')}>Jumped above only</Chip>
-            <Chip selected={moveSide === 'below'} onClick={() => setMoveSide('below')}>Fell below only</Chip>
+            <Chip selected={moveSide === 'both'} onClick={() => setMoveSide('both')}>Long & short</Chip>
+            <Chip selected={moveSide === 'above'} onClick={() => setMoveSide('above')}>Long only (Lower BB)</Chip>
+            <Chip selected={moveSide === 'below'} onClick={() => setMoveSide('below')}>Short only (Upper BB)</Chip>
           </div>
         </div>
 
         <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
-          <FormField label="History (bars)">
-            <Input type="number" min={80} max={2000} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          <FormField label="History (bars, ≥1040 for 1000-bar phase)">
+            <Input type="number" min={80} max={2500} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 1100)} />
           </FormField>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Fresh jump only</Chip>
-          <Chip selected={!freshCrossOnly} onClick={() => setFreshCrossOnly(false)}>Allow hold above/below</Chip>
+          <Chip selected={freshCrossOnly} onClick={() => setFreshCrossOnly(true)}>Require fresh EMA jump</Chip>
+          <Chip selected={!freshCrossOnly} onClick={() => setFreshCrossOnly(false)}>BB/RSI only (EMA optional)</Chip>
           <Chip selected={requireVol} onClick={() => setRequireVol(true)}>Require volume expand</Chip>
           <Chip selected={!requireVol} onClick={() => setRequireVol(false)}>Volume optional</Chip>
         </div>
@@ -3170,7 +3172,7 @@ function EmaCrossPage() {
       <AnalysisBackgroundJobsAndReports bg={bg} />
 
       {runMut.isPending && !bg.viewedPayload && (
-        <Loading message={`Checking EMA ${emaPeriod} jump · closed candle · BB · RSI · volume…`} />
+        <Loading message={`Checking Lower/Upper BB · RSI · 1000-bar phase · EMA ${emaPeriod}…`} />
       )}
 
       {data && (!runMut.isPending || bg.viewedPayload) && (

@@ -2758,20 +2758,21 @@ Outputs **% confidence**, **%SL**, **%TP**. Also available in the Backtester.
 """,
 
     "ema_cross": """
-### EMA Cross — EMA X · Bollinger · RSI · Volume
+### EMA Cross — EMA X · Bollinger · RSI · 1000-bar phase
 
-Find tickers that **just jumped above** (or **fell below**) EMA **X** (5 / 9 / 20 / 50 / 200) and have **already closed one candle** on that side.
+Eligibility is **BB + RSI**. EMA X is for structure / stops.
 
 | Side | Setup |
 |------|--------|
-| **ABOVE / LONG** | Prior close ≤ EMA X · latest close **>** EMA X · RSI mid-bull · prefer vol > MA20 · room under Upper BB |
-| **BELOW / SHORT** | Prior close ≥ EMA X · latest close **<** EMA X · RSI mid-bear · prefer vol > MA20 · room above Lower BB |
+| **LONG** | Price **near Lower BB** · RSI **< 35** · prefer **upward** last-~1000-bar phase |
+| **SHORT** | Price **at Upper BB** · RSI **> 65** · prefer **descent** last-~1000-bar phase |
+| **WAIT** | Price **at Middle BB** |
 
-Holding above/below without a fresh jump → **WATCH** only (unless “allow hold” is on). Filter by Above / Below / Both in the UI.
+Every suggestion reports whether the last ~1000 bars were upward or in descent.
 
-**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA X (ATR-sane). Outputs **% confidence**, **%SL**, **%TP**.
+**Targets:** T1 = mid BB · T2 = outer band. **SL** beyond swing / EMA X (ATR-sane).
 
-**When to use:** Fresh closed-candle break of a chosen EMA across one or more tickers and timeframes.
+**When to use:** Outer-band extremes with RSI confirmation across one or more tickers and timeframes.
 """,
 
     "ema9_bb_rsi_vol": """

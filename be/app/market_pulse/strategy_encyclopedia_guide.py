@@ -188,7 +188,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("fibonacci_pro", "Fibonacci Pro — golden-zone pullback · multi-strategy Fib"),
         ("bb_mean_reversion", "BB Mean Reversion — %B stretch · squeeze · S/R confluence"),
         ("bb_rsi_vol", "BB-RSI-VOL — Lower BB+RSI≤35+low vol Buy · Upper+RSI≥70+high vol Sell"),
-        ("ema_cross", "EMA Cross — just jumped above/below EMA X (5/9/20/50/200) + closed candle · BB/RSI/Vol"),
+        ("ema_cross", "EMA Cross — Lower BB+RSI<35 long · Upper BB+RSI>65 short · mid wait · 1000-bar phase"),
         ("ema9_bb_rsi_vol", "EMA Cross (legacy) — same as ema_cross"),
         ("ema5_bb_rsi_vol", "EMA Cross (legacy 5) — same as ema_cross"),
         ("ema5_9_crossover", "5/9 EMA Cross — EMA5×EMA9 crossover · price confirm · BB/RSI/Vol"),
@@ -906,13 +906,13 @@ Also available on the **Dashboard**.
 **When to use:** Fade Lower BB with RSI≤35 + low volume at Support (buy) or Upper BB with RSI≥70 + high volume at Resistance (sell); confirm with 9 EMA close; skip steep 50 EMA trends.
 """,
     "ema_cross": """
-**When to use:** Scan one or more tickers/TFs for a fresh jump above or below EMA X (5/9/20/50/200) with the candle already closed on that side; BB room + RSI + volume confirm.
+**When to use:** Long near Lower BB with RSI<35; short at Upper BB with RSI>65; wait on mid BB; always review the last ~1000-bar upward/descent phase.
 """,
     "ema9_bb_rsi_vol": """
-**When to use:** Same as EMA Cross — just jumped above/below EMA X with a closed candle; pick period in the UI.
+**When to use:** Same as EMA Cross — Lower BB+RSI<35 / Upper BB+RSI>65 / mid wait + 1000-bar phase.
 """,
     "ema5_bb_rsi_vol": """
-**When to use:** Legacy route into EMA Cross (defaults toward EMA 5); prefer the unified EMA Cross screen.
+**When to use:** Legacy route into EMA Cross; prefer the unified EMA Cross screen.
 """,
     "ema5_9_crossover": """
 **When to use:** Trade a fresh EMA5/EMA9 crossover with close confirming both EMAs, Bollinger room, RSI zone, and volume; invalidate on opposite re-cross.

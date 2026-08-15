@@ -798,8 +798,9 @@ class ProTradeService:
             k: v for k, v in ov.items()
             if k in {
                 "timeframe", "lookback_bars", "ema_period", "bb_period", "bb_std",
-                "rsi_period", "rsi_long_min", "rsi_long_max", "rsi_short_min", "rsi_short_max",
-                "rsi_long_block", "rsi_short_block", "vol_ma_period", "min_rr", "sl_atr_mult",
+                "rsi_period", "rsi_long_max", "rsi_short_min",
+                "bb_lower_pct_b", "bb_upper_pct_b", "bb_mid_lo", "bb_mid_hi",
+                "phase_lookback_bars", "vol_ma_period", "min_rr", "sl_atr_mult",
                 "take_confidence_threshold", "min_bars", "chart_bars",
                 "require_volume_expand", "require_fresh_cross", "move_side",
             }
