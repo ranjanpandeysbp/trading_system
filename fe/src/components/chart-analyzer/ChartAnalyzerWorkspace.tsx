@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
   ChartCandlestick,
   History,
@@ -186,7 +187,23 @@ function saveRecent(item: RecentItem) {
   localStorage.setItem(RECENT_KEY, JSON.stringify([{ ...item, at: Date.now() }, ...prev].slice(0, 12)))
 }
 
+const ASSET_CLASS_IDS = new Set<string>(ASSET_CLASSES.map((a) => a.id))
+const TIMEFRAME_IDS = new Set<string>(TIMEFRAMES.map((t) => t.id))
+
+/** Map common aliases (e.g. watchlist `1d`) onto Chart Analyzer timeframe ids. */
+function normalizeTfParam(raw: string | null): TimeframeId | null {
+  if (!raw) return null
+  const v = raw.trim()
+  if (TIMEFRAME_IDS.has(v)) return v as TimeframeId
+  const lower = v.toLowerCase()
+  if (lower === '1d' || lower === 'd' || lower === 'daily') return '1D'
+  if (lower === '1w' || lower === 'w' || lower === 'weekly') return '5D'
+  if (lower === '4h') return '1h'
+  return null
+}
+
 export function ChartAnalyzerWorkspace() {
+  const [searchParams] = useSearchParams()
   const [assetClass, setAssetClass] = useState<AssetClass>('india')
   const [ticker, setTicker] = useState('')
   const [tfId, setTfId] = useState<TimeframeId>('15m')
@@ -211,6 +228,19 @@ export function ChartAnalyzerWorkspace() {
   useEffect(() => {
     return () => setImmersive(false)
   }, [setImmersive])
+
+  // Deep-link from Watchlist / other pages: /chart-analyzer?ticker=RELIANCE&assetClass=india&tf=15m
+  useEffect(() => {
+    const t = (searchParams.get('ticker') || searchParams.get('symbol') || '').trim()
+    const acRaw = (searchParams.get('assetClass') || searchParams.get('asset') || '').trim().toLowerCase()
+    const tf = normalizeTfParam(searchParams.get('tf') || searchParams.get('timeframe'))
+    if (acRaw && ASSET_CLASS_IDS.has(acRaw)) setAssetClass(acRaw as AssetClass)
+    if (tf) setTfId(tf)
+    if (t) {
+      setTicker(t.toUpperCase())
+      setError('')
+    }
+  }, [searchParams])
 
   const tf = TIMEFRAMES.find((t) => t.id === tfId) ?? TIMEFRAMES[2]
   const mode = tf.mode

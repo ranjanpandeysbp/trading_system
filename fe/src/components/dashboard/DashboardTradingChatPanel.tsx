@@ -14,6 +14,7 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { FormField, Select, Textarea } from '../ui/Form'
 import { Alert, Loading } from '../ui/Feedback'
+import { DataTable, SortableTh, Td, useSort } from '../ui/Table'
 
 type Row = Record<string, unknown>
 
@@ -225,6 +226,112 @@ function assistantFromData(data: Row, q: string): ChatMsg {
   }
 }
 
+function SortableRankingTable({ ranking }: { ranking: Row[] }) {
+  const accessors = useMemo(
+    () => ({
+      rank: (r: Row) => Number(r.rank) || 0,
+      strategy: (r: Row) => String(r.strategy_label ?? r.strategy_id ?? ''),
+      score: (r: Row) => (r.avg_rank_score != null ? Number(r.avg_rank_score) : null),
+      ret: (r: Row) => (r.avg_return_pct != null ? Number(r.avg_return_pct) : null),
+      win: (r: Row) => (r.avg_win_rate_pct != null ? Number(r.avg_win_rate_pct) : null),
+      sharpe: (r: Row) => (r.avg_sharpe != null ? Number(r.avg_sharpe) : null),
+      trades: (r: Row) => (r.num_trades != null ? Number(r.num_trades) : null),
+    }),
+    [],
+  )
+  const { sorted, sortKey, sortDir, handleSort } = useSort(ranking, accessors, 'rank')
+
+  return (
+    <div className="mt-3">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-violet-300/90">
+        Strategy ranking (backtest)
+      </p>
+      <DataTable minWidth={560} title="ta-strategy-ranking">
+        <thead>
+          <tr>
+            <SortableTh active={sortKey === 'rank'} direction={sortDir} onSort={() => handleSort('rank')}>#</SortableTh>
+            <SortableTh active={sortKey === 'strategy'} direction={sortDir} onSort={() => handleSort('strategy')}>Strategy</SortableTh>
+            <SortableTh active={sortKey === 'score'} direction={sortDir} onSort={() => handleSort('score')}>Score</SortableTh>
+            <SortableTh active={sortKey === 'ret'} direction={sortDir} onSort={() => handleSort('ret')}>Ret%</SortableTh>
+            <SortableTh active={sortKey === 'win'} direction={sortDir} onSort={() => handleSort('win')}>Win%</SortableTh>
+            <SortableTh active={sortKey === 'sharpe'} direction={sortDir} onSort={() => handleSort('sharpe')}>Sharpe</SortableTh>
+            <SortableTh active={sortKey === 'trades'} direction={sortDir} onSort={() => handleSort('trades')}>Trades</SortableTh>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr key={`${r.rank}-${r.strategy_id}`}>
+              <Td className="tabular-nums text-slate-500">{String(r.rank ?? '')}</Td>
+              <Td className="font-medium text-white">{String(r.strategy_label ?? r.strategy_id)}</Td>
+              <Td className="tabular-nums">{r.avg_rank_score != null ? Number(r.avg_rank_score).toFixed(2) : '—'}</Td>
+              <Td className="tabular-nums">{r.avg_return_pct != null ? `${r.avg_return_pct}%` : '—'}</Td>
+              <Td className="tabular-nums">{r.avg_win_rate_pct != null ? `${r.avg_win_rate_pct}%` : '—'}</Td>
+              <Td className="tabular-nums">{r.avg_sharpe != null ? String(r.avg_sharpe) : '—'}</Td>
+              <Td className="tabular-nums">{String(r.num_trades ?? '—')}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </div>
+  )
+}
+
+function SortablePicksTable({ picks }: { picks: Row[] }) {
+  const accessors = useMemo(
+    () => ({
+      rank: (p: Row) => Number(p.rank) || 0,
+      ticker: (p: Row) => String(p.ticker ?? ''),
+      action: (p: Row) => String(p.action ?? ''),
+      side: (p: Row) => String(p.side ?? ''),
+      conf: (p: Row) => (p.confidence_pct != null ? Number(p.confidence_pct) : null),
+      sl: (p: Row) => (p.sl_pct != null ? Number(p.sl_pct) : null),
+      tp: (p: Row) => (p.tp_pct != null ? Number(p.tp_pct) : null),
+      strategy: (p: Row) => String(p.strategy_label ?? p.strategy_id ?? ''),
+      reason: (p: Row) => String(p.reason ?? ''),
+    }),
+    [],
+  )
+  const { sorted, sortKey, sortDir, handleSort } = useSort(picks, accessors, 'rank')
+
+  return (
+    <div className="mt-3">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300/80">
+        Live picks
+      </p>
+      <DataTable minWidth={720} title="ta-live-picks">
+        <thead>
+          <tr>
+            <SortableTh active={sortKey === 'rank'} direction={sortDir} onSort={() => handleSort('rank')}>#</SortableTh>
+            <SortableTh active={sortKey === 'ticker'} direction={sortDir} onSort={() => handleSort('ticker')}>Ticker</SortableTh>
+            <SortableTh active={sortKey === 'action'} direction={sortDir} onSort={() => handleSort('action')}>Action</SortableTh>
+            <SortableTh active={sortKey === 'side'} direction={sortDir} onSort={() => handleSort('side')}>Side</SortableTh>
+            <SortableTh active={sortKey === 'conf'} direction={sortDir} onSort={() => handleSort('conf')}>Conf%</SortableTh>
+            <SortableTh active={sortKey === 'sl'} direction={sortDir} onSort={() => handleSort('sl')}>SL%</SortableTh>
+            <SortableTh active={sortKey === 'tp'} direction={sortDir} onSort={() => handleSort('tp')}>TP%</SortableTh>
+            <SortableTh active={sortKey === 'strategy'} direction={sortDir} onSort={() => handleSort('strategy')}>Strategy</SortableTh>
+            <SortableTh active={sortKey === 'reason'} direction={sortDir} onSort={() => handleSort('reason')}>Reason</SortableTh>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((p) => (
+            <tr key={`${p.rank}-${p.ticker}-${p.strategy_id ?? ''}`}>
+              <Td className="tabular-nums text-slate-500">{String(p.rank ?? '')}</Td>
+              <Td className="font-semibold text-white">{String(p.ticker ?? '')}</Td>
+              <Td><Badge action={String(p.action ?? 'WAIT')} /></Td>
+              <Td className={`font-medium ${actionTone(String(p.side ?? ''))}`}>{String(p.side ?? 'WAIT')}</Td>
+              <Td className="tabular-nums">{p.confidence_pct != null ? `${Math.round(Number(p.confidence_pct))}%` : '—'}</Td>
+              <Td className="tabular-nums">{p.sl_pct != null ? `${Number(p.sl_pct)}%` : '—'}</Td>
+              <Td className="tabular-nums">{p.tp_pct != null ? `${Number(p.tp_pct)}%` : '—'}</Td>
+              <Td className="text-slate-400">{String(p.strategy_label ?? p.strategy_id ?? 'BB')}</Td>
+              <Td className="whitespace-normal text-slate-400">{String(p.reason ?? '').slice(0, 120)}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </div>
+  )
+}
+
 export function DashboardTradingChatPanel() {
   const [message, setMessage] = useState('')
   const [assetClass, setAssetClass] = useState('')
@@ -242,6 +349,7 @@ export function DashboardTradingChatPanel() {
   const aiCfg = useQuery({ queryKey: ['ai-config'], queryFn: fetchAIConfig })
   const lastOpenedReportRef = useRef<number | null>(null)
   const lastResultRef = useRef<Row | null>(null)
+  const [hasSavableResult, setHasSavableResult] = useState(false)
 
   const chatPayload = (q: string) => {
     const explain = looksLikeExplainFollowup(q) && lastResultRef.current != null
@@ -261,6 +369,7 @@ export function DashboardTradingChatPanel() {
       const row = data as Row
       if (!row.explain_only && String(row.mode || '') !== 'explain') {
         lastResultRef.current = row
+        setHasSavableResult(true)
       }
       setMessages((prev) => [...prev, { role: 'user', text: q }, assistantFromData(row, q)])
       setMessage('')
@@ -283,6 +392,7 @@ export function DashboardTradingChatPanel() {
     if (!payload || rid == null || lastOpenedReportRef.current === rid) return
     lastOpenedReportRef.current = rid
     lastResultRef.current = payload
+    setHasSavableResult(true)
     const q = String(
       payload.intent && (payload.intent as Row).raw_message
         ? (payload.intent as Row).raw_message
@@ -429,7 +539,19 @@ export function DashboardTradingChatPanel() {
 
       <AnalysisBackgroundControls
         bg={bg}
-        placeholder={`Trading Agent · ${new Date().toLocaleDateString()}`}
+        placeholder={`Technical Agent · ${new Date().toLocaleDateString()}`}
+        canSave={hasSavableResult}
+        saveLabel="Save output"
+        onSave={() => {
+          const row = lastResultRef.current
+          if (!row) return
+          const q = String(
+            (row.intent as Row | undefined)?.raw_message
+              || message.trim()
+              || 'Trading Agent result',
+          )
+          bg.saveOutput(row as Record<string, unknown>, `TA · ${q.slice(0, 60)}`)
+        }}
         onStart={() => {
           const q = message.trim()
           if (!q) {
@@ -456,39 +578,7 @@ export function DashboardTradingChatPanel() {
             </p>
             <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">{m.text}</pre>
 
-            {m.ranking && m.ranking.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-violet-300/90">
-                  Strategy ranking (backtest)
-                </p>
-                <table className="w-full min-w-[560px] text-left text-[11px]">
-                  <thead className="text-slate-500">
-                    <tr>
-                      <th className="py-1 pr-2">#</th>
-                      <th className="py-1 pr-2">Strategy</th>
-                      <th className="py-1 pr-2">Score</th>
-                      <th className="py-1 pr-2">Ret%</th>
-                      <th className="py-1 pr-2">Win%</th>
-                      <th className="py-1 pr-2">Sharpe</th>
-                      <th className="py-1">Trades</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {m.ranking.map((r) => (
-                      <tr key={`${r.rank}-${r.strategy_id}`} className="border-t border-slate-800/60">
-                        <td className="py-1.5 pr-2 tabular-nums text-slate-500">{String(r.rank ?? '')}</td>
-                        <td className="py-1.5 pr-2 font-medium text-white">{String(r.strategy_label ?? r.strategy_id)}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_rank_score != null ? Number(r.avg_rank_score).toFixed(2) : '—'}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_return_pct != null ? `${r.avg_return_pct}%` : '—'}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_win_rate_pct != null ? `${r.avg_win_rate_pct}%` : '—'}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{r.avg_sharpe != null ? String(r.avg_sharpe) : '—'}</td>
-                        <td className="py-1.5 tabular-nums">{String(r.num_trades ?? '—')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {m.ranking && m.ranking.length > 0 && <SortableRankingTable ranking={m.ranking} />}
 
             {m.selected && m.selected.length > 0 && (
               <div className="mt-3 space-y-2">
@@ -525,55 +615,7 @@ export function DashboardTradingChatPanel() {
               </div>
             )}
 
-            {m.picks && m.picks.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300/80">
-                  Live picks
-                </p>
-                <table className="w-full min-w-[720px] text-left text-[11px]">
-                  <thead className="text-slate-500">
-                    <tr>
-                      <th className="py-1 pr-2">#</th>
-                      <th className="py-1 pr-2">Ticker</th>
-                      <th className="py-1 pr-2">Action</th>
-                      <th className="py-1 pr-2">Side</th>
-                      <th className="py-1 pr-2">Conf%</th>
-                      <th className="py-1 pr-2">SL%</th>
-                      <th className="py-1 pr-2">TP%</th>
-                      <th className="py-1 pr-2">Strategy</th>
-                      <th className="py-1">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {m.picks.map((p) => (
-                      <tr key={`${p.rank}-${p.ticker}-${p.strategy_id ?? ''}`} className="border-t border-slate-800/60">
-                        <td className="py-1.5 pr-2 tabular-nums text-slate-500">{String(p.rank ?? '')}</td>
-                        <td className="py-1.5 pr-2 font-semibold text-white">{String(p.ticker ?? '')}</td>
-                        <td className="py-1.5 pr-2">
-                          <Badge action={String(p.action ?? 'WAIT')} />
-                        </td>
-                        <td className={`py-1.5 pr-2 font-medium ${actionTone(String(p.side ?? ''))}`}>
-                          {String(p.side ?? 'WAIT')}
-                        </td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {p.confidence_pct != null ? `${Math.round(Number(p.confidence_pct))}%` : '—'}
-                        </td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {p.sl_pct != null ? `${Number(p.sl_pct)}%` : '—'}
-                        </td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {p.tp_pct != null ? `${Number(p.tp_pct)}%` : '—'}
-                        </td>
-                        <td className="py-1.5 pr-2 text-slate-400">
-                          {String(p.strategy_label ?? p.strategy_id ?? 'BB')}
-                        </td>
-                        <td className="py-1.5 text-slate-400">{String(p.reason ?? '').slice(0, 120)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {m.picks && m.picks.length > 0 && <SortablePicksTable picks={m.picks} />}
 
             {m.ai && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">

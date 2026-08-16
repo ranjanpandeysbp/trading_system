@@ -589,7 +589,7 @@ export default function ManageSettings() {
           </FormField>
 
           <FormField
-            label={`Investing Agent Token (SuperInvesting) ${settings?.superinvesting_token_set ? '(saved — enter new to replace)' : ''}`}
+            label={`Fundamental Analyst Token ${settings?.superinvesting_token_set ? '(saved — enter new to replace)' : ''}`}
           >
             <Input
               type="password"
@@ -657,7 +657,7 @@ export default function ManageSettings() {
             </>
           ) : aiProvider === 'Investing Agent' ? (
             <p className="mb-4 rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs text-slate-400">
-              Investing Agent uses SuperInvesting chat (screener + research tools). No model picker.
+              Investing Agent uses Fundamental Analyst chat (screener + research tools). No model picker.
               Token is shared with the Investing Agent page. Ask AI may take 1–2 minutes. JWT expires ~every 3 days.
             </p>
           ) : (

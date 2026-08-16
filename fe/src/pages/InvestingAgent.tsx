@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Bot, Loader2, Search, Send, Sparkles } from 'lucide-react'
 import {
@@ -8,12 +8,18 @@ import {
   streamInvestingAgentChat,
   type InvestingAgentStreamEvent,
 } from '../api/client'
+import {
+  AnalysisBackgroundControls,
+  AnalysisBackgroundJobsAndReports,
+  useAnalysisBackground,
+} from '../components/analysis/AnalysisBackground'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { FormField, Textarea } from '../components/ui/Form'
 import { TickerAutosuggest } from '../components/ui/TickerAutosuggest'
 import { Alert, Loading } from '../components/ui/Feedback'
+import { DataTable, SortableTh, Td, useSort } from '../components/ui/Table'
 import { StockScorecardView, type StockCardData } from '../components/ai/InvestingAgentStockCard'
 
 const QUICK_PROMPTS = [
@@ -43,7 +49,7 @@ type ParsedBlock =
   | { type: 'p'; text: string }
   | { type: 'hr' }
 
-/** Parse SuperInvesting + markdown answer into structured blocks. */
+/** Parse Fundamental Analyst + markdown answer into structured blocks. */
 function parseAgentAnswer(raw: string): ParsedBlock[] {
   let text = raw.replace(/\r\n/g, '\n').trim()
 
@@ -121,7 +127,7 @@ function parseAgentAnswer(raw: string): ParsedBlock[] {
       continue
     }
 
-    // Plain title lines (SuperInvesting often omits #)
+    // Plain title lines (Fundamental Analyst often omits #)
     const nextNonEmpty = (() => {
       for (let j = i + 1; j < lines.length; j++) {
         if (lines[j].trim()) return lines[j].trim()
@@ -203,6 +209,52 @@ function parseAgentAnswer(raw: string): ParsedBlock[] {
   return blocks
 }
 
+function SortableMarkdownTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  const accessors = useMemo(() => {
+    const map: Record<string, (row: string[]) => string | number | null | undefined> = {}
+    headers.forEach((_, i) => {
+      map[`c${i}`] = (row) => {
+        const raw = (row[i] ?? '').replace(/<[^>]+>/g, '').trim()
+        const n = Number(raw.replace(/[%$,]/g, ''))
+        return Number.isFinite(n) && raw.replace(/[%$,]/g, '') !== '' ? n : raw
+      }
+    })
+    return map
+  }, [headers])
+
+  const { sorted, sortKey, sortDir, handleSort } = useSort(rows, accessors)
+
+  return (
+    <DataTable minWidth={480} title="fundamental-analyst-table">
+      <thead>
+        <tr>
+          {headers.map((h, hi) => (
+            <SortableTh
+              key={hi}
+              active={sortKey === `c${hi}`}
+              direction={sortDir}
+              onSort={() => handleSort(`c${hi}`)}
+            >
+              <span dangerouslySetInnerHTML={{ __html: inlineFormat(h) }} />
+            </SortableTh>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((row, ri) => (
+          <tr key={ri} className="odd:bg-slate-900/40 even:bg-slate-950/30">
+            {row.map((cell, ci) => (
+              <Td key={ci} className="whitespace-normal align-top">
+                <span dangerouslySetInnerHTML={{ __html: inlineFormat(cell) }} />
+              </Td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </DataTable>
+  )
+}
+
 function AgentAnswerView({ markdown }: { markdown: string }) {
   const blocks = parseAgentAnswer(markdown)
 
@@ -246,36 +298,7 @@ function AgentAnswerView({ markdown }: { markdown: string }) {
           )
         }
         if (b.type === 'table') {
-          return (
-            <div key={idx} className="overflow-x-auto rounded-xl border border-slate-700/60">
-              <table className="min-w-full border-collapse text-left text-xs sm:text-sm">
-                <thead>
-                  <tr className="border-b border-slate-700/80 bg-slate-800/60">
-                    {b.headers.map((h, hi) => (
-                      <th
-                        key={hi}
-                        className="whitespace-nowrap px-3 py-2.5 font-semibold text-slate-300"
-                        dangerouslySetInnerHTML={{ __html: inlineFormat(h) }}
-                      />
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {b.rows.map((row, ri) => (
-                    <tr key={ri} className="border-b border-slate-800/80 odd:bg-slate-900/40 even:bg-slate-950/30">
-                      {row.map((cell, ci) => (
-                        <td
-                          key={ci}
-                          className="px-3 py-2 align-top text-slate-300"
-                          dangerouslySetInnerHTML={{ __html: inlineFormat(cell) }}
-                        />
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+          return <SortableMarkdownTable key={idx} headers={b.headers} rows={b.rows} />
         }
         if (b.type === 'ul') {
           return (
@@ -312,6 +335,7 @@ export default function InvestingAgent() {
     queryFn: fetchInvestingAgentStatus,
   })
 
+  const bg = useAnalysisBackground('investing_agent', 'chat')
   const [prompt, setPrompt] = useState('nifty analysis')
   const [statusLine, setStatusLine] = useState('')
   const [liveText, setLiveText] = useState('')
@@ -327,6 +351,7 @@ export default function InvestingAgent() {
   const [stockError, setStockError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const answerRef = useRef<HTMLDivElement>(null)
+  const lastOpenedReportRef = useRef<number | null>(null)
 
   const tokenSet = Boolean(status?.token_set)
 
@@ -335,6 +360,22 @@ export default function InvestingAgent() {
       answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [answer, liveText])
+
+  // Open a saved / background report into the answer pane
+  useEffect(() => {
+    const payload = bg.viewedPayload as Record<string, unknown> | undefined
+    const rid = bg.viewedReportId
+    if (!payload || rid == null || lastOpenedReportRef.current === rid) return
+    lastOpenedReportRef.current = rid
+    setAnswer(String(payload.answer || ''))
+    setPrompt(String(payload.message || prompt))
+    setConversationId(payload.conversation_id != null ? String(payload.conversation_id) : null)
+    setTools(Array.isArray(payload.tools) ? payload.tools.map(String) : [])
+    setReasoning(String(payload.reasoning || ''))
+    setLiveText('')
+    setStatusLine('Loaded saved report')
+    setError('')
+  }, [bg.viewedReportId, bg.viewedPayload, prompt])
 
   const stockMut = useMutation({
     mutationFn: (symbol: string) => fetchInvestingAgentStockCard(symbol),
@@ -387,9 +428,17 @@ export default function InvestingAgent() {
     }
   }
 
+  const chatPayload = (message: string) => ({ message })
+
   const runChat = async () => {
     const message = prompt.trim()
-    if (!message || !tokenSet || streaming) return
+    if (!message || !tokenSet || streaming || bg.startPending) return
+
+    if (bg.runInBackground) {
+      bg.startBackground(chatPayload(message), () => (message ? null : 'Enter a prompt'))
+      return
+    }
+
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
@@ -401,6 +450,8 @@ export default function InvestingAgent() {
     setTools([])
     setConversationId(null)
     setStatusLine('Starting…')
+    bg.setViewedReportId(null)
+    lastOpenedReportRef.current = null
     try {
       await streamInvestingAgentChat(message, handleStreamEvent, ac.signal)
     } catch (e) {
@@ -419,18 +470,19 @@ export default function InvestingAgent() {
   }
 
   const displayMd = answer || liveText
+  const canSave = Boolean(answer.trim())
 
   return (
     <div>
       <PageHeader
         title="Investing Agent"
-        description="Chat with SuperInvesting for index narratives (e.g. nifty analysis) and stock scorecards. Token is configured under Manage."
+        description="Fundamental Analyst chat for index narratives (e.g. nifty analysis) and stock scorecards. Token is configured under Manage."
       />
 
       {!tokenSet && !statusLoading && (
         <div className="mb-4">
           <Alert type="error">
-            Investing Agent token is not set. Add it under Manage → AI Settings.
+            Fundamental Analyst token is not set. Add it under Manage → AI Settings.
           </Alert>
         </div>
       )}
@@ -445,7 +497,7 @@ export default function InvestingAgent() {
           <Card>
             <div className="mb-4 flex items-center gap-2">
               <Bot className="text-sky-400" size={20} />
-              <h3 className="font-semibold text-white">Chat analysis</h3>
+              <h3 className="font-semibold text-white">Fundamental Analyst</h3>
               <span className="text-xs text-slate-500">Index questions use chat — not stock card</span>
             </div>
 
@@ -454,7 +506,7 @@ export default function InvestingAgent() {
                 <button
                   key={q}
                   type="button"
-                  disabled={streaming}
+                  disabled={streaming || bg.startPending}
                   onClick={() => setPrompt(q)}
                   className="rounded-lg border border-slate-700/70 bg-slate-800/40 px-2.5 py-1 text-xs text-slate-300 transition hover:border-sky-500/40 hover:text-sky-300 disabled:opacity-50"
                 >
@@ -469,14 +521,59 @@ export default function InvestingAgent() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="nifty analysis"
-                disabled={streaming}
+                disabled={streaming || bg.startPending}
               />
             </FormField>
 
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void runChat()} disabled={!tokenSet || !prompt.trim() || streaming}>
-                {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                {streaming ? 'Analyzing…' : 'Ask Investing Agent'}
+            <AnalysisBackgroundControls
+              bg={bg}
+              placeholder={`Fundamental Analyst · ${new Date().toLocaleDateString()}`}
+              canSave={canSave}
+              saveLabel="Save output"
+              onSave={() =>
+                bg.saveOutput(
+                  {
+                    message: prompt.trim(),
+                    answer,
+                    conversation_id: conversationId,
+                    tools,
+                    reasoning,
+                  },
+                  `FA · ${prompt.trim().slice(0, 60) || 'analysis'}`,
+                )
+              }
+              onStart={() => {
+                const message = prompt.trim()
+                if (!message) {
+                  bg.startBackground(chatPayload(''), () => 'Enter a prompt first')
+                  return
+                }
+                void runChat()
+              }}
+            />
+            <AnalysisBackgroundJobsAndReports bg={bg} />
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                onClick={() => void runChat()}
+                disabled={
+                  !tokenSet
+                  || !prompt.trim()
+                  || streaming
+                  || bg.startPending
+                  || (bg.runInBackground && !bg.bgReportName.trim())
+                }
+              >
+                {streaming || bg.startPending ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Send size={16} />
+                )}
+                {bg.runInBackground
+                  ? 'Start background'
+                  : streaming
+                    ? 'Analyzing…'
+                    : 'Ask Fundamental Analyst'}
               </Button>
               {streaming && (
                 <Button variant="secondary" onClick={stopChat}>

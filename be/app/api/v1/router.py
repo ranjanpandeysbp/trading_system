@@ -536,7 +536,7 @@ async def investing_agent_chat(
     payload: InvestingAgentChatRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Stream SuperInvesting analysis (SSE). Index questions like 'nifty analysis' use chat, not stock card."""
+    """Stream Fundamental Analyst analysis (SSE). Index questions like 'nifty analysis' use chat, not stock card."""
     from app.core.database import AsyncSessionLocal
     from app.services.superinvesting_service import run_analysis_stream
 
@@ -546,7 +546,7 @@ async def investing_agent_chat(
     if not token:
         raise HTTPException(
             status_code=400,
-            detail="Save a SuperInvesting Bearer token at the top of Investing Agent first.",
+            detail="Save a Fundamental Analyst Bearer token under Manage → AI Settings first.",
         )
     message = payload.message.strip()
     return StreamingResponse(
@@ -571,7 +571,7 @@ async def investing_agent_stock_card(
     settings = SettingsService(db)
     token = await settings.get_superinvesting_token()
     if not token:
-        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+        raise HTTPException(status_code=400, detail="Save a Fundamental Analyst Bearer token first.")
     try:
         return await SuperInvestingService(token).stock_card(symbol.strip())
     except SuperInvestingError as exc:
@@ -589,7 +589,7 @@ async def investing_agent_stock_detail(
     settings = SettingsService(db)
     token = await settings.get_superinvesting_token()
     if not token:
-        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+        raise HTTPException(status_code=400, detail="Save a Fundamental Analyst Bearer token first.")
     try:
         return await SuperInvestingService(token).stock_detail(payload.symbol.strip())
     except SuperInvestingError as exc:
@@ -609,7 +609,7 @@ async def investing_agent_search(
     settings = SettingsService(db)
     token = await settings.get_superinvesting_token()
     if not token:
-        raise HTTPException(status_code=400, detail="Save a SuperInvesting Bearer token first.")
+        raise HTTPException(status_code=400, detail="Save a Fundamental Analyst Bearer token first.")
     try:
         return await SuperInvestingService(token).stock_search(query.strip(), page=page, limit=limit)
     except SuperInvestingError as exc:

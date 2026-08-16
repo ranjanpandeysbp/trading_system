@@ -289,7 +289,7 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 | **Groq (LLaMA)** | Fast open models |
 | **Claude (Azure)** | Anthropic Foundry on Azure (`/anthropic` endpoint) |
 | **OpenAI (Azure)** | Azure AI Foundry (`…/openai/v1`). Deployments include **gpt-5.6-sol** (Responses API), **DeepSeek-V4-Flash** (chat.completions), **gpt-4o**, **o4-mini**, **gpt-4o-mini** |
-| **Investing Agent** | SuperInvesting chat tools (JWT token) |
+| **Investing Agent** | Fundamental Analyst chat tools (JWT token) |
 
 Keys are stored in the app database (env fallbacks still work).
 

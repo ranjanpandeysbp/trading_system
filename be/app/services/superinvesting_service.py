@@ -33,7 +33,7 @@ class SuperInvestingService:
     def __init__(self, token: str):
         token = (token or "").strip()
         if not token:
-            raise SuperInvestingError("SuperInvesting Bearer token is required. Save one at the top of Investing Agent.")
+            raise SuperInvestingError("Fundamental Analyst Bearer token is required. Save one at the top of Investing Agent.")
         self.token = token
         self._auth_headers = {
             "Authorization": f"Bearer {token}",
@@ -78,7 +78,7 @@ class SuperInvestingService:
             ) as resp:
                 if resp.status_code == 403:
                     raise SuperInvestingError(
-                        "Feature usage limit reached (403). Try again later or check your SuperInvesting plan.",
+                        "Feature usage limit reached (403). Try again later or check your Fundamental Analyst plan.",
                         status_code=403,
                     )
                 if resp.status_code >= 400:
@@ -250,7 +250,7 @@ class SuperInvestingService:
     def _raise_for_status(self, resp: httpx.Response, action: str) -> None:
         if resp.status_code == 401:
             raise SuperInvestingError(
-                "SuperInvesting token rejected (401). Paste a fresh JWT from the SuperInvesting app (OTP login).",
+                "Fundamental Analyst token rejected (401). Paste a fresh JWT from the Fundamental Analyst app (OTP login).",
                 status_code=401,
             )
         if resp.status_code == 403:
@@ -320,7 +320,7 @@ async def run_analysis_stream(token: str, message: str) -> AsyncIterator[str]:
     except SuperInvestingError as exc:
         yield _sse({"kind": "error", "message": str(exc), "status_code": exc.status_code})
     except httpx.TimeoutException:
-        yield _sse({"kind": "error", "message": "SuperInvesting request timed out (limit 180s). Try again."})
+        yield _sse({"kind": "error", "message": "Fundamental Analyst request timed out (limit 180s). Try again."})
     except Exception as exc:
         logger.exception("SuperInvesting analysis failed")
         yield _sse({"kind": "error", "message": f"Unexpected error: {exc}"})
@@ -337,7 +337,7 @@ def analyze_message_sync(token: str, message: str) -> str:
                 json={"initialMessage": message},
             )
             if resp.status_code == 401:
-                return "SuperInvesting token rejected (401). Paste a fresh JWT in Manage → AI Settings."
+                return "Fundamental Analyst token rejected (401). Paste a fresh JWT in Manage → AI Settings."
             if resp.status_code == 403:
                 return "Feature usage limit reached (403)."
             if resp.status_code >= 400:
@@ -392,7 +392,7 @@ def analyze_message_sync(token: str, message: str) -> str:
     except SuperInvestingError as exc:
         return str(exc)
     except httpx.TimeoutException:
-        return "SuperInvesting request timed out (limit 180s). Try again."
+        return "Fundamental Analyst request timed out (limit 180s). Try again."
     except Exception as exc:
         logger.exception("SuperInvesting sync analyze failed")
-        return f"AI report error: {exc}. Check SuperInvesting token in Manage settings."
+        return f"AI report error: {exc}. Check Fundamental Analyst token in Manage settings."

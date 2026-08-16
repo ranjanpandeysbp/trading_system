@@ -2835,7 +2835,7 @@ function FundamentalAnalysisPanel({ data }: { data: Row }) {
             <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Investing Agent scorecard</h4>
             {!iaTokenSet && !iaStatus.isLoading && (
               <p className="text-xs text-slate-500">
-                ℹ️ Save a SuperInvesting Bearer token under Manage → AI Settings to pull the Investing Agent's
+                ℹ️ Save a Fundamental Analyst Bearer token under Manage → AI Settings to pull the Investing Agent's
                 sentiment score, sector/persona ranking, and 3Y return alongside screener.in/Dhan data.
               </p>
             )}

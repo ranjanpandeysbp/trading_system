@@ -2675,7 +2675,7 @@ export const fetchBtstReport = (reportId: number) => api.get(`/pro-trade/btst/re
 
 export const deleteBtstReport = (reportId: number) => api.delete(`/pro-trade/btst/reports/${reportId}`).then((r) => r.data)
 
-/* ── Investing Agent (SuperInvesting) ─────────────────────────────── */
+/* ── Investing Agent (Fundamental Analyst) ─────────────────────────────── */
 
 export type InvestingAgentStreamEvent =
   | { kind: 'status'; message?: string; type?: string }

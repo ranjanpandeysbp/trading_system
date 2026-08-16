@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight, Copy, Eye, Pencil, Plus, RefreshCw, Share2, Trash2, X } from 'lucide-react'
+import { ChartCandlestick, Check, ChevronDown, ChevronRight, Copy, Eye, Pencil, Plus, RefreshCw, Share2, Trash2, X } from 'lucide-react'
 import {
   addWatchlistItem,
   apiErrorMessage,
@@ -67,6 +68,15 @@ function watchlistShareText(name: string, market: string, items: WatchlistItemIn
     '',
     `Tickers: ${tickersCsv(items)}`,
   ].join('\n')
+}
+
+function chartAnalyzerHref(ticker: string, market: string, timeframe?: string) {
+  const params = new URLSearchParams({
+    ticker: ticker.trim(),
+    assetClass: market || 'india',
+  })
+  if (timeframe) params.set('tf', timeframe)
+  return `/chart-analyzer?${params.toString()}`
 }
 
 async function copyText(text: string) {
@@ -375,6 +385,8 @@ export default function WatchlistPage() {
                     {sortedItems.map((it) => {
                       const isOpen = analyzeId === it.id
                       const tf = timeframeByItem[it.id] ?? '1d'
+                      const market = lists.find((l) => l.id === selectedId)?.market_type ?? 'india'
+                      const chartHref = chartAnalyzerHref(it.ticker, market, tf)
                       return (
                         <Fragment key={it.id}>
                           <tr className="hover:bg-slate-800/20">
@@ -437,20 +449,30 @@ export default function WatchlistPage() {
                               )}
                             </Td>
                             <Td>
-                              <button
-                                type="button"
-                                aria-label="Remove ticker"
-                                onClick={() => removeItemMut.mutate(it.id)}
-                                className="text-slate-500 hover:text-rose-400"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <Link
+                                  to={chartHref}
+                                  title={`Open ${it.display_name || it.ticker} in Chart Analyzer`}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700/70 bg-slate-900/50 px-2 py-1 text-[11px] font-medium text-slate-300 hover:border-teal-500/40 hover:text-teal-200"
+                                >
+                                  <ChartCandlestick size={13} />
+                                  Chart Analyzer
+                                </Link>
+                                <button
+                                  type="button"
+                                  aria-label="Remove ticker"
+                                  onClick={() => removeItemMut.mutate(it.id)}
+                                  className="text-slate-500 hover:text-rose-400"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </Td>
                           </tr>
                           {isOpen && (
                             <tr>
                               <Td colSpan={7} className="whitespace-normal bg-slate-900/30">
-                                <div className="mb-3 flex items-center gap-2">
+                                <div className="mb-3 flex flex-wrap items-center gap-2">
                                   <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Timeframe</span>
                                   <Select
                                     className="!w-28 !py-1.5"
@@ -459,11 +481,18 @@ export default function WatchlistPage() {
                                   >
                                     {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
                                   </Select>
+                                  <Link
+                                    to={chartAnalyzerHref(it.ticker, market, tf)}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-2.5 py-1.5 text-xs font-medium text-teal-200 hover:bg-teal-500/20"
+                                  >
+                                    <ChartCandlestick size={14} />
+                                    Open in Chart Analyzer
+                                  </Link>
                                 </div>
                                 <TradeSetupDrillDown
                                   ticker={it.ticker}
                                   timeframe={tf}
-                                  assetClass={lists.find((l) => l.id === selectedId)?.market_type ?? 'india'}
+                                  assetClass={market}
                                 />
                               </Td>
                             </tr>

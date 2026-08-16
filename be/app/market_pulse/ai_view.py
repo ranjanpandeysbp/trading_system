@@ -303,7 +303,7 @@ def _render_ai_provider_widget_row(key_prefix: str = "global") -> tuple[str, str
             st.selectbox(**groq_args)
             model = st.session_state[gk]
         elif provider == "Investing Agent":
-            st.caption("SuperInvesting chat (no model picker)")
+            st.caption("Fundamental Analyst chat (no model picker)")
             model = "superinvesting-chat"
         elif provider == "Claude (Azure)":
             import os

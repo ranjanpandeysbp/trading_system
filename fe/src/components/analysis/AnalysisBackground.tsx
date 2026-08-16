@@ -8,6 +8,7 @@ import {
   fetchAnalysisJobs,
   fetchAnalysisReport,
   fetchAnalysisReports,
+  saveAnalysisReport,
   startAnalysisJob,
 } from '../../api/client'
 import { Card } from '../ui/Card'
@@ -24,6 +25,7 @@ export type AnalysisDomain =
   | 'scanner'
   | 'seasonality'
   | 'trading_agent'
+  | 'investing_agent'
   | 'prediction'
 
 interface BgJobStatus {
@@ -202,6 +204,17 @@ export function useAnalysisBackground(domain: AnalysisDomain, section: string, e
     },
   })
 
+  const saveMutation = useMutation({
+    mutationFn: ({ name, payload }: { name: string; payload: Record<string, unknown> }) =>
+      saveAnalysisReport(domain, section, { name, payload }),
+    onSuccess: (data) => {
+      setBgError('')
+      setBgMsg(`Output saved${data?.name ? `: ${data.name}` : ''}.`)
+      queryClient.invalidateQueries({ queryKey: ['analysis-reports', domain, section] })
+    },
+    onError: (e) => setBgError(apiErrorMessage(e)),
+  })
+
   const reports = ((reportsQuery.data as { reports?: SavedReport[] } | undefined)?.reports) ?? []
 
   const startBackground = (payload: Record<string, unknown>, validate?: () => string | null) => {
@@ -223,6 +236,17 @@ export function useAnalysisBackground(domain: AnalysisDomain, section: string, e
     })
   }
 
+  const saveOutput = (payload: Record<string, unknown>, fallbackName?: string) => {
+    const name = (bgReportName.trim() || fallbackName || `${domain} · ${new Date().toLocaleString()}`).slice(0, 200)
+    if (!name.trim()) {
+      setBgError('Enter a report name to save this output')
+      return
+    }
+    setBgError('')
+    setBgMsg('')
+    saveMutation.mutate({ name, payload })
+  }
+
   return {
     runInBackground,
     setRunInBackground,
@@ -232,6 +256,8 @@ export function useAnalysisBackground(domain: AnalysisDomain, section: string, e
     bgMsg,
     startBackground,
     startPending: startMutation.isPending,
+    saveOutput,
+    savePending: saveMutation.isPending,
     ongoingList,
     recentFinished,
     reports,
@@ -256,10 +282,16 @@ export function AnalysisBackgroundControls({
   bg,
   onStart,
   placeholder,
+  onSave,
+  canSave = false,
+  saveLabel = 'Save output',
 }: {
   bg: AnalysisBgHook
   onStart: () => void
   placeholder?: string
+  onSave?: () => void
+  canSave?: boolean
+  saveLabel?: string
 }) {
   return (
     <div className="mt-4 space-y-3 rounded-xl border border-slate-800/60 bg-slate-900/30 p-3">
@@ -278,10 +310,10 @@ export function AnalysisBackgroundControls({
           </span>
         </span>
       </label>
-      {bg.runInBackground && (
+      {(bg.runInBackground || onSave) && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-[16rem] flex-1">
-            <FormField label="Report name">
+            <FormField label={bg.runInBackground ? 'Report name (background)' : 'Report name (for Save)'}>
               <Input
                 value={bg.bgReportName}
                 onChange={(e) => bg.setBgReportName(e.target.value)}
@@ -290,9 +322,19 @@ export function AnalysisBackgroundControls({
               />
             </FormField>
           </div>
-          <Button onClick={onStart} disabled={bg.startPending}>
-            {bg.startPending ? 'Starting…' : 'Start background run'}
-          </Button>
+          {bg.runInBackground ? (
+            <Button onClick={onStart} disabled={bg.startPending}>
+              {bg.startPending ? 'Starting…' : 'Start background run'}
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={onSave}
+              disabled={!canSave || bg.savePending}
+            >
+              {bg.savePending ? 'Saving…' : saveLabel}
+            </Button>
+          )}
         </div>
       )}
       {bg.bgError && <Alert type="error">{bg.bgError}</Alert>}

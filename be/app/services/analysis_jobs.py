@@ -1,6 +1,6 @@
 """Generic background-job runner for analysis surfaces across the app
 (Trading Hubs, Pro Trade, Command Center, Technical Analysis, Market Pulse,
-Scanner, Seasonality, Trading Agent).
+Scanner, Seasonality, Trading Agent, Investing Agent).
 
 Source keys are ``analysis:{domain}:{section}`` so reports stay scoped per
 screen. Reuses the shared job store in ``strategy_leaderboard_jobs``.
@@ -40,6 +40,7 @@ ANALYSIS_DOMAINS = frozenset({
     "scanner",
     "seasonality",
     "trading_agent",
+    "investing_agent",
     "prediction",
 })
 
@@ -346,6 +347,9 @@ async def _execute_analysis_body(
     if domain == "trading_agent":
         return await _execute_trading_agent(section, payload, settings=settings, db=db)
 
+    if domain == "investing_agent":
+        return await _execute_investing_agent(section, payload, settings=settings)
+
     raise ValueError(f"Unknown analysis domain: {domain}")
 
 
@@ -381,6 +385,41 @@ async def _execute_trading_agent(
         explain_only=bool(payload.get("explain_only") or False),
         prior_result=payload.get("prior_result") if isinstance(payload.get("prior_result"), dict) else None,
     )
+
+
+async def _execute_investing_agent(
+    section: str,
+    payload: dict[str, Any],
+    *,
+    settings: Any,
+) -> dict[str, Any]:
+    """Fundamental Analyst (Investing Agent) — non-streaming analyze_once for background jobs."""
+    from app.services.superinvesting_service import SuperInvestingError, SuperInvestingService
+
+    if section not in ("chat", "analysis", "fundamental"):
+        raise ValueError(f"Unknown Investing Agent section: {section}")
+
+    message = str(payload.get("message") or payload.get("prompt") or "").strip()
+    if not message:
+        raise ValueError("message is required for Investing Agent")
+
+    token = await settings.get_superinvesting_token()
+    if not token:
+        raise ValueError("Fundamental Analyst token is not set. Add it under Manage → AI Settings.")
+
+    try:
+        result = await SuperInvestingService(token).analyze_once(message)
+    except SuperInvestingError as exc:
+        raise ValueError(str(exc)) from exc
+
+    return {
+        "kind": "investing_agent",
+        "message": message,
+        "answer": result.get("answer") or "",
+        "conversation_id": result.get("conversation_id"),
+        "tools": result.get("tools") or [],
+        "reasoning": result.get("reasoning") or "",
+    }
 
 
 async def _execute_command_center(section: str, payload: dict[str, Any], *, settings: Any, db: Any) -> dict[str, Any]:

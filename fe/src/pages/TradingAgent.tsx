@@ -6,7 +6,7 @@ export default function TradingAgent() {
     <div>
       <PageHeader
         title="Trading Agent"
-        description="Ask what to buy or sell — or open questions like which stocks, crypto, commodities, gold or silver moved a lot in 24h, fallen most, or broke recent support/resistance. Standard BB + confluence, Deep mode with backtests + Strategies catalog how-tos, or market-mover / S&R screens. Conclusions use Manage → AI Settings."
+        description="Technical Agent desk — ask what to buy or sell, or open questions (24h movers, support/resistance). Save outputs or run Deep scans in the background. Conclusions use Manage → AI Settings."
       />
       <DashboardTradingChatPanel />
     </div>

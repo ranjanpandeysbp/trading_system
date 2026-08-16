@@ -501,7 +501,7 @@ class AIService:
 
             if not api_key:
                 return {
-                    "report": "Missing SuperInvesting token. Add it in Manage → AI Settings (or Investing Agent page).",
+                    "report": "Missing Fundamental Analyst token. Add it in Manage → AI Settings (or Investing Agent page).",
                     "verdict": None,
                     "confidence_pct": None,
                     "provider": provider,
@@ -518,7 +518,7 @@ class AIService:
             except SuperInvestingError as exc:
                 report = str(exc)
             except Exception as exc:
-                report = f"AI report error: {exc}. Check SuperInvesting token in Manage settings."
+                report = f"AI report error: {exc}. Check Fundamental Analyst token in Manage settings."
 
             return {
                 "report": report,
@@ -530,6 +530,7 @@ class AIService:
                 "error": report.startswith("Missing")
                 or report.startswith("AI report error")
                 or report.startswith("SuperInvesting")
+                or report.startswith("Fundamental Analyst")
                 or report.startswith("Feature usage")
                 or report.startswith("Failed"),
             }
