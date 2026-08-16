@@ -6,7 +6,7 @@ export default function TradingAgent() {
     <div>
       <PageHeader
         title="Trading Agent"
-        description="Technical Agent desk — ask what to buy or sell, or open questions (24h movers, support/resistance). Save outputs or run Deep scans in the background. Conclusions use Manage → AI Settings."
+        description="Technical Agent — pure Price Action desk (Support/Resistance · Volume · RSI · Bollinger Bands). Ask what to buy or sell, or open questions (24h movers, S/R breaks). Save outputs or run Deep (broader universe) in the background. Conclusions use Manage → AI Settings."
       />
       <DashboardTradingChatPanel />
     </div>

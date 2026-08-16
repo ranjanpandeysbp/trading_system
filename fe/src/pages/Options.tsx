@@ -11,6 +11,7 @@ import {
   runOptionsHedging,
   runOptionsMarketPrediction,
   runOptionsZeroToHero,
+  runOptionsProfitable,
 } from '../api/client'
 import { AskAIPanel, buildAskContext } from '../components/ai/AskAIPanel'
 import { AssetClassTickerPicker, type TickerPickerValue } from '../components/command-center/AssetClassTickerPicker'
@@ -20,7 +21,7 @@ import {
   useOptionsBackground,
   type OptionsSectionId,
 } from '../components/options/OptionsBackground'
-import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, CallPutWritingPanel, ZeroToHeroPanel } from '../components/options/OptionsPanels'
+import { DeltaNeutralPanel, DoubleCalendarPanel, GokulChhabraPanel, HedgingPanel, MarketPredictionPanel, CallPutWritingPanel, ZeroToHeroPanel, ProfitablePanel } from '../components/options/OptionsPanels'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Card } from '../components/ui/Card'
 import { StrategyDataSourceBar } from '../components/ui/StrategyDataSourceBar'
@@ -38,6 +39,7 @@ const SECTIONS = [
   { id: 'zero_to_hero', label: '🚀 Zero to Hero' },
   { id: 'market_prediction', label: '🔮 Market Prediction' },
   { id: 'call_put_writing', label: '✍️ Call Put Writing' },
+  { id: 'profitable', label: '💰 Profitable' },
 ] as const
 
 // Mirrors market_prediction_engine.FURTHER_ANALYSIS_OPTIONS on the backend — stock mode only.
@@ -222,6 +224,32 @@ does not track your own open position, so use the reasons/exit rule shown as you
 checklist for the 1:1 partial-book and re-entry rules above.
 
 Research / education only — not financial advice.`
+
+const PROFITABLE_EXPLANATION = `Profitable — Overnight Options Buy-Stop (reactive CE/PE).
+Source: https://www.youtube.com/watch?v=w_8cVFZ1iZE
+
+Market DNA (why the desk exists):
+Over a long Nifty sample, most net point gains came overnight. Buying only in the cash session
+(09:15→15:15) could even lose points while the index rose for a decade. Money is made by reacting,
+not anticipating. Plan both sides before the open — never "aaj toh badega hi".
+
+Rules:
+1. At 09:20 IST, from the option chain pick CE and PE with premium in ₹50–₹75 (prefer ~₹62.5).
+   Outside that band → skip that side for the day.
+2. Do NOT buy the mark. Arm a buy-stop at +50% of the 09:20 mark (₹50 → trigger ₹75). The stop can
+   fire any time after 09:20 (10:00, 12:00, 15:00…).
+3. Once filled, stop-loss = 50% below entry premium (buy @75 → SL @37.5).
+4. Both sides are independent — CE can fill then SL, then PE can fill (and vice versa). Worst case
+   both fill and both SL on a "rickshaw-man" day — rare but expected in long samples.
+5. Intent is overnight carry of the option (capture overnight DNA), not scalping 10–20 premium points.
+
+Robustness notes from the interview: validate across years and indices (Nifty / Bank Nifty / Midcap);
+avoid curve-fitting; structure first, then parameters.
+
+This scanner uses the live NSE chain as today's mark proxy (re-scan near/after 09:20 for fidelity)
+and reports WAITING vs TRIGGERED for each candidate leg.
+
+Research / education only — not financial advice. Option buying is high-risk.`
 
 const CALL_PUT_WRITING_EXPLANATION = `Call / Put Writing — OI walls & short-covering risk.
 
@@ -524,9 +552,36 @@ export default function Options() {
   const zthAskContext = zthData ? buildAskContext('Zero to Hero', zthData) : ''
   const showZthResults = !!zthData && (!runZthMutation.isPending || bg.viewedReportId != null)
 
+  const [pfError, setPfError] = useState('')
+  const [pfMarkTime, setPfMarkTime] = useState('09:20')
+  const [pfPremMin, setPfPremMin] = useState(50)
+  const [pfPremMax, setPfPremMax] = useState(75)
+  const [pfPremMid, setPfPremMid] = useState(62.5)
+  const [pfTriggerPct, setPfTriggerPct] = useState(50)
+  const [pfStopPct, setPfStopPct] = useState(50)
+
+  const runPfMutation = useMutation({
+    mutationFn: () =>
+      runOptionsProfitable({
+        tickers: ['Nifty 50', 'Bank Nifty', 'Midcap Nifty'],
+        mark_time: pfMarkTime,
+        premium_min: pfPremMin,
+        premium_max: pfPremMax,
+        premium_mid: pfPremMid,
+        trigger_pct: pfTriggerPct,
+        stop_pct: pfStopPct,
+        hold_overnight: true,
+      }),
+    onSuccess: () => setPfError(''),
+    onError: (e) => setPfError(apiErrorMessage(e)),
+  })
+  const pfData = (bg.viewedPayload ?? runPfMutation.data) as Record<string, unknown> | undefined
+  const pfAskContext = pfData ? buildAskContext('Profitable', pfData) : ''
+  const showPfResults = !!pfData && (!runPfMutation.isPending || bg.viewedReportId != null)
+
   return (
     <div>
-      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · Market Prediction · Call Put Writing" />
+      <PageHeader title="Options" description="Options income & directional buying — Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · Market Prediction · Call Put Writing · Profitable" />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SECTIONS.map(({ id, label }) => (
@@ -1093,6 +1148,103 @@ export default function Options() {
 
           {zthAskContext && showZthResults && (
             <AskAIPanel context={zthAskContext} section="options/zero_to_hero" />
+          )}
+        </div>
+      )}
+
+      {section === 'profitable' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Overnight DNA desk — arm CE/PE buy-stops at +50% of the ₹50–₹75 mark band (09:20 IST),
+            SL −50% of entry, prefer carrying overnight. React; do not anticipate.
+          </p>
+
+          <CollapsibleSection title="📖 How Profitable overnight buy-stops work" copyText={PROFITABLE_EXPLANATION}>
+            <p className="whitespace-pre-line text-xs leading-relaxed text-slate-400">{PROFITABLE_EXPLANATION}</p>
+          </CollapsibleSection>
+
+          <Card>
+            <div className="rounded-lg border border-slate-700/80 bg-slate-900/50 px-4 py-3">
+              <p className="text-sm font-medium text-slate-200">Fixed universe — India index options</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Always scans <span className="text-slate-300">Nifty 50 · Bank Nifty · Midcap Nifty</span>.
+                Source interview:{' '}
+                <a
+                  href="https://www.youtube.com/watch?v=w_8cVFZ1iZE"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sky-400 hover:underline"
+                >
+                  youtube.com/watch?v=w_8cVFZ1iZE
+                </a>
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <CollapsibleSection title="⚙️ Parameters">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Mark time (IST)">
+                    <Input value={pfMarkTime} onChange={(e) => setPfMarkTime(e.target.value)} />
+                  </FormField>
+                  <FormField label="Premium min (₹)">
+                    <Input type="number" min={10} max={200} value={pfPremMin} onChange={(e) => setPfPremMin(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Premium max (₹)">
+                    <Input type="number" min={10} max={300} value={pfPremMax} onChange={(e) => setPfPremMax(Number(e.target.value))} />
+                  </FormField>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField label="Prefer mid (₹)">
+                    <Input type="number" step={0.5} min={10} max={200} value={pfPremMid} onChange={(e) => setPfPremMid(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Buy-stop trigger %">
+                    <Input type="number" min={10} max={100} value={pfTriggerPct} onChange={(e) => setPfTriggerPct(Number(e.target.value))} />
+                  </FormField>
+                  <FormField label="Stop-loss % below entry">
+                    <Input type="number" min={10} max={80} value={pfStopPct} onChange={(e) => setPfStopPct(Number(e.target.value))} />
+                  </FormField>
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            <Button className="mt-4" onClick={() => runPfMutation.mutate()} disabled={runPfMutation.isPending || bg.runInBackground}>
+              {runPfMutation.isPending ? 'Scanning…' : '🔍 Scan Profitable setups'}
+            </Button>
+            <OptionsBackgroundControls
+              bg={bg}
+              placeholder={`Profitable · ${new Date().toLocaleDateString()}`}
+              onStart={() => bg.startBackground({
+                tickers: ['Nifty 50', 'Bank Nifty', 'Midcap Nifty'],
+                mark_time: pfMarkTime,
+                premium_min: pfPremMin,
+                premium_max: pfPremMax,
+                premium_mid: pfPremMid,
+                trigger_pct: pfTriggerPct,
+                stop_pct: pfStopPct,
+                hold_overnight: true,
+              })}
+            />
+            {pfError && <div className="mt-3"><Alert type="error">{pfError}</Alert></div>}
+          </Card>
+
+          <OptionsBackgroundJobsAndReports bg={bg} />
+
+          {runPfMutation.isPending && <Loading message="Scanning overnight buy-stop candidates on the live chain…" />}
+
+          {showPfResults && (
+            <Card>
+              {bg.viewedReportId != null && bg.viewedReportMeta?.name && (
+                <p className="mb-3 text-sm text-slate-400">
+                  Viewing saved report: <span className="text-slate-200">{bg.viewedReportMeta.name}</span>
+                </p>
+              )}
+              <StrategyDataSourceBar data={(pfData ?? undefined) as Record<string, unknown> | undefined} assetClass="india" />
+              <ProfitablePanel data={pfData!} />
+            </Card>
+          )}
+
+          {pfAskContext && showPfResults && (
+            <AskAIPanel context={pfAskContext} section="options/profitable" />
           )}
         </div>
       )}

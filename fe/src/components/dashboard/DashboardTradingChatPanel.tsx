@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Bot, BookOpen, MessageSquare, Send, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage, fetchAIConfig, runDashboardTradingChat } from '../../api/client'
 import {
   AnalysisBackgroundControls,
@@ -49,7 +49,6 @@ const STYLE_OPTIONS = [
 
 const EXAMPLES = [
   'Which Indian stocks to buy now for intraday?',
-  'NIFTY call put writing walls today?',
   'Why did you give this result?',
   'Explain the confidence and SL/TP',
   'Top crypto to scalp today',
@@ -148,7 +147,7 @@ function assistantFromData(data: Row, q: string): ChatMsg {
   const enrichLines =
     !isDeep && enrichments.length
       ? [
-          'Context layers (Workflow + core scans + suitability):',
+          'Context layers:',
           ...enrichments.map((e) => {
             const label = String(e.label || e.id || 'desk')
             const why = e.why ? ` (${String(e.why)})` : ''
@@ -174,7 +173,7 @@ function assistantFromData(data: Row, q: string): ChatMsg {
     ? err
     : [
         isExplain ? 'Explain mode — rationale for the prior desk result (no new scan).' : '',
-        isDeep && ranking.length ? 'Deep mode — strategies backtested & ranked, then live analysis.' : '',
+        isDeep && ranking.length ? 'Deep mode — broader Price Action universe (S/R · Volume · RSI · BB).' : '',
         !isExplain && summary && `${isDeep ? 'Results' : 'Engine top picks'}:\n${summary}`,
         isExplain && summary && `Prior picks (reference):\n${summary}`,
         !isExplain && workflowLines,
@@ -333,6 +332,7 @@ function SortablePicksTable({ picks }: { picks: Row[] }) {
 }
 
 export function DashboardTradingChatPanel() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [message, setMessage] = useState('')
   const [assetClass, setAssetClass] = useState('')
   const [style, setStyle] = useState('')
@@ -341,7 +341,7 @@ export function DashboardTradingChatPanel() {
     {
       role: 'assistant',
       text:
-        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Standard: asset-class Workflow playbook FIRST (India/US/Crypto/Commodities), then BB Mean + confluence and Pro Trade PA-VP-SMC dual scan, then suitability desks (India Options Market Prediction + Call Put Writing OI walls, Intra-Hedging, etc.). After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: backtest-ranked strategies + Strategies catalog how-tos. Conclusions use Manage → AI.',
+        'Ask what to buy or sell — or open questions like which stocks/crypto/commodities moved a lot in 24h, fallen most, or broke support/resistance. Pure Price Action desk: Support/Resistance · Volume · RSI · Bollinger Bands. After a result, ask “why?” or “explain this” for the rationale without a new scan. Deep mode: broader Price Action universe. Conclusions use Manage → AI.',
     },
   ])
 
@@ -350,22 +350,35 @@ export function DashboardTradingChatPanel() {
   const lastOpenedReportRef = useRef<number | null>(null)
   const lastResultRef = useRef<Row | null>(null)
   const [hasSavableResult, setHasSavableResult] = useState(false)
+  const deepLinkHandledRef = useRef(false)
 
-  const chatPayload = (q: string) => {
+  const chatPayload = (
+    q: string,
+    overrides?: { asset_class?: string; style?: string; deep_mode?: boolean; tickers?: string[] },
+  ) => {
     const explain = looksLikeExplainFollowup(q) && lastResultRef.current != null
     return {
       message: q,
-      asset_class: assetClass || undefined,
-      style: style || undefined,
-      deep_mode: explain ? false : deepMode,
+      asset_class: overrides?.asset_class || assetClass || undefined,
+      style: overrides?.style || style || undefined,
+      tickers: overrides?.tickers,
+      deep_mode: explain ? false : (overrides?.deep_mode ?? deepMode),
       explain_only: explain,
       prior_result: explain && lastResultRef.current ? compactPriorForExplain(lastResultRef.current) : undefined,
     }
   }
 
   const chatMut = useMutation({
-    mutationFn: (q: string) => runDashboardTradingChat(chatPayload(q)),
-    onSuccess: (data, q) => {
+    mutationFn: (args: string | { q: string; asset_class?: string; tickers?: string[] }) => {
+      const q = typeof args === 'string' ? args : args.q
+      const overrides =
+        typeof args === 'string'
+          ? undefined
+          : { asset_class: args.asset_class, tickers: args.tickers }
+      return runDashboardTradingChat(chatPayload(q, overrides))
+    },
+    onSuccess: (data, args) => {
+      const q = typeof args === 'string' ? args : args.q
       const row = data as Row
       if (!row.explain_only && String(row.mode || '') !== 'explain') {
         lastResultRef.current = row
@@ -376,7 +389,8 @@ export function DashboardTradingChatPanel() {
       bg.setViewedReportId(null)
       lastOpenedReportRef.current = null
     },
-    onError: (e, q) => {
+    onError: (e, args) => {
+      const q = typeof args === 'string' ? args : args.q
       setMessages((prev) => [
         ...prev,
         { role: 'user', text: q },
@@ -384,6 +398,31 @@ export function DashboardTradingChatPanel() {
       ])
     },
   })
+
+  // Deep-link from Watchlist: /trading-agent?ticker=RELIANCE&assetClass=india&auto=1
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return
+    const ticker = (searchParams.get('ticker') || searchParams.get('symbol') || '').trim().toUpperCase()
+    if (!ticker) return
+    deepLinkHandledRef.current = true
+
+    const acRaw = (searchParams.get('assetClass') || searchParams.get('asset') || '').trim().toLowerCase()
+    const ac = acRaw && ['india', 'us', 'crypto', 'commodity'].includes(acRaw) ? acRaw : ''
+    if (ac) setAssetClass(ac)
+
+    const q =
+      (searchParams.get('q') || searchParams.get('message') || '').trim()
+      || `Analyze ${ticker} — buy, sell, or wait?`
+    setMessage(q)
+
+    const shouldAuto = searchParams.get('auto') === '1' || searchParams.get('run') === '1'
+    setSearchParams({}, { replace: true })
+
+    if (shouldAuto) {
+      chatMut.mutate({ q, asset_class: ac || undefined, tickers: [ticker] })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   // When a saved background report is opened, show it in the chat transcript
   useEffect(() => {
@@ -466,18 +505,16 @@ export function DashboardTradingChatPanel() {
             Trading Chat
           </p>
           <p className="mt-1 text-sm leading-relaxed text-slate-300">
-            Buy/sell/wait ideas with %confidence, %SL, %TP — all eligible setups from the scan. Also
-            understands open questions: biggest 24h movers, top gainers/losers, gold/silver/commodity
-            moves, broken support or resistance. Standard:{' '}
-            <strong className="text-white">Workflow playbook</strong> first (India / US / Crypto /
-            Commodities), then <strong className="text-white">BB Mean Reversion</strong> + confluence and{' '}
-            <strong className="text-white">Pro Trade → PA-VP-SMC</strong>, then suitability desks as needed
-            (Elliott Wave, Volume Spread next-candle, Advance/Decline, Comparative Strength, Oil·Dollar·Bond,{' '}
-            <strong className="text-white">Options Market Prediction</strong>,{' '}
-            <strong className="text-white">Call Put Writing</strong> OI walls) plus India{' '}
-            <strong className="text-white">Trading Hub Intra-Hedging</strong>. After any result, ask{' '}
-            <strong className="text-white">why / explain</strong> for the rationale (no re-scan). Deep mode:
-            pick strategies → backtest rank → Strategies catalog how-to → live scan → Manage AI.
+            Buy/sell/wait ideas with %confidence, %SL, %TP from a pure{' '}
+            <strong className="text-white">Price Action</strong> desk:{' '}
+            <strong className="text-white">Support/Resistance</strong>,{' '}
+            <strong className="text-white">Volume</strong>,{' '}
+            <strong className="text-white">RSI</strong>, and{' '}
+            <strong className="text-white">Bollinger Bands</strong> (plus candlestick
+            confirmation at the band). Also understands open questions: biggest 24h movers,
+            top gainers/losers, gold/silver/commodity moves, broken support or resistance.
+            After any result, ask <strong className="text-white">why / explain</strong> for the
+            rationale (no re-scan). Deep mode: same pillars on a broader universe.
           </p>
           <p className="mt-1 text-[11px] text-slate-500">{providerLabel}</p>
         </div>
@@ -516,9 +553,8 @@ export function DashboardTradingChatPanel() {
         <span>
           <span className="font-semibold text-white">Deep mode</span>
           <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-400">
-            Backtest strategies matched to your question, load Strategies catalog how-tos
-            (from /strategies), live-analyze the best ones, then AI concludes. Slower (often several
-            minutes).
+            Broader Price Action universe (same S/R · Volume · RSI · BB pillars). Slower than
+            standard — often a couple of minutes on large universes.
           </span>
         </span>
       </label>
@@ -711,7 +747,7 @@ export function DashboardTradingChatPanel() {
           context={lastAskContext}
           section="dashboard/trading-chat"
           title="Why this result?"
-          defaultQuestion="Why did the Trading Agent give this result? Explain the picks, %confidence, %SL, %TP, and how the asset-class Workflow playbook, then BB Mean + confluence vs PA-VP-SMC (and any Options desks), influenced the call."
+          defaultQuestion="Why did the Technical Agent give this result? Explain the picks, %confidence, %SL, %TP using Price Action pillars only (Support/Resistance · Volume · RSI · Bollinger Bands)."
           buttonLabel="Explain result"
           showPredictNextMove={false}
           className="mt-4"
@@ -719,8 +755,8 @@ export function DashboardTradingChatPanel() {
       ) : null}
 
       <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
-        Research / education only — not financial advice. Returns every eligible BUY/SELL from the scan universe
-        (standard ~50 names; Deep live-scans ~20). After a result, ask “why?” in chat or use{' '}
+        Research / education only — not financial advice. Returns every eligible BUY/SELL from the Price Action
+        scan (standard ~50 names; Deep ~80). After a result, ask “why?” in chat or use{' '}
         <span className="text-slate-400">Why this result?</span> below. Use{' '}
         <span className="text-slate-400">Run in background</span> for long Deep / movers scans — results auto-save
         under Saved reports.

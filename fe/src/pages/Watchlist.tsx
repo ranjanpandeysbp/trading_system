@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChartCandlestick, Check, ChevronDown, ChevronRight, Copy, Eye, Pencil, Plus, RefreshCw, Share2, Trash2, X } from 'lucide-react'
+import { Bot, ChartCandlestick, Check, ChevronDown, ChevronRight, Copy, Eye, LineChart, Pencil, Plus, RefreshCw, Share2, Trash2, X } from 'lucide-react'
 import {
   addWatchlistItem,
   apiErrorMessage,
@@ -78,6 +78,29 @@ function chartAnalyzerHref(ticker: string, market: string, timeframe?: string) {
   if (timeframe) params.set('tf', timeframe)
   return `/chart-analyzer?${params.toString()}`
 }
+
+/** Open Trading Agent (Technical / Price Action) for this ticker and auto-run. */
+function tradingAgentHref(ticker: string, market: string, timeframe?: string) {
+  const params = new URLSearchParams({
+    ticker: ticker.trim(),
+    assetClass: market || 'india',
+    auto: '1',
+  })
+  if (timeframe) params.set('tf', timeframe)
+  return `/trading-agent?${params.toString()}`
+}
+
+/** Open Investing Agent (Fundamental Analyst) for this ticker and auto-run. */
+function investingAgentHref(ticker: string) {
+  const params = new URLSearchParams({
+    ticker: ticker.trim(),
+    auto: '1',
+  })
+  return `/investing-agent?${params.toString()}`
+}
+
+const agentLinkClass =
+  'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors'
 
 async function copyText(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -387,6 +410,9 @@ export default function WatchlistPage() {
                       const tf = timeframeByItem[it.id] ?? '1d'
                       const market = lists.find((l) => l.id === selectedId)?.market_type ?? 'india'
                       const chartHref = chartAnalyzerHref(it.ticker, market, tf)
+                      const taHref = tradingAgentHref(it.ticker, market, tf)
+                      const faHref = investingAgentHref(it.ticker)
+                      const symbol = it.display_name || it.ticker
                       return (
                         <Fragment key={it.id}>
                           <tr className="hover:bg-slate-800/20">
@@ -400,7 +426,27 @@ export default function WatchlistPage() {
                                 {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                               </button>
                             </Td>
-                            <Td className="font-medium">{it.display_name || it.ticker}</Td>
+                            <Td>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-medium text-white">{symbol}</span>
+                                <Link
+                                  to={taHref}
+                                  title={`Perform TA — open Trading Agent for ${symbol}`}
+                                  className={`${agentLinkClass} border-violet-500/35 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20`}
+                                >
+                                  <LineChart size={12} />
+                                  Perform TA
+                                </Link>
+                                <Link
+                                  to={faHref}
+                                  title={`Perform FA — open Investing Agent for ${symbol}`}
+                                  className={`${agentLinkClass} border-amber-500/35 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20`}
+                                >
+                                  <Bot size={12} />
+                                  Perform FA
+                                </Link>
+                              </div>
+                            </Td>
                             <Td>{it.ltp != null ? it.ltp.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</Td>
                             <Td className={pctClass(it.change_pct)}>{fmtPct(it.change_pct)}</Td>
                             <Td className={pctClass(it.change_since_added_pct)}>{fmtPct(it.change_since_added_pct)}</Td>
@@ -449,11 +495,11 @@ export default function WatchlistPage() {
                               )}
                             </Td>
                             <Td>
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex flex-wrap items-center justify-end gap-2">
                                 <Link
                                   to={chartHref}
-                                  title={`Open ${it.display_name || it.ticker} in Chart Analyzer`}
-                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700/70 bg-slate-900/50 px-2 py-1 text-[11px] font-medium text-slate-300 hover:border-teal-500/40 hover:text-teal-200"
+                                  title={`Open ${symbol} in Chart Analyzer`}
+                                  className={`${agentLinkClass} border-slate-700/70 bg-slate-900/50 text-slate-300 hover:border-teal-500/40 hover:text-teal-200`}
                                 >
                                   <ChartCandlestick size={13} />
                                   Chart Analyzer
@@ -482,8 +528,22 @@ export default function WatchlistPage() {
                                     {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
                                   </Select>
                                   <Link
+                                    to={tradingAgentHref(it.ticker, market, tf)}
+                                    className={`${agentLinkClass} border-violet-500/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20`}
+                                  >
+                                    <LineChart size={14} />
+                                    Perform TA → Trading Agent
+                                  </Link>
+                                  <Link
+                                    to={investingAgentHref(it.ticker)}
+                                    className={`${agentLinkClass} border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20`}
+                                  >
+                                    <Bot size={14} />
+                                    Perform FA → Investing Agent
+                                  </Link>
+                                  <Link
                                     to={chartAnalyzerHref(it.ticker, market, tf)}
-                                    className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/30 bg-teal-500/10 px-2.5 py-1.5 text-xs font-medium text-teal-200 hover:bg-teal-500/20"
+                                    className={`${agentLinkClass} border-teal-500/30 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20`}
                                   >
                                     <ChartCandlestick size={14} />
                                     Open in Chart Analyzer

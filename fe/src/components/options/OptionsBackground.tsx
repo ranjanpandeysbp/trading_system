@@ -23,6 +23,7 @@ export type OptionsSectionId =
   | 'zero_to_hero'
   | 'market_prediction'
   | 'call_put_writing'
+  | 'profitable'
 
 interface OptionsBgJobStatus {
   job_id: string

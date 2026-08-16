@@ -38,6 +38,7 @@ OPTIONS_SECTIONS = frozenset({
     "zero_to_hero",
     "market_prediction",
     "call_put_writing",
+    "profitable",
 })
 
 
@@ -146,6 +147,20 @@ async def execute_options_section(service: Any, section_id: str, payload: dict[s
                 "partial_book_rr": payload.get("partial_book_rr", 1.0),
                 "partial_book_pct": payload.get("partial_book_pct", 55.0),
                 "session_end": payload.get("session_end", "15:15"),
+            },
+        )
+    if section_id == "profitable":
+        return await service.profitable(
+            tickers=payload.get("tickers"),
+            exchange=payload.get("exchange"),
+            cfg_overrides={
+                "mark_time": payload.get("mark_time", "09:20"),
+                "premium_min": payload.get("premium_min", 50.0),
+                "premium_max": payload.get("premium_max", 75.0),
+                "premium_mid": payload.get("premium_mid", 62.5),
+                "trigger_pct": payload.get("trigger_pct", 50.0),
+                "stop_pct": payload.get("stop_pct", 50.0),
+                "hold_overnight": payload.get("hold_overnight", True),
             },
         )
     if section_id == "market_prediction":

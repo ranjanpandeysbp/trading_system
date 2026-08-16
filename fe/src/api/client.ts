@@ -2185,6 +2185,18 @@ export const runOptionsZeroToHero = (payload?: {
   session_end?: string
 }) => api.post('/options/zero-to-hero', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runOptionsProfitable = (payload?: {
+  tickers?: string[]
+  exchange?: string
+  mark_time?: string
+  premium_min?: number
+  premium_max?: number
+  premium_mid?: number
+  trigger_pct?: number
+  stop_pct?: number
+  hold_overnight?: boolean
+}) => api.post('/options/profitable', payload ?? {}, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const startOptionsJob = (sectionId: string, payload: Record<string, unknown>) =>
   api.post(`/options/${sectionId}/start`, payload).then((r) => r.data)
 

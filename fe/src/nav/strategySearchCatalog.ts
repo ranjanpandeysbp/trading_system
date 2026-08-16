@@ -55,6 +55,7 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   { label: 'Zero to Hero', to: '/options?section=zero_to_hero', group: 'Options' },
   { label: 'Market Prediction', to: '/options?section=market_prediction', group: 'Options' },
   { label: 'Call Put Writing', to: '/options?section=call_put_writing', group: 'Options' },
+  { label: 'Profitable Overnight Buy-Stop', to: '/options?section=profitable', group: 'Options' },
 
   // Trading hubs (common)
   { label: 'Scalping Hub', to: '/trading-hubs?hub=scalping', group: 'Trading Hubs' },

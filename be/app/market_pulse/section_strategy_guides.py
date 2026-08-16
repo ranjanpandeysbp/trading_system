@@ -3035,6 +3035,28 @@ participant files as manual context only.
 
 **When to use:** Options → Call Put Writing before fading a ceiling or buying a floor on Nifty / Bank Nifty / F&O stocks.
 """,
+
+    "profitable": """
+### Profitable — Overnight Options Buy-Stop
+
+Source: [YouTube interview](https://www.youtube.com/watch?v=w_8cVFZ1iZE)
+
+**Market DNA:** Over long Nifty samples, overnight gaps contributed most of the net point gain;
+cash-session-only long exposure could lose points even in a multi-year uptrend. Trade by **reacting**,
+not anticipating — plan both CE and PE before the open.
+
+| Step | Rule |
+|------|------|
+| 09:20 IST mark | Pick CE & PE with premium in **₹50–₹75** (prefer ~**₹62.5**). Outside band → skip that side |
+| Entry | Do **not** buy the mark. Arm **buy-stop at +50%** of mark (₹50 → ₹75). Can fill any time after 09:20 |
+| Stop | **−50% of entry premium** once filled |
+| Sides | Independent — both can fire / SL the same day (rare “rickshaw-man” day) |
+| Hold | Prefer **overnight** carry to capture overnight DNA |
+| Universe | Nifty 50 · Bank Nifty · Midcap Nifty (robustness across indices) |
+
+**When to use:** Options → Profitable when you want a structured, reactive overnight option-buy desk.
+Research / education only — not financial advice.
+""",
 }
 
 

@@ -183,6 +183,7 @@ export const appNav: NavEntry[] = [
       { to: '/prediction/falling-knife', label: 'Falling Knife' },
       { to: '/options?section=market_prediction', label: 'Market Prediction' },
       { to: '/options?section=call_put_writing', label: 'Call Put Writing' },
+      { to: '/options?section=profitable', label: 'Profitable' },
     ],
   },
   { to: '/technical-analysis', label: 'Technical Analysis', shortLabel: 'TA', icon: BarChart3 },

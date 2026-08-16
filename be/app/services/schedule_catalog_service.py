@@ -83,6 +83,7 @@ _OPTIONS_SECTIONS: list[tuple[str, str]] = [
     ("double_calendar", "Double Calendar — Theta-Positive Income Spread"),
     ("delta_neutral", "Delta Neutral — Iron Condor / Iron Fly"),
     ("gokul_chhabra", "Gokul Chhabra — 3m VWAP · VWMA · SuperTrend ITM"),
+    ("profitable", "Profitable — Overnight Options Buy-Stop"),
 ]
 
 _STRATEGY_LAB_SECTIONS: list[tuple[str, str]] = [

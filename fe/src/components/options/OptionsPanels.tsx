@@ -891,6 +891,126 @@ export function ZeroToHeroPanel({ data }: { data: Row }) {
   )
 }
 
+function ProfitableResultCard({ result, index, currency }: { result: Row; index: number; currency: string }) {
+  const [open, setOpen] = useState(index === 0)
+  const live = (result.live as Row) ?? {}
+  const reasons = (live.reasons as string[]) ?? []
+  const legs = (result.legs as Row[]) ?? []
+  const suggestion = (result.trade_suggestion as Row) ?? null
+  const take = Boolean(live.take_trade)
+  const verdict = String(live.verdict ?? 'WAIT')
+
+  return (
+    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left"
+      >
+        <span className="text-sm font-semibold text-white">{String(result.ticker ?? '—')}</span>
+        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${take ? 'border-emerald-500/40 text-emerald-300' : 'border-slate-600 text-slate-400'}`}>
+          {verdict}
+        </span>
+        <span className="text-xs text-slate-500">
+          · {String(live.phase ?? '—')} · candidates {String(live.candidate_count ?? legs.length)}
+        </span>
+        {open ? <ChevronDown size={14} className="ml-auto text-slate-500" /> : <ChevronRight size={14} className="ml-auto text-slate-500" />}
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-slate-800/60 px-3 py-3 text-sm text-slate-300">
+          <p className="text-xs text-slate-400">
+            As of {String(result.asof_ist ?? '—')} · Expiry {String(result.expiry ?? '—')}
+            {result.spot != null ? ` · Spot ${currency}${fmtNum(result.spot)}` : ''}
+          </p>
+          {suggestion && (
+            <p className="text-xs text-sky-200/90">
+              {String(suggestion.action_label ?? suggestion.action)} · entry {currency}
+              {fmtNum(suggestion.entry_premium)} · SL {currency}{fmtNum(suggestion.stop_premium)}
+              {suggestion.plain_english ? ` — ${String(suggestion.plain_english)}` : ''}
+            </p>
+          )}
+          {legs.length > 0 && (
+            <div className="overflow-x-auto rounded border border-slate-800/60">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-slate-950/60 text-slate-500">
+                  <tr>
+                    <th className="px-2 py-1.5">Side</th>
+                    <th className="px-2 py-1.5">Strike</th>
+                    <th className="px-2 py-1.5">Mark</th>
+                    <th className="px-2 py-1.5">Buy-stop</th>
+                    <th className="px-2 py-1.5">Planned SL</th>
+                    <th className="px-2 py-1.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {legs.map((leg) => (
+                    <tr key={`${leg.option_type}-${leg.strike}`} className="border-t border-slate-800/50">
+                      <td className="px-2 py-1.5 font-medium text-white">{String(leg.option_type)}</td>
+                      <td className="px-2 py-1.5">{fmtNum(leg.strike, 0)}</td>
+                      <td className="px-2 py-1.5">{currency}{fmtNum(leg.mark_premium)}</td>
+                      <td className="px-2 py-1.5 text-amber-200">{currency}{fmtNum(leg.buy_stop)}</td>
+                      <td className="px-2 py-1.5 text-rose-300">{currency}{fmtNum(leg.planned_stop ?? leg.stop_premium)}</td>
+                      <td className="px-2 py-1.5">{String(leg.status ?? '—')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {reasons.map((r) => (
+            <p key={r} className="text-xs text-slate-500">· {r}</p>
+          ))}
+          {Boolean(result.error) && <p className="text-xs text-rose-400">{String(result.error)}</p>}
+          {result.youtube != null && (
+            <a
+              href={String(result.youtube)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block text-xs text-sky-400 hover:underline"
+            >
+              Source interview →
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ProfitablePanel({ data }: { data: Row }) {
+  const results = (data.results as Row[]) ?? []
+  const currency = String(data.currency ?? '₹')
+  if (!results.length) return <p className="text-sm text-slate-500">No results yet.</p>
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3 text-sm text-slate-400">
+        {data.entry_count != null && (
+          <span>Triggered: <strong className="text-white">{String(data.entry_count)}</strong></span>
+        )}
+        {data.strategy != null && <span>Strategy: <strong className="text-white">{String(data.strategy)}</strong></span>}
+        {data.youtube != null && (
+          <a href={String(data.youtube)} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+            YouTube
+          </a>
+        )}
+      </div>
+      {Array.isArray(data.how_to_read) && (
+        <ul className="list-disc space-y-0.5 pl-4 text-xs text-slate-500">
+          {(data.how_to_read as string[]).slice(0, 5).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+      <div className="space-y-2">
+        {results.map((res, i) => (
+          <ProfitableResultCard key={String(res.ticker ?? i)} result={res} index={i} currency={currency} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function marketViewBadgeClass(view: string): string {
   if (view.startsWith('HEALTHY')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
   if (view === 'BULLISH') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'

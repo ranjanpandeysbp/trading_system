@@ -96,6 +96,7 @@ from app.models.schemas import (
     OptionsHedgingPnlRequest,
     OptionsHedgingRequest,
     OptionsZeroToHeroRequest,
+    OptionsProfitableRequest,
     OptionsBackgroundStartRequest,
     SaveOptionsReportRequest,
     AnalysisBackgroundStartRequest,
@@ -4487,6 +4488,27 @@ async def options_zero_to_hero(
             "partial_book_rr": payload.partial_book_rr,
             "partial_book_pct": payload.partial_book_pct,
             "session_end": payload.session_end,
+        },
+    )
+
+
+@router.post("/options/profitable")
+async def options_profitable(
+    payload: OptionsProfitableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await OptionsService(SettingsService(db)).profitable(
+        tickers=payload.tickers,
+        exchange=payload.exchange,
+        cfg_overrides={
+            "mark_time": payload.mark_time,
+            "premium_min": payload.premium_min,
+            "premium_max": payload.premium_max,
+            "premium_mid": payload.premium_mid,
+            "trigger_pct": payload.trigger_pct,
+            "stop_pct": payload.stop_pct,
+            "hold_overnight": payload.hold_overnight,
         },
     )
 

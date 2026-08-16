@@ -246,7 +246,7 @@ class AskAIResponse(BaseModel):
 
 
 class DashboardTradingChatRequest(BaseModel):
-    """Dashboard chatbot — BB Mean Reversion + all confluence + Manage AI conclusion."""
+    """Technical Agent chatbot — pure Price Action (S/R · Volume · RSI · BB) + Manage AI conclusion."""
     message: str = Field(..., min_length=2, max_length=2000)
     asset_class: str | None = None  # india | us | crypto | commodity (optional override)
     style: str | None = None  # scalping | intraday | swing | investing
@@ -1185,6 +1185,19 @@ class OptionsZeroToHeroRequest(BaseModel):
     partial_book_rr: float = 1.0
     partial_book_pct: float = 55.0
     session_end: str = "15:15"
+
+
+class OptionsProfitableRequest(BaseModel):
+    """Overnight options buy-stop — CE/PE in ₹50–75 band, +50% trigger, −50% SL."""
+    tickers: list[str] | None = None  # ignored — fixed Nifty / Bank / Midcap universe
+    exchange: str | None = None
+    mark_time: str = "09:20"
+    premium_min: float = 50.0
+    premium_max: float = 75.0
+    premium_mid: float = 62.5
+    trigger_pct: float = 50.0
+    stop_pct: float = 50.0
+    hold_overnight: bool = True
 
 
 class OptionsBackgroundStartRequest(BaseModel):

@@ -1,4 +1,5 @@
-"""Dashboard Trading Chat — Workflow playbook first, then BB + PA-VP-SMC; enrichments; Deep mode."""
+"""Dashboard Trading Chat (Technical Agent) — pure Price Action desk
+(Support/Resistance · Volume · RSI · Bollinger Bands). Deep = broader universe."""
 
 from __future__ import annotations
 
@@ -8,11 +9,11 @@ from typing import Any
 from app.market_pulse.dashboard_trading_chat_engine import (
     DEEP_CHAT_SYSTEM,
     EXPLAIN_CHAT_SYSTEM,
-    PRO_TRADE_LIVE_IDS,
+    PRICE_ACTION_STRATEGY_ID,
+    PRICE_ACTION_STRATEGY_LABEL,
     SCREEN_CHAT_SYSTEM,
     TRADING_CHAT_SYSTEM,
     all_extra_checks,
-    apply_enrichments_to_picks,
     build_chat_ai_context,
     build_deep_ai_context,
     build_explain_ai_context,
@@ -20,28 +21,20 @@ from app.market_pulse.dashboard_trading_chat_engine import (
     compact_break_pick,
     compact_mover_pick,
     compact_pick,
-    compact_scan_signal,
     default_ad_index,
     default_mover_index,
     default_universe,
     is_explain_followup,
     is_screen_mode,
-    load_strategy_guides,
-    merge_live_picks,
     parse_intent,
     rank_picks,
-    select_deep_candidates,
-    select_normal_enrichments,
     summarize_enrichment_payload,
-    summarize_strategy_ranking,
 )
 from app.market_pulse.serialize import json_safe
 from app.services.ai_service import AIService
 from app.services.pro_trade_service import ProTradeService
-from app.services.workflow_evaluate_service import WorkflowEvaluateService
 from app.services.settings_service import SettingsService
 from app.services.ticker_universe_service import TickerUniverseService
-from app.strategies.registry import ALL_STRATEGIES, default_backtest_period
 
 logger = logging.getLogger(__name__)
 
@@ -59,47 +52,27 @@ class DashboardTradingChatService:
             return []
         return self.universe.resolve(asset_class, raw)[:8]
 
-    @staticmethod
-    def _workflow_market(asset_class: str) -> str:
-        """Map Trading Agent asset_class → Workflow Evaluate market key."""
-        ac = (asset_class or "india").lower().strip()
-        return {
-            "india": "india",
-            "us": "us",
-            "crypto": "crypto",
-            "commodity": "commodities",
-            "commodities": "commodities",
-        }.get(ac, "india")
+    def _tag_price_action_picks(self, picks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for p in picks:
+            p["strategy_id"] = p.get("strategy_id") or PRICE_ACTION_STRATEGY_ID
+            p["strategy_label"] = PRICE_ACTION_STRATEGY_LABEL
+        return picks
 
-    async def _run_workflow_first(
+    async def _run_price_action_scan(
         self,
+        tickers: list[str],
         *,
         asset_class: str,
-        mode: str,
-        scan_tickers: list[str],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """PRIMARY: asset-class Workflow playbook before BB / PA-VP-SMC."""
-        market = self._workflow_market(asset_class)
-        wf_mode = "stock" if mode == "single" else "index"
-        tickers = scan_tickers[:8] if mode == "single" else None
-        try:
-            wf = await WorkflowEvaluateService(self.settings, self.db).evaluate(
-                market, wf_mode, tickers=tickers,
-            )
-        except Exception as exc:
-            logger.exception("Workflow evaluate failed for %s/%s", market, wf_mode)
-            wf = {
-                "error": str(exc)[:240],
-                "market": market,
-                "mode": wf_mode,
-                "tickers": tickers or [],
-                "steps": [],
-                "overall": {"action": "WAIT", "plain_english": f"Workflow failed: {exc}"},
-            }
-        compact = summarize_enrichment_payload("workflow_playbook", wf)
-        compact["why"] = f"PRIMARY — {market} Workflow ({wf_mode}) before BB / PA-VP-SMC"
-        compact["score"] = 12.0
-        return wf, compact
+        timeframe: str,
+        checks: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Single Price Action desk scan (BB core + S/R extra check)."""
+        return await self.pro.bb_mean_reversion(
+            tickers,
+            asset_class=asset_class,
+            timeframes=[timeframe],
+            cfg_overrides={"extra_checks": list(checks) if checks is not None else all_extra_checks()},
+        )
 
     async def chat(
         self,
@@ -190,9 +163,9 @@ class DashboardTradingChatService:
                     ai_payload = await self.ai.ask(
                         context=ctx,
                         question=(
-                            "Explain why the Trading Agent gave this result. Cover picks, "
-                            "%confidence, %SL, %TP, and any Options Market Prediction / Call Put "
-                            f"Writing / Intra-Hedging influence. User asked: {message}"
+                            "Explain why the Technical Agent gave this result. Cover picks, "
+                            "%confidence, %SL, %TP using Price Action pillars only "
+                            f"(S/R · Volume · RSI · Bollinger Bands). User asked: {message}"
                         ),
                         system_prompt=EXPLAIN_CHAT_SYSTEM,
                         section="dashboard/trading-chat-explain",
@@ -280,16 +253,13 @@ class DashboardTradingChatService:
                 "deep_mode": deep_mode,
             }
 
-        # Optional deep enrich: BB on top movers only (small set)
+        # Optional deep enrich: Price Action (BB · RSI · Volume · S/R) on top movers
         if deep_mode and picks:
             try:
                 enrich_syms = [str(p.get("ticker")) for p in picks[:5] if p.get("ticker")]
                 if enrich_syms:
-                    bb = await self.pro.bb_mean_reversion(
-                        enrich_syms,
-                        asset_class=ac,
-                        timeframes=[tf],
-                        cfg_overrides={"extra_checks": all_extra_checks()},
+                    bb = await self._run_price_action_scan(
+                        enrich_syms, asset_class=ac, timeframe=tf,
                     )
                     by_t = {
                         str(r.get("ticker")): r
@@ -357,7 +327,7 @@ class DashboardTradingChatService:
         payload["screen_source"] = source
         payload["how_to_read"] = [
             "Open question screen: market movers (24h / session) or recent support/resistance breaks.",
-            "BUY/SELL here tags direction of the move or break — not a full BB trade plan unless Deep enrich added SL/TP.",
+            "BUY/SELL here tags direction of the move or break — not a full Price Action trade plan unless Deep enrich added SL/TP.",
             "AI conclusion uses Manage → AI Settings.",
             "Research / education only — not financial advice.",
         ]
@@ -497,12 +467,14 @@ class DashboardTradingChatService:
     ) -> dict[str, Any]:
         intent = parse_intent(message, asset_class=asset_class, style=style, tickers=tickers)
         checks = list(extra_checks) if extra_checks else all_extra_checks()
+        # Keep Technical Agent pure: only Price Action pillars (S/R on top of BB/RSI/Volume).
+        allowed = set(all_extra_checks())
+        checks = [c for c in checks if c in allowed] or all_extra_checks()
         intent["extra_checks"] = checks
 
         ac = str(intent["asset_class"])
         tf = str(intent["timeframe"])
         mode = str(intent["mode"])
-        style_key = str(intent.get("style") or "intraday")
 
         if mode == "single" and intent.get("tickers"):
             scan_tickers = self._resolve_named_tickers(ac, list(intent["tickers"]))
@@ -516,114 +488,31 @@ class DashboardTradingChatService:
 
         scan_tickers = scan_tickers if mode == "top_picks" else scan_tickers[:8]
 
-        import asyncio
-
-        # 1) PRIMARY — asset-class Workflow playbook (India / US / Crypto / Commodities)
-        wf_raw, wf_compact = await self._run_workflow_first(
-            asset_class=ac, mode=mode, scan_tickers=scan_tickers,
-        )
-
-        # 2) Core dual scan: BB Mean + confluence AND Pro Trade PA-VP-SMC
-        pavp_cfg: dict[str, Any] = {}
-        if tf in ("1m", "3m", "5m", "15m", "30m", "1h", "4h"):
-            pavp_cfg["ltf"] = tf
-            if style_key in ("swing", "investing"):
-                pavp_cfg["htf"] = "4h" if tf in ("15m", "30m", "1h") else "1d"
-            elif tf in ("1m", "3m", "5m"):
-                pavp_cfg["htf"] = "15m"
-            else:
-                pavp_cfg["htf"] = "1h"
-
-        async def _bb_scan():
-            return await self.pro.bb_mean_reversion(
-                scan_tickers,
-                asset_class=ac,
-                timeframes=[tf],
-                cfg_overrides={"extra_checks": checks},
-            )
-
-        async def _pavp_scan():
-            return await self.pro.pa_vp_smc(
-                scan_tickers,
-                asset_class=ac,
-                cfg_overrides=pavp_cfg or None,
-            )
-
         try:
-            bb_res, pavp_res = await asyncio.gather(_bb_scan(), _pavp_scan(), return_exceptions=True)
+            bb = await self._run_price_action_scan(
+                scan_tickers, asset_class=ac, timeframe=tf, checks=checks,
+            )
         except Exception as exc:
-            logger.exception("Dashboard trading chat dual scan failed")
+            logger.exception("Technical Agent Price Action scan failed")
             return {"error": f"Scan failed: {exc}", "intent": intent, "picks": [], "ai": None}
 
-        if isinstance(bb_res, Exception):
-            logger.exception("BB scan failed: %s", bb_res)
-            return {"error": f"Scan failed: {bb_res}", "intent": intent, "picks": [], "ai": None}
-        bb = bb_res if isinstance(bb_res, dict) else {"results": []}
-        if isinstance(pavp_res, Exception):
-            logger.exception("PA-VP-SMC scan failed (continuing with BB): %s", pavp_res)
-            pavp = {"results": [], "error": str(pavp_res)[:200], "entry_count": 0}
-        else:
-            pavp = pavp_res if isinstance(pavp_res, dict) else {"results": []}
-
         results = list(bb.get("results") or [])
-        pavp_results = list(pavp.get("results") or [])
 
-        bb_picks: list[dict[str, Any]]
         if mode == "single":
-            bb_picks = [compact_pick(r, rank=i + 1) for i, r in enumerate(results)]
-            for p in bb_picks:
-                p["strategy_id"] = p.get("strategy_id") or "bb_mean_reversion"
-                p["strategy_label"] = p.get("strategy_label") or "BB Mean Reversion"
-            bb_picks = sorted(bb_picks, key=lambda p: (0 if p.get("take_trade") else 1, -(p.get("confidence_pct") or 0)))
-            eligible = [p for p in bb_picks if p.get("take_trade")]
-            bb_picks = eligible if eligible else bb_picks
+            picks = [compact_pick(r, rank=i + 1) for i, r in enumerate(results)]
+            self._tag_price_action_picks(picks)
+            picks = sorted(picks, key=lambda p: (0 if p.get("take_trade") else 1, -(p.get("confidence_pct") or 0)))
+            eligible = [p for p in picks if p.get("take_trade")]
+            picks = eligible if eligible else picks
             if top_n is not None:
-                bb_picks = bb_picks[:top_n]
-            for i, p in enumerate(bb_picks):
+                picks = picks[:top_n]
+            for i, p in enumerate(picks):
                 p["rank"] = i + 1
         else:
-            bb_picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
-            for p in bb_picks:
-                p["strategy_id"] = p.get("strategy_id") or "bb_mean_reversion"
-                p["strategy_label"] = p.get("strategy_label") or "BB Mean Reversion"
+            picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
+            self._tag_price_action_picks(picks)
 
-        pavp_picks = []
-        for r in pavp_results:
-            if not isinstance(r, dict):
-                continue
-            cp = compact_pick(r)
-            cp["strategy_id"] = "pa_vp_smc"
-            cp["strategy_label"] = "PA-VP-SMC"
-            pavp_picks.append(cp)
-
-        picks = merge_live_picks([bb_picks, pavp_picks], top_n=top_n)
-
-        # 3) Suitability enrichments (Elliott / VSA / A/D / CS / Oil-Dollar-Bond / Options / Intra-Hedging)
-        planned = select_normal_enrichments(
-            style_key, ac, message, mode=mode, timeframe=tf, limit=3,
-        )
-        # Drop pa_vp_smc from optional enrichments — already ran as a core desk
-        planned = [p for p in planned if p.get("id") != "pa_vp_smc"]
-        enrich_tickers = [str(p.get("ticker")) for p in picks if p.get("ticker")][:8]
-        if not enrich_tickers:
-            enrich_tickers = list(scan_tickers[:6])
-        enrichments = await self._run_normal_enrichments(
-            planned,
-            asset_class=ac,
-            timeframe=tf,
-            style=style_key,
-            tickers=enrich_tickers,
-            message=message,
-        )
-        # Workflow FIRST, then PA-VP-SMC compact, then suitability desks
-        pavp_compact = summarize_enrichment_payload("pa_vp_smc", pavp)
-        pavp_compact["why"] = "core dual scan with BB Mean Reversion + confluence (after Workflow)"
-        pavp_compact["score"] = 10.0
-        enrichments = [wf_compact, pavp_compact] + list(enrichments or [])
-
-        picks = apply_enrichments_to_picks(picks, enrichments)
-        for i, p in enumerate(picks):
-            p["rank"] = i + 1
+        enrichments: list[dict[str, Any]] = []
 
         ai_payload = await self._conclude_ai(
             intent=intent,
@@ -646,31 +535,12 @@ class DashboardTradingChatService:
             picks=picks,
             ai_payload=ai_payload,
             bb_entry_count=bb.get("entry_count"),
-            disclaimer=bb.get("disclaimer") or pavp.get("disclaimer"),
+            disclaimer=bb.get("disclaimer"),
             scanned=len(results),
             deep_mode=False,
             enrichments=enrichments,
         )
-        packed["pa_vp_smc_entry_count"] = pavp.get("entry_count")
-        packed["core_engines"] = ["workflow_playbook", "bb_mean_reversion", "pa_vp_smc"]
-        packed["workflow"] = {
-            "market": wf_raw.get("market"),
-            "mode": wf_raw.get("mode"),
-            "tickers": wf_raw.get("tickers"),
-            "overall": wf_raw.get("overall"),
-            "steps": [
-                {
-                    "id": s.get("id") or s.get("step"),
-                    "label": s.get("title") or s.get("label") or s.get("step") or s.get("id"),
-                    "bias": s.get("bias"),
-                    "status": s.get("status"),
-                    "summary": (s.get("summary") or s.get("plain_english") or "")[:180],
-                }
-                for s in (wf_raw.get("steps") or [])
-                if isinstance(s, dict)
-            ],
-            "error": wf_raw.get("error"),
-        }
+        packed["core_engines"] = ["price_action_bb_rsi_volume_sr"]
         return json_safe(packed)
 
     async def _chat_deep(
@@ -684,215 +554,79 @@ class DashboardTradingChatService:
         top_n: int | None,
         skip_ai: bool,
     ) -> dict[str, Any]:
+        """Deep = broader Price Action universe (same pillars), not multi-strategy backtest."""
         intent = parse_intent(message, asset_class=asset_class, style=style, tickers=tickers)
         checks = list(extra_checks) if extra_checks else all_extra_checks()
+        allowed = set(all_extra_checks())
+        checks = [c for c in checks if c in allowed] or all_extra_checks()
         intent["extra_checks"] = checks
         intent["deep_mode"] = True
 
         ac = str(intent["asset_class"])
         tf = str(intent["timeframe"])
         mode = str(intent["mode"])
-        style_key = str(intent.get("style") or "intraday")
 
         if mode == "single" and intent.get("tickers"):
             scan_tickers = self._resolve_named_tickers(ac, list(intent["tickers"]))
         else:
             mode = "top_picks"
             intent["mode"] = mode
-            # Broader universe so more eligible live picks can surface after ranking
-            scan_tickers = default_universe(ac, limit=20)
+            scan_tickers = default_universe(ac, limit=80)
 
         if not scan_tickers:
             return {"error": "Could not resolve any tickers for this question.", "intent": intent, "picks": [], "ai": None, "deep_mode": True}
 
-        # Backtest on a subset for latency; live-scan the fuller list
-        bt_tickers = scan_tickers[:8] if mode == "top_picks" else scan_tickers[:5]
-        live_tickers = scan_tickers if mode == "top_picks" else scan_tickers[:5]
+        live_tickers = scan_tickers if mode == "top_picks" else scan_tickers[:8]
 
-        candidates = select_deep_candidates(style_key, message, limit=10)
-        candidate_meta = []
-        from app.strategies.registry import get_strategy_meta
-        for sid in candidates:
-            meta = get_strategy_meta(sid) or {}
-            candidate_meta.append({
-                "id": sid,
-                "label": meta.get("name") or sid.replace("_", " ").title(),
-                "category": meta.get("category") or meta.get("category_label") or "",
-            })
-
-        action_bias = str(intent.get("action_bias") or "both")
-        direction = "long_only" if action_bias == "buy" else "short_only" if action_bias == "sell" else "both"
-        period = default_backtest_period(tf)
-
-        # --- 1) Backtest rank ---
-        ranking: list[dict[str, Any]] = []
-        bt_rows: list[dict[str, Any]] = []
-        bt_error: str | None = None
         try:
-            from app.services.backtester_leaderboard_service import BacktesterLeaderboardService
-
-            bt = await BacktesterLeaderboardService(self.settings, self.db).run(
-                tickers=bt_tickers,
-                strategy_ids=candidates,
-                asset_class=ac,
-                timeframe=tf,
-                period=period,
-                direction=direction,
-                bars=220,
+            bb = await self._run_price_action_scan(
+                live_tickers, asset_class=ac, timeframe=tf, checks=checks,
             )
-            bt_rows = list(bt.get("rows") or [])
-            ranking = summarize_strategy_ranking(bt_rows, top_n=None)
-        except Exception as exc:
-            logger.exception("Deep mode backtest failed")
-            bt_error = str(exc)[:300]
-            ranking = [{"rank": i + 1, "strategy_id": sid, "strategy_label": sid, "avg_rank_score": 0,
-                        "note": "backtest unavailable — using style defaults"} for i, sid in enumerate(candidates[:5])]
-
-        top_strategy_ids = [str(r["strategy_id"]) for r in ranking[:3]] or candidates[:3]
-
-        # --- 2) Strategies catalog details (http://…/strategies → /api/v1/strategies) ---
-        import asyncio
-
-        selected = await asyncio.to_thread(load_strategy_guides, top_strategy_ids)
-
-        # --- 3) Live analysis on winners ---
-        pick_lists: list[list[dict[str, Any]]] = []
-
-        # Always run BB with full confluence as desk baseline
-        try:
-            bb = await self.pro.bb_mean_reversion(
-                live_tickers,
-                asset_class=ac,
-                timeframes=[tf],
-                cfg_overrides={"extra_checks": checks},
-            )
-            bb_results = list(bb.get("results") or [])
-            bb_picks = [compact_pick(r) for r in bb_results]
-            for p in bb_picks:
-                p["strategy_id"] = "bb_mean_reversion"
-                p["strategy_label"] = "BB Mean Reversion"
-            pick_lists.append(bb_picks)
+            results = list(bb.get("results") or [])
+            if mode == "single":
+                picks = [compact_pick(r, rank=i + 1) for i, r in enumerate(results)]
+                self._tag_price_action_picks(picks)
+                picks = sorted(picks, key=lambda p: (0 if p.get("take_trade") else 1, -(p.get("confidence_pct") or 0)))
+                eligible = [p for p in picks if p.get("take_trade")]
+                picks = eligible if eligible else picks
+            else:
+                picks = rank_picks(results, top_n=top_n, action_bias=str(intent.get("action_bias") or "both"))
+                self._tag_price_action_picks(picks)
+            if top_n is not None:
+                picks = picks[:top_n]
+            for i, p in enumerate(picks):
+                p["rank"] = i + 1
             bb_entry_count = bb.get("entry_count")
             disclaimer = bb.get("disclaimer")
+            bt_error = None
         except Exception as exc:
-            logger.exception("Deep mode BB live failed")
-            bb_entry_count = 0
-            disclaimer = None
-            bt_error = (bt_error or "") + f" | BB live: {exc}"
+            logger.exception("Deep Price Action scan failed")
+            return {"error": f"Scan failed: {exc}", "intent": intent, "picks": [], "ai": None, "deep_mode": True}
 
-        from app.trading_hubs.registry import get_section
-
-        # Prefer Trading Hub for registered hub sections (e.g. Intra-Hedging),
-        # even when the same id also appears in engine strategy meta.
-        hub_force = {sid for sid in top_strategy_ids if get_section(sid)}
-        rule_ids = [
-            sid for sid in top_strategy_ids
-            if sid in ALL_STRATEGIES and sid not in hub_force
-        ]
-        hub_ids = [
-            sid for sid in top_strategy_ids
-            if sid in hub_force
-            or (
-                sid not in ALL_STRATEGIES
-                and sid not in PRO_TRADE_LIVE_IDS
-                and sid != "elliott_wave_pro"
-            )
-        ]
-        pro_ids = [sid for sid in top_strategy_ids if sid in PRO_TRADE_LIVE_IDS or sid == "elliott_wave_pro"]
-        deep_hedge_pairs: list[dict[str, Any]] = []
-
-        if rule_ids:
-            try:
-                from app.models.schemas import ScanRequest
-                from app.services.scanner_service import ScannerService
-
-                signals = await ScannerService(self.settings).scan(
-                    ScanRequest(
-                        tickers=live_tickers,
-                        strategies=rule_ids,
-                        timeframes=[tf if tf in ("1m", "3m", "5m", "15m", "1d") else ("15m" if style_key in ("scalping", "intraday") else "1d")],
-                        asset_class=ac,  # type: ignore[arg-type]
-                    )
-                )
-                pick_lists.append([compact_scan_signal(s) for s in signals])
-            except Exception:
-                logger.exception("Deep mode scanner live failed")
-
-        if hub_ids:
-            try:
-                from app.market_pulse.dashboard_trading_chat_engine import adapt_intra_hedging_config
-                from app.services.trading_hub_service import TradingHubService
-
-                hubs = TradingHubService(self.settings, db=self.db)
-                for sid in hub_ids[:2]:
-                    try:
-                        hub_cfg = (
-                            adapt_intra_hedging_config(style_key, message, tf)
-                            if sid == "intra_hedging"
-                            else None
-                        )
-                        payload = await hubs.scan(
-                            sid, live_tickers, asset_class=ac, config=hub_cfg,
-                        )
-                        if sid == "intra_hedging" and isinstance(payload, dict):
-                            deep_hedge_pairs = list(payload.get("pair_recommendations") or [])
-                        entries = list(payload.get("entries") or payload.get("results") or [])
-                        hub_picks = []
-                        for e in entries:
-                            live = e.get("live") if isinstance(e, dict) else None
-                            src = live if isinstance(live, dict) else (e if isinstance(e, dict) else {})
-                            if not src:
-                                continue
-                            # Normalize hub live schema toward compact_pick fields
-                            fake = {
-                                "ticker": src.get("ticker") or e.get("ticker"),
-                                "timeframe": src.get("timeframe") or tf,
-                                "take_trade": bool(src.get("take_trade") or src.get("action") in ("BUY", "SELL", "LONG", "SHORT")),
-                                "direction": src.get("direction") or (
-                                    "LONG" if str(src.get("action") or "").upper() in ("BUY", "LONG") else
-                                    "SHORT" if str(src.get("action") or "").upper() in ("SELL", "SHORT") else "NONE"
-                                ),
-                                "confidence_pct": src.get("confidence_pct") or src.get("confidence"),
-                                "sl_pct": src.get("sl_pct"),
-                                "tp_pct": src.get("tp_pct"),
-                                "entry_price": src.get("entry_price") or src.get("ltp") or src.get("price"),
-                                "stop_price": src.get("stop_price"),
-                                "target_price": src.get("target_price"),
-                                "plain_english": src.get("plain_english") or src.get("verdict") or src.get("rationale"),
-                                "verdict": src.get("verdict"),
-                                "confidence_reasons": src.get("confidence_reasons") or [],
-                                "error": src.get("error"),
-                            }
-                            cp = compact_pick(fake)
-                            cp["strategy_id"] = sid
-                            cp["strategy_label"] = sid.replace("_", " ").title()
-                            hub_picks.append(cp)
-                        if hub_picks:
-                            pick_lists.append(hub_picks)
-                    except Exception:
-                        logger.exception("Deep mode hub %s failed", sid)
-            except Exception:
-                logger.exception("Deep mode hub service failed")
-
-        for sid in pro_ids:
-            if sid == "bb_mean_reversion":
-                continue  # already ran
-            try:
-                live = await self._run_pro_live(sid, live_tickers, ac, tf, checks)
-                if live:
-                    pick_lists.append(live)
-            except Exception:
-                logger.exception("Deep mode pro live %s failed", sid)
-
-        picks = merge_live_picks(pick_lists, top_n=top_n)
-        if mode == "single" and picks:
-            # Prefer named tickers
-            named = set(live_tickers)
-            named_picks = [p for p in picks if p.get("ticker") in named]
-            if named_picks:
-                picks = named_picks
-                for i, p in enumerate(picks):
-                    p["rank"] = i + 1
+        ranking = [{
+            "rank": 1,
+            "strategy_id": PRICE_ACTION_STRATEGY_ID,
+            "strategy_label": PRICE_ACTION_STRATEGY_LABEL,
+            "avg_rank_score": None,
+            "note": "Deep mode uses a broader Price Action universe — same S/R · Volume · RSI · BB pillars.",
+        }]
+        selected = [{
+            "strategy_id": PRICE_ACTION_STRATEGY_ID,
+            "strategy_label": PRICE_ACTION_STRATEGY_LABEL,
+            "summary": (
+                "Pure Price Action desk: Bollinger Band stretch/squeeze, RSI extremes, "
+                "volume climax, support/resistance zones, and candlestick reversal at the band."
+            ),
+            "entry_rules": [
+                "Prefer BB %B stretch with RSI confirmation",
+                "Require volume participation and/or S/R confluence",
+                "SL beyond band/S-R invalidation; TP toward mean / opposite band",
+            ],
+            "guide_excerpt": (
+                "Technical Agent Deep mode scans a larger universe with the same Price Action "
+                "pillars only — it does not backtest unrelated strategies."
+            ),
+        }]
 
         ai_payload = await self._conclude_ai(
             intent=intent,
@@ -904,20 +638,14 @@ class DashboardTradingChatService:
             selected=selected,
         )
 
-        summary_parts = []
-        if ranking:
-            summary_parts.append("Best strategies (backtest):")
-            for r in ranking:
-                summary_parts.append(
-                    f"  {r.get('rank')}. {r.get('strategy_label')} — score {r.get('avg_rank_score')} · "
-                    f"ret {r.get('avg_return_pct')}% · win {r.get('avg_win_rate_pct')}%"
-                )
-        summary_parts.append(f"Live picks ({len(picks)} eligible):")
+        summary_parts = [
+            f"Deep Price Action scan · {len(live_tickers)} names · {len(picks)} eligible:",
+        ]
         for p in picks:
             summary_parts.append(
                 f"{p.get('rank')}. {p.get('ticker')} — {p.get('action')} ({p.get('side')}) · "
                 f"{p.get('confidence_pct') or '—'}% · SL {p.get('sl_pct') or '—'}% · TP {p.get('tp_pct') or '—'}% · "
-                f"[{p.get('strategy_id') or '—'}] {p.get('reason')}"
+                f"{p.get('reason')}"
             )
 
         payload = self._pack_response(
@@ -931,24 +659,27 @@ class DashboardTradingChatService:
             ai_payload=ai_payload,
             bb_entry_count=bb_entry_count,
             disclaimer=disclaimer,
-            scanned=len(live_tickers) * max(len(candidates), 1),
+            scanned=len(live_tickers),
             deep_mode=True,
         )
         payload.update({
             "summary": "\n".join(summary_parts),
-            "candidate_strategies": candidate_meta,
+            "candidate_strategies": [{
+                "id": PRICE_ACTION_STRATEGY_ID,
+                "label": PRICE_ACTION_STRATEGY_LABEL,
+                "category": "Price Action",
+            }],
             "strategy_ranking": ranking,
             "selected_strategies": selected,
-            "backtest_period": period,
+            "backtest_period": None,
             "backtest_error": bt_error,
-            "hedge_pairs": deep_hedge_pairs,
+            "hedge_pairs": [],
+            "core_engines": ["price_action_bb_rsi_volume_sr"],
             "how_to_read": [
-                "Deep mode: (1) pick strategies for your question (2) backtest-rank them "
-                "(3) load Strategies catalog how-to from /strategies (4) live-scan winners "
-                "(5) Manage AI conclusion.",
-                "Strategy ranking uses Backtester leaderboard rank_score (return × sample factor).",
-                "Live picks merge BB Mean Reversion + winning rule/hub/pro engines "
-                "(Trading Hub Intra-Hedging when ranked — query-adapted params).",
+                "Deep mode: broader Price Action universe with the same pillars — "
+                "Support/Resistance · Volume · RSI · Bollinger Bands.",
+                "SL%/TP% come from the Price Action trade plan (band edge → mean / S/R invalidation).",
+                "AI conclusion uses Manage → AI Settings.",
                 "Research / education only — not financial advice.",
             ],
         })
@@ -1241,19 +972,17 @@ class DashboardTradingChatService:
             ctx = build_deep_ai_context(intent, ranking=ranking or [], selected=selected or [], picks=picks)
             sys = DEEP_CHAT_SYSTEM
             q = (
-                "Deep mode: name best strategies from the backtest, cite Strategies catalog briefly, "
-                f"then BUY/SELL/WAIT per ticker with %confidence %SL %TP. User asked: {message}"
+                "Deep mode: conclude BUY/SELL/WAIT per ticker with %confidence %SL %TP "
+                "using Price Action pillars only (S/R · Volume · RSI · Bollinger Bands). "
+                f"User asked: {message}"
             )
             mode = "ask"
         else:
             ctx = build_chat_ai_context(intent, picks, enrichments=enrichments)
             sys = TRADING_CHAT_SYSTEM
             q = (
-                "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason. "
-                "Lead with the asset-class Workflow playbook stance; then confirm with BB Mean "
-                "Reversion + confluence and Pro Trade PA-VP-SMC; note agreement or conflict. "
-                "Also weigh suitability enrichments — especially Options Market Prediction "
-                "and Call Put Writing (OI walls / short covering). "
+                "Conclude with BUY/SELL/WAIT per ticker, %confidence, %SL, %TP, and a short reason "
+                "using Price Action only: Support/Resistance, Volume, RSI, and Bollinger Bands. "
                 "Include a brief **Why this result** explanation. "
                 f"User asked: {message}"
             )
@@ -1309,24 +1038,17 @@ class DashboardTradingChatService:
             )
 
         how = [
-            "1) PRIMARY: asset-class Workflow playbook (India / US / Crypto / Commodities) — "
-            "index tape for top-picks, stock workflow for named tickers.",
-            "2) Core dual scan: BB Mean Reversion + all confluence checks, and Pro Trade → PA-VP-SMC "
-            "(price action · volume profile · smart money), run together after Workflow.",
-            "3) Suitability enrichments (as needed): Elliott Wave, Volume Spread next-candle, "
-            "Advance/Decline, Comparative Strength, Oil·Dollar·Bond, Options Market Prediction, "
-            "Options Call Put Writing (OI walls / short covering), and Trading Hub Intra-Hedging "
-            "(India — query-adapted TF / sector-vs-stock / max pairs).",
-            "BUY/SELL = eligible actionable setups from either core engine (merged by confidence), "
-            "tempered by Workflow overall stance.",
+            "Technical Agent uses a pure Price Action desk only:",
+            "Support/Resistance · Volume · RSI · Bollinger Bands (plus candlestick reversal at the band).",
+            "BUY/SELL = eligible actionable setups from that Price Action scan.",
             "AI conclusion uses the provider saved in Manage → AI Settings and includes a Why section.",
             "Ask “why?” or “explain this result” as a follow-up to dig into the rationale without re-scanning.",
-            "SL%/TP% come from the winning engine trade plan (BB band edge → mean, or PA-VP-SMC confluence stop/target).",
+            "SL%/TP% come from the Price Action trade plan (band edge → mean / S/R invalidation).",
         ]
         if deep_mode:
             how = [
-                "Deep mode: backtest-ranked strategies → Strategies catalog (/strategies) → live analysis → AI.",
-                "See strategy_ranking and selected_strategies (catalog how-to) in the response.",
+                "Deep mode: broader Price Action universe — same S/R · Volume · RSI · BB pillars.",
+                "No multi-strategy backtest desks — still pure Price Action.",
                 "AI conclusion uses Manage → AI Settings.",
                 "Research / education only — not financial advice.",
             ]

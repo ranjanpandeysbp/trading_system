@@ -1,9 +1,18 @@
 """
 dashboard_trading_chat_engine.py
 --------------------------------
-Intent parse + pick compaction for the Dashboard trading chatbot.
-Standard mode dual-scans BB Mean Reversion (all EXTRA_CHECK_OPTIONS confluence)
-and Pro Trade PA-VP-SMC, then suitability enrichments → Manage AI.
+Intent parse + pick compaction for the Dashboard Trading Chat (Technical Agent).
+
+Standard / Deep modes scan a pure Price Action desk built on BB Mean Reversion
+core pillars only:
+
+  · Bollinger Band %B stretch / squeeze
+  · RSI extreme confirmation
+  · Volume climax
+  · Support / Resistance (swing zones + optional S/R extra check)
+  · Candlestick reversal at the band (price action)
+
+No Workflow playbook, PA-VP-SMC, options desks, or multi-strategy enrichments.
 """
 
 from __future__ import annotations
@@ -13,7 +22,13 @@ from typing import Any
 
 from app.market_pulse.bb_mean_reversion_engine import EXTRA_CHECK_OPTIONS
 
+# Price Action desk — only S/R on top of core BB / RSI / Volume / candlestick.
+PRICE_ACTION_EXTRA_CHECKS: list[str] = ["support_resistance"]
+
 ALL_EXTRA_CHECK_IDS: list[str] = [str(x["value"]) for x in EXTRA_CHECK_OPTIONS]
+
+PRICE_ACTION_STRATEGY_ID = "bb_mean_reversion"
+PRICE_ACTION_STRATEGY_LABEL = "Price Action (S/R · Volume · RSI · BB)"
 
 # Trading style → primary BB timeframe
 STYLE_TIMEFRAMES: dict[str, str] = {
@@ -80,6 +95,12 @@ _STYLE_KEYWORDS: list[tuple[str, list[str]]] = [
 
 
 def all_extra_checks() -> list[str]:
+    """Extra checks used by the Technical Agent Price Action desk (S/R only)."""
+    return list(PRICE_ACTION_EXTRA_CHECKS)
+
+
+def all_bb_extra_check_ids() -> list[str]:
+    """Full BB Mean Reversion EXTRA_CHECK_OPTIONS catalog (Pro Trade UI)."""
     return list(ALL_EXTRA_CHECK_IDS)
 
 
@@ -418,8 +439,9 @@ def build_chat_ai_context(
     enrichments: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = [
-        "Dashboard Trading Chat — Workflow playbook FIRST (asset-class India/US/Crypto/Commodities), "
-        "then BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC, then suitability enrichments.",
+        "Technical Agent (Trading Agent) — pure Price Action desk.",
+        "Pillars only: Support/Resistance · Volume · RSI · Bollinger Bands "
+        "(plus candlestick reversal at the band). No Workflow / PA-VP-SMC / options enrichments.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         f"Mode: {intent.get('mode')} · Action bias: {intent.get('action_bias')}",
@@ -436,10 +458,7 @@ def build_chat_ai_context(
         )
     if enrichments:
         lines.append("")
-        lines.append(
-            "Context layers (Workflow playbook is primary tape; then core scans / enrichments — "
-            "do not invent levels from them):"
-        )
+        lines.append("Optional context layers (do not invent levels from them):")
         for enr in enrichments:
             label = enr.get("label") or enr.get("id")
             why = enr.get("why") or ""
@@ -448,42 +467,32 @@ def build_chat_ai_context(
     lines.append("")
     lines.append(
         "Respond with a clear ranking, BUY/SELL/WAIT per name, %confidence, %SL, %TP, "
-        "and a one-line reason. Lead with the Workflow playbook stance for this asset class; "
-        "then confirm or temper with BB / PA-VP-SMC engine numbers for SL/TP. Cite "
-        "enrichments when they confirm or conflict (especially Options Market Prediction "
-        "and Call Put Writing walls). Note when Workflow, BB, and PA-VP-SMC agree or disagree. "
-        "Then add a short **Why** section: Workflow first, then BB confluence + PA-VP-SMC + options/OI. "
-        "Flag risk if confluence is thin."
+        "and a one-line reason grounded in Price Action: structure (S/R), volume participation, "
+        "RSI extremes, and Bollinger Band stretch/squeeze. "
+        "Then add a short **Why** section explaining those pillars in plain English. "
+        "Flag risk if confluence is thin (e.g. BB stretch without RSI/volume/S-R agreement)."
     )
     return "\n".join(lines)
 
 
 TRADING_CHAT_SYSTEM = (
-    "You are the Dashboard Trading Chat desk analyst. FIRST weigh the asset-class "
-    "Workflow playbook (India F&O/intraday, US swing/pairs, Crypto kill-zone scalp, "
-    "Commodities HTF Gold/Oil) when provided — that is the primary market tape. "
-    "THEN confirm with BB Mean Reversion + confluence AND Pro Trade PA-VP-SMC engine "
-    "numbers, and weigh suitability enrichments (Elliott Wave, Volume Spread next-candle, "
-    "Advance/Decline, Comparative Strength, Oil-Dollar-Bond macro, Options Market Prediction, "
-    "Options Call Put Writing OI walls, Trading Hub Intra-Hedging pairs). Prefer BB or "
-    "PA-VP-SMC levels for SL/TP when both agree; when they conflict with the Workflow "
-    "stance, say so and lower confidence. For hedge pairs cite LONG/SHORT legs, spread, "
-    "and confidence. For Call Put Writing cite Call wall / Put floor / writing tilt / "
-    "short-covering risk. For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), "
-    "%confidence, %SL, %TP, and a short reason. Always include a brief **Why this result** "
-    "paragraph explaining Workflow → BB + PA-VP-SMC + enrichment logic in plain English. "
+    "You are the Technical Agent (Trading Agent) desk analyst. You ONLY use Price Action "
+    "with Support/Resistance, Volume, RSI, and Bollinger Bands (plus candlestick reversal "
+    "at the band). Do not invent Workflow playbooks, PA-VP-SMC, options walls, or unrelated "
+    "strategy desks. Prefer engine SL/TP from the Price Action scan (band edge → mean / "
+    "S/R invalidation). For each name give: action (BUY/SELL/WAIT), side (LONG/SHORT/WAIT), "
+    "%confidence, %SL, %TP, and a short reason citing which pillars confirm or conflict. "
+    "Always include a brief **Why this result** paragraph in plain English. "
     "Be concise and practical. This is research/education only — not financial advice. "
     "End with: VERDICT: BUY|SELL|WAIT (overall bias for the user's question)."
 )
 
 EXPLAIN_CHAT_SYSTEM = (
-    "You explain Trading Agent desk results to the user. They already have picks and "
-    "enrichments — do NOT invent new tickers or levels. Start from the Workflow playbook "
-    "for their asset class, then cite BB Mean Reversion + confluence, Pro Trade PA-VP-SMC "
-    "pillars, Options Market Prediction / Call Put Writing (OI walls, PCR, short covering), "
-    "Intra-Hedging pairs, and other enrichment summaries. Answer their 'why / explain' "
-    "question clearly with %confidence meaning, why SL%/TP% were chosen, and what would "
-    "invalidate the setup. Research/education only — not financial advice."
+    "You explain Technical Agent (Trading Agent) desk results. They already have picks — "
+    "do NOT invent new tickers or levels. Explain using Price Action pillars only: "
+    "Support/Resistance, Volume, RSI, and Bollinger Bands (and candlestick confirmation). "
+    "Answer their 'why / explain' question with what %confidence means, why SL%/TP% were "
+    "chosen, and what would invalidate the setup. Research/education only — not financial advice."
 )
 
 # ---------------------------------------------------------------------------
@@ -825,7 +834,8 @@ def build_explain_ai_context(
     hedge = list(prior.get("hedge_pairs") or [])[:5]
     ai = prior.get("ai") if isinstance(prior.get("ai"), dict) else {}
     lines = [
-        "Trading Agent — explain prior result (do not invent new tickers or levels).",
+        "Technical Agent — explain prior Price Action result (do not invent new tickers or levels).",
+        "Pillars: Support/Resistance · Volume · RSI · Bollinger Bands.",
         f"User follow-up: {message}",
         f"Prior asset_class={prior.get('asset_class')} style={prior.get('style')} "
         f"TF={prior.get('timeframe')} mode={prior.get('mode')}",
@@ -1569,52 +1579,45 @@ def build_deep_ai_context(
     picks: list[dict[str, Any]],
 ) -> str:
     lines = [
-        "Dashboard Trading Chat — DEEP MODE.",
-        "Pipeline: (1) choose strategies for the question (2) backtest rank (3) Strategies catalog "
-        "how-to from /strategies (4) live analysis on winners (5) your conclusion.",
+        "Technical Agent — DEEP MODE (still pure Price Action).",
+        "Broader universe scan with the same pillars only: Support/Resistance · Volume · RSI · "
+        "Bollinger Bands (plus candlestick reversal). No multi-strategy backtest desks.",
         f"User question: {intent.get('raw_message')}",
         f"Asset class: {intent.get('asset_class')} · Style: {intent.get('style_label')} · TF: {intent.get('timeframe')}",
         "",
-        "Backtest ranking (best strategies for this question/universe):",
+        "Live Price Action picks:",
     ]
-    for r in ranking[:8]:
-        lines.append(
-            f"{r.get('rank')}. {r.get('strategy_label')} ({r.get('strategy_id')}) · "
-            f"score={r.get('avg_rank_score')} · ret%={r.get('avg_return_pct')} · "
-            f"win%={r.get('avg_win_rate_pct')} · sharpe={r.get('avg_sharpe')} · trades={r.get('num_trades')}"
-        )
-    lines.append("")
-    lines.append("Strategies catalog details (from Strategies page / API) for selected strategies:")
-    for s in selected:
-        lines.append(f"— {s.get('strategy_label')}: {s.get('summary') or ''}")
-        if s.get("entry_rules"):
-            lines.append(f"  Entry: {'; '.join(str(x) for x in s['entry_rules'][:2])}")
-        if s.get("guide_excerpt"):
-            lines.append(f"  How-to: {str(s['guide_excerpt'])[:400]}")
-        if s.get("source"):
-            lines.append(f"  Source: {s.get('source')}")
-    lines.append("")
-    lines.append("Live picks after analysis:")
     for p in picks:
         lines.append(
             f"{p.get('rank')}. {p.get('ticker')} | {p.get('action')}/{p.get('side')} | "
             f"conf={p.get('confidence_pct')}% | SL%={p.get('sl_pct')} | TP%={p.get('tp_pct')} | "
-            f"via {p.get('strategy_id') or 'bb'} | {p.get('reason')}"
+            f"via {p.get('strategy_id') or 'price_action'} | {p.get('reason')}"
         )
+    if ranking:
+        lines.append("")
+        lines.append("Optional ranking notes (ignore unrelated strategies):")
+        for r in ranking[:5]:
+            lines.append(
+                f"{r.get('rank')}. {r.get('strategy_label')} · score={r.get('avg_rank_score')}"
+            )
+    if selected:
+        lines.append("")
+        lines.append("Catalog notes:")
+        for s in selected[:3]:
+            lines.append(f"— {s.get('strategy_label')}: {s.get('summary') or ''}")
     lines.append("")
     lines.append(
-        "Conclude which strategies fit the question, then BUY/SELL/WAIT per ticker with "
-        "%confidence %SL %TP and a short reason grounded in backtest + Strategies catalog + live numbers."
+        "Conclude BUY/SELL/WAIT per ticker with %confidence %SL %TP and a short reason "
+        "grounded only in S/R · Volume · RSI · Bollinger Band price action."
     )
     return "\n".join(lines)
 
 
 DEEP_CHAT_SYSTEM = (
-    "You are the Dashboard Trading Chat Deep Mode desk. You receive (1) backtest-ranked strategies "
-    "chosen for the user's question, (2) strategy details from the Strategies catalog "
-    "(http host /strategies → /api/v1/strategies), (3) live analysis picks. "
-    "First name the best strategies and why they fit using the catalog how-to. Then give BUY/SELL/WAIT "
-    "per ticker with %confidence, %SL, %TP and a short reason. Research/education only — not financial "
+    "You are the Technical Agent Deep Mode desk. You still ONLY use Price Action with "
+    "Support/Resistance, Volume, RSI, and Bollinger Bands. Deep mode means a broader "
+    "universe / slower scan — not other strategy desks. Give BUY/SELL/WAIT per ticker with "
+    "%confidence, %SL, %TP and a short reason. Research/education only — not financial "
     "advice. End with: VERDICT: BUY|SELL|WAIT."
 )
 

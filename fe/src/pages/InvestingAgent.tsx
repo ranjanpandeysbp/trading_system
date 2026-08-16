@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Bot, Loader2, Search, Send, Sparkles } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import {
   apiErrorMessage,
   fetchInvestingAgentStatus,
@@ -330,6 +331,7 @@ function AgentAnswerView({ markdown }: { markdown: string }) {
 }
 
 export default function InvestingAgent() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['investing-agent-status'],
     queryFn: fetchInvestingAgentStatus,
@@ -352,6 +354,7 @@ export default function InvestingAgent() {
   const abortRef = useRef<AbortController | null>(null)
   const answerRef = useRef<HTMLDivElement>(null)
   const lastOpenedReportRef = useRef<number | null>(null)
+  const deepLinkHandledRef = useRef(false)
 
   const tokenSet = Boolean(status?.token_set)
 
@@ -430,8 +433,8 @@ export default function InvestingAgent() {
 
   const chatPayload = (message: string) => ({ message })
 
-  const runChat = async () => {
-    const message = prompt.trim()
+  const runChat = async (overrideMessage?: string) => {
+    const message = (overrideMessage ?? prompt).trim()
     if (!message || !tokenSet || streaming || bg.startPending) return
 
     if (bg.runInBackground) {
@@ -462,6 +465,30 @@ export default function InvestingAgent() {
       setStreaming(false)
     }
   }
+
+  // Deep-link from Watchlist: /investing-agent?ticker=RELIANCE&auto=1
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return
+    if (statusLoading) return
+    const ticker = (searchParams.get('ticker') || searchParams.get('symbol') || '').trim().toUpperCase()
+    if (!ticker) return
+    deepLinkHandledRef.current = true
+
+    const q =
+      (searchParams.get('q') || searchParams.get('message') || '').trim()
+      || `Analyze ${ticker} for long-term investing`
+    setStockSymbol(ticker)
+    setPrompt(q)
+
+    const shouldAuto = searchParams.get('auto') === '1' || searchParams.get('run') === '1'
+    setSearchParams({}, { replace: true })
+
+    if (shouldAuto && tokenSet) {
+      stockMut.mutate(ticker)
+      void runChat(q)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, statusLoading, tokenSet])
 
   const stopChat = () => {
     abortRef.current?.abort()

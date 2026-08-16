@@ -29,10 +29,12 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 | **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
 | **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
 | **Pro Trade** | Volume Profile CE/POC · PA+VP · PA-VP-SMC · VSA · Elliott · Fib Pro · BB Mean Rev · BTST · **Ticker Chart** | Institutional VP / PA / VSA / charting |
-| **Options** | Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · **Market Prediction** | F&O structures & derivatives conviction |
+| **Options** | Double Calendar · Delta Neutral · Hedging · Gokul Chhabra · Zero to Hero · **Market Prediction** · Call Put Writing · **Profitable** | F&O structures & derivatives conviction |
 | **Demo Trading** | Paper portfolio (India + crypto) | Practice without real money |
 | **Alerts** | Telegram/email when saved setups fire | Hands-off monitoring after research |
 | **Watchlist** | Per-user, per-market saved tickers with live price & % change since added | Track a shortlist without re-scanning |
+| **Trading Agent (TA)** | Technical Agent chat — pure Price Action (S/R · Volume · RSI · BB) | Ask what to buy/sell with %SL/%TP |
+| **Investing Agent** | Fundamental Analyst chat (JWT) | Fundamentals / scorecards |
 
 ### Command Center highlights (recent)
 
@@ -62,7 +64,8 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 | **Groq (LLaMA)** | Fast open models |
 | **Claude (Azure)** | Anthropic Foundry on Azure (`/anthropic` endpoint) |
 | **OpenAI (Azure)** | Azure AI Foundry (`…/openai/v1`). Deployments include **gpt-5.6-sol** (Responses API), **DeepSeek-V4-Flash** (chat.completions), **gpt-4o**, **o4-mini**, **gpt-4o-mini** |
-| **Investing Agent** | SuperInvesting chat tools (JWT token) |
+| **Investing Agent** | Fundamental Analyst chat tools (JWT token) |
+| **Trading Agent (TA)** | Technical Agent — pure Price Action desk (S/R · Volume · RSI · Bollinger Bands) |
 
 Keys are stored in the app database (env fallbacks still work).
 
@@ -298,6 +301,8 @@ Keys are stored in the app database (env fallbacks still work).
 **SMC / Smart Money:** Top Down MTF · **TOPDOWN-MTF** · SMC Fake Market Shift · **CISD** · **Weekly Sweep CISD** · **MTF Day Plan** · **Golden Bullet** · **SMC Liquidity** · **TTG Sniper Entry** · **SMB SnP** · Scalping SMC · ONE TA
 
 **Pro Trade (VP / VSA / Chart):** **Volume Profile CE** · **Volume Profile POC** · **PA - Volume Profile** · **PA-VP-SMC** · **Volume Spread - Next Candle** · **Elliott Wave** · **Fibonacci Pro** · **BB Mean Reversion** · **BTST** · **Ticker Chart**
+
+**Trading Agent / Technical Agent (chat):** Pure **Price Action** only — Support/Resistance · Volume · RSI · Bollinger Bands (candlestick confirmation at the band). Deep mode = broader universe, same pillars. No Workflow / PA-VP-SMC / options enrichments on this desk.
 
 **Positional (1w+):** Weekly Stoch · Elliott Wave · Seasonality · Sentiment on 1d/1w · **Oil · Dollar · Bond** macro regime
 
@@ -3452,7 +3457,22 @@ participant files as manual context only.
 
 **When to use:** Options → Call Put Writing before fading a ceiling or buying a floor on Nifty / Bank Nifty / F&O stocks.
 
-**When to use:** Map Call writing resistance walls and Put writing support floors; watch short-covering if Call walls break.
+### Profitable — Overnight Options Buy-Stop
+*id: `profitable`*
+
+Source: https://www.youtube.com/watch?v=w_8cVFZ1iZE
+
+**Market DNA:** Overnight gaps drove most of a long Nifty sample’s net points; cash-session-only longs could lose. React — don’t anticipate. Plan CE and PE before the open.
+
+| Step | Rule |
+|------|------|
+| 09:20 IST | CE & PE premium in ₹50–₹75 (prefer ~₹62.5) |
+| Entry | Buy-stop +50% of mark (not the mark itself) |
+| Stop | −50% of entry premium |
+| Hold | Prefer overnight carry |
+| Universe | Nifty · Bank Nifty · Midcap Nifty |
+
+**When to use:** Options → Profitable for a reactive overnight option-buy desk.
 
 ---
 
