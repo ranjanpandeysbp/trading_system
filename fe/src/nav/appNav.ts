@@ -111,7 +111,12 @@ export const appNav: NavEntry[] = [
   { to: '/etf-ta-in', label: 'ETF TA IN', shortLabel: 'ETF', icon: Landmark },
   { to: '/etf-28-sma', label: 'ETF 28 SMA', shortLabel: '28 SMA', icon: TrendingUp },
   { to: '/etf-top-down', label: 'ETF Top Down', shortLabel: 'Top Down', icon: ArrowUp },
-  { to: '/trading-hubs', label: 'Trading Hubs', shortLabel: 'Hubs', icon: Layers },
+  { to: '/trading-hubs', label: 'Trading Hubs', shortLabel: 'Hubs', icon: Layers, children: [
+      { to: '/trading-hubs?hub=swing&section=swing_fire', label: 'Swing - FIRE' },
+      { to: '/trading-hubs?hub=swing', label: 'Swing Hub' },
+      { to: '/trading-hubs?hub=smart_money', label: 'Smart Money Hub' },
+      { to: '/trading-hubs?hub=scalping', label: 'Scalping Hub' },
+    ] },
   {
     to: '/trade-candidate',
     label: 'Trade Candidate',

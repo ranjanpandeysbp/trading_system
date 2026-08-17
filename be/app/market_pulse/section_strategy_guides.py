@@ -1205,6 +1205,24 @@ Conf / SL% / TP% / hold time on every scan row. Prefer liquid index names for op
 Daily / 4h execution. Conf / SL% / TP% / hold on every row.
 """,
 
+    "swing_fire": """
+### Swing - FIRE (Harsh)
+
+Equity **cash** swing playbook (not F&O): concentrate, cap losses ~**10%**, book profits faster in sideways markets.
+
+| Layer | Rule |
+|-------|------|
+| **Leaders** | Prefer **ATH / near-high** names & sectors printing highs while the index is sideways — avoid falling knives |
+| **Setup** | **VCP** (shallower pullbacks → tightness → breakout) and/or **IPO base** (listing-high breakout / retest) |
+| **Trail** | **21 EMA** (or 63) — exit on **2 consecutive red closes** below; **reclaim** = re-entry |
+| **Cycle** | Monthly **ROC**: Small-cap length **20** (aggressive ~0 / de-risk ~100); Large-cap length **18** (~0 / ~45) |
+| **Macro** | **Equity/Gold** ratio near channel bottom → favor equity; near top → caution |
+
+Human/AI overlay (not automated here): ROE/ROC &gt;20%, niche product, RHP / Chittorgarh IPO list, sector tailwinds.
+
+**When to use:** Swing leaders on India / US / Crypto cash — momentum bases, not mean-reversion dips.
+""",
+
     "intraday_alpha_945": """
 ### INTRA — 9:45 AM Alpha Scanner
 [Video reference](http://www.youtube.com/watch?v=MfGUybW4O4c) — Dhan relative-strength scan at **9:45 IST**:

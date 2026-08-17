@@ -144,6 +144,10 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("swing_trading_st_kiss", "ST — KISS Swing Systematic"),
         ("swing_trading_st_ha_ema", "ST — Daily HA Bias + 34 EMA Intraday"),
         ("swing_trading_st_simple_steal", "SW — Simple Steal · Little Rizzy Projection"),
+        ("swing_trend_breakout", "Trend Following Breakout — index filter + 52w leaders"),
+        ("swing_trend_velocity", "Trend Velocity — 50/250 MA + ROC scale-out"),
+        ("swing_bb_vwap_reversal", "BB + VWAP Reversal"),
+        ("swing_fire", "Swing - FIRE — ATH/VCP/IPO · 21 EMA trail · monthly ROC"),
     ],
     "⚡ Intraday": [
         ("intraday_alpha_945", "INTRA — 9:45 AM Alpha Scanner"),
@@ -843,6 +847,10 @@ Multi-TF: execution TF + optional HTF bias filter.
 """,
     "smc_weekly_sweep_cisd": """
 **When to use:** Swing/intraday reversals at weekly liquidity (PWH/PWL) with 5m/15m CISD confirmation.
+""",
+    "swing_fire": """
+**When to use:** Equity cash swing on ATH/VCP/IPO leaders — trail 21/63 EMA, monthly ROC cycle for aggression,
+~10% loss cap. Skip falling knives and F&O. Best when ROC is near zero and leaders hold highs in a sideways index.
 """,
     "smc_mtf_day_plan": """
 **When to use:** Intraday SMC day-trading plan — HTF OB/FVG → MTF CHoCH → LTF entry with defined SL/TP.

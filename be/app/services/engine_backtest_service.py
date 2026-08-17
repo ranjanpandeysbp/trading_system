@@ -1048,6 +1048,30 @@ class EngineBacktestService:
                 frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
             return frame
 
+        if strategy_id == "swing_fire":
+            # Regime (monthly ROC + equity/gold) is a scan-time snapshot reused across
+            # the backtest window — same approximation as HTF bias in BB+VWAP.
+            regime = mod.compute_market_regime(
+                market, cfg, groww_token=groww_token, exchange=exchange,
+            )
+            df = fetch_data_for_gap_scan(ticker, "1d", market, groww_token, exchange, limit=limit)
+            df = normalize_ohlcv(df)
+            if df.empty or len(df) < cfg.min_bars:
+                from app.market_pulse.gap_trading import fetch_ohlcv_yfinance
+
+                is_crypto = "CoinDCX" in market
+                df = normalize_ohlcv(
+                    fetch_ohlcv_yfinance(ticker, "1d", is_crypto=is_crypto, limit=limit, market=market),
+                )
+            work = mod.add_swing_fire_indicators(df, cfg)
+            signals = mod.scan_swing_fire_signals(work, cfg, regime=regime)
+            frame = work.copy()
+            frame["signal"] = 0
+            sig_col = frame.columns.get_loc("signal")
+            for s in signals:
+                frame.iloc[s["bar_index"], sig_col] = 1 if s["direction"] == "LONG" else -1
+            return frame
+
         if strategy_id == "smc_liquidity_silver_bullet":
             # Note: like the BB+VWAP entry above, the HTF structure bias is a
             # single "current" snapshot reused across the whole backtest

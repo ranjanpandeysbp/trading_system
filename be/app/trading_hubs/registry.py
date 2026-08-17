@@ -49,6 +49,7 @@ from app.trading_hubs import (
     support_resistance_engine,
     swing_5_strategies_engine,
     swing_bb_vwap_reversal_engine,
+    swing_fire_engine,
     swing_trading_st_engine,
     swing_trend_breakout_engine,
     swing_trend_velocity_engine,
@@ -922,6 +923,63 @@ per the video's own framing, footprint reads what's happening at a level, it doe
                 "default": "15m",
             },
         },
+    ),
+    _section(
+        id="swing_fire",
+        hub="swing",
+        label="Swing - FIRE",
+        description=(
+            "Harsh (FIRE) equity swing: ATH / sector leaders + Minervini VCP / IPO bases; trail 21 or 63 EMA "
+            "(exit on 2 red closes below, reclaim = re-entry); hard ~10% loss cap; monthly ROC cycle "
+            "(Nifty 18→0/45 or Smallcap 20→0/100) + equity/gold channel for aggression. Long-only cash — not F&O."
+        ),
+        module=swing_fire_engine,
+        config_cls=swing_fire_engine.SwingFireConfig,
+        config_options={
+            "roc_mode": {
+                "type": "select",
+                "label": "Market-cycle ROC mode",
+                "choices": [
+                    {"value": "smallcap", "label": "Small-cap (ROC length 20 · de-risk near 100)"},
+                    {"value": "largecap", "label": "Large-cap / Nifty (ROC length 18 · de-risk near 45)"},
+                ],
+                "default": "smallcap",
+            },
+            "trail_ema": {
+                "type": "select",
+                "label": "Trail EMA",
+                "choices": [
+                    {"value": "ema21", "label": "21 EMA (tighter — more churn / re-entries)"},
+                    {"value": "ema63", "label": "63 EMA (looser — stay in trends longer)"},
+                ],
+                "default": "ema21",
+            },
+            "regime_filter": {
+                "type": "select",
+                "label": "ROC / equity-gold regime filter",
+                "choices": [
+                    {"value": "on", "label": "On — block fresh breakouts when ROC says distribute"},
+                    {"value": "off", "label": "Off — scan setups regardless of regime"},
+                ],
+                "default": "on",
+            },
+        },
+        guide="""### Swing - FIRE (Harsh)
+
+**Philosophy:** Equity **cash** swing only (F&O wipeout lesson). Concentrate (few names). Cap any single loss ~**10%**. Book profits faster when the market is sideways.
+
+| Layer | Rule |
+|-------|------|
+| **Universe** | Prefer **all-time / 52w highs** & sector leaders that print new highs in a sideways index — not falling knives |
+| **Setup** | **VCP** (contracting pullbacks → tightness → breakout) and/or **IPO base** (listing-high breakout / retest) |
+| **Trail** | **21 EMA** (or 63) — exit on **2 consecutive red closes** below; **reclaim** = re-entry |
+| **Cycle** | Monthly **ROC**: small-cap length **20** (buy ~0 / sell ~100); large-cap length **18** (buy ~0 / sell ~45) |
+| **Macro** | **Equity/Gold** ratio near channel bottom → favor equity; near top → caution |
+
+Fundamentals (ROE/ROC >20%, niche product, RHP, Chittorgarh IPO list) remain a human/AI research overlay on top of this scanner.
+
+**When to use:** India / US / Crypto cash swing leaders — not mean-reversion dips.
+""",
     ),
     _section(
         id="intraday_mtf_breakout_retest",

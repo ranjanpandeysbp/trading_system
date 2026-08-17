@@ -24,7 +24,7 @@ paper trading, and alert monitors — with **Ask AI / AI View** on most Command 
 | **Strategy Lab** | Build, backtest, batch-scan, AI-generate strategies + **Encyclopedia** (this page) | Test or create systematic rules |
 | **Screen & Scan** | Rule-based universe scan + gap events | Filter hundreds of tickers by rules |
 | **Seasonality** | Monthly historical edge patterns | Statistical seasonal confirmation |
-| **Swing Trading** | ST capitulation, MSS, SuperTrend, KISS, HA+EMA | Multi-day swing on India / US / crypto |
+| **Swing Trading** | ST capitulation, MSS, SuperTrend, KISS, HA+EMA, **Swing - FIRE** | Multi-day swing on India / US / crypto |
 | **Intraday** | 9:45 scanners, Fib bias, VWAP fade, MTF breakout-retest | Session-timed NSE / global intraday |
 | **Scalping** | Rectangle sniper · SMC Rule of Three · ARC · A+ S/R MSS · CRT-FVG | High-frequency LTF entries |
 | **Smart Money** | CISD, weekly sweep, MTF day plan, Golden Bullet, Liquidity, SMB SnP | Institutional liquidity models |
@@ -2581,6 +2581,25 @@ Conf / SL% / TP% / hold time on every scan row. Prefer liquid index names for op
 | **Invalidation** | Close **across** trendline = hard stop |
 
 Daily / 4h execution. Conf / SL% / TP% / hold on every row.
+
+---
+
+### Swing - FIRE (Harsh)
+*id: `swing_fire` · Trading Hubs → Swing*
+
+Equity **cash** swing (not F&O): concentrate, ~**10%** loss cap, book faster in sideways markets.
+
+| Layer | Rule |
+|-------|------|
+| **Leaders** | Prefer **ATH / near-high** names printing highs while the index is sideways — avoid falling knives |
+| **Setup** | **VCP** (contracting pullbacks → tightness → breakout) and/or **IPO base** (listing-high breakout / retest) |
+| **Trail** | **21 EMA** (or 63) — exit on **2 consecutive red closes** below; **reclaim** = re-entry |
+| **Cycle** | Monthly **ROC**: Small-cap length **20** (~0 buy / ~100 de-risk); Large-cap length **18** (~0 / ~45) |
+| **Macro** | **Equity/Gold** ratio near channel bottom → favor equity; near top → caution |
+
+Human/AI overlay: ROE/ROC &gt;20%, niche product, RHP / Chittorgarh IPO list. Live scan + Backtester (`signal_df`).
+
+**When to use:** Swing leaders on India / US / Crypto cash — momentum bases, not mean-reversion dips.
 
 ---
 

@@ -95,6 +95,7 @@ const SECTION_TIMEFRAME_LABEL: Record<string, string> = {
   swing_trend_breakout: 'Daily (weekly + index-daily context)',
   swing_trend_velocity: 'Daily (50/250-day moving averages) — position trade, months to years',
   swing_bb_vwap_reversal: 'HTF bias (1h/4h) + LTF entry (5m/15m selectable below)',
+  swing_fire: 'Daily — VCP/IPO/ATH leaders · 21/63 EMA trail · monthly ROC regime',
   smc_liquidity_silver_bullet: 'HTF bias (1h/4h/1d) + LTF sweep/MSS/FVG execution (5m/15m selectable below)',
   scalp_ny_open_bias: '1H bias candle (9:00 AM ET) + 1m execution — entry style selectable below',
   intraday_alpha_945: '30m opening range + Daily trend filter',
