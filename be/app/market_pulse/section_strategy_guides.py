@@ -2923,6 +2923,23 @@ Mid-sequence → **WATCH**. Full sequence → TAKE when conf / RR pass.
 **When to use:** After quiet consolidations on any TF — Stocks, Indices, Crypto, Commodities.
 """,
 
+    "golden_death_cross": """
+### Golden & Death Cross — Fast/Slow EMA · S/R · RSI · BB + VWAP
+
+Configurable **fast / slow EMA** crossover desk for all asset classes and timeframes.
+
+| Event | Bias |
+|-------|------|
+| **Golden cross** | Fast EMA crosses **above** slow → **bullish** / LONG |
+| **Death cross** | Fast EMA crosses **below** slow → **bearish** / SHORT |
+
+**Confirms:** swing S/R · RSI zones · Bollinger extremes require **VWAP** alignment.
+
+Outputs **commentary**, **% confidence**, **%SL**, **%TP**. Charts + background jobs supported. Pick a **watchlist** in the ticker picker to load all its symbols for that asset class.
+
+**When to use:** Trend-flip scans on India / US / Crypto / Commodity — classic 50/200 or shorter pairs on lower TFs.
+""",
+
     "etf_28_sma": """
 ### ETF 28 SMA Momentum (FIRE in India)
 

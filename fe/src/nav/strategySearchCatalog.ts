@@ -61,6 +61,7 @@ const EXTRA_TOOLS: Array<{ label: string; to: string; group: string; keywords?: 
   { label: 'Scalping Hub', to: '/trading-hubs?hub=scalping', group: 'Trading Hubs' },
   { label: 'Swing Hub', to: '/trading-hubs?hub=swing', group: 'Trading Hubs' },
   { label: 'Swing - FIRE', to: '/trading-hubs?hub=swing&section=swing_fire', group: 'Trading Hubs', keywords: 'harsh fire vcp minervini ipo ema21 roc ath leader smallcap' },
+  { label: 'Golden & Death Cross', to: '/pro-trade/golden-death-cross', group: 'Pro Trade', keywords: 'golden death ema crossover support resistance rsi bollinger vwap' },
   { label: 'Smart Money Hub', to: '/trading-hubs?hub=smart_money', group: 'Trading Hubs', keywords: 'smc' },
   { label: 'SMC Golden Bullet', to: '/trading-hubs?hub=smart_money&section=smc_golden_bullet', group: 'Trading Hubs' },
   { label: 'Scalp Gold', to: '/trading-hubs?hub=scalping&section=scalp_gold', group: 'Trading Hubs' },

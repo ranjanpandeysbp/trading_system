@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { apiErrorMessage, fetchTickerUniverse } from '../../api/client'
+import {
+  apiErrorMessage,
+  fetchTickerUniverse,
+  fetchWatchlistItems,
+  fetchWatchlists,
+  type WatchlistInfo,
+} from '../../api/client'
 import { Chip } from '../ui/Chip'
 import { Alert, Loading } from '../ui/Feedback'
 import { FormField, Input, Select, Textarea } from '../ui/Form'
 
 export type AssetClass = 'india' | 'us' | 'crypto' | 'commodity'
+
+function watchlistMarketFor(assetClass: AssetClass): 'india' | 'us' | 'crypto' | null {
+  if (assetClass === 'india' || assetClass === 'us' || assetClass === 'crypto') return assetClass
+  return null
+}
 
 type Universe = {
   asset_class: string
@@ -69,17 +80,35 @@ export function AssetClassTickerPicker({
   const [customText, setCustomText] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const [durations, setDurations] = useState<string[]>([])
+  const [watchlistId, setWatchlistId] = useState('')
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+  const [watchlistError, setWatchlistError] = useState('')
 
   const { data: universe, isLoading, isError, error: universeError } = useQuery({
     queryKey: ['cc-universe', assetClass],
     queryFn: () => fetchTickerUniverse(assetClass) as Promise<Universe>,
   })
 
+  const wlMarket = watchlistMarketFor(assetClass)
+  const { data: watchlistsPayload } = useQuery({
+    queryKey: ['watchlists'],
+    queryFn: fetchWatchlists,
+    enabled: wlMarket != null,
+  })
+
+  const assetWatchlists = useMemo(() => {
+    const lists = (watchlistsPayload?.watchlists ?? []) as WatchlistInfo[]
+    if (!wlMarket) return []
+    return lists.filter((w) => w.market_type === wlMarket).sort((a, b) => a.name.localeCompare(b.name))
+  }, [watchlistsPayload, wlMarket])
+
   // Reset picker when asset class changes
   useEffect(() => {
     setSearch('')
     setSelected([])
     setCustomText('')
+    setWatchlistId('')
+    setWatchlistError('')
     if (!universe) return
 
     setDurations(universe.default_durations ?? ['1d'])
@@ -102,6 +131,42 @@ export function AssetClassTickerPicker({
       setCustomText(universe.custom_default ?? '')
     }
   }, [assetClass, universe, single])
+
+  const loadWatchlist = async (idRaw: string) => {
+    setWatchlistId(idRaw)
+    setWatchlistError('')
+    if (!idRaw) return
+    const id = Number(idRaw)
+    if (!Number.isFinite(id)) return
+    setWatchlistLoading(true)
+    try {
+      const data = await fetchWatchlistItems(id)
+      const tickers = (data.items ?? [])
+        .map((i) => String(i.display_name || i.ticker || '').trim())
+        .filter(Boolean)
+      if (!tickers.length) {
+        setWatchlistError('That watchlist has no tickers yet.')
+        return
+      }
+      const pool = single ? tickers.slice(0, 1) : tickers
+      if (universe?.picker_type === 'crypto') {
+        setCryptoMode('Custom')
+        setCustomText(pool.join(', '))
+        setSelected(pool)
+      } else {
+        setGroup('Custom')
+        const norm = universe?.picker_type === 'equity_index'
+          ? pool.map((t) => t.toUpperCase())
+          : pool
+        setCustomText(norm.join(', '))
+        setSelected(norm)
+      }
+    } catch (e) {
+      setWatchlistError(apiErrorMessage(e))
+    } finally {
+      setWatchlistLoading(false)
+    }
+  }
 
   const resolvedTickers = useMemo(() => {
     if (!universe) return []
@@ -181,6 +246,30 @@ export function AssetClassTickerPicker({
         TA profile: <em>{universe.scenario}</em>
       </p>
 
+      {wlMarket != null && (
+        <FormField label={`Watchlist (${wlMarket})`}>
+          <Select
+            value={watchlistId}
+            disabled={watchlistLoading}
+            onChange={(e) => {
+              void loadWatchlist(e.target.value)
+            }}
+          >
+            <option value="">— None (use index / custom) —</option>
+            {assetWatchlists.map((w) => (
+              <option key={w.id} value={String(w.id)}>
+                {w.name}
+              </option>
+            ))}
+          </Select>
+          {watchlistLoading && <p className="mt-1 text-xs text-slate-500">Loading watchlist tickers…</p>}
+          {watchlistError && <p className="mt-1 text-xs text-amber-400">{watchlistError}</p>}
+          {!assetWatchlists.length && (
+            <p className="mt-1 text-xs text-slate-500">No saved watchlists for this asset class yet.</p>
+          )}
+        </FormField>
+      )}
+
       {universe.picker_type === 'equity_index' && (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -190,6 +279,7 @@ export function AssetClassTickerPicker({
                 onChange={(e) => {
                   const g = e.target.value
                   setGroup(g)
+                  setWatchlistId('')
                   if (g !== 'Custom') {
                     const pool = universe.index_groups?.[g] ?? []
                     setSelected(single ? pool.slice(0, 1) : applyCount(pool, selectCount))
@@ -261,7 +351,13 @@ export function AssetClassTickerPicker({
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Select tickers mode">
-              <Select value={cryptoMode} onChange={(e) => setCryptoMode(e.target.value)}>
+              <Select
+                value={cryptoMode}
+                onChange={(e) => {
+                  setCryptoMode(e.target.value)
+                  setWatchlistId('')
+                }}
+              >
                 {(universe.crypto_modes ?? []).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}

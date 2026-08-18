@@ -20,6 +20,7 @@ import {
   runProTradeEma59Cross,
   runProTradeEma9VolRsiMomentum,
   runProTradeFlatRetest,
+  runProTradeGoldenDeathCross,
   runProTradeBtst,
   runProTradeElliottWave,
   runProTradeFibonacciPro,
@@ -52,6 +53,7 @@ import { BbRsiVolPanel } from '../components/pro-trade/BbRsiVolPanel'
 import { Ema9CrossPanel, Ema59CrossPanel } from '../components/pro-trade/Ema9CrossPanel'
 import { Ema9VolRsiMomentumPanel } from '../components/pro-trade/Ema9VolRsiMomentumPanel'
 import { FlatRetestPanel } from '../components/pro-trade/FlatRetestPanel'
+import { GoldenDeathCrossPanel } from '../components/pro-trade/GoldenDeathCrossPanel'
 import { BtstPanel } from '../components/pro-trade/BtstPanel'
 import { ChartsToggle } from '../components/pro-trade/ChartsToggle'
 import { UseAiCheckbox, useTradeSetupAi } from '../components/pro-trade/UseAiCheckbox'
@@ -3722,6 +3724,193 @@ function FlatRetestPage() {
   )
 }
 
+const GDC_HOW_TO = `How to use Golden & Death Cross
+
+1. Pick asset class + one or more timeframes + tickers (or a watchlist).
+2. Choose Fast EMA and Slow EMA (classic 50/200; also 9/21, 12/26, …).
+3. Scan — golden cross = bullish · death cross = bearish.
+4. Confirms with swing S/R, RSI zones, and BB extremes via VWAP.
+5. Toggle charts · optional Use AI · run in background.
+6. Act on TAKE rows with Conf% / SL% / TP%. Research only — not advice.`
+
+const GDC_OVERVIEW = `Golden & Death Cross — strategy matrix
+
+GOLDEN: Fast EMA crosses above Slow EMA → LONG bias
+DEATH: Fast EMA crosses below Slow EMA → SHORT bias
+
+Filters: Support/Resistance · RSI · Bollinger edge → VWAP confirm
+Outputs: commentary · % confidence · %SL · %TP · grade A/B/C.`
+
+const GDC_LAYMAN = `In plain English
+
+When the short moving average climbs back over the long one, momentum flipped up — look for buys near support with RSI not blown out.
+When it drops under, momentum flipped down — look for sells near resistance.
+If price is stuck at a Bollinger extreme, only trust the cross when VWAP agrees.`
+
+const FAST_EMA_OPTIONS = [5, 9, 10, 12, 20, 21, 50]
+const SLOW_EMA_OPTIONS = [20, 21, 26, 50, 55, 100, 200]
+
+function GoldenDeathCrossPage() {
+  const [assetClass, setAssetClass] = useState<AssetClass>('india')
+  const [picker, setPicker] = useState<TickerPickerValue>({ tickers: [], durations: ['15m'] })
+  const [error, setError] = useState('')
+  const [lookback, setLookback] = useState(300)
+  const [fastEma, setFastEma] = useState(50)
+  const [slowEma, setSlowEma] = useState(200)
+  const [freshOnly, setFreshOnly] = useState(true)
+  const [showCharts, setShowCharts] = useState(true)
+  const { useAi, setUseAi } = useTradeSetupAi()
+  const bg = useAnalysisBackground('pro_trade', 'golden_death_cross')
+
+  const handlePickerChange = useCallback((v: TickerPickerValue) => setPicker(v), [])
+
+  const buildPayload = () => ({
+    tickers: picker.tickers,
+    asset_class: assetClass,
+    timeframes: picker.durations.length ? picker.durations : ['15m'],
+    lookback_bars: lookback,
+    fast_ema: fastEma,
+    slow_ema: Math.max(slowEma, fastEma + 1),
+    require_fresh_cross: freshOnly,
+    use_ai: useAi,
+  })
+
+  const runMut = useMutation({
+    mutationFn: () => {
+      if (!picker.tickers.length) throw new Error('Select at least one ticker')
+      if (!picker.durations.length) throw new Error('Select at least one timeframe')
+      if (fastEma >= slowEma) throw new Error('Fast EMA must be shorter than Slow EMA')
+      return runProTradeGoldenDeathCross(buildPayload())
+    },
+    onSuccess: () => { setError(''); bg.setViewedReportId(null) },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const data = (bg.viewedPayload ?? runMut.data) as Record<string, unknown> | undefined
+  const askContext = data ? buildAskContext('Golden & Death Cross', data) : ''
+  const howItWorks = data?.how_it_works != null ? String(data.how_it_works) : null
+
+  return (
+    <div>
+      <PageHeader
+        title="Golden & Death Cross"
+        description="Choose fast/slow EMA · multi-ticker · multi-TF · S/R + RSI + BB/VWAP · commentary · Conf% / SL% / TP%"
+      />
+
+      <div className="mb-4 space-y-2">
+        <CollapsibleSection title="How to use this screen" defaultOpen copyText={GDC_HOW_TO}>
+          {GDC_HOW_TO}
+        </CollapsibleSection>
+        <CollapsibleSection title="In plain English" defaultOpen>
+          {GDC_LAYMAN}
+        </CollapsibleSection>
+        <CollapsibleSection title="How it works — rules" defaultOpen>
+          {GDC_OVERVIEW}
+        </CollapsibleSection>
+        {howItWorks && (
+          <CollapsibleSection title="Engine how-it-works (from scan)">
+            <pre className="whitespace-pre-wrap text-xs text-slate-400">{howItWorks}</pre>
+          </CollapsibleSection>
+        )}
+      </div>
+
+      <Card className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {ASSET_CLASSES.map((ac) => (
+            <Chip
+              key={ac.id}
+              selected={assetClass === ac.id}
+              onClick={() => {
+                setAssetClass(ac.id)
+                setPicker({ tickers: [], durations: ['15m'] })
+                setError('')
+              }}
+            >
+              {ac.label}
+            </Chip>
+          ))}
+        </div>
+
+        <AssetClassTickerPicker
+          key={assetClass}
+          assetClass={assetClass}
+          showDurations
+          defaultSelectCount={15}
+          onChange={handlePickerChange}
+        />
+
+        <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-4">
+          <FormField label="Fast EMA">
+            <Select value={String(fastEma)} onChange={(e) => setFastEma(Number(e.target.value) || 50)}>
+              {FAST_EMA_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Slow EMA">
+            <Select value={String(slowEma)} onChange={(e) => setSlowEma(Number(e.target.value) || 200)}>
+              {SLOW_EMA_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="History (bars)">
+            <Input type="number" min={80} max={2000} value={lookback} onChange={(e) => setLookback(Number(e.target.value) || 300)} />
+          </FormField>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Chip selected={freshOnly} onClick={() => setFreshOnly(true)}>Fresh cross only</Chip>
+          <Chip selected={!freshOnly} onClick={() => setFreshOnly(false)}>Allow hold above/below</Chip>
+        </div>
+
+        <div className="mt-3">
+          <ChartsToggle checked={showCharts} onChange={setShowCharts} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => runMut.mutate()} disabled={runMut.isPending || !picker.tickers.length || bg.runInBackground}>
+            {runMut.isPending
+              ? useAi
+                ? 'Scanning + AI refine…'
+                : 'Scanning…'
+              : `Scan Golden/Death (${picker.tickers.length} × ${picker.durations.length || 1})`}
+          </Button>
+        </div>
+        <UseAiCheckbox checked={useAi} onChange={setUseAi} className="mt-3" />
+        <AnalysisBackgroundControls
+          bg={bg}
+          placeholder={`Golden & Death Cross · ${new Date().toLocaleDateString()}`}
+          onStart={() => bg.startBackground(buildPayload(), () => {
+            if (!picker.tickers.length) return 'Select at least one ticker'
+            if (!picker.durations.length) return 'Select at least one timeframe'
+            if (fastEma >= slowEma) return 'Fast EMA must be shorter than Slow EMA'
+            return null
+          })}
+        />
+        {error && (
+          <div className="mt-3">
+            <Alert type="error">{error}</Alert>
+          </div>
+        )}
+      </Card>
+
+      <AnalysisBackgroundJobsAndReports bg={bg} />
+
+      {runMut.isPending && !bg.viewedPayload && <Loading message="Checking EMA cross · S/R · RSI · BB/VWAP…" />}
+
+      {data && (!runMut.isPending || bg.viewedPayload) && (
+        <>
+          <Card className="mb-4">
+            <StrategyDataSourceBar data={data as Record<string, unknown>} assetClass={assetClass} />
+            <GoldenDeathCrossPanel data={data} showCharts={showCharts} />
+          </Card>
+          {askContext && <AskAIPanel context={askContext} section="pro-trade/golden-death-cross" />}
+        </>
+      )}
+    </div>
+  )
+}
+
 const BTST_FURTHER_ANALYSIS_OPTIONS: { value: string; label: string }[] = [
   { value: 'pa_vp_smc', label: 'PA-VP-SMC' },
   { value: 'volume_spread_next_candle', label: 'Volume Spread - Next Candle' },
@@ -4326,6 +4515,7 @@ export default function ProTrade() {
     { id: 'ema5-9-cross', label: '5/9 EMA Cross' },
     { id: 'ema9-vol-rsi-momentum', label: '9 EMA Vol RSI Scalp' },
     { id: 'flat-retest', label: 'Flat Retest' },
+    { id: 'golden-death-cross', label: 'Golden & Death Cross' },
     { id: 'btst', label: 'Buy Today Sell Tomorrow' },
     { id: 'ticker-chart', label: 'Ticker Chart' },
   ]
@@ -4356,6 +4546,7 @@ export default function ProTrade() {
   else if (tab === 'ema5-9-cross') page = <Ema59CrossPage />
   else if (tab === 'ema9-vol-rsi-momentum') page = <Ema9VolRsiMomentumPage />
   else if (tab === 'flat-retest') page = <FlatRetestPage />
+  else if (tab === 'golden-death-cross') page = <GoldenDeathCrossPage />
   else if (tab === 'btst') page = <BtstPage />
   else if (tab === 'ticker-chart') page = <TickerChartPage />
   else return <Navigate to="/pro-trade/volume-profile-ce" replace />

@@ -120,6 +120,7 @@ from app.models.schemas import (
     ProTradeEma59CrossRequest,
     ProTradeEma9VolRsiMomentumRequest,
     ProTradeFlatRetestRequest,
+    ProTradeGoldenDeathCrossRequest,
     ProTradeBtstRequest,
     CryptoMultibaggerReversalRequest,
     CryptoAdvanceBbReversalRequest,
@@ -5253,6 +5254,32 @@ async def pro_trade_flat_retest(
             "flat_max_bars": payload.flat_max_bars,
             "flat_atr_mult": payload.flat_atr_mult,
             "vol_expand_mult": payload.vol_expand_mult,
+            "min_rr": payload.min_rr,
+            "take_confidence_threshold": payload.take_confidence_threshold,
+            "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),
+        },
+        use_ai=bool(getattr(payload, "use_ai", False)),
+    )
+
+
+@router.post("/pro-trade/golden-death-cross")
+async def pro_trade_golden_death_cross(
+    payload: ProTradeGoldenDeathCrossRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await ProTradeService(SettingsService(db)).golden_death_cross(
+        tickers=payload.tickers,
+        asset_class=payload.asset_class,
+        exchange=payload.exchange,
+        timeframes=payload.timeframes,
+        cfg_overrides={
+            "lookback_bars": payload.lookback_bars,
+            "fast_ema": payload.fast_ema,
+            "slow_ema": payload.slow_ema,
+            "bb_period": payload.bb_period,
+            "bb_std": payload.bb_std,
+            "require_fresh_cross": payload.require_fresh_cross,
             "min_rr": payload.min_rr,
             "take_confidence_threshold": payload.take_confidence_threshold,
             "timeframe": (payload.timeframes[0] if payload.timeframes else "15m"),

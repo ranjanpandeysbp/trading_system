@@ -198,6 +198,7 @@ HUB_SECTIONS: dict[str, list[tuple[str, str]]] = {
         ("ema5_9_crossover", "5/9 EMA Cross — EMA5×EMA9 crossover · price confirm · BB/RSI/Vol"),
         ("ema9_vol_rsi_momentum", "9 EMA Vol RSI Scalp — 5m score≥7 · 15m bias · vol SMA50 · structure SL · 1:2 RR"),
         ("flat_retest", "Flat Retest — post-flat break→retest hold / reject→break low→failed retest"),
+        ("golden_death_cross", "Golden & Death Cross — fast/slow EMA · S/R · RSI · BB+VWAP"),
         ("traffic_light_indicator", "Traffic Light Indicator — SMA 20/50/200 stack · next-morning buy/sell"),
         ("buy_low_sell_high", "Buy Low Sell High — 25 DL GTT ladder · avg+5% exit · no SL"),
         ("rlb_breakout", "RLB - Breakout — Rocket Launcher · 7 confirmations"),
@@ -955,6 +956,9 @@ Also available on the **Dashboard**.
 """,
     "flat_retest": """
 **When to use:** After flat candles — LONG on break→retest hold as support; SHORT on reject→break cons low→failed retest. Never invent the next candle inside the box.
+""",
+    "golden_death_cross": """
+**When to use:** Configurable fast/slow EMA golden (bullish) or death (bearish) crosses confirmed by S/R, RSI, and VWAP at Bollinger extremes — multi-TF, all asset classes.
 """,
     "traffic_light_indicator": """
 **When to use:** Swing buy when SMA200>50>20 and daily close is under all three; sell when stack flips and close is above all three. Prefer large-caps; optional MTF Trend & Strength.

@@ -2548,6 +2548,22 @@ export const runProTradeFlatRetest = (payload: {
   use_ai?: boolean
 }) => api.post('/pro-trade/flat-retest', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
 
+export const runProTradeGoldenDeathCross = (payload: {
+  tickers: string[]
+  asset_class?: string
+  exchange?: string
+  timeframes: string[]
+  lookback_bars?: number
+  fast_ema?: number
+  slow_ema?: number
+  bb_period?: number
+  bb_std?: number
+  require_fresh_cross?: boolean
+  min_rr?: number
+  take_confidence_threshold?: number
+  use_ai?: boolean
+}) => api.post('/pro-trade/golden-death-cross', payload, { timeout: MP_TIMEOUT }).then((r) => r.data)
+
 export const runProTradeBtst = (payload: {
   tickers: string[]
   asset_class?: string

@@ -1546,6 +1546,23 @@ class ProTradeFlatRetestRequest(BaseModel):
     use_ai: bool = False
 
 
+class ProTradeGoldenDeathCrossRequest(BaseModel):
+    """Golden & Death Cross — configurable fast/slow EMA crossover with S/R, RSI, BB extremes + VWAP."""
+    tickers: list[str] = Field(default_factory=list)
+    asset_class: str = "india"
+    exchange: str | None = None
+    timeframes: list[str] = Field(default_factory=lambda: ["15m"])
+    lookback_bars: int = Field(default=300, ge=80, le=2000)
+    fast_ema: int = Field(default=50, ge=5, le=100)
+    slow_ema: int = Field(default=200, ge=10, le=300)
+    bb_period: int = Field(default=20, ge=10, le=50)
+    bb_std: float = Field(default=2.0, ge=1.0, le=3.5)
+    require_fresh_cross: bool = True
+    min_rr: float = Field(default=1.2, ge=0.8, le=4.0)
+    take_confidence_threshold: float = Field(default=55.0, ge=40.0, le=85.0)
+    use_ai: bool = False
+
+
 class ProTradeBtstRequest(BaseModel):
     """Buy Today Sell Tomorrow / Sell Today Buy Tomorrow — closing-strength (CLV) signature confirmed by
     trend, volume, relative strength vs Nifty, VWAP, RSI chase-risk guard, options OI buildup, late-session
