@@ -145,6 +145,219 @@ def _pct_b(price: float, lower: float, upper: float) -> float | None:
     return (price - lower) / span
 
 
+def _fmt_px(x: float | None, n: int = 2) -> str:
+    if x is None:
+        return "—"
+    return f"{float(x):,.{n}f}" if abs(float(x)) >= 1 else f"{float(x):.{max(n, 4)}g}"
+
+
+def _rsi_plain(rsi_v: float | None) -> str:
+    if rsi_v is None:
+        return "RSI is not ready on this bar."
+    if rsi_v >= 78:
+        return f"RSI at {rsi_v:.1f} is overbought — momentum is stretched; fresh longs are risky here."
+    if rsi_v >= 65:
+        return f"RSI at {rsi_v:.1f} sits in a strong-bull zone — upside is active, but chase risk rises near the top of the band."
+    if rsi_v >= 55:
+        return f"RSI at {rsi_v:.1f} is mildly bullish — buyers still have the edge without extreme stretch."
+    if rsi_v >= 45:
+        return f"RSI at {rsi_v:.1f} is neutral / mid-range — no strong momentum impulse from RSI alone."
+    if rsi_v >= 35:
+        return f"RSI at {rsi_v:.1f} is mildly bearish — sellers have a soft edge."
+    if rsi_v >= 22:
+        return f"RSI at {rsi_v:.1f} sits in a weak/oversold-leaning zone — shorts need care; longs need a real reclaim."
+    return f"RSI at {rsi_v:.1f} is deeply oversold — downside is stretched; fresh shorts are risky here."
+
+
+def _bb_plain(
+    *,
+    price: float,
+    pct_b: float | None,
+    at_upper: bool,
+    at_lower: bool,
+    bb_u: float | None,
+    bb_m: float | None,
+    bb_l: float | None,
+    vwap: float | None,
+) -> str:
+    if pct_b is None or bb_u is None or bb_l is None:
+        return "Bollinger Bands are not ready yet."
+    if at_upper:
+        base = (
+            f"Price is hugging the **upper Bollinger** ({_fmt_px(bb_u)}) — a stretch / extension zone. "
+            "Mean-reversion shorts become more interesting; trend longs need strong confirmation."
+        )
+    elif at_lower:
+        base = (
+            f"Price is hugging the **lower Bollinger** ({_fmt_px(bb_l)}) — a washout / discount zone. "
+            "Mean-reversion longs become more interesting; trend shorts need strong confirmation."
+        )
+    elif 0.35 <= pct_b <= 0.65:
+        base = (
+            f"Price is near the **middle Bollinger** ({_fmt_px(bb_m)}) — range mid, not an extreme. "
+            "Wait for a clearer push toward an outer band or a clean EMA cross."
+        )
+    elif pct_b > 0.65:
+        base = f"Price is in the upper half of the Bollinger envelope (%B {pct_b:.2f}) — bullish location, not yet at the extreme."
+    else:
+        base = f"Price is in the lower half of the Bollinger envelope (%B {pct_b:.2f}) — soft/discount location, not yet at the extreme."
+
+    if vwap is None:
+        return base
+    vs = "above" if price >= vwap else "below"
+    bias = (
+        "institutional / session flow still supports buyers."
+        if price >= vwap
+        else "institutional / session flow still presses sellers."
+    )
+    return f"{base} Session **VWAP** is {_fmt_px(vwap)} and price is **{vs}** it — {bias}"
+
+
+def _sr_plain(price: float, support: float, resist: float) -> str:
+    span = max(resist - support, 1e-9)
+    pos = (price - support) / span
+    if price >= resist * 0.995:
+        loc = "pressing / testing **resistance**"
+    elif price <= support * 1.005:
+        loc = "pressing / testing **support**"
+    elif pos >= 0.66:
+        loc = "in the **upper third** of the recent swing range (closer to resistance)"
+    elif pos <= 0.34:
+        loc = "in the **lower third** of the recent swing range (closer to support)"
+    else:
+        loc = "around the **middle** of the recent swing range"
+    room_up = max(resist - price, 0.0)
+    room_down = max(price - support, 0.0)
+    return (
+        f"On the chart, price {_fmt_px(price)} is {loc}. "
+        f"Nearby **support** {_fmt_px(support)} · **resistance** {_fmt_px(resist)} "
+        f"(~{_fmt_px(room_up)} room up / ~{_fmt_px(room_down)} room down)."
+    )
+
+
+def build_ta_commentary(
+    *,
+    ticker: str,
+    timeframe: str,
+    fast_n: int,
+    slow_n: int,
+    price: float,
+    ef: float,
+    es: float,
+    golden: bool,
+    death: bool,
+    above: bool,
+    below: bool,
+    rsi_v: float | None,
+    support: float,
+    resist: float,
+    pct_b: float | None,
+    at_upper_bb: bool,
+    at_lower_bb: bool,
+    bb_u: float | None,
+    bb_m: float | None,
+    bb_l: float | None,
+    vwap: float | None,
+    side: str | None,
+    take: bool | None = None,
+    action: str | None = None,
+    stop: float | None = None,
+    target: float | None = None,
+    sl_pct: float | None = None,
+    tp_pct: float | None = None,
+    confidence_pct: float | None = None,
+    grade: str | None = None,
+    watch_reason: str | None = None,
+) -> str:
+    """Plain-English TA readout of what is on the chart right now."""
+    sep_pct = abs(ef - es) / price * 100.0 if price else 0.0
+    price_vs_fast = "above" if price >= ef else "below"
+    price_vs_slow = "above" if price >= es else "below"
+
+    # 1) Trend structure (EMA story)
+    if golden:
+        ema_story = (
+            f"**Golden cross just printed** on {timeframe}: the faster EMA{fast_n} ({_fmt_px(ef)}) "
+            f"has closed **above** the slower EMA{slow_n} ({_fmt_px(es)}). "
+            "That is a classic bullish trend-flip signal — short-term momentum has overtaken the longer average."
+        )
+        bias_line = "Technical bias from the cross: **bullish / look for LONG setups**."
+    elif death:
+        ema_story = (
+            f"**Death cross just printed** on {timeframe}: the faster EMA{fast_n} ({_fmt_px(ef)}) "
+            f"has closed **below** the slower EMA{slow_n} ({_fmt_px(es)}). "
+            "That is a classic bearish trend-flip signal — short-term momentum has fallen under the longer average."
+        )
+        bias_line = "Technical bias from the cross: **bearish / look for SHORT setups**."
+    elif above:
+        ema_story = (
+            f"EMAs are in a **bullish stack** (no fresh cross this bar): EMA{fast_n} ({_fmt_px(ef)}) "
+            f"remains **above** EMA{slow_n} ({_fmt_px(es)}), separation ~{sep_pct:.2f}% of price. "
+            "Uptrend structure is intact, but this bar did not trigger a new golden cross — treat as trend continuation / wait for pullback quality."
+        )
+        bias_line = "Technical bias while stacked bullish: **lean long**, but wait for a cleaner trigger if fresh-cross mode is on."
+    elif below:
+        ema_story = (
+            f"EMAs are in a **bearish stack** (no fresh cross this bar): EMA{fast_n} ({_fmt_px(ef)}) "
+            f"remains **below** EMA{slow_n} ({_fmt_px(es)}), separation ~{sep_pct:.2f}% of price. "
+            "Downtrend structure is intact, but this bar did not trigger a new death cross — treat as trend continuation / wait for rally-fade quality."
+        )
+        bias_line = "Technical bias while stacked bearish: **lean short**, but wait for a cleaner trigger if fresh-cross mode is on."
+    else:
+        ema_story = (
+            f"Fast and slow EMAs are essentially **flat / overlapping** on {timeframe} "
+            f"(EMA{fast_n} {_fmt_px(ef)} ≈ EMA{slow_n} {_fmt_px(es)}). "
+            "There is no clear trend stack yet — this is a chop / decision zone, not a directional cross."
+        )
+        bias_line = "Technical bias: **neutral — stand aside** until a clean golden or death cross resolves the structure."
+
+    price_vs_ema = (
+        f"Last close {_fmt_px(price)} is **{price_vs_fast}** EMA{fast_n} and **{price_vs_slow}** EMA{slow_n}."
+    )
+
+    parts = [
+        f"**{ticker}** · {timeframe} technical picture",
+        ema_story,
+        price_vs_ema,
+        bias_line,
+        _sr_plain(price, support, resist),
+        _rsi_plain(rsi_v),
+        _bb_plain(
+            price=price, pct_b=pct_b, at_upper=at_upper_bb, at_lower=at_lower_bb,
+            bb_u=bb_u, bb_m=bb_m, bb_l=bb_l, vwap=vwap,
+        ),
+    ]
+
+    if watch_reason:
+        parts.append(f"**Why not TAKE yet:** {watch_reason}")
+
+    if take and action and stop is not None and target is not None:
+        parts.append(
+            f"**Trade map:** {action} idea with stop {_fmt_px(stop)}"
+            + (f" ({sl_pct:.1f}% risk)" if sl_pct is not None else "")
+            + f" and first target {_fmt_px(target)}"
+            + (f" ({tp_pct:.1f}% reward)" if tp_pct is not None else "")
+            + (
+                f". Confidence {confidence_pct:.0f}%"
+                + (f" · grade {grade}" if grade else "")
+                + "."
+                if confidence_pct is not None
+                else "."
+            )
+        )
+    elif side in ("LONG", "SHORT") and not take:
+        parts.append(
+            f"Net read: structure leans **{side}**, but filters have not cleared a full TAKE — "
+            "use this as a watchlist bias, not a forced entry."
+        )
+    else:
+        parts.append(
+            "Net read: wait for the next closed-bar cross or a clearer reclaim/reject at S/R before committing risk."
+        )
+
+    return "\n\n".join(parts)
+
+
 def _build_chart(work: pd.DataFrame, *, max_bars: int = 120) -> list[dict[str, Any]]:
     tail = work.iloc[-max_bars:]
     rows: list[dict[str, Any]] = []
@@ -333,9 +546,24 @@ def analyze_ticker(
         },
         {
             "id": "stack",
-            "label": f"Fast vs slow stack",
-            "passed": above if side == "LONG" else below if side == "SHORT" else above or below,
-            "detail": f"EMA{cfg.fast_ema} {_r(ef)} · EMA{cfg.slow_ema} {_r(es)} · {'above' if above else 'below' if below else 'flat'}",
+            "label": (
+                f"Bullish EMA stack (EMA{cfg.fast_ema} > EMA{cfg.slow_ema})"
+                if above
+                else f"Bearish EMA stack (EMA{cfg.fast_ema} < EMA{cfg.slow_ema})"
+                if below
+                else f"EMA{cfg.fast_ema} / EMA{cfg.slow_ema} overlapping (no clear stack)"
+            ),
+            "passed": above if side == "LONG" else below if side == "SHORT" else (above or below),
+            "detail": (
+                f"EMA{cfg.fast_ema} {_r(ef)} · EMA{cfg.slow_ema} {_r(es)} · "
+                + (
+                    "bullish stack — fast above slow"
+                    if above
+                    else "bearish stack — fast below slow"
+                    if below
+                    else "EMAs flat / overlapping — no directional stack"
+                )
+            ),
         },
         {
             "id": "sr",
@@ -360,26 +588,31 @@ def analyze_ticker(
         },
     ]
 
-    commentary_parts = [
-        f"{ticker} on {cfg.timeframe}: EMA{cfg.fast_ema}/{cfg.slow_ema} — "
-        + (
-            "fresh **golden cross** (bullish)."
-            if golden
-            else "fresh **death cross** (bearish)."
-            if death
-            else f"fast is {'above' if above else 'below'} slow (no fresh cross)."
-        ),
-        f"Price {_r(price)} sits vs swing R {_r(resist)} / S {_r(support)}.",
-    ]
-    if rsi_v is not None:
-        commentary_parts.append(f"RSI is {_r(rsi_v, 1)}.")
-    if at_upper_bb:
-        commentary_parts.append("Price is at the **upper Bollinger** — VWAP alignment matters for shorts (or caution on longs).")
-    elif at_lower_bb:
-        commentary_parts.append("Price is at the **lower Bollinger** — VWAP alignment matters for longs (or caution on shorts).")
-    if vwap is not None:
-        commentary_parts.append(f"VWAP {_r(vwap)} — price is {'above' if price >= vwap else 'below'} it.")
-    commentary = " ".join(commentary_parts)
+    commentary_kwargs = dict(
+        ticker=ticker,
+        timeframe=cfg.timeframe,
+        fast_n=cfg.fast_ema,
+        slow_n=cfg.slow_ema,
+        price=price,
+        ef=ef,
+        es=es,
+        golden=golden,
+        death=death,
+        above=above,
+        below=below,
+        rsi_v=rsi_v,
+        support=support,
+        resist=resist,
+        pct_b=pct_b,
+        at_upper_bb=at_upper_bb,
+        at_lower_bb=at_lower_bb,
+        bb_u=bb_u,
+        bb_m=bb_m,
+        bb_l=bb_l,
+        vwap=vwap,
+        side=side,
+    )
+    commentary = build_ta_commentary(**commentary_kwargs)
 
     out["ltp"] = _r(price)
     out["event"] = event
@@ -400,6 +633,8 @@ def analyze_ticker(
         "golden_cross": golden,
         "death_cross": death,
         "above_slow": above,
+        "bullish_stack": above,
+        "bearish_stack": below,
         "at_upper_bb": at_upper_bb,
         "at_lower_bb": at_lower_bb,
         "event": event,
@@ -429,6 +664,16 @@ def analyze_ticker(
     attach_ticker_name(out)
 
     if side not in ("LONG", "SHORT") or atr_v <= 0:
+        commentary = build_ta_commentary(
+            **commentary_kwargs,
+            watch_reason=(
+                "ATR not ready for a structured stop/target."
+                if atr_v <= 0
+                else "No directional EMA stack or fresh cross — nothing actionable yet."
+            ),
+        )
+        out["commentary"] = commentary
+        out["plain_english"] = commentary
         out["signal"] = "WATCH" if (above or below) else "WAIT"
         out["direction"] = "NONE"
         out["reason"] = commentary
@@ -436,23 +681,43 @@ def analyze_ticker(
         return out
 
     if cfg.require_fresh_cross and not fresh:
+        watch = (
+            "Fast EMA is already stacked in this direction, but there is **no fresh golden/death cross on this bar**. "
+            "Fresh-cross mode wants the flip itself — not just holding the stack."
+        )
+        commentary = build_ta_commentary(**commentary_kwargs, watch_reason=watch)
+        out["commentary"] = commentary
+        out["plain_english"] = commentary
         out["signal"] = "WATCH"
         out["direction"] = side
-        out["reason"] = f"Holding {'above' if above else 'below'} slow EMA — no fresh cross (WATCH). {commentary}"
+        out["reason"] = commentary
         out["status"] = "hold_no_fresh_cross"
         return out
 
     if rsi_blocked:
+        watch = (
+            "RSI is at an extreme that blocks new entries in this direction — wait for RSI to cool / normalize."
+        )
+        commentary = build_ta_commentary(**commentary_kwargs, watch_reason=watch)
+        out["commentary"] = commentary
+        out["plain_english"] = commentary
         out["signal"] = "WATCH"
         out["direction"] = side
-        out["reason"] = f"RSI extreme blocks entry. {commentary}"
+        out["reason"] = commentary
         out["status"] = "rsi_block"
         return out
 
     if vwap_needed and not vwap_ok:
+        watch = (
+            "Price is at a Bollinger extreme, but **VWAP does not confirm** the trade direction — "
+            "skip until price and VWAP agree."
+        )
+        commentary = build_ta_commentary(**commentary_kwargs, watch_reason=watch)
+        out["commentary"] = commentary
+        out["plain_english"] = commentary
         out["signal"] = "WATCH"
         out["direction"] = side
-        out["reason"] = f"At Bollinger extreme without VWAP confirmation. {commentary}"
+        out["reason"] = commentary
         out["status"] = "vwap_block"
         return out
 
@@ -484,9 +749,16 @@ def analyze_ticker(
             sl_pct, tp_pct, rr = sl2, tp2, rr2
 
     if rr is None or rr < cfg.min_rr:
+        watch = (
+            f"Structure points {side}, but risk/reward ({rr if rr is not None else 'n/a'}) "
+            f"is below the {cfg.min_rr:g} floor after placing a sensible stop vs nearby S/R and the slow EMA."
+        )
+        commentary = build_ta_commentary(**commentary_kwargs, watch_reason=watch)
+        out["commentary"] = commentary
+        out["plain_english"] = commentary
         out["signal"] = "WATCH"
         out["direction"] = side
-        out["reason"] = f"{event} but RR {rr if rr is not None else 'n/a'} below floor {cfg.min_rr}. {commentary}"
+        out["reason"] = commentary
         out["entry_price"] = _r(entry)
         out["stop_price"] = _r(stop) if stop else None
         out["target_price"] = _r(target) if target else None
@@ -536,9 +808,24 @@ def analyze_ticker(
         f"{action}: {event.replace('_', ' ').title()} EMA{cfg.fast_ema}/{cfg.slow_ema} — "
         f"conf {confidence_pct:.0f}% · SL {sl_pct:.1f}% · TP {tp_pct:.1f}% · RR 1:{rr:g}"
     )
-    full_commentary = (
-        f"{commentary} Suggest **{action}** with stop {_r(stop)}, target {_r(target)}. "
-        f"Risk {sl_pct:.1f}% · aim {tp_pct:.1f}% · confidence {confidence_pct:.0f}% (grade {grade})."
+    full_commentary = build_ta_commentary(
+        **commentary_kwargs,
+        take=take,
+        action=action,
+        stop=float(stop) if stop is not None else None,
+        target=float(target) if target is not None else None,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        confidence_pct=confidence_pct,
+        grade=grade,
+        watch_reason=(
+            None
+            if take
+            else (
+                f"Setup is directionally valid but confidence {confidence_pct:.0f}% is below the "
+                f"{cfg.take_confidence_threshold:g}% TAKE threshold — treat as a high-watch, not a forced fill."
+            )
+        ),
     )
 
     out.update({
@@ -591,8 +878,8 @@ def analyze_ticker(
             "confidence_pct": confidence_pct,
         },
         "pro_checklist": [
-            f"EMA{cfg.fast_ema} / EMA{cfg.slow_ema} cross or stack",
-            "Swing S/R mapped",
+            f"EMA{cfg.fast_ema} / EMA{cfg.slow_ema} cross or bullish/bearish stack",
+            "Swing S/R mapped with room",
             "RSI not in block zone",
             "BB extreme uses VWAP confirm",
             "Trade setup with Conf% / SL% / TP%",

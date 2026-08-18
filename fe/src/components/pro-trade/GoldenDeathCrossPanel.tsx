@@ -150,13 +150,15 @@ function TickerResultCard({
           <TradeSetupBanner setup={tradeSetupFromResult(result)} />
           {commentary && (
             <div
-              className={`rounded-lg border px-3 py-2.5 text-sm leading-relaxed ${
+              className={`rounded-lg border px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 take
                   ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-100'
                   : 'border-slate-700/60 bg-slate-950/50 text-slate-300'
               }`}
             >
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Commentary</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Technical commentary
+              </p>
               {commentary}
             </div>
           )}
